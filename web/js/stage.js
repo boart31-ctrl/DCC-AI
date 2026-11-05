@@ -1,10 +1,9 @@
 import {
-  SystemClient, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText,
+  SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted,
 } from './client.js';
 
 const $ = (s, r = document) => r.querySelector(s);
-const token = takeHashToken('system.stageToken');
-const client = new SystemClient({ hello: () => ({ role: 'stage', token }) });
+const client = new TransportHub();
 const reduced = prefersReducedMotion();
 
 let view = null;
@@ -51,6 +50,7 @@ function render() {
     $('#qr').alt = `QR code: ${url}`;
   }
   setViewers(view.audience?.viewers ?? 0);
+  maybeRecap(view.recap);
   const hype = Math.max(0, Math.min(1, Number(view.audience?.hype) || 0));
   $('#hype').style.width = `${hype * 100}%`;
   $('.hype').classList.toggle('hot', hype >= 0.8 || !!view.audience?.sponsorReady);
@@ -203,7 +203,24 @@ function nextMoment() {
   let hold = 6500;
 
   const sys = (view?.pack?.systemName || 'The System').toUpperCase();
-  if (e.kind === 'announcement') {
+  if (e.kind === 'recap') {
+    el.style.setProperty('--glow', 'var(--acid)');
+    const desc = h('p.sys-desc');
+    const scroll = h('div.m-scroll', desc);
+    el.replaceChildren(h('div.m-inner',
+      h('p.m-prefix', 'Previously on'),
+      h('div.sys.m-ann.m-recap', { 'data-head': `${sys} // PREVIOUSLY ON` },
+        h('p.ann-from', view?.pack?.systemName || 'The System'),
+        scroll,
+      ),
+    ));
+    const typeMs = reduced ? 0 : Math.min(8000, e.text.split(/\s+/).length * 40);
+    hold = Math.min(45000, 900 + typeMs + readTime(e.text, 8000, 40000));
+    typewrite(desc, e.text, reduced ? 0 : 700, typeMs, null, () => {
+      scroll.scrollTop = 0;
+      autoScroll(scroll, hold - 700 - typeMs, 1500);
+    });
+  } else if (e.kind === 'announcement') {
     el.style.setProperty('--glow', 'var(--magenta)');
     const text = e.text || '';
     el.replaceChildren(h('div.m-inner',
@@ -278,10 +295,27 @@ function nextMoment() {
   }, hold);
 }
 
+/* "Previously on…" recap: shown when the view's recap text changes to something new. */
+let lastRecap = null;
+function maybeRecap(text) {
+  const t = String(text || '').trim();
+  if (lastRecap === null) {
+    // First view: show it once per stage window if it is new to this window.
+    let seen = null;
+    try { seen = sessionStorage.getItem('system.recapSeen'); } catch {}
+    lastRecap = t;
+    if (!t || seen === t) return;
+  } else if (!t || t === lastRecap) { lastRecap = t; return; }
+  lastRecap = t;
+  try { sessionStorage.setItem('system.recapSeen', t); } catch {}
+  momentQ.push({ kind: 'recap', text: t });
+  if (!momentBusy) nextMoment();
+}
+
 /** Reading time for a TV at 3 m: ~4 s + 60 ms per word, max 20 s. */
-function readTime(text, min = 6500) {
+function readTime(text, min = 6500, max = 20000) {
   const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
-  return Math.max(min, Math.min(20000, 4000 + words * 60));
+  return Math.max(min, Math.min(max, 4000 + words * 60));
 }
 
 /** Reveal text word by word over `dur` ms (instant when dur is 0); the scroller follows the newest words. */
@@ -376,7 +410,8 @@ function nextLine() {
     try { speechSynthesis.cancel(); } catch {}
   };
   current = { id: m.id, cancel };
-  safety = setTimeout(() => { cancel(); finished = false; done(); }, 12000);
+  // 12 s per protocol for normal lines; long read-alouds (recaps) get time proportional to length.
+  safety = setTimeout(() => { cancel(); finished = false; done(); }, Math.max(12000, (m.text || '').length * 85));
 
   showSub(m.text);
   duck(true);
@@ -522,10 +557,21 @@ document.addEventListener('mousemove', () => {
 
 /* ---------- boot ---------- */
 
-if (!token) {
-  $('#offair').hidden = false;
-  $('#offair-title').textContent = 'No stage token.';
-  $('#offair-msg').textContent = 'Open the stage link from the GM panel';
-} else {
-  client.connect();
+/** Attach a transport and start. */
+export function mountStage(transport, opts = {}) {
+  document.body.classList.toggle('hosted', !!opts.hosted);
+  client.attach(transport);
+  transport.connect?.();
+  return { client };
+}
+
+if (!isHosted()) {
+  const token = takeHashToken('system.stageToken');
+  if (!token) {
+    $('#offair').hidden = false;
+    $('#offair-title').textContent = 'No stage token.';
+    $('#offair-msg').textContent = 'Open the stage link from the GM panel';
+  } else {
+    mountStage(new SystemClient({ hello: () => ({ role: 'stage', token }) }));
+  }
 }

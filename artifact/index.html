@@ -1,0 +1,123 @@
+<title>The System</title>
+<link rel="stylesheet" href="css/base.css">
+<link rel="stylesheet" href="css/hosted.css">
+
+<!-- Shown until the runtime answers and the role is known. -->
+<div id="boot" class="boot" role="status" aria-live="polite">
+  <div class="sys" data-head="SYSTEM">
+    <p class="sys-title" id="boot-title">Tuning in<span class="cursor"></span></p>
+    <p class="sys-desc" id="boot-msg">Connecting to the show.</p>
+    <div class="boot-actions" id="boot-actions"></div>
+  </div>
+</div>
+
+<!-- Player before the GM assigns a character. -->
+<template id="tpl-waiting">
+  <section class="waiting" id="waiting">
+    <span class="live-badge">Live</span>
+    <img class="wait-av" id="wait-av" alt="" width="88" height="88">
+    <h1 class="wait-title">You're in the lobby, <span id="wait-name">crawler</span>.</h1>
+    <p class="wait-desc">The GM will assign you a character in a moment. Keep this page open.</p>
+    <div class="sys wait-show" data-head="NOW SHOWING">
+      <p class="sys-title" id="wait-show-name">The System</p>
+      <p class="sys-desc" id="wait-show-meta">Waiting for the show to start.</p>
+    </div>
+  </section>
+</template>
+
+<!-- Extra GM-desk parts for the hosted edition. -->
+<template id="tpl-hosted-gm">
+  <nav class="htabs" id="htabs" aria-label="GM views">
+    <button type="button" data-view="desk" aria-pressed="true">Desk</button>
+    <button type="button" data-view="campaign" aria-pressed="false">Campaign</button>
+    <button type="button" id="tv-btn">TV view</button>
+  </nav>
+
+  <section class="lobby-wrap" id="lobby-wrap" aria-labelledby="h-lobby">
+    <div class="col-head">
+      <h2 id="h-lobby">Lobby</h2>
+      <span class="dim mono" id="lobby-count"></span>
+    </div>
+    <div class="lobby" id="lobby"></div>
+  </section>
+
+  <section class="campaign" id="campaign" hidden aria-label="Campaign">
+    <div class="col">
+      <div class="col-head"><h2>Story so far</h2><span class="dim mono" id="story-state"></span></div>
+      <label for="story" class="sr-only">Story so far</label>
+      <textarea id="story" class="field story" placeholder="What has happened in the campaign so far. Claude reads this when it summarizes and preps. Summaries of ended sessions are appended here."></textarea>
+      <div class="col-head"><h2>Past sessions</h2></div>
+      <ol class="sessions" id="sessions"></ol>
+    </div>
+
+    <div class="col">
+      <div class="col-head">
+        <h2>Prep with Claude</h2>
+        <button type="button" class="linkish" id="prep-clear">Clear chat</button>
+      </div>
+      <div class="prep-chat" id="prep-chat" aria-live="polite"></div>
+      <div class="say-row prep-row">
+        <label for="prep-input" class="sr-only">Message to Claude</label>
+        <textarea id="prep-input" class="field" rows="2" maxlength="2000" placeholder="e.g. Next floor is a casino. Prepare two achievements and a sponsor message for Mirela."></textarea>
+        <div class="prep-btns">
+          <button type="button" class="btn btn-cyan" id="prep-send">Send</button>
+          <button type="button" class="btn btn-ghost" id="prep-stop" hidden>Stop</button>
+        </div>
+      </div>
+      <p class="ai-off dim">Claude is not available on this page, so prep chat and summaries are off. Everything else works.</p>
+      <div id="prep-notes-wrap" hidden>
+        <div class="col-head"><h2>Plan notes</h2></div>
+        <ul class="prep-notes" id="prep-notes"></ul>
+      </div>
+    </div>
+
+    <div class="col">
+      <div class="col-head"><h2>Start of session</h2></div>
+      <label for="recap-text" class="field-label">"Previously on…" shown on the TV and every phone</label>
+      <textarea id="recap-text" class="field recap" rows="6" maxlength="4000" placeholder="Written for you when you end a session, or type your own."></textarea>
+      <label class="tv-toggle"><input type="checkbox" id="recap-voice" checked> <span>The System reads it aloud on the TV</span></label>
+      <div class="say-row">
+        <button type="button" class="btn btn-hot" id="recap-start">Show recap</button>
+        <button type="button" class="btn btn-ghost" id="recap-clear">Clear recap</button>
+      </div>
+
+      <div class="col-head end-head"><h2>End of session</h2></div>
+      <p class="dim">Archives this session's log, drafts a summary and the next "Previously on…" with Claude, and adds the summary to the story.</p>
+      <button type="button" class="btn btn-alarm" id="end-session">End session</button>
+      <div class="end-box" id="end-box" hidden>
+        <p class="mono ai-status" id="end-status" aria-live="polite"></p>
+        <label for="sum-text" class="field-label">Summary for the story so far</label>
+        <textarea id="sum-text" class="field" rows="6"></textarea>
+        <label for="prev-text" class="field-label">"Previously on…" for next time</label>
+        <textarea id="prev-text" class="field" rows="5"></textarea>
+        <div class="say-row">
+          <button type="button" class="btn btn-ghost" id="redo-summary">Redraft</button>
+          <button type="button" class="btn btn-ghost" id="end-cancel">Cancel</button>
+          <button type="button" class="btn btn-cyan" id="end-save">Save and end session</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <dialog class="ask-dlg tv-dlg" id="tv-dlg">
+    <form method="dialog" class="ask-inner">
+      <p class="ask-text"><b>Put the show on the TV</b></p>
+      <ol class="tv-steps">
+        <li>Open this artifact again in a second browser window, signed in as you.</li>
+        <li>In that window, choose <b>Use this window as the TV</b>, or add <span class="mono">#stage</span> to the end of its address.</li>
+        <li>Drag that window to the TV and click it once to start the broadcast and unlock sound.</li>
+      </ol>
+      <div class="ask-row">
+        <button type="button" class="btn btn-ghost" id="tv-here">Make this window the TV</button>
+        <button class="btn btn-cyan" value="ok">Done</button>
+      </div>
+    </form>
+  </dialog>
+</template>
+
+<!-- Page bodies, copied from web/gm.html, web/play.html, web/stage.html by tools/build_artifact.mjs -->
+<template id="tpl-gm"><!--TPL:gm--></template>
+<template id="tpl-play"><!--TPL:play--></template>
+<template id="tpl-stage"><!--TPL:stage--></template>
+
+<script type="module" src="js/hosted/boot.js"></script>

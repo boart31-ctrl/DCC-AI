@@ -1,0 +1,149 @@
+/* Hosted edition (claude.ai Artifact) additions. Builds on base.css tokens; single dark look by design. */
+
+:root { color-scheme: dark; }
+html, body { background-color: var(--void); }
+body { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+
+/* ---------- boot ---------- */
+.boot { min-height: 100vh; display: grid; place-items: center; padding: 24px max(16px, env(safe-area-inset-left, 0px)); }
+.boot .sys { width: min(100%, 460px); }
+.boot .sys-desc { line-height: 1.5; }
+.boot-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+.boot-actions:empty { display: none; }
+
+/* ---------- player waiting screen ---------- */
+.waiting {
+  min-height: 100vh;
+  display: grid;
+  align-content: center;
+  justify-items: center;
+  gap: 16px;
+  padding: 32px max(16px, env(safe-area-inset-left, 0px));
+  max-width: 460px;
+  margin: 0 auto;
+  text-align: center;
+}
+.wait-av { width: 88px; height: 88px; border-radius: 50%; border: 3px solid var(--cyan); box-shadow: 0 0 30px -6px var(--cyan); object-fit: cover; background: var(--deck); }
+.wait-title {
+  margin: 0;
+  font-family: var(--f-display);
+  font-stretch: condensed;
+  font-weight: 900;
+  font-style: italic;
+  font-size: clamp(1.9rem, 8vw, 2.5rem);
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+  text-shadow: 3px 3px 0 var(--magenta);
+  text-wrap: balance;
+}
+.wait-desc { margin: 0; color: var(--ink-dim); }
+.wait-show { width: 100%; text-align: left; margin-top: 8px; }
+.wait-show .sys-desc { animation: none; }
+body.waiting-on .ticker { display: none; }
+
+/* ---------- GM: view tabs ---------- */
+.htabs {
+  display: flex;
+  gap: 0;
+  padding: 0 16px;
+  background: #0d0720;
+  border-bottom: 1px solid var(--line);
+  position: relative;
+  z-index: 4;
+}
+.htabs button {
+  min-height: 42px;
+  padding: 0 16px;
+  border: 0;
+  background: transparent;
+  color: var(--ink-dim);
+  font-weight: 700;
+  position: relative;
+}
+.htabs button[aria-pressed="true"] { color: var(--ink); }
+.htabs button[aria-pressed="true"]::after { content: ""; position: absolute; left: 10px; right: 10px; bottom: 0; height: 3px; background: var(--magenta); box-shadow: 0 0 10px var(--magenta); }
+.htabs #tv-btn { margin-left: auto; color: var(--cyan); }
+body.gm.hosted { height: 100%; }
+
+/* ---------- GM: lobby ---------- */
+.lobby-wrap { margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px dashed var(--line); }
+.lobby { display: grid; gap: 6px; }
+.lob {
+  --pc: var(--line);
+  display: grid;
+  grid-template-columns: 36px 1fr auto;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  min-height: 52px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--pc);
+  background: var(--deck);
+  text-align: left;
+}
+.lob.on { background: color-mix(in srgb, var(--pc) 10%, var(--deck)); }
+.lob.off { opacity: 0.55; }
+.lob:not(.on) { border-left-color: var(--acid); }
+.lob-av { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--deck-2); }
+.lob-who { display: grid; min-width: 0; }
+.lob-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lob-who small { color: var(--ink-dim); font-size: 0.75rem; }
+.lob-as { font-family: var(--f-display); font-stretch: condensed; font-weight: 800; font-size: 0.95rem; padding: 4px 10px; background: var(--acid); color: var(--void); white-space: nowrap; }
+.lob.on .lob-as { background: transparent; color: var(--ink); box-shadow: inset 0 0 0 1px var(--pc); }
+.tier[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--ink); }
+
+/* ---------- GM: campaign ---------- */
+.campaign {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(360px, 1.3fr) minmax(300px, 1fr);
+}
+.campaign > .col { display: flex; flex-direction: column; gap: 10px; }
+.field-label { font-size: 0.82rem; color: var(--ink-dim); }
+.story { flex: 1; min-height: 260px; font-family: var(--f-mono); font-size: 0.9rem; line-height: 1.5; resize: vertical; }
+.recap { font-family: var(--f-mono); line-height: 1.5; }
+.sessions { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.sessions li { padding: 10px 12px; background: var(--deck); border-left: 3px solid var(--line); font-size: 0.88rem; display: grid; gap: 4px; }
+.sessions li b { font-family: var(--f-mono); font-size: 0.78rem; color: var(--acid); }
+.end-head { margin-top: 18px; }
+.end-box { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--alarm); background: color-mix(in srgb, var(--alarm) 6%, var(--deck)); }
+.end-box .say-row { grid-template-columns: repeat(3, auto); justify-content: end; }
+
+.prep-chat {
+  flex: 1;
+  min-height: 280px;
+  max-height: calc(100vh - 330px);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: #07040f;
+  border: 1px solid var(--line);
+}
+.prep-chat .empty { margin: auto 0; text-align: center; padding: 20px; }
+.bub { max-width: 88%; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; font-size: 0.92rem; }
+.bub.me { align-self: flex-end; background: color-mix(in srgb, var(--cyan) 16%, var(--deck)); border: 1px solid color-mix(in srgb, var(--cyan) 40%, var(--line)); }
+.bub.ai { align-self: flex-start; background: var(--sys-bg); color: var(--sys-ink); font-family: var(--f-mono); font-size: 0.86rem; border: 1px solid color-mix(in srgb, var(--cyan) 30%, var(--line)); }
+.bub.thinking { color: var(--ink-dim); }
+.bub.thinking::after { content: "_"; animation: blink 1s steps(2, start) infinite; }
+.prep-row { align-items: stretch; }
+.prep-btns { display: grid; gap: 6px; }
+.prep-notes { margin: 0; padding: 0 0 0 18px; display: grid; gap: 6px; font-size: 0.9rem; }
+.prep-notes li span { margin-right: 8px; }
+.ai-off { display: none; margin: 0; font-size: 0.85rem; }
+.campaign.no-ai .ai-off { display: block; }
+.campaign.no-ai #redo-summary { display: none; }
+
+.tv-steps { margin: 0; padding-left: 20px; display: grid; gap: 8px; line-height: 1.45; }
+
+@media (max-width: 1080px) {
+  .campaign { grid-template-columns: 1fr; }
+  .prep-chat { max-height: 60vh; }
+  body.gm.hosted { height: auto; }
+}
+@media (max-width: 720px) {
+  .htabs { padding: 0 8px; }
+  .htabs button { padding: 0 10px; }
+}

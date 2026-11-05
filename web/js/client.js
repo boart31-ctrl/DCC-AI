@@ -368,3 +368,64 @@ export function statusText(s) {
     default: return '';
   }
 }
+
+/* ---------- transport hub ---------- */
+
+const HUB_TYPES = ['welcome', 'view', 'event', 'play', 'stop', 'error', 'status', 'pong', 'message'];
+
+/**
+ * What the page UIs talk to. A hub forwards one attached transport (SystemClient over WebSocket for
+ * the Node edition, or an Artifact transport for the hosted edition) so page modules can register
+ * listeners at import time, before the transport exists.
+ * Transport contract: on(type, fn), send(action) -> Promise<ack>, raw(msg) -> bool, optional
+ * connect()/retry()/close(). Emits the HUB_TYPES above with the same payloads as SystemClient.
+ */
+export class TransportHub extends Emitter {
+  constructor() {
+    super();
+    this.t = null;
+    this.status = 'idle';
+    this.view = null;
+  }
+  attach(t) {
+    this.t = t;
+    for (const type of HUB_TYPES) {
+      t.on(type, (d) => {
+        if (type === 'view') this.view = d;
+        if (type === 'status') this.status = d.status;
+        this.emit(type, d);
+      });
+    }
+    return this;
+  }
+  send(action) { return this.t ? this.t.send(action) : Promise.reject(new Error('Not connected')); }
+  raw(msg) { return this.t ? this.t.raw(msg) : false; }
+  connect() { this.t?.connect?.(); }
+  retry() { this.t?.retry?.(); }
+  close() { this.t?.close?.(); }
+}
+
+/** True when the hosted (claude.ai Artifact) boot loaded the page modules. */
+export const isHosted = () => !!globalThis.__SYSTEM_HOSTED__;
+
+/**
+ * In-page confirmation (window.confirm is unavailable inside an Artifact frame).
+ * Resolves true when the person picks the confirm button.
+ */
+export function ask(message, { ok = 'Confirm', cancel = 'Cancel', danger = false } = {}) {
+  return new Promise((resolve) => {
+    const dlg = h('dialog.ask-dlg');
+    const done = (v) => { try { dlg.close(); } catch {} dlg.remove(); resolve(v); };
+    dlg.append(h('form.ask-inner', { method: 'dialog' },
+      h('p.ask-text', message),
+      h('div.ask-row',
+        h('button.btn.btn-ghost', { type: 'button', onclick: () => done(false) }, cancel),
+        h(`button.btn.${danger ? 'btn-alarm' : 'btn-cyan'}`, { type: 'button', onclick: () => done(true) }, ok),
+      ),
+    ));
+    dlg.addEventListener('cancel', (e) => { e.preventDefault(); done(false); });
+    document.body.append(dlg);
+    dlg.showModal();
+    dlg.querySelector('.btn-ghost')?.focus();
+  });
+}
