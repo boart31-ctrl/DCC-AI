@@ -480,3 +480,67 @@ body.stage::before {
   .box.shake { animation: none; }
   .moment.shake .m-inner { animation: none; }
 }
+
+/* ---------- Long-form achievement / announcement ---------- */
+
+.m-inner { max-height: calc(100vh - 4rem); }
+.m-prefix {
+  margin: 0 0 -1rem;
+  font-family: var(--f-mono);
+  font-weight: 700;
+  font-size: 1.5rem;
+  letter-spacing: 0.25em;
+  color: var(--acid);
+  text-shadow: 0 0 18px var(--acid);
+  animation: slam 0.5s var(--ease-slam) both;
+}
+.m-ach.sys, .m-ann.sys {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: calc(100vh - 16rem);
+}
+.m-ach .sys-title { flex: none; overflow-wrap: anywhere; }
+.m-scroll {
+  min-height: 0;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent);
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 2rem), transparent);
+}
+.m-scroll .sys-desc { font-size: 2rem; line-height: 1.45; margin: 0; padding-bottom: 1.6rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+.m-scroll .ghost { visibility: hidden; }
+.m-reward {
+  flex: none;
+  margin: 1rem 0 0;
+  padding: 0.7rem 1.1rem;
+  font-size: 1.9rem;
+  color: #fff;
+  background: color-mix(in srgb, var(--acid) 16%, transparent);
+  border-left: 0.4rem solid var(--acid);
+  overflow-wrap: anywhere;
+  animation: slam 0.45s var(--ease-slam) both;
+}
+.m-reward b { color: var(--acid); }
+
+.m-ann.sys { --sys-accent: var(--magenta); width: 100%; font-size: 1.6rem; padding: 2.4rem 2.4rem 2rem; border-width: 4px; animation: slam 0.6s var(--ease-slam) both; }
+.m-ann.sys::before { font-size: 1.1rem; top: -0.9rem; }
+.ann-from { margin: 0 0 0.8rem; font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-style: italic; font-size: 2.6rem; line-height: 1; color: #fff; }
+.m-ann .m-scroll .sys-desc { font-size: 2.4rem; color: #fff; }
+
+.card { max-height: calc(100vh - 12rem); }
+.card .art { align-self: stretch; }
+.card-meta { min-height: 0; overflow: hidden; }
+.card-name { overflow-wrap: anywhere; }
+.card-desc { color: var(--ink); }
+.card-flavor { margin: 0; font-size: 1.5rem; line-height: 1.4; font-style: italic; color: var(--ink-dim); border-left: 3px solid var(--r, var(--line)); padding-left: 1rem; overflow-wrap: anywhere; }
+@media (max-aspect-ratio: 16/10) { .card { grid-template-columns: 20rem 1fr; } }
+.card.long .card-name { font-size: 3.2rem; }
+.card.long .card-desc { font-size: 1.45rem; }
+.card.long .card-flavor { font-size: 1.3rem; }
+.card.xlong .card-name { font-size: 2.6rem; }
+.card.xlong .card-desc { font-size: 1.25rem; }
+.card.xlong .card-flavor { font-size: 1.15rem; }
+.card.long .card-meta, .card.xlong .card-meta { gap: 0.8rem; padding: 1.6rem 2rem; }
+/* while a big moment is on screen, the System subtitle sits at the very bottom */
+body.moment-on .subtitle { bottom: 0.8rem; width: min(90vw, 80rem); padding: 0.7rem 1.4rem 0.8rem; }
+body.moment-on .sub-text { font-size: 1.6rem; }

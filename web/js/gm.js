@@ -79,6 +79,7 @@ function render() {
   renderAudience();
   renderFeed();
   renderLinks();
+  renderComms();
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -234,7 +235,7 @@ function playerCard(p) {
       actionBtn('ach', '✦', 'Achieve', () => achievementSheet(p)),
       actionBtn('loot', '▣', 'Loot', () => lootSheet(p, false)),
       actionBtn('sponsor', '$', 'Sponsor', () => lootSheet(p, true)),
-      actionBtn('secret', '✉', 'Secret', () => secretSheet(p)),
+      actionBtn('secret', '✉', 'Message', () => openComms([p.id])),
     ),
     h('button.pc-more', {
       type: 'button',
@@ -375,26 +376,40 @@ function achievementSheet(p) {
   const search = h('input.field', { type: 'search', placeholder: `Search ${cat.length} achievements`, autocomplete: 'off' });
   const draw = () => {
     const q = search.value.trim().toLowerCase();
-    const hits = cat.filter((a) => !q || a.title.toLowerCase().includes(q) || (a.desc || '').toLowerCase().includes(q));
-    list.replaceChildren(...(hits.length ? hits.slice(0, 60).map((a) => h('button.cat-item', {
+    const hits = cat
+      .filter((a) => !q || `${a.title} ${a.desc || ''} ${a.group || ''}`.toLowerCase().includes(q))
+      .sort((x, y) => (x.group || '').localeCompare(y.group || ''));
+    const out = [];
+    let lastGroup = null;
+    for (const a of hits.slice(0, 80)) {
+      if ((a.group || '') !== lastGroup) {
+        lastGroup = a.group || '';
+        if (lastGroup) out.push(h('div.divider', lastGroup));
+      }
+      out.push(a);
+    }
+    list.replaceChildren(...(hits.length ? out.map((a) => a instanceof Node ? a : h('button.cat-item', {
       type: 'button',
       onclick: async () => { if (await act({ t: 'ach.award', playerId: p.id, achId: a.id }, `Awarded ${a.title}.`)) closeSheet(); },
-    }, h('b', a.title), h('span', a.desc))) : [h('p.empty', 'Nothing matches. Write a custom one below.')]));
+    }, h('b', a.title), h('span', a.desc), a.reward ? h('span.rw', `Reward: ${a.reward}`) : null)) : [h('p.empty', 'Nothing matches. Write a custom one below.')]));
   };
   search.addEventListener('input', draw);
   draw();
 
   const title = h('input.field', { placeholder: 'Custom title', maxlength: 80 });
-  const desc = h('textarea.field', { placeholder: 'Description, in the System voice', maxlength: 240, rows: 2 });
+  const desc = h('textarea.field', { placeholder: 'Description, in the System voice. A few sentences is fine.', maxlength: 1200, rows: 4 });
+  const reward = h('input.field.reward-in', { placeholder: 'Reward (optional), e.g. a Bronze Box', maxlength: 160 });
   const award = h('button.btn.btn-cyan', {
     type: 'button',
     onclick: async () => {
       if (!title.value.trim()) { title.focus(); return; }
-      if (await act({ t: 'ach.award', playerId: p.id, title: title.value.trim(), desc: desc.value.trim() }, 'Custom achievement awarded.')) closeSheet();
+      const a = { t: 'ach.award', playerId: p.id, title: title.value.trim(), desc: desc.value.trim() };
+      if (reward.value.trim()) a.reward = reward.value.trim();
+      if (await act(a, 'Custom achievement awarded.')) closeSheet();
     },
   }, 'Award custom');
 
-  openSheet(`Achievement for ${p.name}`, [search, list, h('div.divider', 'or write one'), h('div.stack', title, desc, award)], 'var(--cyan)');
+  openSheet(`Achievement for ${p.name}`, [search, list, h('div.divider', 'or write one'), h('div.stack', title, desc, reward, award)], 'var(--cyan)');
   setTimeout(() => search.focus(), 30);
 }
 
@@ -429,21 +444,112 @@ function lootSheet(p, sponsor) {
   openSheet(sponsor ? `Sponsor box for ${p.name}` : `Loot box for ${p.name}`, body, sponsor ? 'var(--magenta)' : 'var(--acid)');
 }
 
-function secretSheet(p) {
-  const from = h('input.field', { placeholder: 'From (default: The System)', maxlength: 40 });
-  const text = h('textarea.field', { placeholder: 'Only this player will see it.', maxlength: 600, rows: 4 });
-  const send = h('button.btn.btn-hot', {
-    type: 'button',
-    onclick: async () => {
-      if (!text.value.trim()) { text.focus(); return; }
-      const a = { t: 'secret.send', playerId: p.id, text: text.value.trim() };
-      if (from.value.trim()) a.from = from.value.trim();
-      if (await act(a, `Secret sent to ${p.name}.`)) closeSheet();
-    },
-  }, 'Send secret');
-  openSheet(`Secret for ${p.name}`, h('div.stack', from, text, send), '#c9b8ff');
-  setTimeout(() => text.focus(), 30);
+/* ---------- comms ---------- */
+
+const selected = new Set(['all']);
+const commsText = $('#comms-text');
+const commsFrom = $('#comms-from');
+const commsTv = $('#comms-tv');
+
+function systemName() { return view?.pack?.systemName || 'The System'; }
+
+function openComms(ids) {
+  if (ids) {
+    selected.clear();
+    ids.forEach((id) => selected.add(id));
+    renderChips();
+  }
+  const c = $('#comms');
+  const col = c.closest('.col');
+  if (col && getComputedStyle(col).overflowY === 'auto') {
+    col.scrollTo({ top: c.offsetTop - col.offsetTop - 12, behavior: 'smooth' });
+  } else {
+    c.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+  c.classList.remove('flash'); void c.offsetWidth; c.classList.add('flash');
+  setTimeout(() => commsText.focus({ preventScroll: true }), 250);
 }
+
+let chipSig = '';
+function renderChips() {
+  const ps = view?.players || [];
+  for (const id of [...selected]) if (id !== 'all' && !ps.some((p) => p.id === id)) selected.delete(id);
+  if (!selected.size) selected.add('all');
+  const sig = JSON.stringify([ps.map((p) => [p.id, p.name, p.color]), [...selected]]);
+  if (sig === chipSig) return;
+  chipSig = sig;
+  const chip = (id, label, color, cls = '') => h('button.chip', {
+    type: 'button',
+    class: `chip${cls}`,
+    'aria-pressed': String(selected.has(id)),
+    style: color ? { '--cc': color } : null,
+    onclick: () => {
+      buzz(8);
+      if (id === 'all') { selected.clear(); selected.add('all'); }
+      else {
+        selected.delete('all');
+        selected.has(id) ? selected.delete(id) : selected.add(id);
+        if (!selected.size) selected.add('all');
+      }
+      renderChips();
+    },
+  }, label);
+  $('#chips').replaceChildren(
+    chip('all', 'All crawlers', null, ' all'),
+    ...ps.map((p) => chip(p.id, p.name, p.color)),
+  );
+  // Server: a message to all, or to more than one player, is a group message; only those can go on the TV.
+  const group = selected.has('all') || selected.size > 1;
+  commsTv.disabled = !group;
+  if (!group) commsTv.checked = false;
+  $('#tv-wrap').classList.toggle('off', !group);
+  $('#comms-send').textContent = selected.has('all') ? 'Send to all' : selected.size === 1 ? 'Send private' : `Send to ${selected.size}`;
+}
+
+function renderComms() {
+  renderChips();
+  if (!commsFrom.value && document.activeElement !== commsFrom) commsFrom.placeholder = `From: ${systemName()}`;
+  const list = [...(view.gm?.messages || [])].reverse().slice(0, 40);
+  const hist = $('#msg-history');
+  const sig = JSON.stringify(list);
+  if (hist.dataset.sig === sig) return;
+  hist.dataset.sig = sig;
+  const nameOf = (id) => view.players?.find((p) => p.id === id)?.name || 'someone';
+  hist.replaceChildren(...(list.length ? list.map((m) => {
+    const to = m.to;
+    const group = m.group ?? (to === 'all' || (Array.isArray(to) && to.length > 1));
+    const ids = Array.isArray(to) ? to : (typeof to === 'string' && to !== 'all' ? [to] : (m.playerId ? [m.playerId] : []));
+    const readBy = Array.isArray(m.readBy) ? m.readBy.length : null;
+    return h('li', { class: group ? 'grp' : 'prv' },
+      h('div.mh',
+        h('span.to', to === 'all' ? 'To all crawlers' : `To ${ids.map(nameOf).join(', ')}`),
+        h('span', `from ${m.from || systemName()}`),
+        m.onStage ? h('span.tvflag', 'on TV') : null,
+        h('span', timeAgo(m.at)),
+        readBy != null ? h('span.rd', `read ${readBy}/${to === 'all' ? (view.players?.length ?? 0) : ids.length}`) : null,
+      ),
+      h('div.tx', m.text),
+    );
+  }) : [h('li', h('div.tx.dim', 'No messages yet. Pick who gets it above.'))]));
+}
+
+$('#comms-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const text = commsText.value.trim();
+  if (!text) { commsText.focus(); return; }
+  const all = selected.has('all');
+  const a = { t: 'msg.send', to: all ? 'all' : [...selected], text };
+  if (commsFrom.value.trim()) a.from = commsFrom.value.trim();
+  if (!commsTv.disabled && commsTv.checked) a.onStage = true;
+  const who = all ? 'everyone' : [...selected].map((id) => view.players?.find((p) => p.id === id)?.name).join(', ');
+  if (await act(a, `Sent to ${who}.`)) {
+    commsText.value = '';
+    commsTv.checked = false;
+  }
+});
+commsText.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); $('#comms-form').requestSubmit(); }
+});
 
 /* ---------- audience / feed / links ---------- */
 
@@ -575,6 +681,7 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   if (t.closest?.('input, textarea, select, [contenteditable]') || sheet.open) return;
   if (e.key === 'a' || e.key === 'A') { e.preventDefault(); toggleAuto(); return; }
+  if (e.key === 'm' || e.key === 'M') { e.preventDefault(); openComms(); return; }
   if (/^[1-9]$/.test(e.key)) {
     const cats = view?.gm?.quipCategories || [];
     const c = cats[Number(e.key) - 1];

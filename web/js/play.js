@@ -146,8 +146,16 @@ client.on('view', (v) => {
 client.on('event', (e) => {
   if (!me) return;
   if (e.kind === 'stat' && e.playerId === me.id) { if (!e.resource) flashStat(e.stat, e.from, e.to); return; }
+  if (e.kind === 'secret' || e.kind === 'message') {
+    // Group messages may target everyone (no playerId, or a list). The text arrives in the next view.
+    const forMe = !e.playerId || e.playerId === me.id || (Array.isArray(e.to) && (e.to.includes(me.id) || e.to.includes('all'))) || e.to === 'all' || e.group;
+    // The server sends `message` (new) and, for private ones, the legacy `secret` too: handle each message once.
+    const mid = e.kind === 'message' ? e.id : (e.messageId || e.id);
+    if (forMe && !seenMsgs.has(mid)) { seenMsgs.add(mid); awaitMessage(e); }
+    return;
+  }
   if (e.playerId !== me.id) return;
-  if (['achievement', 'loot', 'sponsor', 'secret'].includes(e.kind)) enqueueTakeover(e);
+  if (['achievement', 'loot', 'sponsor'].includes(e.kind)) enqueueTakeover(e);
 });
 
 /* ---------- render ---------- */
@@ -254,7 +262,7 @@ function renderInventory() {
     const r = rarityOf(it.rarity);
     return h('button.item', { type: 'button', class: `item r-${r}`, onclick: () => showItem(it) },
       itemArt(it),
-      h('div.meta', h('span.nm', it.name), h('span', h('span.rarity-tag', r))),
+      h('div.meta', h('span.nm', it.name), h('span', h('span.rarity-tag', r)), it.flavor ? h('span.flv', it.flavor) : null),
     );
   })));
 }
@@ -269,6 +277,7 @@ function showItem(it) {
       h('span', h('span.rarity-tag', r)),
       h('h2.nm', it.name),
       it.desc ? h('p', it.desc) : null,
+      it.flavor ? h('p.flavor', it.flavor) : null,
       h('button.btn.btn-ghost', { value: 'close' }, 'Close'),
     ),
   ));
@@ -286,13 +295,18 @@ function renderAchievements() {
   p.replaceChildren(h('ul.ach-list', [...list].reverse().map((a) => h('li.sys', { 'data-head': 'ACHIEVEMENT' },
     h('p.sys-title', a.title),
     a.desc ? h('p.sys-desc', a.desc) : null,
+    a.reward ? h('p.reward', h('b', 'Reward: '), a.reward) : null,
     h('time', timeAgo(a.at)),
   ))));
 }
 
 let msgSig = '';
+const sysName = () => view?.pack?.systemName || 'The System';
+const myMessages = () => me.messages || me.secrets || [];
+const isGroup = (m) => !!(m.group || m.to === 'all' || (Array.isArray(m.to) && m.to.includes('all')));
+
 function renderMessages() {
-  const list = me.secrets || [];
+  const list = myMessages();
   const unread = list.filter((m) => !m.read).length;
   const badge = $('#unread');
   badge.hidden = !unread;
@@ -301,23 +315,28 @@ function renderMessages() {
   if (sig === msgSig) return;
   msgSig = sig;
   const p = $('#panel-msg');
-  if (!list.length) { p.replaceChildren(h('p.empty', 'No private messages. Sponsors write here when they like you.')); return; }
-  p.replaceChildren(h('ul.msg-list', [...list].reverse().map((m) => h('li',
-    h('button.msg', {
-      type: 'button',
-      class: m.read ? 'msg' : 'msg unread',
-      'aria-label': m.read ? null : `Unread message from ${m.from || 'The System'}. Tap to open.`,
-      onclick: (e) => {
-        if (m.read) return;
-        e.currentTarget.classList.remove('unread');
-        buzz(10);
-        client.send({ t: 'secret.read', id: m.id }).catch(() => {});
+  if (!list.length) { p.replaceChildren(h('p.empty', 'No messages yet. When the GM or a sponsor writes to you, it lands here.')); return; }
+  p.replaceChildren(h('ul.msg-list', [...list].reverse().map((m) => {
+    const grp = isGroup(m);
+    return h('li',
+      h('button.msg', {
+        type: 'button',
+        class: `msg ${grp ? 'grp' : 'prv'}${m.read ? '' : ' unread'}`,
+        'aria-label': m.read ? null : `Unread ${grp ? 'group' : 'private'} message from ${m.from || sysName()}. Tap to open.`,
+        onclick: (e) => {
+          if (m.read) return;
+          m.read = true;
+          e.currentTarget.classList.remove('unread');
+          buzz(10);
+          client.send({ t: 'secret.read', id: m.id }).catch(() => {});
+        },
       },
-    },
-    h('span.from', h('span', `${m.from || 'The System'} · ${timeAgo(m.at)}`)),
-    h('span.body', m.text),
-    ),
-  ))));
+      h('span.tag', grp ? 'TO ALL CRAWLERS' : 'PRIVATE'),
+      h('span.from', h('span', `${m.from || sysName()}`), h('time', timeAgo(m.at))),
+      h('span.body', m.text),
+      ),
+    );
+  })));
 }
 
 /* notes: debounced save, never overwrite while typing */
@@ -360,6 +379,24 @@ function renderTicker() {
   t.style.setProperty('--dur', `${Math.max(16, items.join(' ').length * 0.22)}s`);
 }
 
+const seenMsgs = new Set();
+function awaitMessage(e) {
+  const known = new Set(myMessages().map((m) => m.id));
+  const deliver = () => {
+    const list = myMessages();
+    const mid = e.kind === 'message' ? e.id : (e.messageId || e.id);
+    const m = list.find((x) => x.id === mid)
+      || [...list].reverse().find((x) => !known.has(x.id))
+      || [...list].reverse().find((x) => !x.read)
+      || (e.text ? { text: e.text, from: e.from, group: e.group } : null);
+    const grp = e.group ?? (m ? isGroup(m) : false);
+    enqueueTakeover({ ...e, kind: 'secret', _group: grp, _msg: m });
+  };
+  let done = false;
+  const off = client.on('view', () => { if (!done) { done = true; off(); setTimeout(deliver, 0); } });
+  setTimeout(() => { if (!done) { done = true; off(); deliver(); } }, 600);
+}
+
 /* ---------- tabs ---------- */
 
 $('#tabs').addEventListener('click', (e) => {
@@ -390,6 +427,7 @@ function nextTakeover() {
   const el = $('#takeover');
   if (!e) { toBusy = false; el.hidden = true; el.replaceChildren(); return; }
   toBusy = true;
+  el.classList.remove('banner');
   const reduced = prefersReducedMotion();
   el.hidden = false;
   el.onclick = null;
@@ -403,11 +441,17 @@ function nextTakeover() {
   if (e.kind === 'achievement') {
     buzz([60, 40, 60, 40, 200]);
     el.style.setProperty('--glow', 'var(--cyan)');
-    el.replaceChildren(h('div.to-inner',
-      h('div.to-kicker', 'Achievement unlocked'),
-      h('div.sys', { 'data-head': 'SYSTEM' }, h('p.sys-title', e.title), e.desc ? h('p.sys-desc', e.desc) : null),
+    el.replaceChildren(h('div.to-inner.to-ach',
+      h('div.to-kicker', view.pack?.notifyPrefix || 'New achievement!'),
+      h('div.sys.ach-box', { 'data-head': sysName().toUpperCase() },
+        h('p.sys-title', e.title),
+        e.desc ? h('div.sys-scroll', h('p.sys-desc', e.desc)) : null,
+        e.reward ? h('p.reward', h('b', 'Reward: '), e.reward) : null,
+      ),
     ));
-    dismissable(reduced ? 200 : 900);
+    // Long text scrolls inside the box; tapping outside the box dismisses.
+    el.querySelector('.sys-scroll')?.addEventListener('click', (ev) => ev.stopPropagation());
+    dismissable(reduced ? 200 : 1500);
   } else if (e.kind === 'loot' || e.kind === 'sponsor') {
     buzz([30, 30, 30, 30, 30, 30, 300]);
     const tier = view.pack?.lootTiers?.find((t) => t.id === e.tier);
@@ -422,7 +466,7 @@ function nextTakeover() {
         h('div.to-kicker', { style: { background: `var(--r-${r})` } }, r),
         h('div.reveal', { class: `reveal r-${r}` },
           itemArt(e.item || {}),
-          h('div.meta', h('span.nm', e.item?.name || 'Something'), e.item?.desc ? h('p.ds', e.item.desc) : null),
+          h('div.meta', h('span.nm', e.item?.name || 'Something'), e.item?.desc ? h('p.ds', e.item.desc) : null, e.item?.flavor ? h('p.flavor', e.item.flavor) : null),
         ),
       );
       buzz(r === 'legendary' || r === 'epic' ? [100, 50, 100, 50, 400] : 120);
@@ -433,6 +477,19 @@ function nextTakeover() {
       setTimeout(() => { box.classList.remove('shake'); box.classList.add('open'); }, 1300);
       setTimeout(reveal, 1750);
     }
+  } else if (e.kind === 'secret' && e._group) {
+    buzz([80, 60, 80]);
+    el.style.setProperty('--glow', 'var(--magenta)');
+    el.classList.add('banner');
+    const close = () => { if (el.classList.contains('banner')) { el.classList.remove('banner'); nextTakeover(); } };
+    el.replaceChildren(h('div.to-banner',
+      h('span.tag', 'TO ALL CRAWLERS'),
+      h('p.bn-from', e._msg?.from || sysName()),
+      h('p.bn-text', e._msg?.text || 'New message for everyone.'),
+      h('p.to-hint', 'Tap to close'),
+    ));
+    el.onclick = close;
+    setTimeout(close, Math.min(14000, 5000 + (e._msg?.text || '').split(/\s+/).length * 250));
   } else if (e.kind === 'secret') {
     buzz([200, 100, 200]);
     el.style.setProperty('--glow', 'var(--magenta)');

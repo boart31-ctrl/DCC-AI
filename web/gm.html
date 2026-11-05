@@ -78,6 +78,30 @@
           <button class="btn btn-hot" type="submit">Say it</button>
         </div>
       </form>
+
+      <section class="comms" id="comms" aria-labelledby="h-comms">
+        <div class="col-head">
+          <h2 id="h-comms">Comms</h2>
+          <span class="dim mono"><kbd>M</kbd> to write</span>
+        </div>
+        <form id="comms-form" class="comms-form" autocomplete="off">
+          <div class="chips" id="chips" role="group" aria-label="Recipients"></div>
+          <div class="comms-row">
+            <label class="comms-from">
+              <span class="sr-only">From</span>
+              <input class="field" id="comms-from" maxlength="60" placeholder="From">
+            </label>
+            <label class="tv-toggle" id="tv-wrap" title="Also show this message as a banner on the TV">
+              <input type="checkbox" id="comms-tv"> <span>Also show on TV (group only)</span>
+            </label>
+          </div>
+          <div class="say-row">
+            <textarea id="comms-text" class="field" rows="2" maxlength="1000" placeholder="Write a message. Enter sends, Shift+Enter for a new line."></textarea>
+            <button class="btn btn-cyan" type="submit" id="comms-send">Send</button>
+          </div>
+        </form>
+        <ol class="msg-history" id="msg-history"></ol>
+      </section>
     </section>
 
     <aside class="col col-room" aria-label="Audience and links">

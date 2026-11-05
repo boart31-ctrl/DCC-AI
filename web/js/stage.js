@@ -173,6 +173,10 @@ function onEvent(e) {
       if (!momentBusy) nextMoment();
       break;
     case 'stat': flashPlayer(e.playerId); break;
+    case 'announcement':
+      momentQ.push({ ...e, kind: 'announcement' });
+      if (!momentBusy) nextMoment();
+      break;
     default: break;
   }
 }
@@ -188,8 +192,9 @@ function playerOf(id) { return view?.players?.find((p) => p.id === id) || null; 
 function nextMoment() {
   const e = momentQ.shift();
   const el = $('#moment');
-  if (!e) { momentBusy = false; el.hidden = true; el.replaceChildren(); return; }
+  if (!e) { momentBusy = false; document.body.classList.remove('moment-on'); el.hidden = true; el.replaceChildren(); return; }
   momentBusy = true;
+  document.body.classList.add('moment-on');
   el.classList.remove('out', 'shake');
   el.hidden = false;
   const p = playerOf(e.playerId);
@@ -197,18 +202,45 @@ function nextMoment() {
   const nameTag = h('div.m-player', { style: { '--pc': pc } }, p?.name || 'Crawler');
   let hold = 6500;
 
-  if (e.kind === 'achievement') {
-    el.style.setProperty('--glow', 'var(--cyan)');
+  const sys = (view?.pack?.systemName || 'The System').toUpperCase();
+  if (e.kind === 'announcement') {
+    el.style.setProperty('--glow', 'var(--magenta)');
+    const text = e.text || '';
     el.replaceChildren(h('div.m-inner',
+      h('div.sys.m-ann', { 'data-head': `${sys} // ANNOUNCEMENT` },
+        h('p.ann-from', e.from || view?.pack?.systemName || 'The System'),
+        h('div.m-scroll', h('p.sys-desc', text)),
+      ),
+    ));
+    hold = readTime(text, 8000);
+    autoScroll(el.querySelector('.m-scroll'), hold);
+  } else if (e.kind === 'achievement') {
+    el.style.setProperty('--glow', 'var(--cyan)');
+    const desc = h('p.sys-desc');
+    const reward = e.reward ? h('p.m-reward', h('b', 'Reward: '), e.reward) : null;
+    if (reward) reward.style.visibility = 'hidden';
+    const scroll = h('div.m-scroll', desc);
+    el.replaceChildren(h('div.m-inner',
+      h('p.m-prefix', view?.pack?.notifyPrefix || 'New achievement!'),
       nameTag,
-      h('div.sys.m-ach', { 'data-head': 'SYSTEM // ACHIEVEMENT UNLOCKED' },
+      h('div.sys.m-ach', { 'data-head': `${sys} // ACHIEVEMENT UNLOCKED` },
         h('p.sys-title', e.title),
-        e.desc ? h('p.sys-desc', e.desc) : null,
+        e.desc ? scroll : null,
+        reward,
       ),
       reduced ? null : h('div.m-shock'),
     ));
     if (!reduced) el.classList.add('shake');
-    hold = reduced ? 5000 : 6500;
+    // Reading time (4 s + 60 ms/word) starts once the text is fully typed; total capped at 20 s.
+    const words = `${e.title} ${e.desc || ''} ${e.reward || ''}`.trim().split(/\s+/).length;
+    const typeMs = reduced ? 0 : Math.min(5000, (e.desc || '').split(/\s+/).length * 45);
+    hold = Math.min(20000, Math.max(6500, 900 + typeMs + 4000 + words * 60));
+    typewrite(desc, e.desc || '', reduced ? 0 : 900, typeMs, null, () => {
+      if (reward) reward.style.visibility = '';
+      // If the text overflows, show the top first, then glide down during the reading time.
+      scroll.scrollTop = 0;
+      autoScroll(scroll, hold - 900 - typeMs, 1500);
+    });
   } else {
     const r = rarityOf(e.item?.rarity);
     const tier = view?.pack?.lootTiers?.find((t) => t.id === e.tier);
@@ -220,12 +252,14 @@ function nextMoment() {
     const inner = h('div.m-inner', ...top, box);
     el.replaceChildren(inner);
     const reveal = () => {
-      const card = h('div.card', { class: `card r-${r}` },
+      const len = `${e.item?.desc || ''}${e.item?.flavor || ''}`.length;
+      const card = h('div.card', { class: `card r-${r}${len > 380 ? ' xlong' : len > 200 ? ' long' : ''}` },
         itemArt(e.item || {}),
         h('div.card-meta',
           h('span.rarity-tag', r),
           h('h2.card-name', e.item?.name || 'Something'),
           e.item?.desc ? h('p.card-desc', e.item.desc) : null,
+          e.item?.flavor ? h('p.card-flavor', e.item.flavor) : null,
         ),
       );
       inner.replaceChildren(...top.slice(0, 1), card);
@@ -234,13 +268,58 @@ function nextMoment() {
       requestAnimationFrame(() => box.classList.add('shake'));
       setTimeout(() => { box.classList.remove('shake'); box.classList.add('open'); }, 1500);
       setTimeout(reveal, 1950);
-      hold = 8500;
+      hold = 2000 + readTime(`${e.item?.name || ''} ${e.item?.desc || ''} ${e.item?.flavor || ''}`, 6500);
     }
+    if (reduced) hold = readTime(`${e.item?.name || ''} ${e.item?.desc || ''} ${e.item?.flavor || ''}`, 6000);
   }
   setTimeout(() => {
     el.classList.add('out');
     setTimeout(nextMoment, 500);
   }, hold);
+}
+
+/** Reading time for a TV at 3 m: ~4 s + 60 ms per word, max 20 s. */
+function readTime(text, min = 6500) {
+  const words = String(text || '').trim().split(/\s+/).filter(Boolean).length;
+  return Math.max(min, Math.min(20000, 4000 + words * 60));
+}
+
+/** Reveal text word by word over `dur` ms (instant when dur is 0); the scroller follows the newest words. */
+function typewrite(el, text, delay, dur, scroller, onDone) {
+  const words = String(text).split(/(\s+)/);
+  const follow = () => { if (scroller) scroller.scrollTop = scroller.scrollHeight; };
+  if (!dur || words.length < 3) {
+    setTimeout(() => { el.textContent = text; follow(); onDone?.(); }, delay);
+    return;
+  }
+  el.textContent = '';
+  let i = 0;
+  const step = dur / words.length;
+  setTimeout(function tick() {
+    if (!document.body.contains(el)) return;
+    i = Math.min(words.length, i + 2); // a word and its trailing space
+    el.textContent = words.slice(0, i).join('');
+    follow();
+    if (i < words.length) setTimeout(tick, step * 2);
+    else { el.textContent = text; onDone?.(); }
+  }, delay);
+}
+
+/** Slowly scroll an overflowing box to the bottom across the hold time. */
+function autoScroll(box, hold, startAfter = 1200) {
+  if (!box) return;
+  setTimeout(() => {
+    const max = box.scrollHeight - box.clientHeight;
+    if (max <= 4) return;
+    const t0 = performance.now();
+    const dur = Math.max(1500, hold - startAfter - 2000);
+    const step = (t) => {
+      const k = Math.min(1, (t - t0) / dur);
+      box.scrollTop = max * (k < 0.5 ? 2 * k * k : 1 - (-2 * k + 2) ** 2 / 2);
+      if (k < 1 && document.body.contains(box)) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }, startAfter);
 }
 
 /* ---------- audio: strictly sequential lines ---------- */
