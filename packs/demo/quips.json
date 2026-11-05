@@ -1,0 +1,407 @@
+[
+  {
+    "id": "nat1_01",
+    "category": "nat1",
+    "text": "A one. The dice have chosen violence. Against you."
+  },
+  {
+    "id": "nat1_02",
+    "category": "nat1",
+    "text": "Natural one. Somewhere, a statistician is weeping with joy."
+  },
+  {
+    "id": "nat1_03",
+    "category": "nat1",
+    "text": "That roll has been logged, laminated, and mailed to your mother."
+  },
+  {
+    "id": "nat1_04",
+    "category": "nat1",
+    "text": "One. You failed at the easiest part: luck."
+  },
+  {
+    "id": "nat1_05",
+    "category": "nat1",
+    "text": "It landed on one. Even the die looks embarrassed."
+  },
+  {
+    "id": "nat1_06",
+    "category": "nat1",
+    "text": "Critical failure. Our insurance department has been notified."
+  },
+  {
+    "id": "nat1_07",
+    "category": "nat1",
+    "text": "One! Replay that in slow motion. For science."
+  },
+  {
+    "id": "nat20_01",
+    "category": "nat20",
+    "text": "Twenty! The audience is on its feet. Those who have feet."
+  },
+  {
+    "id": "nat20_02",
+    "category": "nat20",
+    "text": "Natural twenty. Enjoy it. It will never happen again."
+  },
+  {
+    "id": "nat20_03",
+    "category": "nat20",
+    "text": "A perfect roll. Suspicious. Our auditors will be in touch."
+  },
+  {
+    "id": "nat20_04",
+    "category": "nat20",
+    "text": "Twenty! Cue the confetti cannon. Aim it away from the crawler."
+  },
+  {
+    "id": "nat20_05",
+    "category": "nat20",
+    "text": "Critical success. Finally, a reason to keep the cameras on."
+  },
+  {
+    "id": "nat20_06",
+    "category": "nat20",
+    "text": "Twenty. The dice gods are pleased. They will want something later."
+  },
+  {
+    "id": "nat20_07",
+    "category": "nat20",
+    "text": "Look at that. Competence. Briefly."
+  },
+  {
+    "id": "death_01",
+    "category": "death",
+    "text": "And they're down. Hold your applause. No, actually, go ahead."
+  },
+  {
+    "id": "death_02",
+    "category": "death",
+    "text": "Tragic. Ratings just went up eleven percent."
+  },
+  {
+    "id": "death_03",
+    "category": "death",
+    "text": "Contestant deceased. Their inventory is now everyone's problem."
+  },
+  {
+    "id": "death_04",
+    "category": "death",
+    "text": "A moment of silence. That's enough. Back to the show."
+  },
+  {
+    "id": "death_05",
+    "category": "death",
+    "text": "Death recorded. Cause: optimism."
+  },
+  {
+    "id": "death_06",
+    "category": "death",
+    "text": "Gone, but not forgotten. Until the commercial break."
+  },
+  {
+    "id": "death_07",
+    "category": "death",
+    "text": "Flatlined. Somebody check their pockets before the cleanup crew does."
+  },
+  {
+    "id": "levelup_01",
+    "category": "levelup",
+    "text": "Level up! You are now slightly harder to kill. Slightly."
+  },
+  {
+    "id": "levelup_02",
+    "category": "levelup",
+    "text": "Congratulations. New level, same bad decisions."
+  },
+  {
+    "id": "levelup_03",
+    "category": "levelup",
+    "text": "You have grown stronger. The dungeon has noticed. It is taking notes."
+  },
+  {
+    "id": "levelup_04",
+    "category": "levelup",
+    "text": "Level gained. Please collect your complimentary false confidence."
+  },
+  {
+    "id": "levelup_05",
+    "category": "levelup",
+    "text": "Ding. That's the sound of a bigger target."
+  },
+  {
+    "id": "levelup_06",
+    "category": "levelup",
+    "text": "Promotion granted. Paperwork to follow. So much paperwork."
+  },
+  {
+    "id": "boss_01",
+    "category": "boss",
+    "text": "Boss incoming! Please keep your limbs inside the party."
+  },
+  {
+    "id": "boss_02",
+    "category": "boss",
+    "text": "This one has a health bar. And a theme song."
+  },
+  {
+    "id": "boss_03",
+    "category": "boss",
+    "text": "Big one. Our betting desk says eleven to one. Against."
+  },
+  {
+    "id": "boss_04",
+    "category": "boss",
+    "text": "Behold your boss. Try to die photogenically."
+  },
+  {
+    "id": "boss_05",
+    "category": "boss",
+    "text": "Boss fight! Sponsors, start your wallets."
+  },
+  {
+    "id": "boss_06",
+    "category": "boss",
+    "text": "Ladies, gentlemen, and things in jars: the main event."
+  },
+  {
+    "id": "fail_01",
+    "category": "fail",
+    "text": "That didn't work. Have you tried being better?"
+  },
+  {
+    "id": "fail_02",
+    "category": "fail",
+    "text": "Bold strategy. Let's see if it pays off. It didn't."
+  },
+  {
+    "id": "fail_03",
+    "category": "fail",
+    "text": "Nope. The dungeon says nope."
+  },
+  {
+    "id": "fail_04",
+    "category": "fail",
+    "text": "You failed, but with such confidence."
+  },
+  {
+    "id": "fail_05",
+    "category": "fail",
+    "text": "Swing and a miss. The crowd goes mild."
+  },
+  {
+    "id": "fail_06",
+    "category": "fail",
+    "text": "That attempt has been filed under comedy."
+  },
+  {
+    "id": "success_01",
+    "category": "success",
+    "text": "Success! Mark the date. We're making it a holiday."
+  },
+  {
+    "id": "success_02",
+    "category": "success",
+    "text": "It worked. Nobody is more surprised than our analysts."
+  },
+  {
+    "id": "success_03",
+    "category": "success",
+    "text": "Well done. Don't get used to it."
+  },
+  {
+    "id": "success_04",
+    "category": "success",
+    "text": "Clean. Efficient. Deeply unentertaining. Do it again, but louder."
+  },
+  {
+    "id": "success_05",
+    "category": "success",
+    "text": "A win! The audience is mildly impressed."
+  },
+  {
+    "id": "success_06",
+    "category": "success",
+    "text": "Look at you, accomplishing things."
+  },
+  {
+    "id": "idle_01",
+    "category": "idle",
+    "text": "Still deciding? The monsters are getting bored. So am I."
+  },
+  {
+    "id": "idle_02",
+    "category": "idle",
+    "text": "This is a live broadcast. Live. Do something."
+  },
+  {
+    "id": "idle_03",
+    "category": "idle",
+    "text": "We're losing viewers. Somebody poke something."
+  },
+  {
+    "id": "idle_04",
+    "category": "idle",
+    "text": "Dead air is more dangerous than this dungeon."
+  },
+  {
+    "id": "idle_05",
+    "category": "idle",
+    "text": "Any time now. The dungeon has a schedule."
+  },
+  {
+    "id": "idle_06",
+    "category": "idle",
+    "text": "While you think, here is a word from nobody. Hurry up."
+  },
+  {
+    "id": "achievement_01",
+    "category": "achievement",
+    "text": "Achievement unlocked! It's worthless, but it's shiny."
+  },
+  {
+    "id": "achievement_02",
+    "category": "achievement",
+    "text": "New achievement. Your mother will be... informed."
+  },
+  {
+    "id": "achievement_03",
+    "category": "achievement",
+    "text": "Ding! Another trophy for the shelf you don't own."
+  },
+  {
+    "id": "achievement_04",
+    "category": "achievement",
+    "text": "Achievement awarded. The committee was not unanimous."
+  },
+  {
+    "id": "achievement_05",
+    "category": "achievement",
+    "text": "Congratulations. That's going on your permanent record."
+  },
+  {
+    "id": "achievement_06",
+    "category": "achievement",
+    "text": "Unlocked! Frame it. Hang it. Die near it."
+  },
+  {
+    "id": "loot_01",
+    "category": "loot",
+    "text": "Loot! Open it before something else does."
+  },
+  {
+    "id": "loot_02",
+    "category": "loot",
+    "text": "A box. Could be treasure. Could be teeth."
+  },
+  {
+    "id": "loot_03",
+    "category": "loot",
+    "text": "Prize time! Try to look grateful for the cameras."
+  },
+  {
+    "id": "loot_04",
+    "category": "loot",
+    "text": "Loot acquired. Resale value: a mystery. Mostly to you."
+  },
+  {
+    "id": "loot_05",
+    "category": "loot",
+    "text": "Shiny thing incoming. Grab it, you magpie."
+  },
+  {
+    "id": "loot_06",
+    "category": "loot",
+    "text": "The box rattles. That's either coins or regret."
+  },
+  {
+    "id": "sponsor_01",
+    "category": "sponsor",
+    "text": "A sponsor is interested in you. Nobody knows why."
+  },
+  {
+    "id": "sponsor_02",
+    "category": "sponsor",
+    "text": "Sponsor alert! Smile. Somebody out there is paying for this."
+  },
+  {
+    "id": "sponsor_03",
+    "category": "sponsor",
+    "text": "This moment is brought to you by people with more money than sense."
+  },
+  {
+    "id": "sponsor_04",
+    "category": "sponsor",
+    "text": "A gift from a sponsor. Read the fine print. There's a lot."
+  },
+  {
+    "id": "sponsor_05",
+    "category": "sponsor",
+    "text": "Your fans pooled their money. Don't waste it. You will."
+  },
+  {
+    "id": "sponsor_06",
+    "category": "sponsor",
+    "text": "Sponsor box delivered. They expect a return on investment."
+  },
+  {
+    "id": "welcome_01",
+    "category": "welcome",
+    "text": "Welcome back to the only show where losing is the content!"
+  },
+  {
+    "id": "welcome_02",
+    "category": "welcome",
+    "text": "Good evening, viewers! Tonight's contestants are already sweating."
+  },
+  {
+    "id": "welcome_03",
+    "category": "welcome",
+    "text": "Lights, cameras, mortal peril. We are live!"
+  },
+  {
+    "id": "welcome_04",
+    "category": "welcome",
+    "text": "Welcome, heroes. Please sign the waiver. Too late, it's binding."
+  },
+  {
+    "id": "welcome_05",
+    "category": "welcome",
+    "text": "Hello, galaxy! Let's watch some heroes make choices."
+  },
+  {
+    "id": "welcome_06",
+    "category": "welcome",
+    "text": "Welcome to the show. Exits are clearly marked. Also locked."
+  },
+  {
+    "id": "goodbye_01",
+    "category": "goodbye",
+    "text": "That's our show. Same dungeon next week, fewer survivors."
+  },
+  {
+    "id": "goodbye_02",
+    "category": "goodbye",
+    "text": "Goodnight, viewers. Contestants, try not to die off-camera."
+  },
+  {
+    "id": "goodbye_03",
+    "category": "goodbye",
+    "text": "Cut! Somebody hose down the set."
+  },
+  {
+    "id": "goodbye_04",
+    "category": "goodbye",
+    "text": "We're out of time. Your contracts, however, are not."
+  },
+  {
+    "id": "goodbye_05",
+    "category": "goodbye",
+    "text": "Thanks for watching. Remember: someone always loses."
+  },
+  {
+    "id": "goodbye_06",
+    "category": "goodbye",
+    "text": "And we're off the air. You can scream now."
+  }
+]

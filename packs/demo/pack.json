@@ -1,0 +1,123 @@
+{
+  "id": "demo",
+  "name": "Demo Pack",
+  "version": "1.0.0",
+  "language": "en",
+  "systemName": "The System",
+  "lootTiers": [
+    {
+      "id": "bronze",
+      "name": "Bronze Box",
+      "color": "#cd7f32"
+    },
+    {
+      "id": "silver",
+      "name": "Silver Box",
+      "color": "#c0c0c0"
+    },
+    {
+      "id": "gold",
+      "name": "Gold Box",
+      "color": "#ffd700"
+    },
+    {
+      "id": "legendary",
+      "name": "Legendary Box",
+      "color": "#ff6a00"
+    }
+  ],
+  "audience": {
+    "startViewers": 1200,
+    "sponsorHypeThreshold": 0.8
+  },
+  "autoBudget": 6,
+  "stats": [
+    {
+      "id": "str",
+      "label": "Strength",
+      "abbr": "STR",
+      "default": 3
+    },
+    {
+      "id": "dex",
+      "label": "Dexterity",
+      "abbr": "DEX",
+      "default": 3
+    },
+    {
+      "id": "con",
+      "label": "Constitution",
+      "abbr": "CON",
+      "default": 3
+    },
+    {
+      "id": "int",
+      "label": "Intelligence",
+      "abbr": "INT",
+      "default": 3
+    },
+    {
+      "id": "wis",
+      "label": "Wisdom",
+      "abbr": "WIS",
+      "default": 3
+    },
+    {
+      "id": "cha",
+      "label": "Charisma",
+      "abbr": "CHA",
+      "default": 3
+    }
+  ],
+  "resources": [
+    {
+      "id": "hp",
+      "label": "Health",
+      "color": "#ff3355",
+      "default": 10
+    },
+    {
+      "id": "mp",
+      "label": "Mana",
+      "color": "#33aaff",
+      "default": 5
+    }
+  ],
+  "voices": [
+    {
+      "id": "host",
+      "label": "Game-show host",
+      "lang": "en-US",
+      "rate": 1.08,
+      "pitch": 1,
+      "prefer": [
+        "Google US English",
+        "Alex",
+        "Microsoft Guy"
+      ]
+    },
+    {
+      "id": "bureaucrat",
+      "label": "Cold bureaucrat AI",
+      "lang": "en-GB",
+      "rate": 0.95,
+      "pitch": 0.7,
+      "prefer": [
+        "Google UK English Male",
+        "Daniel",
+        "Microsoft Ryan"
+      ]
+    },
+    {
+      "id": "gremlin",
+      "label": "Unhinged gremlin",
+      "lang": "en-US",
+      "rate": 1.2,
+      "pitch": 1.4,
+      "prefer": [
+        "Samantha",
+        "Microsoft Aria"
+      ]
+    }
+  ]
+}

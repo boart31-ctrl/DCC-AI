@@ -128,7 +128,10 @@ export async function startServer(opts = {}) {
   try {
     const r = loadPack(packDir);
     pack = r.pack;
-    for (const w of r.warnings) log.warn(`[pack] ${w}`);
+    // Missing art/audio is normal while a pack is being built; summarise instead of flooding the console.
+    const missing = r.warnings.filter((w) => w.endsWith('not found, using fallback'));
+    for (const w of r.warnings) if (!missing.includes(w)) log.warn(`[pack] ${w}`);
+    if (missing.length) log.warn(`[pack] ${missing.length} image/audio files not found yet (placeholders used)`);
   } catch (e) {
     log.warn(`[pack] WARNING: ${e.message}`);
     log.warn('[pack] Starting with an EMPTY built-in pack. Set PACK_DIR to a valid content pack.');

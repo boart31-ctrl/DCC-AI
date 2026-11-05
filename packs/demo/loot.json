@@ -1,0 +1,330 @@
+{
+  "bronze": [
+    {
+      "item": "mostly_dry_torch",
+      "weight": 10
+    },
+    {
+      "item": "spare_left_boot",
+      "weight": 10
+    },
+    {
+      "item": "emergency_spoon",
+      "weight": 10
+    },
+    {
+      "item": "participation_ribbon",
+      "weight": 10
+    },
+    {
+      "item": "mystery_jerky",
+      "weight": 10
+    },
+    {
+      "item": "nine_foot_pole",
+      "weight": 10
+    },
+    {
+      "item": "chalk_stub",
+      "weight": 10
+    },
+    {
+      "item": "saucepan_helmet",
+      "weight": 10
+    },
+    {
+      "item": "pep_pebble",
+      "weight": 10
+    },
+    {
+      "item": "suspicious_die",
+      "weight": 4
+    },
+    {
+      "item": "grappling_umbrella",
+      "weight": 4
+    },
+    {
+      "item": "used_smoke_bomb",
+      "weight": 4
+    },
+    {
+      "item": "healing_juice_box",
+      "weight": 4
+    },
+    {
+      "item": "honest_compass",
+      "weight": 4
+    },
+    {
+      "item": "gecko_gloves",
+      "weight": 4
+    },
+    {
+      "item": "returning_sword",
+      "weight": 1
+    },
+    {
+      "item": "mostly_invisible_cloak",
+      "weight": 1
+    },
+    {
+      "item": "bottomless_belt_pouch",
+      "weight": 1
+    },
+    {
+      "item": "laugh_track_crown",
+      "weight": 1
+    }
+  ],
+  "silver": [
+    {
+      "item": "mostly_dry_torch",
+      "weight": 4
+    },
+    {
+      "item": "spare_left_boot",
+      "weight": 4
+    },
+    {
+      "item": "emergency_spoon",
+      "weight": 4
+    },
+    {
+      "item": "participation_ribbon",
+      "weight": 4
+    },
+    {
+      "item": "mystery_jerky",
+      "weight": 4
+    },
+    {
+      "item": "nine_foot_pole",
+      "weight": 4
+    },
+    {
+      "item": "chalk_stub",
+      "weight": 4
+    },
+    {
+      "item": "saucepan_helmet",
+      "weight": 4
+    },
+    {
+      "item": "pep_pebble",
+      "weight": 4
+    },
+    {
+      "item": "suspicious_die",
+      "weight": 8
+    },
+    {
+      "item": "grappling_umbrella",
+      "weight": 8
+    },
+    {
+      "item": "used_smoke_bomb",
+      "weight": 8
+    },
+    {
+      "item": "healing_juice_box",
+      "weight": 8
+    },
+    {
+      "item": "honest_compass",
+      "weight": 8
+    },
+    {
+      "item": "gecko_gloves",
+      "weight": 8
+    },
+    {
+      "item": "returning_sword",
+      "weight": 4
+    },
+    {
+      "item": "mostly_invisible_cloak",
+      "weight": 4
+    },
+    {
+      "item": "bottomless_belt_pouch",
+      "weight": 4
+    },
+    {
+      "item": "laugh_track_crown",
+      "weight": 4
+    },
+    {
+      "item": "dragon_wisdom_tooth",
+      "weight": 1
+    },
+    {
+      "item": "sponsor_jetpack",
+      "weight": 1
+    },
+    {
+      "item": "timeout_hourglass",
+      "weight": 1
+    }
+  ],
+  "gold": [
+    {
+      "item": "mostly_dry_torch",
+      "weight": 1
+    },
+    {
+      "item": "spare_left_boot",
+      "weight": 1
+    },
+    {
+      "item": "emergency_spoon",
+      "weight": 1
+    },
+    {
+      "item": "participation_ribbon",
+      "weight": 1
+    },
+    {
+      "item": "mystery_jerky",
+      "weight": 1
+    },
+    {
+      "item": "nine_foot_pole",
+      "weight": 1
+    },
+    {
+      "item": "chalk_stub",
+      "weight": 1
+    },
+    {
+      "item": "saucepan_helmet",
+      "weight": 1
+    },
+    {
+      "item": "pep_pebble",
+      "weight": 1
+    },
+    {
+      "item": "suspicious_die",
+      "weight": 4
+    },
+    {
+      "item": "grappling_umbrella",
+      "weight": 4
+    },
+    {
+      "item": "used_smoke_bomb",
+      "weight": 4
+    },
+    {
+      "item": "healing_juice_box",
+      "weight": 4
+    },
+    {
+      "item": "honest_compass",
+      "weight": 4
+    },
+    {
+      "item": "gecko_gloves",
+      "weight": 4
+    },
+    {
+      "item": "returning_sword",
+      "weight": 8
+    },
+    {
+      "item": "mostly_invisible_cloak",
+      "weight": 8
+    },
+    {
+      "item": "bottomless_belt_pouch",
+      "weight": 8
+    },
+    {
+      "item": "laugh_track_crown",
+      "weight": 8
+    },
+    {
+      "item": "dragon_wisdom_tooth",
+      "weight": 6
+    },
+    {
+      "item": "sponsor_jetpack",
+      "weight": 6
+    },
+    {
+      "item": "timeout_hourglass",
+      "weight": 6
+    },
+    {
+      "item": "golden_microphone",
+      "weight": 2
+    },
+    {
+      "item": "plot_armor",
+      "weight": 2
+    }
+  ],
+  "legendary": [
+    {
+      "item": "suspicious_die",
+      "weight": 2
+    },
+    {
+      "item": "grappling_umbrella",
+      "weight": 2
+    },
+    {
+      "item": "used_smoke_bomb",
+      "weight": 2
+    },
+    {
+      "item": "healing_juice_box",
+      "weight": 2
+    },
+    {
+      "item": "honest_compass",
+      "weight": 2
+    },
+    {
+      "item": "gecko_gloves",
+      "weight": 2
+    },
+    {
+      "item": "returning_sword",
+      "weight": 6
+    },
+    {
+      "item": "mostly_invisible_cloak",
+      "weight": 6
+    },
+    {
+      "item": "bottomless_belt_pouch",
+      "weight": 6
+    },
+    {
+      "item": "laugh_track_crown",
+      "weight": 6
+    },
+    {
+      "item": "dragon_wisdom_tooth",
+      "weight": 10
+    },
+    {
+      "item": "sponsor_jetpack",
+      "weight": 10
+    },
+    {
+      "item": "timeout_hourglass",
+      "weight": 10
+    },
+    {
+      "item": "golden_microphone",
+      "weight": 20
+    },
+    {
+      "item": "plot_armor",
+      "weight": 20
+    }
+  ]
+}

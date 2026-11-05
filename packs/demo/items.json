@@ -1,0 +1,170 @@
+[
+  {
+    "id": "mostly_dry_torch",
+    "name": "Mostly Dry Torch",
+    "desc": "Lights the way. Also your sleeve, if you get careless.",
+    "rarity": "common",
+    "image": "mostly_dry_torch.webp"
+  },
+  {
+    "id": "spare_left_boot",
+    "name": "Spare Left Boot",
+    "desc": "For when you lose exactly one boot. It happens.",
+    "rarity": "common",
+    "image": "spare_left_boot.webp"
+  },
+  {
+    "id": "emergency_spoon",
+    "name": "Emergency Spoon",
+    "desc": "Rated for soup, self-defense, and very slow tunneling.",
+    "rarity": "common",
+    "image": "emergency_spoon.webp"
+  },
+  {
+    "id": "participation_ribbon",
+    "name": "Participation Ribbon",
+    "desc": "You showed up. The bar was on the floor.",
+    "rarity": "common",
+    "image": "participation_ribbon.webp"
+  },
+  {
+    "id": "mystery_jerky",
+    "name": "Jerky of Unknown Origin",
+    "desc": "Restores a little health. Do not ask from what.",
+    "rarity": "common",
+    "image": "mystery_jerky.webp"
+  },
+  {
+    "id": "nine_foot_pole",
+    "name": "Nine-and-a-Half-Foot Pole",
+    "desc": "Ten feet was over budget.",
+    "rarity": "common",
+    "image": "nine_foot_pole.webp"
+  },
+  {
+    "id": "chalk_stub",
+    "name": "Stub of Chalk",
+    "desc": "Mark your path. The monsters can read too.",
+    "rarity": "common",
+    "image": "chalk_stub.webp"
+  },
+  {
+    "id": "saucepan_helmet",
+    "name": "Saucepan Helmet",
+    "desc": "Protects your head. Mostly from rain.",
+    "rarity": "common",
+    "image": "saucepan_helmet.webp"
+  },
+  {
+    "id": "pep_pebble",
+    "name": "Pebble of Encouragement",
+    "desc": "Whispers \"you got this.\" It is often wrong.",
+    "rarity": "common",
+    "image": "pep_pebble.webp"
+  },
+  {
+    "id": "suspicious_die",
+    "name": "Suspiciously Lucky Die",
+    "desc": "Rolls high when nobody's watching. Everybody's watching.",
+    "rarity": "uncommon",
+    "image": "suspicious_die.webp"
+  },
+  {
+    "id": "grappling_umbrella",
+    "name": "Grappling Umbrella",
+    "desc": "Opens, hooks, climbs. Does not keep you dry.",
+    "rarity": "uncommon",
+    "image": "grappling_umbrella.webp"
+  },
+  {
+    "id": "used_smoke_bomb",
+    "name": "Smoke Bomb, Slightly Used",
+    "desc": "One big puff of smoke. Then a second, sadder puff.",
+    "rarity": "uncommon",
+    "image": "used_smoke_bomb.webp"
+  },
+  {
+    "id": "healing_juice_box",
+    "name": "Healing Juice Box",
+    "desc": "Restores health. Comes with a tiny straw of dignity.",
+    "rarity": "uncommon",
+    "image": "healing_juice_box.webp"
+  },
+  {
+    "id": "honest_compass",
+    "name": "Honest Compass",
+    "desc": "Points to treasure. Or to whatever it finds interesting.",
+    "rarity": "uncommon",
+    "image": "honest_compass.webp"
+  },
+  {
+    "id": "gecko_gloves",
+    "name": "Gecko Gloves",
+    "desc": "Stick to walls. Also to everything else, forever.",
+    "rarity": "uncommon",
+    "image": "gecko_gloves.webp"
+  },
+  {
+    "id": "returning_sword",
+    "name": "Returning Sword",
+    "desc": "Throw it. It comes back. Duck.",
+    "rarity": "rare",
+    "image": "returning_sword.webp"
+  },
+  {
+    "id": "mostly_invisible_cloak",
+    "name": "Mostly Invisible Cloak",
+    "desc": "Hides everything except your feet and your fear.",
+    "rarity": "rare",
+    "image": "mostly_invisible_cloak.webp"
+  },
+  {
+    "id": "bottomless_belt_pouch",
+    "name": "Bottomless Belt Pouch",
+    "desc": "Holds anything. Gives back most of it.",
+    "rarity": "rare",
+    "image": "bottomless_belt_pouch.webp"
+  },
+  {
+    "id": "laugh_track_crown",
+    "name": "Laugh-Track Crown",
+    "desc": "Every hit you land gets a round of canned laughter.",
+    "rarity": "rare",
+    "image": "laugh_track_crown.webp"
+  },
+  {
+    "id": "dragon_wisdom_tooth",
+    "name": "Dragon's Wisdom Tooth",
+    "desc": "A dagger pulled from a very relieved dragon.",
+    "rarity": "epic",
+    "image": "dragon_wisdom_tooth.webp"
+  },
+  {
+    "id": "sponsor_jetpack",
+    "name": "Sponsor-Grade Jetpack",
+    "desc": "Flies for nine seconds. Ads play for thirty.",
+    "rarity": "epic",
+    "image": "sponsor_jetpack.webp"
+  },
+  {
+    "id": "timeout_hourglass",
+    "name": "Hourglass of Time-Out",
+    "desc": "Pause one fight. Everyone hates you, briefly.",
+    "rarity": "epic",
+    "image": "timeout_hourglass.webp"
+  },
+  {
+    "id": "golden_microphone",
+    "name": "The Golden Microphone",
+    "desc": "Whatever you say next becomes the episode title.",
+    "rarity": "legendary",
+    "image": "golden_microphone.webp"
+  },
+  {
+    "id": "plot_armor",
+    "name": "Plot Armor",
+    "desc": "You cannot die this episode. Ratings demand it.",
+    "rarity": "legendary",
+    "image": "plot_armor.webp"
+  }
+]

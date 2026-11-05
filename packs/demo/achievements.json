@@ -1,0 +1,77 @@
+[
+  {
+    "id": "opening_act",
+    "title": "Opening Act",
+    "desc": "Entered the dungeon. The audience is cautiously optimistic."
+  },
+  {
+    "id": "contact",
+    "title": "Contact!",
+    "desc": "You hit something. It noticed."
+  },
+  {
+    "id": "gravity_enthusiast",
+    "title": "Gravity Enthusiast",
+    "desc": "Rolled a one. Fell with style."
+  },
+  {
+    "id": "main_character",
+    "title": "Main Character Energy",
+    "desc": "Rolled a twenty. Please stop posing."
+  },
+  {
+    "id": "tactical_retreat",
+    "title": "Tactical Retreat",
+    "desc": "Ran away. Strategically. Very fast."
+  },
+  {
+    "id": "box_gremlin",
+    "title": "Box Gremlin",
+    "desc": "Opened a box before the fight was over."
+  },
+  {
+    "id": "door_diplomacy",
+    "title": "Door Diplomacy",
+    "desc": "Kicked down a door that was unlocked."
+  },
+  {
+    "id": "silver_tongue",
+    "title": "Silver Tongue",
+    "desc": "Talked your way out of a fight. Boring, but effective."
+  },
+  {
+    "id": "close_shave",
+    "title": "Close Shave",
+    "desc": "Survived on one hit point. Viewers are thrilled."
+  },
+  {
+    "id": "team_player",
+    "title": "Team Player?",
+    "desc": "Hit an ally. They will remember."
+  },
+  {
+    "id": "trap_finder",
+    "title": "Trap Finder",
+    "desc": "Found a trap. With your face."
+  },
+  {
+    "id": "big_game_hunter",
+    "title": "Big Game Hunter",
+    "desc": "Defeated a boss. Sponsors are calling."
+  },
+  {
+    "id": "inventory_problems",
+    "title": "Inventory Problems",
+    "desc": "Carrying ten useless items. Commitment."
+  },
+  {
+    "id": "crowd_pleaser",
+    "title": "Crowd Pleaser",
+    "desc": "The viewer count spiked because of you. Don't let it go to your head."
+  },
+  {
+    "id": "last_one_standing",
+    "title": "Last One Standing",
+    "desc": "Everyone else went down. You're the show now."
+  }
+]
