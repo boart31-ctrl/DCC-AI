@@ -22,6 +22,7 @@ my-pack/
   "version": "1.0.0",
   "language": "en",
   "systemName": "The System",
+  "notifyPrefix": "New achievement!",
   "lootTiers": [
     { "id": "bronze", "name": "Bronze Box", "color": "#cd7f32" },
     { "id": "silver", "name": "Silver Box", "color": "#c0c0c0" },
@@ -44,6 +45,7 @@ my-pack/
   ]
 }
 ```
+`notifyPrefix` (optional) is the banner text shown above achievement pop-ups.
 `stats` and `resources` define what every character sheet shows (generic — your rulebook decides the
 actual numbers). `voices` are the System personalities the GM can switch live; pre-rendered audio may
 exist per voice under `audio/<voiceId>/`.
@@ -51,17 +53,21 @@ exist per voice under `audio/<voiceId>/`.
 ## achievements.json
 ```json
 [
-  { "id": "first_blood", "title": "First Blood", "desc": "You hit something. It hit back.", "voice": "achievement_first_blood" }
+  { "id": "first_blood", "title": "First Blood", "desc": "You hit something. It hit back.",
+    "reward": "A Bronze Box", "group": "Combat", "voice": "achievement_first_blood" }
 ]
 ```
-`voice` is an optional quip id from `quips.json`.
+`voice` is an optional quip id from `quips.json`. `reward` (optional) is shown under the description;
+the GM still hands out the reward by hand. `group` (optional) groups achievements in the GM catalog.
 
 ## items.json
 ```json
 [
-  { "id": "rubber_duck", "name": "Slightly Damp Rubber Duck", "desc": "Squeaks when lied to. Probably.", "rarity": "common", "image": "rubber_duck.webp" }
+  { "id": "rubber_duck", "name": "Slightly Damp Rubber Duck", "desc": "Squeaks when lied to. Probably.",
+    "flavor": "Found floating in a puddle that should not exist.", "rarity": "common", "image": "rubber_duck.webp" }
 ]
 ```
+`desc` is the short rules text; `flavor` (optional) is longer text shown in italics.
 Rarity: `common`, `uncommon`, `rare`, `epic`, `legendary`. `image` is relative to `images/` and optional
 (the UI draws a rarity-colored placeholder).
 

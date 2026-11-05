@@ -167,6 +167,16 @@ test('full flow: handshake, award, loot, quip → play, audio.done releases next
   const pv = await pl.next((m) => m.t === 'view' && m.view.me.notes === 'remember the duck');
   assert.equal(pv.view.me.inventory[0].itemId, 'crown');
 
+  // group message with onStage → player event + view, stage announcement
+  gm.send({ t: 'msg.send', to: 'all', text: 'Floor 2 opens', onStage: true, rid: 'm' });
+  const mid = (await gm.next((m) => m.rid === 'm')).result.id;
+  const pm = await pl.next((m) => m.t === 'event' && m.event.kind === 'message');
+  assert.deepEqual([pm.event.id, pm.event.group, pm.event.to], [mid, true, 'all']);
+  const an = await stage.next((m) => m.t === 'event' && m.event.kind === 'announcement');
+  assert.equal(an.event.text, 'Floor 2 opens');
+  const mv = await pl.next((m) => m.t === 'view' && m.view.me.messages.length === 1);
+  assert.equal(mv.view.me.messages[0].group, true);
+
   // queue.clear sends stop
   gm.send({ t: 'queue.clear' });
   await stage.next((m) => m.t === 'stop');

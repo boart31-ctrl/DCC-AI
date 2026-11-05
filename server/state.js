@@ -19,6 +19,8 @@ const bad = (msg) => new ActionError('bad_request', msg);
 const notFound = (msg) => new ActionError('not_found', msg);
 
 export const FEED_SIZE = 30;
+export const MAX_MESSAGES = 200;
+export const GM_MESSAGES = 50;
 export const MAX_PLAYERS = 12;
 export const HYPE_WINDOW_MS = 5 * 60_000;
 export const HYPE_FULL = 0.5; // sum of recent viewer bumps (as fraction) that equals hype 1.0
@@ -60,6 +62,7 @@ export function createState(pack, now = Date.now()) {
     audience: { viewers: pack.audience.startViewers, bumps: [], lastActivity: now, lastDecay: now },
     usedQuips: {},
     feed: [],
+    messages: [],
   };
 }
 
@@ -85,16 +88,25 @@ export function normalizeState(raw, pack, now = Date.now()) {
   if (!Array.isArray(s.audience.bumps)) s.audience.bumps = [];
   s.usedQuips = raw.usedQuips && typeof raw.usedQuips === 'object' ? raw.usedQuips : {};
   s.feed = Array.isArray(raw.feed) ? raw.feed.slice(-FEED_SIZE) : [];
+  s.messages = Array.isArray(raw.messages) ? raw.messages : [];
   s.players = (Array.isArray(raw.players) ? raw.players : []).map((p, i) => {
     const sheet = freshSheet(pack);
+    // Pre-messaging saves stored private messages on the player; move them into state.messages.
+    const { secrets, ...rest } = p;
+    for (const m of Array.isArray(secrets) ? secrets : []) {
+      if (s.messages.some((x) => x.id === m.id)) continue;
+      s.messages.push({ id: m.id, at: m.at ?? 0, from: m.from ?? pack.systemName, text: m.text ?? '', to: [p.id], onStage: false, readBy: m.read ? [p.id] : [] });
+    }
     return {
       title: '', klass: '', race: '', gold: 0, notes: '', level: 1,
-      color: PALETTE[i % PALETTE.length], inventory: [], achievements: [], secrets: [],
-      ...p,
+      color: PALETTE[i % PALETTE.length], inventory: [], achievements: [],
+      ...rest,
       stats: { ...sheet.stats, ...(p.stats ?? {}) },
       resources: { ...sheet.resources, ...(p.resources ?? {}) },
     };
   });
+  s.messages.sort((a, b) => a.at - b.at);
+  s.messages = s.messages.slice(-MAX_MESSAGES);
   return s;
 }
 
@@ -199,6 +211,7 @@ function invItem(item, ctx) {
     itemId: item.id,
     name: item.name,
     desc: item.desc,
+    flavor: item.flavor ?? '',
     rarity: item.rarity,
     image: item.image,
     at: ctx.now,
@@ -249,7 +262,7 @@ const GM = {
       id: ctx.genId('p'), name, color: c, level: 1, pin,
       title: '', klass: '', race: '', gold: 0, notes: '',
       ...freshSheet(ctx.pack),
-      inventory: [], achievements: [], secrets: [],
+      inventory: [], achievements: [],
     };
     st.players.push(p);
     out.result = { playerId: p.id, pin };
@@ -323,11 +336,17 @@ const GM = {
         id: null,
         title: str(a.title, 'title', 80),
         desc: str(a.desc, 'desc', 300, { optional: true, allowEmpty: true }) ?? '',
+        reward: str(a.reward, 'reward', 200, { optional: true, allowEmpty: true }) ?? '',
+        group: '',
         voice: null,
       };
     }
-    p.achievements.push({ uid: ctx.genId('a'), achId: ach.id, title: ach.title, desc: ach.desc, at: ctx.now });
-    const ev = out.emit({ kind: 'achievement', playerId: p.id, title: ach.title, desc: ach.desc }, 'all');
+    const rec = { uid: ctx.genId('a'), achId: ach.id, title: ach.title, desc: ach.desc, reward: ach.reward, group: ach.group, at: ctx.now };
+    p.achievements.push(rec);
+    const ev = out.emit(
+      { kind: 'achievement', playerId: p.id, achId: ach.id, title: ach.title, desc: ach.desc, reward: ach.reward, group: ach.group },
+      'all',
+    );
     feedPush(st, ev, `${p.name} earned "${ach.title}"`);
     out.emit(bumpPct(st, ctx, randRange(ctx.rng, 0.05, 0.15)));
     const voiced = ach.voice && ctx.pack.quipsById.get(ach.voice);
@@ -401,18 +420,37 @@ const GM = {
     touch(st, ctx);
   },
 
-  'secret.send'(st, a, ctx, out) {
-    const p = playerOf(st, a.playerId);
+  'msg.send'(st, a, ctx, out) {
+    let to;
+    if (a.to === 'all') to = 'all';
+    else if (Array.isArray(a.to) && a.to.length && a.to.length <= MAX_PLAYERS) {
+      to = [...new Set(a.to)].map((id) => playerOf(st, id).id);
+    } else throw bad("to must be 'all' or a non-empty array of playerIds");
+    if (a.onStage !== undefined && typeof a.onStage !== 'boolean') throw bad('onStage must be a boolean');
     const msg = {
       id: ctx.genId('m'),
       at: ctx.now,
       from: str(a.from, 'from', 60, { optional: true }) ?? ctx.pack.systemName,
       text: str(a.text, 'text', 1000),
-      read: false,
+      to,
+      onStage: !!a.onStage && isGroup(to),
+      readBy: [],
     };
-    p.secrets.push(msg);
-    out.emit({ kind: 'secret', playerId: p.id }, { roles: ['gm'], playerId: p.id });
+    st.messages.push(msg);
+    if (st.messages.length > MAX_MESSAGES) st.messages = st.messages.slice(-MAX_MESSAGES);
+    const group = isGroup(to);
+    const recipients = to === 'all' ? { roles: ['gm', 'player'] } : { roles: ['gm'], playerIds: to };
+    out.emit({ kind: 'message', id: msg.id, group, from: msg.from, to }, recipients);
+    // The message id doubles as the event envelope id (it is unique per send).
+    // Legacy event kept for clients written against the original `secret.send` protocol.
+    if (!group) out.emit({ kind: 'secret', playerId: to[0], messageId: msg.id }, { roles: ['gm'], playerId: to[0] });
+    if (msg.onStage) out.emit({ kind: 'announcement', messageId: msg.id, from: msg.from, text: msg.text }, { roles: ['stage'] });
     out.result = { id: msg.id };
+  },
+
+  'secret.send'(st, a, ctx, out) {
+    if (typeof a.playerId !== 'string') throw bad('playerId required');
+    GM['msg.send'](st, { to: [a.playerId], text: a.text, from: a.from }, ctx, out);
   },
 
   'audience.bump'(st, a, ctx, out) {
@@ -454,6 +492,15 @@ const GM = {
   },
 };
 
+// Group = everyone, or more than one named recipient.
+function isGroup(to) {
+  return to === 'all' || to.length > 1;
+}
+
+function addressedTo(m, playerId) {
+  return m.to === 'all' || m.to.includes(playerId);
+}
+
 function notesText(v) {
   if (typeof v !== 'string') throw bad('notes must be a string');
   if (v.length > 2000) throw bad('notes too long (max 2000)');
@@ -463,9 +510,9 @@ function notesText(v) {
 const PLAYER = {
   'secret.read'(st, a) {
     const p = playerOf(st, a.actorId);
-    const m = p.secrets.find((s) => s.id === a.id);
-    if (!m) throw notFound(`no secret ${a.id}`);
-    m.read = true;
+    const m = st.messages.find((x) => x.id === a.id && addressedTo(x, p.id));
+    if (!m) throw notFound(`no message ${a.id}`);
+    if (!m.readBy.includes(p.id)) m.readBy.push(p.id);
   },
   'me.notes'(st, a) {
     playerOf(st, a.actorId).notes = notesText(a.text);
@@ -536,12 +583,21 @@ export function reduce(state, action, ctx) {
 const CATEGORY_LABELS = { nat1: 'Nat 1', nat20: 'Nat 20', levelup: 'Level up' };
 const categoryLabel = (id) => CATEGORY_LABELS[id] ?? (id.charAt(0).toUpperCase() + id.slice(1)).replace(/_/g, ' ');
 
-function fullPlayer(p) {
+function messagesFor(state, playerId) {
+  return state.messages
+    .filter((m) => addressedTo(m, playerId))
+    .map((m) => ({ id: m.id, at: m.at, from: m.from, text: m.text, group: isGroup(m.to), read: m.readBy.includes(playerId) }));
+}
+
+function fullPlayer(state, p) {
+  const messages = messagesFor(state, p.id);
   return {
     id: p.id, name: p.name, color: p.color, level: p.level,
     title: p.title, klass: p.klass, race: p.race,
     stats: p.stats, resources: p.resources, gold: p.gold, notes: p.notes,
-    inventory: p.inventory, achievements: p.achievements, secrets: p.secrets,
+    inventory: p.inventory, achievements: p.achievements,
+    secrets: messages.filter((m) => !m.group).map(({ group, ...m }) => m),
+    messages,
   };
 }
 
@@ -555,6 +611,7 @@ function common(state, pack, opts) {
       name: pack.name,
       version: pack.version,
       systemName: pack.systemName,
+      notifyPrefix: pack.notifyPrefix ?? '',
       lootTiers: pack.lootTiers,
       stats: pack.stats.map(({ id, label, abbr }) => ({ id, label, abbr })),
       resources: pack.resources.map(({ id, label, color }) => ({ id, label, color })),
@@ -580,7 +637,7 @@ export function viewFor(state, pack, role, opts = {}) {
   const q = opts.queue ?? { queue: [], pendingAuto: [], playing: null };
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
-    v.me = p ? fullPlayer(p) : null;
+    v.me = p ? fullPlayer(state, p) : null;
   } else if (role === 'stage') {
     v.joinUrl = opts.urls?.join ?? '';
     v.queueLength = q.queue.length + (q.playing ? 1 : 0);
@@ -591,15 +648,19 @@ export function viewFor(state, pack, role, opts = {}) {
       stageUrl: opts.urls?.stage ?? '',
       gmUrl: opts.urls?.gm ?? '',
       pins: Object.fromEntries(state.players.map((p) => [p.id, p.pin])),
-      playersFull: state.players.map(fullPlayer),
+      playersFull: state.players.map((p) => fullPlayer(state, p)),
+      messages: state.messages.slice(-GM_MESSAGES).map((m) => ({
+        id: m.id, at: m.at, from: m.from, text: m.text, to: m.to,
+        group: isGroup(m.to), onStage: m.onStage, readBy: m.readBy,
+      })),
       quipCategories: cats.map((id) => ({
         id,
         label: categoryLabel(id),
         left: quipsLeft(pack, state.usedQuips, id),
         total: pack.quipsByCategory.get(id)?.length ?? 0,
       })),
-      achievementsCatalog: pack.achievements.map(({ id, title, desc }) => ({ id, title, desc })),
-      itemsCatalog: pack.items.map(({ id, name, rarity }) => ({ id, name, rarity })),
+      achievementsCatalog: pack.achievements.map(({ id, title, desc, reward, group }) => ({ id, title, desc, reward, group })),
+      itemsCatalog: pack.items.map(({ id, name, rarity, desc, flavor }) => ({ id, name, rarity, desc, flavor })),
       pendingAuto: q.pendingAuto,
       queue: q.queue,
       playing: q.playing,

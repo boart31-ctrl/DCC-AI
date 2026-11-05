@@ -148,10 +148,10 @@ test('me.notes by player, max 2000', () => {
 test('secret.send + secret.read', () => {
   const { state, id } = withPlayer();
   const r = gm(state, { t: 'secret.send', playerId: id, text: 'psst', from: 'Sponsor' });
-  assert.deepEqual(r.events[0].to, { roles: ['gm'], playerId: id });
+  assert.deepEqual(r.events.find((e) => e.event.kind === 'secret').to, { roles: ['gm'], playerId: id });
   const mid = r.result.id;
   const rd = reduce(r.state, { role: 'player', actorId: id, t: 'secret.read', id: mid }, ctx());
-  assert.equal(rd.state.players[0].secrets[0].read, true);
+  assert.equal(viewFor(rd.state, pack, 'player', { playerId: id }).me.secrets[0].read, true);
 });
 
 test('session.voice, mode, auto, budget, new', () => {
@@ -247,4 +247,116 @@ test('authenticate + rate limit: 5 failed PINs per IP per minute', () => {
   t = 60_001;
   assert.equal(authenticate(state, { role: 'player', room: state.room, pin: '1234' }, 'ip', lim).ok, true);
   assert.equal(authenticate(state, { role: 'player', room: 'ZZZZ', pin: '1234' }, 'x', lim).code, 'bad_auth');
+});
+
+// ---------- messaging + pass-through fields ----------
+
+function twoPlayers() {
+  let s = createState(pack, 0);
+  const a = gm(s, { t: 'player.add', name: 'A', pin: '1111' });
+  const b = gm(a.state, { t: 'player.add', name: 'B', pin: '2222' });
+  return { state: b.state, a: a.result.playerId, b: b.result.playerId };
+}
+
+test('msg.send to all: group message, event to gm+players, announcement only with onStage', () => {
+  const { state, a, b } = twoPlayers();
+  const r = gm(state, { t: 'msg.send', to: 'all', text: 'Floor 2 opens', onStage: true });
+  const m = r.state.messages[0];
+  assert.equal(m.from, pack.systemName);
+  assert.equal(m.to, 'all');
+  const kinds = r.events.map((e) => e.event.kind);
+  assert.deepEqual(kinds, ['message', 'announcement']);
+  assert.deepEqual(r.events[0].to, { roles: ['gm', 'player'] });
+  assert.deepEqual(
+    (({ at, ...rest }) => rest)(r.events[0].event),
+    { kind: 'message', id: m.id, group: true, from: 'The System', to: 'all' },
+  );
+  assert.deepEqual(r.events[1].to, { roles: ['stage'] });
+  assert.equal(r.events[1].event.text, 'Floor 2 opens');
+  assert.equal(r.events[1].event.messageId, m.id);
+  assert.equal(r.lines.length, 0, 'announcement has no audio');
+  for (const id of [a, b]) {
+    const me = viewFor(r.state, pack, 'player', { playerId: id }).me;
+    assert.deepEqual(me.messages.map((x) => [x.text, x.group, x.read]), [['Floor 2 opens', true, false]]);
+    assert.deepEqual(me.secrets, [], 'group messages are not secrets');
+  }
+  const noStage = gm(state, { t: 'msg.send', to: 'all', text: 'x' });
+  assert.deepEqual(noStage.events.map((e) => e.event.kind), ['message']);
+});
+
+test('msg.send to a subset: only those players; onStage ignored for private', () => {
+  const { state, a, b } = twoPlayers();
+  const r = gm(state, { t: 'msg.send', to: [a], text: 'psst', from: 'Sponsor', onStage: true });
+  assert.deepEqual(r.events.map((e) => e.event.kind), ['message', 'secret']);
+  assert.deepEqual(r.events[0].to, { roles: ['gm'], playerIds: [a] });
+  assert.equal(r.events[0].event.group, false);
+  const meA = viewFor(r.state, pack, 'player', { playerId: a }).me;
+  const meB = viewFor(r.state, pack, 'player', { playerId: b }).me;
+  assert.equal(meA.secrets[0].text, 'psst');
+  assert.equal(meA.secrets[0].from, 'Sponsor');
+  assert.equal(meA.messages[0].group, false);
+  assert.deepEqual(meB.messages, []);
+  const g = gm(state, { t: 'msg.send', to: [a, b], text: 'duo' });
+  assert.equal(g.events[0].event.group, true);
+  assert.equal(viewFor(g.state, pack, 'player', { playerId: b }).me.messages[0].group, true);
+});
+
+test('msg.send validation', () => {
+  const { state, a } = twoPlayers();
+  assert.throws(() => gm(state, { t: 'msg.send', to: [], text: 'x' }), ActionError);
+  assert.throws(() => gm(state, { t: 'msg.send', to: 'everyone', text: 'x' }), ActionError);
+  assert.throws(() => gm(state, { t: 'msg.send', to: ['p_nope'], text: 'x' }), (e) => e.code === 'not_found');
+  assert.throws(() => gm(state, { t: 'msg.send', to: [a], text: 'x'.repeat(1001) }), /too long/);
+  assert.throws(() => gm(state, { t: 'msg.send', to: [a], text: 'x', onStage: 'yes' }), ActionError);
+});
+
+test('secret.read marks private and group messages read per player', () => {
+  const { state, a, b } = twoPlayers();
+  let s = gm(state, { t: 'msg.send', to: 'all', text: 'hi all' }).state;
+  s = gm(s, { t: 'secret.send', playerId: a, text: 'hi a' }).state;
+  const [gid, pid] = s.messages.map((m) => m.id);
+  s = reduce(s, { role: 'player', actorId: a, t: 'secret.read', id: gid }, ctx()).state;
+  s = reduce(s, { role: 'player', actorId: a, t: 'secret.read', id: pid }, ctx()).state;
+  const meA = viewFor(s, pack, 'player', { playerId: a }).me;
+  assert.ok(meA.messages.every((m) => m.read));
+  assert.equal(meA.secrets[0].read, true);
+  assert.equal(viewFor(s, pack, 'player', { playerId: b }).me.messages[0].read, false);
+  assert.throws(() => reduce(s, { role: 'player', actorId: b, t: 'secret.read', id: pid }, ctx()), (e) => e.code === 'not_found');
+});
+
+test('messages capped at 200 in state, gm view shows last 50', () => {
+  const { state, a } = twoPlayers();
+  let s = state;
+  for (let i = 0; i < 205; i++) s = gm(s, { t: 'msg.send', to: [a], text: `m${i}` }).state;
+  assert.equal(s.messages.length, 200);
+  assert.equal(s.messages[0].text, 'm5');
+  const gv = viewFor(s, pack, 'gm', {});
+  assert.equal(gv.gm.messages.length, 50);
+  assert.equal(gv.gm.messages[49].text, 'm204');
+  assert.deepEqual(gv.gm.messages[0].to, [a]);
+});
+
+test('normalizeState migrates legacy players[].secrets into messages', () => {
+  const old = { room: 'ABCD', players: [{ id: 'p_1', name: 'Old', pin: '0000', secrets: [{ id: 'm_1', at: 5, from: 'S', text: 'old', read: true }] }] };
+  const s = normalizeState(old, pack);
+  assert.equal(s.players[0].secrets, undefined);
+  const me = viewFor(s, pack, 'player', { playerId: 'p_1' }).me;
+  assert.deepEqual(me.secrets, [{ id: 'm_1', at: 5, from: 'S', text: 'old', read: true }]);
+});
+
+test('achievement reward/group and item flavor flow into state, events and views', () => {
+  const { state, id } = withPlayer();
+  let r = gm(state, { t: 'ach.award', playerId: id, achId: 'first_blood' });
+  assert.equal(r.events[0].event.reward, 'Bronze Box');
+  assert.equal(r.events[0].event.group, 'Combat');
+  assert.equal(r.state.players[0].achievements[0].reward, 'Bronze Box');
+  r = gm(r.state, { t: 'ach.award', playerId: id, title: 'Custom', reward: 'A hug' });
+  assert.equal(r.state.players[0].achievements[1].reward, 'A hug');
+  assert.equal(r.events[0].event.reward, 'A hug');
+  r = gm(r.state, { t: 'loot.open', playerId: id, tier: 'bronze' }, { rng: seq(0.9) });
+  assert.equal(r.events[0].event.item.flavor, 'Forged by someone who really hated bread.');
+  const gv = viewFor(r.state, pack, 'gm', {});
+  assert.equal(gv.pack.notifyPrefix, 'New achievement!');
+  assert.equal(gv.gm.achievementsCatalog[0].reward, 'Bronze Box');
+  assert.equal(gv.gm.itemsCatalog.find((i) => i.id === 'sword').flavor, 'Forged by someone who really hated bread.');
 });

@@ -65,3 +65,15 @@ test('rejects unsafe asset paths', () => {
   assert.equal(pack.itemsById.get('x').image, null);
   assert.ok(warnings.some((w) => w.includes('unsafe')));
 });
+
+test('passes through reward, group, flavor, notifyPrefix without warnings', () => {
+  const { pack, warnings } = loadPack(writePack(tmpDir()));
+  assert.equal(pack.notifyPrefix, 'New achievement!');
+  const a = pack.achievementsById.get('first_blood');
+  assert.deepEqual([a.reward, a.group], ['Bronze Box', 'Combat']);
+  assert.deepEqual([pack.achievementsById.get('plain').reward, pack.achievementsById.get('plain').group], ['', '']);
+  assert.equal(pack.itemsById.get('sword').flavor, 'Forged by someone who really hated bread.');
+  assert.equal(pack.itemsById.get('duck').flavor, '');
+  assert.deepEqual(warnings, []);
+  assert.equal(fallbackPack().notifyPrefix, '');
+});

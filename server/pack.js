@@ -96,6 +96,7 @@ function loadMeta(raw, warnings) {
     version: isStr(raw.version) ? raw.version : '0.0.0',
     language: isStr(raw.language) ? raw.language : 'en',
     systemName: isStr(raw.systemName) ? raw.systemName : 'The System',
+    notifyPrefix: isStr(raw.notifyPrefix) ? raw.notifyPrefix.trim().slice(0, 60) : '',
     lootTiers,
     audience: { startViewers, sponsorHypeThreshold },
     autoBudget,
@@ -204,7 +205,14 @@ function loadAchievements(raw, quipsById, warnings) {
       warnings.push(`achievements.json ${a.id}: voice "${voice}" is not a quip id, ignoring`);
       voice = null;
     }
-    return { id: a.id, title: a.title, desc: typeof a.desc === 'string' ? a.desc : '', voice };
+    return {
+      id: a.id,
+      title: a.title,
+      desc: typeof a.desc === 'string' ? a.desc : '',
+      reward: isStr(a.reward) ? a.reward.trim() : '',
+      group: isStr(a.group) ? a.group.trim() : '',
+      voice,
+    };
   });
 }
 
@@ -232,6 +240,7 @@ function loadItems(dir, raw, warnings) {
       id: it.id,
       name: it.name,
       desc: typeof it.desc === 'string' ? it.desc : '',
+      flavor: isStr(it.flavor) ? it.flavor.trim() : '',
       rarity,
       image: assetUrl(dir, 'images', it.image, warnings, `item ${it.id}`),
     };
@@ -336,6 +345,7 @@ export function fallbackPack() {
     version: '0.0.0',
     language: 'en',
     systemName: 'The System',
+    notifyPrefix: '',
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },
     autoBudget: 6,

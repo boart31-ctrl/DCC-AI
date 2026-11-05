@@ -19,6 +19,7 @@ export function writePack(dir, overrides = {}) {
       ],
       audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },
       autoBudget: 3,
+      notifyPrefix: 'New achievement!',
       stats: [{ id: 'str', label: 'Strength', abbr: 'STR', default: 3 }],
       resources: [{ id: 'hp', label: 'Health', color: '#ff3355', default: 10 }],
       voices: [
@@ -27,12 +28,12 @@ export function writePack(dir, overrides = {}) {
       ],
     },
     'achievements.json': [
-      { id: 'first_blood', title: 'First Blood', desc: 'You hit something.', voice: 'ach_fb' },
+      { id: 'first_blood', title: 'First Blood', desc: 'You hit something.', voice: 'ach_fb', reward: 'Bronze Box', group: 'Combat' },
       { id: 'plain', title: 'Plain', desc: 'No voice.' },
     ],
     'items.json': [
       { id: 'duck', name: 'Duck', desc: 'Squeak.', rarity: 'common', image: 'duck.webp' },
-      { id: 'sword', name: 'Sword', desc: 'Pointy.', rarity: 'rare' },
+      { id: 'sword', name: 'Sword', desc: 'Pointy.', rarity: 'rare', flavor: 'Forged by someone who really hated bread.' },
       { id: 'crown', name: 'Crown', desc: 'Shiny.', rarity: 'legendary' },
     ],
     'loot.json': {

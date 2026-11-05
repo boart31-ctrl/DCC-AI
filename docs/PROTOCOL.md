@@ -34,7 +34,7 @@ Each role gets its own projection.
 {
   "room": "ABCD",
   "session": { "id": "s_...", "startedAt": 0, "mode": "roleplay", "auto": false, "budgetLeft": 6, "voice": "host" },
-  "pack": { "id": "demo", "name": "Demo Pack", "version": "1.0.0", "lootTiers": [ {"id":"bronze","name":"Bronze Box","color":"#cd7f32"} ],
+  "pack": { "id": "demo", "name": "Demo Pack", "version": "1.0.0", "systemName": "The System", "notifyPrefix": "New achievement!", "lootTiers": [ {"id":"bronze","name":"Bronze Box","color":"#cd7f32"} ],
             "stats": [ {"id":"str","label":"Strength","abbr":"STR"} ], "resources": [ {"id":"hp","label":"Health","color":"#ff3355"} ],
             "voices": [ {"id":"host","label":"Game-show host"} ] },
   "audience": { "viewers": 1200, "hype": 0.3 },
@@ -53,12 +53,17 @@ Each role gets its own projection.
     "stats": { "str": 3, "dex": 2 },
     "resources": { "hp": { "cur": 12, "max": 15 } },
     "gold": 0, "notes": "",
-    "inventory": [ { "uid": "i_...", "itemId": "rubber_duck", "name": "...", "desc": "...", "rarity": "common", "image": "/pack/images/rubber_duck.webp" } ],
-    "achievements": [ { "uid": "a_...", "achId": "first_blood", "title": "...", "desc": "...", "at": 0 } ],
-    "secrets": [ { "id": "m_...", "at": 0, "from": "Sponsor", "text": "...", "read": false } ]
+    "inventory": [ { "uid": "i_...", "itemId": "rubber_duck", "name": "...", "desc": "...", "flavor": "", "rarity": "common", "image": "/pack/images/rubber_duck.webp", "at": 0 } ],
+    "achievements": [ { "uid": "a_...", "achId": "first_blood", "title": "...", "desc": "...", "reward": "", "group": "", "at": 0 } ],
+    "secrets": [ { "id": "m_...", "at": 0, "from": "Sponsor", "text": "...", "read": false } ],
+    "messages": [ { "id": "m_...", "at": 0, "from": "The System", "text": "...", "group": true, "read": false } ]
   }
 }
 ```
+`messages` = every message addressed to this player, oldest first: private ones (`group: false`) and
+group ones (`group: true`, sent to `all` or to several players). `secrets` = only the private ones
+(kept for backwards compatibility). `read` is per player. `flavor`, `reward`, `group` are `""` when the
+pack does not set them; `achId` is `null` for custom achievements.
 
 ### GM view adds
 ```json
@@ -72,10 +77,13 @@ Each role gets its own projection.
     "achievementsCatalog": [ { "id": "first_blood", "title": "...", "desc": "..." } ],
     "pendingAuto": [ { "id": "q_...", "text": "...", "playsAt": 0 } ],
     "queue": [ { "id": "q_...", "priority": 1, "text": "..." } ],
+    "messages": [ { "id": "m_...", "at": 0, "from": "...", "text": "...", "to": "all" | ["p_x7"], "group": true, "onStage": false, "readBy": ["p_x7"] } ],
     "aiAvailable": false
   }
 }
 ```
+`gm.messages` = last 50 messages of the session, all recipients. The server keeps at most 200 messages
+(oldest dropped). `achievementsCatalog` entries also carry `reward` and `group`.
 
 ### Stage view
 Common fields + `"joinUrl"` (for the QR code) + `"queueLength"`.
@@ -92,13 +100,14 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `player.stat` | `playerId`, `stat`, `value` **or** `delta` | Changes a stat defined in pack `stats`; event `stat` to that player + gm |
 | `player.resource` | `playerId`, `res`, `cur?`, `max?`, `delta?` | Changes hp/mana etc. (clamped 0..max) |
 | `player.remove` | `playerId` | |
-| `ach.award` | `playerId`, `achId` **or** `title`+`desc` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
+| `ach.award` | `playerId`, `achId` **or** `title`+`desc?`+`reward?` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
 | `loot.open` | `playerId`, `tier` | Rolls pack loot table for tier, adds item, event `loot` |
 | `item.give` | `playerId`, `itemId` | Direct give, no animation |
 | `item.remove` | `playerId`, `uid` | |
 | `quip.play` | `category` **or** `quipId` | P0: plays immediately on stage |
 | `say` | `text` | P0: GM typed text, spoken via TTS fallback |
-| `secret.send` | `playerId`, `text`, `from?` | Private message, player phone vibrates |
+| `msg.send` | `to`: `"all"` or `[playerId, ...]`, `text` (max 1000), `from?` (default pack `systemName`), `onStage?`: bool | Message to one, several or all players. Event `message` to recipients + gm. If `onStage` and it is a group message, stage also gets event `announcement` (text only, no audio — use `say` for voice) |
+| `secret.send` | `playerId`, `text`, `from?` | Alias for `msg.send` with `to: [playerId]` |
 | `audience.bump` | `delta` (int, may be negative) | Viewers change, hype recalculated |
 | `sponsor.box` | `playerId`, `tier?`, `sponsor?` | Loot box framed as a sponsor gift, event `sponsor` |
 | `session.mode` | `mode`: `roleplay`/`combat`/`quiet` | |
@@ -113,7 +122,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 
 | `t` | Fields | Effect |
 |-----|--------|--------|
-| `secret.read` | `id` | Marks read |
+| `secret.read` | `id` | Marks a message read for this player (private or group) |
 | `me.notes` | `text` (max 2000 chars) | Player edits own notes |
 | `ping` | — | Keepalive, server answers `pong` |
 
@@ -132,11 +141,13 @@ Players cannot change state otherwise.
 
 | `kind` | Payload | Who receives |
 |--------|---------|--------------|
-| `achievement` | `playerId`, `title`, `desc` | all |
+| `achievement` | `playerId`, `achId`, `title`, `desc`, `reward`, `group` | all |
 | `stat` | `playerId`, `stat`, `from`, `to` | that player + gm + stage |
-| `loot` | `playerId`, `tier`, `item` (full item) | all |
+| `loot` | `playerId`, `tier`, `item` (full inventory item, incl. `flavor`) | all |
 | `sponsor` | `playerId`, `sponsor`, `tier`, `item` | all |
-| `secret` | `playerId` | that player only (phone vibrates; content arrives in view) + gm |
+| `message` | `id` (= message id), `group`, `from`, `to` | recipients + gm (phone vibrates; text arrives in view) |
+| `announcement` | `messageId`, `from`, `text` | stage (only for `msg.send` with `onStage: true` and a group recipient) |
+| `secret` | `playerId`, `messageId` | legacy: also sent for every private message, to that player + gm |
 | `viewers` | `viewers`, `delta` | stage, gm |
 | `chat` | `user`, `text` | stage |
 

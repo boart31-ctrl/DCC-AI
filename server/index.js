@@ -205,7 +205,7 @@ export async function startServer(opts = {}) {
       const ok =
         to === 'all' ||
         to.roles?.includes(role) ||
-        (role === 'player' && to.playerId && to.playerId === playerId);
+        (role === 'player' && ((to.playerId && to.playerId === playerId) || to.playerIds?.includes(playerId)));
       if (ok) send(c, { t: 'event', event });
     }
   };
@@ -245,7 +245,7 @@ export async function startServer(opts = {}) {
   function archiveSession(session) {
     const file = path.join(dataDir, 'sessions', `${session.id}.json`);
     try {
-      writeJsonAtomic(file, { session, endedAt: now(), players: state.players.map(({ pin, ...p }) => p), log: eventLog });
+      writeJsonAtomic(file, { session, endedAt: now(), players: state.players.map(({ pin, ...p }) => p), messages: state.messages, log: eventLog });
       log.log(`[session] archived ${file}`);
     } catch (e) {
       log.error(`[session] archive failed: ${e.message}`);
