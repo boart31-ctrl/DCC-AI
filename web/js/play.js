@@ -1,6 +1,6 @@
 import {
-  SystemClient, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
-  prefersReducedMotion, registerSW,
+  SystemClient, TransportHub, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
+  prefersReducedMotion, registerSW, isHosted, ask,
 } from './client.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -15,7 +15,9 @@ let room = (params.get('room') || saved.room || '').toUpperCase();
 let pin = saved.room === room ? (saved.pin || '') : '';
 let entry = '';
 
-const client = new SystemClient({ hello: () => ({ role: 'player', room, pin }) });
+const client = new TransportHub();
+/** Hosted edition hooks: notes storage and read-state live outside the engine there. */
+export const ext = { hosted: false, saveNotes: null };
 
 let view = null;
 let me = null;
@@ -88,8 +90,8 @@ $('#room-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
 });
 
-$('#leave').addEventListener('click', () => {
-  if (!confirm('Leave on this phone? You can rejoin with your PIN.')) return;
+$('#leave').addEventListener('click', async () => {
+  if (!(await ask('Leave on this phone? You can rejoin with your PIN.', { ok: 'Leave' }))) return;
   forget();
   pin = '';
   everJoined = false;
@@ -141,6 +143,7 @@ client.on('view', (v) => {
   me = v.me || null;
   if (!me) return;
   render(prev);
+  maybeRecap(v.recap);
 });
 
 client.on('event', (e) => {
@@ -175,7 +178,7 @@ function render(prev) {
   if (me.title) subEl.append(h('b', me.title));
   if (me.title && rc) subEl.append(document.createTextNode('  /  '));
   if (rc) subEl.append(document.createTextNode(rc));
-  if (!me.title && !rc) subEl.append(document.createTextNode(`Room ${view.room}`));
+  if (!me.title && !rc && view.room) subEl.append(document.createTextNode(`Room ${view.room}`));
 
   $('#gold').textContent = fmtNum(me.gold ?? 0);
   $('#ach-count').textContent = me.achievements?.length ?? 0;
@@ -357,10 +360,16 @@ notesEl.addEventListener('blur', () => { if (notesDirty) { clearTimeout(notesTim
 async function saveNotes() {
   const text = notesEl.value.slice(0, 2000);
   try {
-    await client.send({ t: 'me.notes', text });
+    if (ext.saveNotes) await ext.saveNotes(text);
+    else await client.send({ t: 'me.notes', text });
     notesDirty = false;
-    $('#notes-state').textContent = 'Saved on the host';
+    $('#notes-state').textContent = ext.hosted ? 'Saved' : 'Saved on the host';
   } catch (err) {
+    if (err?.local) {
+      notesDirty = false;
+      $('#notes-state').textContent = 'Saved on this device only';
+      return;
+    }
     $('#notes-state').textContent = `Not saved: ${err.message}. Retrying`;
     clearTimeout(notesTimer);
     notesTimer = setTimeout(saveNotes, 3000);
@@ -395,6 +404,20 @@ function awaitMessage(e) {
   let done = false;
   const off = client.on('view', () => { if (!done) { done = true; off(); setTimeout(deliver, 0); } });
   setTimeout(() => { if (!done) { done = true; off(); deliver(); } }, 600);
+}
+
+let lastRecap = null;
+function maybeRecap(text) {
+  const t = String(text || '').trim();
+  if (lastRecap === null) {
+    let seen = null;
+    try { seen = localStorage.getItem('system.recapSeen'); } catch {}
+    lastRecap = t;
+    if (!t || seen === t) return;
+  } else if (!t || t === lastRecap) { lastRecap = t; return; }
+  lastRecap = t;
+  try { localStorage.setItem('system.recapSeen', t); } catch {}
+  enqueueTakeover({ kind: 'recap', text: t });
 }
 
 /* ---------- tabs ---------- */
@@ -477,6 +500,17 @@ function nextTakeover() {
       setTimeout(() => { box.classList.remove('shake'); box.classList.add('open'); }, 1300);
       setTimeout(reveal, 1750);
     }
+  } else if (e.kind === 'recap') {
+    buzz([60, 40, 60]);
+    el.style.setProperty('--glow', 'var(--acid)');
+    el.replaceChildren(h('div.to-inner.to-ach',
+      h('div.to-kicker', { style: { background: 'var(--acid)' } }, 'Previously on'),
+      h('div.sys.ach-box', { 'data-head': sysName().toUpperCase() },
+        h('div.sys-scroll', h('p.sys-desc', e.text)),
+      ),
+    ));
+    el.querySelector('.sys-scroll')?.addEventListener('click', (ev) => ev.stopPropagation());
+    dismissable(reduced ? 200 : 1500);
   } else if (e.kind === 'secret' && e._group) {
     buzz([80, 60, 80]);
     el.style.setProperty('--glow', 'var(--magenta)');
@@ -527,6 +561,24 @@ document.addEventListener('visibilitychange', () => { if (everJoined) requestWak
 
 /* ---------- boot ---------- */
 
+/** Attach a transport and start. The hosted edition skips the PIN keypad entirely. */
+export function mountPlay(transport, opts = {}) {
+  ext.hosted = !!opts.hosted;
+  ext.saveNotes = opts.saveNotes || null;
+  document.body.classList.toggle('hosted', ext.hosted);
+  if (ext.hosted) {
+    everJoined = true;
+    $('#join').hidden = true;
+    $('#leave').hidden = true;
+  }
+  client.attach(transport);
+  transport.connect?.();
+  return { client };
+}
+
+function bootNode() {
+const transport = new SystemClient({ hello: () => ({ role: 'player', room, pin }) });
+client.attach(transport);
 if (room && pin) {
   $('#join').hidden = true;
   $('#reconnect').hidden = false;
@@ -539,6 +591,6 @@ if (room && pin) {
   showJoin();
 }
 registerSW();
+}
 
-// tidy: expose for debugging in console
-window.__system = { client, toast };
+if (!isHosted()) bootNode();

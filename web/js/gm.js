@@ -1,12 +1,13 @@
 import {
-  SystemClient, takeHashToken, buzz, h, toast, itemArt, fmtNum, timeAgo,
-  rarityOf, statusText, registerSW,
+  SystemClient, TransportHub, takeHashToken, buzz, h, toast, itemArt, fmtNum, timeAgo,
+  rarityOf, statusText, registerSW, isHosted, ask,
 } from './client.js';
 
 const $ = (s, r = document) => r.querySelector(s);
-const token = takeHashToken('system.gmToken');
-
-const client = new SystemClient({ hello: () => ({ role: 'gm', token }) });
+// `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
+const client = new TransportHub();
+/** Hooks the hosted edition sets (lobby, prep cards, AI writer); all optional. */
+export const ext = { afterRender: [], customAchievementWriter: null, hosted: false };
 
 let view = null;
 const openCards = new Set();
@@ -80,6 +81,7 @@ function render() {
   renderFeed();
   renderLinks();
   renderComms();
+  renderPrep();
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -88,6 +90,7 @@ function render() {
   $('#queue-info').textContent = bits.join(', ');
   const sys = view.pack?.systemName;
   if (sys) $('.brand-name').textContent = sys;
+  for (const fn of ext.afterRender) { try { fn(view); } catch (err) { console.error(err); } }
 }
 
 function renderVoices() {
@@ -343,7 +346,7 @@ function playerDetail(p) {
             type: 'button',
             title: `Remove ${it.name}`,
             'aria-label': `Remove ${it.name}`,
-            onclick: () => { if (confirm(`Remove ${it.name} from ${p.name}?`)) act({ t: 'item.remove', playerId: p.id, uid: it.uid }, 'Item removed.'); },
+            onclick: async () => { if (await ask(`Remove ${it.name} from ${p.name}?`, { ok: 'Remove item', danger: true })) act({ t: 'item.remove', playerId: p.id, uid: it.uid }, 'Item removed.'); },
           }, '✕'),
         )))
         : h('p.empty', 'Empty. Open a loot box to fill it.'),
@@ -352,7 +355,7 @@ function playerDetail(p) {
     h('div.pc-danger',
       h('button.linkish', {
         type: 'button',
-        onclick: () => { if (confirm(`Remove ${p.name} from the game? Their inventory goes too.`)) act({ t: 'player.remove', playerId: p.id }, 'Player removed.'); },
+        onclick: async () => { if (await ask(`Remove ${p.name} from the game? Their inventory goes too.`, { ok: 'Remove player', danger: true })) act({ t: 'player.remove', playerId: p.id }, 'Player removed.'); },
       }, 'Remove player'),
     ),
   );
@@ -409,7 +412,36 @@ function achievementSheet(p) {
     },
   }, 'Award custom');
 
-  openSheet(`Achievement for ${p.name}`, [search, list, h('div.divider', 'or write one'), h('div.stack', title, desc, reward, award)], 'var(--cyan)');
+  let writer = null;
+  if (ext.customAchievementWriter) {
+    const brief = h('input.field', { placeholder: 'What happened, in a few words', maxlength: 300 });
+    const status = h('p.ai-status.mono', { 'aria-live': 'polite' });
+    const go = h('button.btn.btn-hot', {
+      type: 'button',
+      onclick: async () => {
+        const what = brief.value.trim() || title.value.trim();
+        if (!what) { brief.focus(); return; }
+        go.disabled = true;
+        status.textContent = 'Writing. This can take a few seconds.';
+        try {
+          const r = await ext.customAchievementWriter({ player: fullPlayer(p.id), brief: what, view });
+          if (r) {
+            title.value = r.title || title.value;
+            desc.value = r.desc || '';
+            reward.value = r.reward || '';
+            status.textContent = 'Draft ready. Edit it, then award.';
+          }
+        } catch (err) {
+          status.textContent = err?.userMessage || 'Could not write it. Type it yourself.';
+          if (err?.hide) writer.hidden = true;
+        } finally {
+          go.disabled = false;
+        }
+      },
+    }, 'Write it for me');
+    writer = h('div.ai-writer', h('div.say-row', brief, go), status);
+  }
+  openSheet(`Achievement for ${p.name}`, [search, list, h('div.divider', 'or write one'), h('div.stack', writer, title, desc, reward, award)], 'var(--cyan)');
   setTimeout(() => search.focus(), 30);
 }
 
@@ -442,6 +474,57 @@ function lootSheet(p, sponsor) {
     );
   }
   openSheet(sponsor ? `Sponsor box for ${p.name}` : `Loot box for ${p.name}`, body, sponsor ? 'var(--magenta)' : 'var(--acid)');
+}
+
+/* ---------- prepared cards (prep.card.*) ---------- */
+
+const PREP_GLYPH = { achievement: '✦', loot: '▣', message: '✉', line: '❝' };
+function cardNeedsPlayer(c) {
+  return (c.kind === 'achievement' || c.kind === 'loot') && !c.payload?.playerId;
+}
+function cardDetail(c) {
+  const p = c.payload || {};
+  const who = p.playerId ? (view.players?.find((x) => x.id === p.playerId)?.name || 'someone') : null;
+  if (c.kind === 'achievement') return [p.title || p.achId, who && `for ${who}`].filter(Boolean).join(' ');
+  if (c.kind === 'loot') return [(view.pack?.lootTiers?.find((t) => t.id === p.tier)?.name || p.tier), who && `for ${who}`].filter(Boolean).join(' ');
+  if (c.kind === 'message') return p.to === 'all' ? `To all: ${p.text}` : `${p.text}`;
+  return p.text || '';
+}
+let prepSig = '';
+function renderPrep() {
+  const cards = view.gm?.prepCards || [];
+  const wrap = $('#prep');
+  wrap.hidden = !cards.length;
+  const sig = JSON.stringify([cards, view.players?.map((p) => [p.id, p.name])]);
+  if (sig === prepSig) return;
+  prepSig = sig;
+  const open = cards.filter((c) => !c.used).length;
+  $('#prep-count').textContent = `${open} ready${cards.length > open ? `, ${cards.length - open} used` : ''}`;
+  $('#prep-cards').replaceChildren(...[...cards].sort((a, b) => Number(a.used) - Number(b.used)).map((c) => h('div.pcardx', { class: `pcardx k-${c.kind}${c.used ? ' used' : ''}` },
+    h('button.pc-fire', {
+      type: 'button',
+      title: c.used ? 'Already used. Tap to fire again.' : 'Fire this card',
+      onclick: () => fireCard(c),
+    },
+    h('span.g', { 'aria-hidden': 'true' }, PREP_GLYPH[c.kind] || '•'),
+    h('span.pl', c.label || c.kind),
+    h('span.pd', cardDetail(c)),
+    ),
+    h('button.pc-x', {
+      type: 'button',
+      'aria-label': `Delete card ${c.label}`,
+      onclick: async () => { if (await ask(`Delete the card "${c.label}"?`, { ok: 'Delete', danger: true })) act({ t: 'prep.card.remove', id: c.id }, 'Card deleted.'); },
+    }, '✕'),
+  )));
+}
+function fireCard(c) {
+  if (!cardNeedsPlayer(c)) { act({ t: 'prep.card.fire', id: c.id }, `Fired: ${c.label}.`); return; }
+  const players = view.players || [];
+  openSheet(`Who gets "${c.label}"?`, h('div.tier-grid', players.map((p) => h('button.tier', {
+    type: 'button',
+    style: { '--t': p.color || 'var(--cyan)' },
+    onclick: async () => { if (await act({ t: 'prep.card.fire', id: c.id, playerId: p.id }, `Fired: ${c.label} for ${p.name}.`)) closeSheet(); },
+  }, p.name))), 'var(--acid)');
 }
 
 /* ---------- comms ---------- */
@@ -659,11 +742,11 @@ sayText.addEventListener('keydown', (e) => {
 $('#copy-stage').addEventListener('click', async () => {
   const url = view?.gm?.stageUrl;
   if (!url) return;
-  try { await navigator.clipboard.writeText(url); toast('Stage link copied.'); } catch { prompt('Copy the stage link:', url); }
+  try { await navigator.clipboard.writeText(url); toast('Stage link copied.'); } catch { toast(url, { ms: 8000 }); }
 });
 
-$('#new-session').addEventListener('click', () => {
-  if (confirm('Start a new session? The current one is archived. Players and inventories stay.')) {
+$('#new-session').addEventListener('click', async () => {
+  if (await ask('Start a new session? The current one is archived. Players and inventories stay.', { ok: 'Start new session' })) {
     act({ t: 'session.new' }, 'New session started.');
   }
 });
@@ -694,9 +777,21 @@ document.addEventListener('keydown', (e) => {
 
 /* ---------- boot ---------- */
 
-if (!token) {
-  $('#gate').hidden = false;
-} else {
-  client.connect();
+/** Attach a transport and start. Used by both editions. */
+export function mountGm(transport, opts = {}) {
+  ext.hosted = !!opts.hosted;
+  document.body.classList.toggle('hosted', ext.hosted);
+  client.attach(transport);
+  transport.connect?.();
+  return { client, render: () => render(), view: () => view };
 }
-registerSW();
+
+if (!isHosted()) {
+  const token = takeHashToken('system.gmToken');
+  if (!token) {
+    $('#gate').hidden = false;
+  } else {
+    mountGm(new SystemClient({ hello: () => ({ role: 'gm', token }) }));
+  }
+  registerSW();
+}

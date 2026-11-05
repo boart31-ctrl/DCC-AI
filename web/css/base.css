@@ -310,3 +310,17 @@ textarea.field { resize: vertical; min-height: 88px; }
     transition-duration: 0.01ms !important;
   }
 }
+
+/* in-page confirm */
+.ask-dlg {
+  width: min(420px, 92vw);
+  padding: 0;
+  border: 2px solid var(--cyan);
+  background: var(--deck);
+  color: var(--ink);
+  box-shadow: 0 0 50px -12px var(--cyan);
+}
+.ask-dlg::backdrop { background: rgba(5, 2, 12, 0.75); }
+.ask-inner { padding: 18px; display: grid; gap: 16px; }
+.ask-text { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
+.ask-row { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }

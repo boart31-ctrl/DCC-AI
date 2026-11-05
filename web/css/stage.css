@@ -544,3 +544,7 @@ body.stage::before {
 /* while a big moment is on screen, the System subtitle sits at the very bottom */
 body.moment-on .subtitle { bottom: 0.8rem; width: min(90vw, 80rem); padding: 0.7rem 1.4rem 0.8rem; }
 body.moment-on .sub-text { font-size: 1.6rem; }
+.m-recap.sys { --sys-accent: var(--acid); }
+.m-recap .m-scroll .sys-desc { font-size: 2.2rem; color: #fff; }
+body.hosted .join { display: none; }
+body.recap-on .subtitle { display: none; } /* the recap text is already on screen while it is read aloud */
