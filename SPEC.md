@@ -85,8 +85,8 @@ set by the GM per player. Stage uses its own token. All on the local network.
 
 | Phase | Content | Status |
 |-------|---------|--------|
-| 0 | Spec, protocol, repo hygiene, secret scanning | in progress |
-| 1 | Engine, GM panel, player app, stage, achievements, loot, quips, secrets | in progress |
+| 0 | Spec, protocol, repo hygiene, secret scanning | done |
+| 1 | Engine, GM panel, player app, stage, character sheets, achievements, loot, quips, secrets, voices | done |
 | 2 | Audience + sponsor mechanics polish, pre-rendered voice pipeline, music ducking | — |
 | — | **Milestone: "Floor 0" test one-shot** | — |
 | 3 | The System listens: **local** speech-to-text on the host laptop (Whisper-class model, CZ/EN mix, transcript only, never audio), AI director with veto, speaker attribution | — |

@@ -1,0 +1,312 @@
+/* The System — shared tokens and primitives.
+   Two voices: BROADCAST (slanted, hot, condensed) and SYSTEM (square, cold, monospace). */
+
+:root {
+  color-scheme: dark;
+
+  /* base */
+  --void: #0a0614;
+  --deck: #150c29;
+  --deck-2: #22143f;
+  --line: #3b2a63;
+  --ink: #f5f0ff;
+  --ink-dim: #a397cc;
+
+  /* broadcast heat */
+  --magenta: #ff2fb9;
+  --cyan: #2ef2ff;
+  --acid: #e4ff2e;
+  --alarm: #ff2448;
+  --ok: #3ddc5f;
+
+  /* rarity */
+  --r-common: #9aa0a6;
+  --r-uncommon: #3ddc5f;
+  --r-rare: #3b8cff;
+  --r-epic: #b44dff;
+  --r-legendary: #ff8a1c;
+
+  /* system terminal */
+  --sys-bg: rgba(3, 12, 20, 0.94);
+  --sys-ink: #bffaff;
+
+  --f-display: "Bahnschrift", "DIN Condensed", "Avenir Next Condensed", "Roboto Condensed",
+    "Arial Narrow", "Helvetica Neue", "Inter", system-ui, sans-serif;
+  --f-body: system-ui, -apple-system, "Segoe UI", Roboto, "Inter", "Helvetica Neue", sans-serif;
+  --f-mono: ui-monospace, "SF Mono", "Cascadia Mono", "JetBrains Mono", Menlo, Consolas,
+    "DejaVu Sans Mono", "Liberation Mono", monospace;
+
+  --slant: -12deg;
+  --ease-slam: cubic-bezier(0.2, 1.6, 0.4, 1);
+  --ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  min-height: 100dvh;
+  background-color: var(--void);
+  background-image:
+    radial-gradient(60vmax 40vmax at -10% -10%, rgba(255, 47, 185, 0.16), transparent 60%),
+    radial-gradient(60vmax 40vmax at 110% 110%, rgba(46, 242, 255, 0.12), transparent 60%);
+  background-attachment: fixed;
+  color: var(--ink);
+  font-family: var(--f-body);
+  font-size: 16px;
+  line-height: 1.4;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* subtle CRT scanlines over everything */
+body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 9999;
+  background: repeating-linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.035) 0 1px,
+    transparent 1px 3px
+  );
+  mix-blend-mode: overlay;
+}
+
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; touch-action: manipulation; }
+img { max-width: 100%; display: block; }
+[hidden] { display: none !important; }
+
+:focus-visible {
+  outline: 3px solid var(--acid);
+  outline-offset: 2px;
+}
+
+.mono { font-family: var(--f-mono); }
+.dim { color: var(--ink-dim); }
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+
+/* ---------- Broadcast primitives ---------- */
+
+.chyron {
+  display: inline-block;
+  font-family: var(--f-display);
+  font-stretch: condensed;
+  font-weight: 800;
+  letter-spacing: 0.01em;
+  padding: 0.2em 0.9em;
+  background: var(--magenta);
+  color: var(--void);
+  clip-path: polygon(0.6em 0, 100% 0, calc(100% - 0.6em) 100%, 0 100%);
+}
+
+.live-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  font-family: var(--f-display);
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  background: var(--alarm);
+  color: #fff;
+  padding: 0.15em 0.7em 0.15em 0.6em;
+  clip-path: polygon(0.4em 0, 100% 0, calc(100% - 0.4em) 100%, 0 100%);
+}
+.live-badge::before {
+  content: "";
+  width: 0.55em; height: 0.55em;
+  border-radius: 50%;
+  background: #fff;
+  animation: blink 1.2s steps(2, start) infinite;
+}
+
+@keyframes blink { to { visibility: hidden; } }
+
+/* ---------- SYSTEM box (the cold voice) ---------- */
+
+.sys {
+  --sys-accent: var(--cyan);
+  position: relative;
+  background: var(--sys-bg);
+  border: 2px solid var(--sys-accent);
+  color: var(--sys-ink);
+  font-family: var(--f-mono);
+  padding: 1.6em 1.2em 1.1em;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.6), 0 0 32px -6px var(--sys-accent);
+}
+.sys::before {
+  /* the header tab */
+  content: attr(data-head);
+  position: absolute;
+  top: -0.85em;
+  left: 0.9em;
+  padding: 0 0.6em;
+  background: var(--void);
+  color: var(--sys-accent);
+  font-size: 0.8em;
+  letter-spacing: 0.2em;
+  font-weight: 700;
+}
+.sys::after {
+  /* corner brackets */
+  content: "";
+  position: absolute;
+  inset: 5px;
+  pointer-events: none;
+  background:
+    linear-gradient(var(--sys-accent), var(--sys-accent)) top right / 12px 2px no-repeat,
+    linear-gradient(var(--sys-accent), var(--sys-accent)) top right / 2px 12px no-repeat,
+    linear-gradient(var(--sys-accent), var(--sys-accent)) bottom left / 12px 2px no-repeat,
+    linear-gradient(var(--sys-accent), var(--sys-accent)) bottom left / 2px 12px no-repeat;
+  opacity: 0.8;
+}
+.sys-title {
+  font-size: 1.35em;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1.2;
+  margin: 0 0 0.35em;
+}
+.sys-desc { margin: 0; color: var(--sys-ink); }
+.cursor::after {
+  content: "_";
+  animation: blink 1s steps(2, start) infinite;
+  color: var(--sys-accent);
+}
+
+/* ---------- Rarity ---------- */
+
+[class].r-common { --r: var(--r-common); }
+[class].r-uncommon { --r: var(--r-uncommon); }
+[class].r-rare { --r: var(--r-rare); }
+[class].r-epic { --r: var(--r-epic); }
+[class].r-legendary { --r: var(--r-legendary); }
+
+.art {
+  position: relative;
+  aspect-ratio: 1;
+  overflow: hidden;
+  background: #000;
+  border: 2px solid var(--r, var(--r-common));
+}
+.art img { width: 100%; height: 100%; object-fit: cover; }
+.art.ph {
+  display: grid;
+  place-items: center;
+  background:
+    repeating-linear-gradient(45deg, transparent 0 10px, rgba(255, 255, 255, 0.04) 10px 20px),
+    radial-gradient(circle at 50% 40%, color-mix(in srgb, var(--r, var(--r-common)) 55%, transparent), transparent 70%),
+    #0c0818;
+}
+.art.ph span {
+  font-size: 2.6em;
+  line-height: 1;
+  color: var(--r, var(--r-common));
+  filter: drop-shadow(0 0 10px var(--r, var(--r-common)));
+}
+
+.rarity-tag {
+  display: inline-block;
+  font-family: var(--f-mono);
+  font-size: 0.72em;
+  letter-spacing: 0.12em;
+  color: var(--void);
+  background: var(--r, var(--r-common));
+  padding: 0.05em 0.5em;
+}
+
+/* ---------- Buttons ---------- */
+
+.btn {
+  --b: var(--deck-2);
+  --bi: var(--ink);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4em;
+  min-height: 48px;
+  padding: 0.5em 1em;
+  border: 0;
+  border-radius: 0;
+  background: var(--b);
+  color: var(--bi);
+  font-family: var(--f-display);
+  font-stretch: condensed;
+  font-weight: 800;
+  font-size: 1.05rem;
+  letter-spacing: 0.02em;
+  transition: transform 0.08s, filter 0.15s;
+}
+.btn:active { transform: scale(0.96); filter: brightness(1.3); }
+.btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-hot { --b: var(--magenta); --bi: var(--void); }
+.btn-cyan { --b: var(--cyan); --bi: var(--void); }
+.btn-acid { --b: var(--acid); --bi: var(--void); }
+.btn-alarm { --b: var(--alarm); --bi: #fff; }
+.btn-ghost { --b: transparent; box-shadow: inset 0 0 0 2px var(--line); }
+
+.field {
+  width: 100%;
+  min-height: 48px;
+  padding: 0.6em 0.8em;
+  background: #07040f;
+  border: 2px solid var(--line);
+  border-radius: 0;
+  color: var(--ink);
+}
+.field:focus { border-color: var(--cyan); outline: none; }
+textarea.field { resize: vertical; min-height: 88px; }
+
+/* ---------- Toasts ---------- */
+
+.toasts {
+  position: fixed;
+  left: 50%;
+  bottom: max(16px, env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 1000;
+  width: min(92vw, 420px);
+  pointer-events: none;
+}
+.toast {
+  font-family: var(--f-mono);
+  font-size: 0.9rem;
+  padding: 0.7em 1em;
+  background: var(--sys-bg);
+  border-left: 4px solid var(--ok);
+  color: var(--ink);
+  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6);
+  animation: toast-in 0.25s var(--ease-out);
+}
+.toast.err { border-left-color: var(--alarm); }
+.toast.out { opacity: 0; transition: opacity 0.3s; }
+@keyframes toast-in { from { transform: translateY(12px); opacity: 0; } }
+
+/* connection dot */
+.dot {
+  display: inline-block;
+  width: 0.6em; height: 0.6em;
+  border-radius: 50%;
+  background: var(--ink-dim);
+  flex: none;
+}
+.dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+.dot.off { background: #4a4060; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

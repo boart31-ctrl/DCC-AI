@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0a0614">
+  <title>The System</title>
+  <meta name="description" content="A free, local-first game-show AI for tabletop RPG nights.">
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/base.css">
+  <style>
+    .land { max-width: 980px; margin: 0 auto; padding: 48px 20px 64px; }
+    .land-top { display: flex; align-items: center; gap: 14px; }
+    .land h1 {
+      margin: 22px 0 16px;
+      font-family: var(--f-display);
+      font-stretch: condensed;
+      font-weight: 900;
+      font-style: italic;
+      font-size: clamp(3.2rem, 13vw, 8.5rem);
+      line-height: 0.86;
+      letter-spacing: -0.03em;
+      text-shadow: 5px 5px 0 var(--magenta), -3px -3px 0 rgba(46, 242, 255, 0.5);
+    }
+    .lede { font-size: 1.15rem; max-width: 56ch; color: var(--ink-dim); margin: 0 0 32px; }
+    .lede b { color: var(--ink); }
+    .doors { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+    .door {
+      --d: var(--cyan);
+      position: relative;
+      display: grid;
+      gap: 8px;
+      padding: 22px 22px 20px;
+      background: linear-gradient(150deg, color-mix(in srgb, var(--d) 22%, transparent), transparent 65%), var(--deck);
+      border-top: 5px solid var(--d);
+      color: var(--ink);
+      text-decoration: none;
+      transition: transform 0.12s;
+    }
+    .door:hover { transform: translateY(-3px); box-shadow: 0 10px 40px -14px var(--d); }
+    .door b {
+      font-family: var(--f-display);
+      font-stretch: condensed;
+      font-weight: 900;
+      font-style: italic;
+      font-size: 2.3rem;
+      line-height: 1;
+    }
+    .door span { color: var(--ink-dim); }
+    .door small { font-family: var(--f-mono); color: var(--d); font-size: 0.8rem; }
+    .door.gm { --d: var(--acid); }
+    .door.play { --d: var(--cyan); }
+    .door.stage { --d: var(--magenta); }
+    .note { margin-top: 40px; max-width: 64ch; }
+    .note .sys-desc { line-height: 1.55; }
+    footer { margin-top: 40px; font-size: 0.85rem; color: var(--ink-dim); }
+  </style>
+</head>
+<body>
+  <main class="land">
+    <div class="land-top">
+      <span class="live-badge">Live</span>
+      <span class="mono dim">Tonight's episode is about to begin</span>
+    </div>
+    <h1>The System</h1>
+    <p class="lede">A game-show host for your tabletop RPG night. <b>One laptop</b> runs the show on the TV, <b>players join from their phones</b>, and the GM decides when the System talks.</p>
+
+    <nav class="doors" aria-label="Screens">
+      <a class="door gm" href="/gm">
+        <b>GM desk</b>
+        <span>Quips, achievements, loot boxes, secrets and the big STOP button.</span>
+        <small>Use the link with the token from the host terminal</small>
+      </a>
+      <a class="door play" href="/play">
+        <b>Player</b>
+        <span>Your character sheet, inventory and private messages.</span>
+        <small>Scan the code on the TV, enter your PIN</small>
+      </a>
+      <a class="door stage" href="/stage">
+        <b>Stage</b>
+        <span>The broadcast for the TV: viewers, chat, animations and the voice.</span>
+        <small>Open on the laptop, drag to the TV, press F</small>
+      </a>
+    </nav>
+
+    <div class="sys note" data-head="SYSTEM">
+      <p class="sys-desc">Everything runs on this network. No accounts, no cloud database. Without an API key the show uses lines from the content pack and your browser's own voice. Wrong PINs are counted. I am always counting.</p>
+    </div>
+
+    <footer>Unofficial fan tool. Contains no text or art from any commercial game.</footer>
+  </main>
+  <script type="module">
+    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
+  </script>
+</body>
+</html>

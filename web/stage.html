@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0a0614">
+  <title>Stage · The System</title>
+  <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/css/base.css">
+  <link rel="stylesheet" href="/css/stage.css">
+</head>
+<body class="stage">
+  <div class="frame">
+    <header class="bug">
+      <div class="logo">
+        <span class="logo-mark" aria-hidden="true">◢</span>
+        <span class="logo-text">The System</span>
+      </div>
+      <span class="live-badge">Live</span>
+      <div class="viewers">
+        <span class="eye" aria-hidden="true"></span>
+        <span id="viewers" class="viewers-num">0</span>
+        <span class="viewers-label">watching</span>
+        <span id="viewers-delta" class="delta"></span>
+      </div>
+      <div class="hype" aria-label="Hype meter">
+        <span class="hype-label">Hype</span>
+        <div class="hype-track"><div class="hype-fill" id="hype"></div></div>
+      </div>
+    </header>
+
+    <section class="arena" aria-label="Event feed">
+      <ol id="feed" class="feed"></ol>
+    </section>
+
+    <aside class="join" id="join">
+      <img id="qr" alt="" width="220" height="220">
+      <div class="join-text">
+        <p class="join-call">Join the show</p>
+        <p class="join-url mono" id="join-url"></p>
+        <p class="join-room mono">Room <b id="room">····</b></p>
+      </div>
+    </aside>
+
+    <section class="strip" id="strip" aria-label="Crawlers"></section>
+
+    <footer class="chat" aria-label="Audience chat">
+      <span class="chat-tag">Chat</span>
+      <div class="chat-window"><div class="chat-track" id="chat"></div></div>
+    </footer>
+  </div>
+
+  <!-- the System speaking -->
+  <div class="subtitle" id="subtitle" aria-live="polite" hidden>
+    <span class="sub-who mono">SYSTEM</span>
+    <p class="sub-text mono" id="sub-text"></p>
+  </div>
+
+  <!-- big moments -->
+  <div class="moment" id="moment" hidden></div>
+
+  <!-- connection -->
+  <div class="offair" id="offair" hidden>
+    <div class="sys" data-head="SYSTEM">
+      <p class="sys-title" id="offair-title">Signal lost.</p>
+      <p class="sys-desc"><span id="offair-msg">Reconnecting to the host</span><span class="cursor"></span></p>
+    </div>
+  </div>
+
+  <!-- autoplay unlock -->
+  <button class="curtain" id="curtain" type="button">
+    <span class="curtain-kicker mono">Stage ready</span>
+    <span class="curtain-title">Click to start the broadcast</span>
+    <span class="curtain-hint mono">This unlocks sound. Press Q any time to hide the QR code.</span>
+  </button>
+
+  <audio id="music" loop preload="none"></audio>
+
+  <script type="module" src="/js/stage.js"></script>
+</body>
+</html>

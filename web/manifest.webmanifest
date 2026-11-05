@@ -1,0 +1,15 @@
+{
+  "name": "The System",
+  "short_name": "The System",
+  "description": "A free, local-first game-show AI for tabletop RPG nights.",
+  "start_url": "/play",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0a0614",
+  "theme_color": "#0a0614",
+  "icons": [
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
