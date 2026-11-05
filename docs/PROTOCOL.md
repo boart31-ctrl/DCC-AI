@@ -33,8 +33,10 @@ Each role gets its own projection.
 ```json
 {
   "room": "ABCD",
-  "session": { "id": "s_...", "startedAt": 0, "mode": "roleplay", "auto": false, "budgetLeft": 6 },
-  "pack": { "id": "demo", "name": "Demo Pack", "version": "1.0.0", "lootTiers": [ {"id":"bronze","name":"Bronze Box","color":"#cd7f32"} ] },
+  "session": { "id": "s_...", "startedAt": 0, "mode": "roleplay", "auto": false, "budgetLeft": 6, "voice": "host" },
+  "pack": { "id": "demo", "name": "Demo Pack", "version": "1.0.0", "lootTiers": [ {"id":"bronze","name":"Bronze Box","color":"#cd7f32"} ],
+            "stats": [ {"id":"str","label":"Strength","abbr":"STR"} ], "resources": [ {"id":"hp","label":"Health","color":"#ff3355"} ],
+            "voices": [ {"id":"host","label":"Game-show host"} ] },
   "audience": { "viewers": 1200, "hype": 0.3 },
   "feed": [ { "id": "e_...", "at": 0, "kind": "achievement", "playerId": "p_x7", "text": "..." } ],
   "players": [ { "id": "p_x7", "name": "Carl", "color": "#ff7a00", "level": 1, "achievementCount": 3, "connected": true } ]
@@ -47,6 +49,10 @@ Each role gets its own projection.
 {
   "me": {
     "id": "p_x7", "name": "Carl", "color": "#ff7a00", "level": 1,
+    "title": "Level 1 Crawler", "klass": "Brawler", "race": "Human",
+    "stats": { "str": 3, "dex": 2 },
+    "resources": { "hp": { "cur": 12, "max": 15 } },
+    "gold": 0, "notes": "",
     "inventory": [ { "uid": "i_...", "itemId": "rubber_duck", "name": "...", "desc": "...", "rarity": "common", "image": "/pack/images/rubber_duck.webp" } ],
     "achievements": [ { "uid": "a_...", "achId": "first_blood", "title": "...", "desc": "...", "at": 0 } ],
     "secrets": [ { "id": "m_...", "at": 0, "from": "Sponsor", "text": "...", "read": false } ]
@@ -82,7 +88,9 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `player.add` | `name`, `color?`, `pin?` | Creates player; random 4-digit PIN if none |
-| `player.update` | `playerId`, `name?`, `color?`, `level?`, `pin?` | |
+| `player.update` | `playerId`, `name?`, `color?`, `level?`, `pin?`, `title?`, `klass?`, `race?`, `gold?`, `notes?` | |
+| `player.stat` | `playerId`, `stat`, `value` **or** `delta` | Changes a stat defined in pack `stats`; event `stat` to that player + gm |
+| `player.resource` | `playerId`, `res`, `cur?`, `max?`, `delta?` | Changes hp/mana etc. (clamped 0..max) |
 | `player.remove` | `playerId` | |
 | `ach.award` | `playerId`, `achId` **or** `title`+`desc` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
 | `loot.open` | `playerId`, `tier` | Rolls pack loot table for tier, adds item, event `loot` |
@@ -96,6 +104,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `session.mode` | `mode`: `roleplay`/`combat`/`quiet` | |
 | `session.auto` | `on`: bool | Master AUTO switch. Off also clears `pendingAuto` |
 | `session.budget` | `value` | Set remaining auto budget |
+| `session.voice` | `voice` (id from pack `voices`) | Switches the System voice live; stage applies it to the next line |
 | `auto.veto` | `id` | Cancels a pending P2 line |
 | `queue.clear` | — | Stop everything: drops queue, sends `stop` to stage |
 | `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories) |
@@ -105,6 +114,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `secret.read` | `id` | Marks read |
+| `me.notes` | `text` (max 2000 chars) | Player edits own notes |
 | `ping` | — | Keepalive, server answers `pong` |
 
 Players cannot change state otherwise.
@@ -123,6 +133,7 @@ Players cannot change state otherwise.
 | `kind` | Payload | Who receives |
 |--------|---------|--------------|
 | `achievement` | `playerId`, `title`, `desc` | all |
+| `stat` | `playerId`, `stat`, `from`, `to` | that player + gm + stage |
 | `loot` | `playerId`, `tier`, `item` (full item) | all |
 | `sponsor` | `playerId`, `sponsor`, `tier`, `item` | all |
 | `secret` | `playerId` | that player only (phone vibrates; content arrives in view) + gm |
@@ -131,7 +142,7 @@ Players cannot change state otherwise.
 
 Audio for stage only:
 ```json
-{ "t": "play", "id": "q_...", "priority": 0, "text": "line text", "audio": "/pack/audio/nat1_03.mp3" | null, "voice": "system" }
+{ "t": "play", "id": "q_...", "priority": 0, "text": "line text", "audio": "/pack/audio/nat1_03.mp3" | null, "voice": { "id": "host", "lang": "en-US", "rate": 1.05, "pitch": 0.8, "prefer": ["Daniel", "Google UK English Male"] } }
 { "t": "stop" }
 ```
 If `audio` is null the stage speaks `text` with the browser's `speechSynthesis` (English voice).

@@ -28,9 +28,25 @@ my-pack/
     { "id": "gold",   "name": "Gold Box",   "color": "#ffd700" }
   ],
   "audience": { "startViewers": 1200, "sponsorHypeThreshold": 0.8 },
-  "autoBudget": 6
+  "autoBudget": 6,
+  "stats": [
+    { "id": "str", "label": "Strength", "abbr": "STR", "default": 3 },
+    { "id": "dex", "label": "Dexterity", "abbr": "DEX", "default": 3 }
+  ],
+  "resources": [
+    { "id": "hp", "label": "Health", "color": "#ff3355", "default": 10 },
+    { "id": "mp", "label": "Mana", "color": "#33aaff", "default": 5 }
+  ],
+  "voices": [
+    { "id": "host", "label": "Game-show host", "lang": "en-US", "rate": 1.08, "pitch": 1.0, "prefer": ["Google US English", "Alex", "Microsoft Guy"] },
+    { "id": "bureaucrat", "label": "Cold bureaucrat AI", "lang": "en-GB", "rate": 0.95, "pitch": 0.7, "prefer": ["Google UK English Male", "Daniel", "Microsoft Ryan"] },
+    { "id": "gremlin", "label": "Unhinged gremlin", "lang": "en-US", "rate": 1.2, "pitch": 1.4, "prefer": ["Samantha", "Microsoft Aria"] }
+  ]
 }
 ```
+`stats` and `resources` define what every character sheet shows (generic — your rulebook decides the
+actual numbers). `voices` are the System personalities the GM can switch live; pre-rendered audio may
+exist per voice under `audio/<voiceId>/`.
 
 ## achievements.json
 ```json

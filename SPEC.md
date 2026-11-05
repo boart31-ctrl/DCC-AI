@@ -25,8 +25,8 @@ books belong in your own private repo and are never published here.
 
 | Route    | Device              | Purpose |
 |----------|---------------------|---------|
-| `/gm`    | GM phone or tablet  | Big buttons: classic quips, award achievement, open loot box, secret message, viewers, AUTO switch, mode |
-| `/play`  | Each player's phone | Own character card, inventory, achievements, secret messages. Designed to lie face-down: vibrates on events |
+| `/gm`    | GM notebook (same laptop that drives the TV as a 2nd screen); tablet works too | Player sheets with live stat editing, classic quip buttons + keyboard shortcuts, achievements, loot, secrets, audience, voice switcher, AUTO switch, mode, STOP |
+| `/play`  | Each player's phone (typically 4) | The player's full interface: character sheet (stats, resources, level, gold), inventory with art, achievements, secret messages, personal notes. Vibrates + full-screen takeover on events |
 | `/stage` | Laptop → HDMI → TV  | The "broadcast": viewer counter, chat ticker, achievement and loot animations, QR to join. Plays all audio through the soundbar |
 
 ## Core mechanics (phase 1)
@@ -40,6 +40,8 @@ books belong in your own private repo and are never published here.
 - **Secret messages** — GM sends a private message to one player (e.g. a sponsor offer).
 - **Audience** — a viewer count that reacts to events, plus a fake chat ticker. Hype thresholds can
   trigger a sponsor box.
+- **Character sheets** — stats, resources (HP, mana…), level, gold and notes, defined by the pack. GM edits live, players see changes animate.
+- **Voices** — the pack defines several System personalities; GM switches them live.
 - **Session memory** — every event is logged to `data/` on the host so later sessions (and recaps) can
   reference history.
 
@@ -87,7 +89,7 @@ set by the GM per player. Stage uses its own token. All on the local network.
 | 1 | Engine, GM panel, player app, stage, achievements, loot, quips, secrets | in progress |
 | 2 | Audience + sponsor mechanics polish, pre-rendered voice pipeline, music ducking | — |
 | — | **Milestone: "Floor 0" test one-shot** | — |
-| 3 | The System listens: live STT (CZ/EN mix), AI director with veto, speaker attribution | — |
+| 3 | The System listens: **local** speech-to-text on the host laptop (Whisper-class model, CZ/EN mix, transcript only, never audio), AI director with veto, speaker attribution | — |
 | 4 | Surround: sounds moving around the table (5.1/7.1 via HDMI) | — |
 | 5 | Dice cam, cross-session memory callbacks, episode audio recaps | — |
 | 6 | Public launch: docs, demo video, pack import guide | — |
