@@ -9,7 +9,7 @@
   },
   "scripts": {
     "start": "node server/index.js",
-    "test": "node --test server/test/"
+    "test": "node --test server/test/*.test.js"
   },
   "license": "MIT",
   "dependencies": {
