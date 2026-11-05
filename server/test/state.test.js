@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { loadPack, fallbackPack } from '../pack.js';
-import { createState, normalizeState, reduce, rollLoot, viewFor, hypeOf, ActionError, MIN_VIEWERS } from '../state.js';
+import { createState, normalizeState, reduce, rollLoot, viewFor, viewForUser, hypeOf, ActionError, MIN_VIEWERS } from '../state.js';
 import { authenticate, RateLimiter, makeRoomCode, makeToken, makePin, ROOM_ALPHABET } from '../auth.js';
 import { tmpDir, writePack, seq } from './fixtures.js';
 
@@ -359,4 +359,101 @@ test('achievement reward/group and item flavor flow into state, events and views
   assert.equal(gv.pack.notifyPrefix, 'New achievement!');
   assert.equal(gv.gm.achievementsCatalog[0].reward, 'Bronze Box');
   assert.equal(gv.gm.itemsCatalog.find((i) => i.id === 'sword').flavor, 'Forged by someone who really hated bread.');
+});
+
+// ---------- hosted edition: userId, prep cards, recap ----------
+
+test('userId on player.add/update: unique, ≤64, null unassigns; viewForUser', () => {
+  let s = createState(pack, 0);
+  const a = gm(s, { t: 'player.add', name: 'A', userId: 'u1' });
+  s = a.state;
+  const pa = a.result.playerId;
+  assert.equal(s.players[0].userId, 'u1');
+  assert.throws(() => gm(s, { t: 'player.add', name: 'B', userId: 'u1' }), /already assigned/);
+  assert.throws(() => gm(s, { t: 'player.add', name: 'B', userId: 'x'.repeat(65) }), /too long/);
+  assert.throws(() => gm(s, { t: 'player.add', name: 'B', userId: 5 }), ActionError);
+  const b = gm(s, { t: 'player.add', name: 'B' });
+  s = b.state;
+  assert.equal(s.players[1].userId, null);
+  assert.throws(() => gm(s, { t: 'player.update', playerId: b.result.playerId, userId: 'u1' }), /already assigned/);
+  s = gm(s, { t: 'player.update', playerId: pa, userId: 'u1' }).state; // same player, same id: fine
+  assert.equal(viewForUser(s, pack, 'u1').me.id, pa);
+  assert.deepEqual(viewForUser(s, pack, 'u1'), viewFor(s, pack, 'player', { playerId: pa }));
+  s = gm(s, { t: 'player.update', playerId: pa, userId: null }).state;
+  assert.equal(viewForUser(s, pack, 'u1'), null);
+  assert.equal(viewForUser(s, pack, null), null);
+  s = gm(s, { t: 'player.update', playerId: b.result.playerId, userId: 'u1' }).state;
+  assert.equal(viewForUser(s, pack, 'u1').me.name, 'B');
+  assert.equal(viewFor(s, pack, 'gm', {}).gm.playersFull[1].userId, 'u1');
+  assert.equal(viewFor(s, pack, 'player', { playerId: pa }).me.userId, undefined, 'player view shape unchanged');
+});
+
+test('prep cards: add, list in gm view, fire runs the action, remove', () => {
+  const { state, a, b } = twoPlayers();
+  let s = state;
+  const add = (card) => {
+    const r = gm(s, { t: 'prep.card.add', ...card });
+    s = r.state;
+    return r.result.id;
+  };
+  const ach = add({ kind: 'achievement', label: 'Duck hunter', payload: { title: 'Duck Hunter', desc: 'Quack.', reward: 'A duck' } });
+  const loot = add({ kind: 'loot', payload: { playerId: a, tier: 'gold' } });
+  const msg = add({ kind: 'message', label: 'Sponsor ping', payload: { to: 'all', text: 'Sponsors are watching', onStage: true } });
+  const line = add({ kind: 'line', payload: { text: 'Welcome back, crawlers.', t: 'player.remove', role: 'player' } });
+  const gv = viewFor(s, pack, 'gm', {});
+  assert.equal(gv.gm.prepCards.length, 4);
+  assert.deepEqual(gv.gm.prepCards[3].payload, { text: 'Welcome back, crawlers.' }, 't/role stripped');
+  assert.equal(gv.gm.prepCards[1].label, 'loot', 'label defaults to kind');
+  assert.equal(viewFor(s, pack, 'player', { playerId: a }).gm, undefined);
+  assert.equal(JSON.stringify(viewFor(s, pack, 'stage', {})).includes('Duck Hunter'), false);
+
+  // achievement card without playerId needs one at fire time
+  assert.throws(() => gm(s, { t: 'prep.card.fire', id: ach }), /playerId required/);
+  let r = gm(s, { t: 'prep.card.fire', id: ach, playerId: b });
+  assert.equal(r.state.players[1].achievements[0].reward, 'A duck');
+  assert.equal(r.events[0].event.kind, 'achievement');
+  assert.equal(r.lines[0].priority, 1);
+  assert.deepEqual(r.result, { cardId: ach, action: 'ach.award' });
+  const fired = r.state.prepCards.find((c) => c.id === ach);
+  assert.equal(fired.used, true);
+  assert.equal(fired.usedAt, 1_000_000);
+  s = r.state;
+
+  r = gm(s, { t: 'prep.card.fire', id: loot }, { rng: seq(0) });
+  assert.equal(r.state.players[0].inventory[0].itemId, 'crown');
+  assert.equal(r.result.itemId, 'crown');
+  r = gm(s, { t: 'prep.card.fire', id: msg });
+  assert.deepEqual(r.events.map((e) => e.event.kind), ['message', 'announcement']);
+  r = gm(s, { t: 'prep.card.fire', id: line });
+  assert.deepEqual(r.lines.map((l) => [l.priority, l.text]), [[0, 'Welcome back, crawlers.']]);
+  assert.equal(r.state.players.length, 2, 'smuggled t ignored');
+
+  // failure leaves the card unused (reduce is atomic)
+  const bad = add({ kind: 'loot', payload: { tier: 'mythic' } });
+  assert.throws(() => gm(s, { t: 'prep.card.fire', id: bad, playerId: a }), /unknown loot tier/);
+  assert.equal(s.prepCards.find((c) => c.id === bad).used, false);
+
+  s = gm(s, { t: 'prep.card.remove', id: bad }).state;
+  assert.equal(s.prepCards.some((c) => c.id === bad), false);
+  assert.throws(() => gm(s, { t: 'prep.card.remove', id: bad }), (e) => e.code === 'not_found');
+  assert.throws(() => gm(s, { t: 'prep.card.fire', id: 'c_nope' }), (e) => e.code === 'not_found');
+  assert.throws(() => gm(s, { t: 'prep.card.add', kind: 'nuke', payload: {} }), /kind must be/);
+  assert.throws(() => gm(s, { t: 'prep.card.add', kind: 'line', payload: 'x' }), /payload must be an object/);
+});
+
+test('session.recap is public and resets with session.new', () => {
+  let s = createState(pack, 0);
+  assert.equal(viewFor(s, pack, 'stage', {}).recap, '');
+  s = gm(s, { t: 'session.recap', text: '  Previously on The System…  ' }).state;
+  for (const role of ['gm', 'stage', 'player']) assert.equal(viewFor(s, pack, role, {}).recap, 'Previously on The System…');
+  assert.throws(() => gm(s, { t: 'session.recap', text: 'x'.repeat(4001) }), /too long/);
+  assert.throws(() => gm(s, { t: 'session.recap' }), ActionError);
+  assert.equal(gm(s, { t: 'session.new' }).state.session.recap, '');
+});
+
+test('normalizeState fills hosted-edition fields on old saves', () => {
+  const s = normalizeState({ room: 'ABCD', session: { id: 's_1' }, players: [{ id: 'p_1', name: 'X', pin: '0000' }] }, pack);
+  assert.equal(s.players[0].userId, null);
+  assert.deepEqual(s.prepCards, []);
+  assert.equal(s.session.recap, '');
 });

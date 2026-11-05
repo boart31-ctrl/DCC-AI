@@ -1,29 +1,8 @@
-// Tokens, room code, PINs and the player PIN rate limiter.
+// Node-edition auth: token/PIN check and the player PIN rate limiter.
+// Random generators live in random.js (browser-safe) and are re-exported here for compatibility.
 import crypto from 'node:crypto';
 
-// No I, L, O (look like 1 and 0).
-export const ROOM_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ';
-
-/** URL-safe random token, 32 chars. */
-export function makeToken() {
-  return crypto.randomBytes(24).toString('base64url');
-}
-
-export function makeRoomCode(randInt = crypto.randomInt) {
-  let s = '';
-  for (let i = 0; i < 4; i++) s += ROOM_ALPHABET[randInt(ROOM_ALPHABET.length)];
-  return s;
-}
-
-/** Random 4-digit PIN not in `taken`. */
-export function makePin(taken = [], randInt = crypto.randomInt) {
-  const used = new Set(taken);
-  if (used.size >= 10000) throw new Error('no free PINs');
-  for (;;) {
-    const pin = String(randInt(10000)).padStart(4, '0');
-    if (!used.has(pin)) return pin;
-  }
-}
+export { makeToken, makeRoomCode, makePin, randInt, ROOM_ALPHABET } from './random.js';
 
 export function safeEqual(a, b) {
   if (typeof a !== 'string' || typeof b !== 'string') return false;

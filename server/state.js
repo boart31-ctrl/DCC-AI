@@ -4,9 +4,11 @@
 //   { state, events: [{ event, to }], lines: [voiceLine], effects: [{ type, ... }], result }
 // or throws ActionError. `to` is 'all' or { roles: [...], playerId? }.
 // Voice lines: { priority, text, quipId|null, crit } — the server feeds them to the VoiceQueue.
-import { makeToken, makeRoomCode, makePin } from './auth.js';
+import { makeToken, makeRoomCode, makePin, randInt, genId } from './random.js';
 import { MODES, pickQuip, markQuipUsed, quipsLeft } from './quips.js';
-import { STANDARD_CATEGORIES } from './pack.js';
+import { STANDARD_CATEGORIES } from './constants.js';
+
+export { genId };
 
 export class ActionError extends Error {
   constructor(code, msg) {
@@ -19,6 +21,9 @@ const bad = (msg) => new ActionError('bad_request', msg);
 const notFound = (msg) => new ActionError('not_found', msg);
 
 export const FEED_SIZE = 30;
+export const MAX_PREP_CARDS = 100;
+export const MAX_RECAP = 4000;
+export const PREP_KINDS = { achievement: 'ach.award', loot: 'loot.open', message: 'msg.send', line: 'say' };
 export const MAX_MESSAGES = 200;
 export const GM_MESSAGES = 50;
 export const MAX_PLAYERS = 12;
@@ -30,9 +35,6 @@ const PALETTE = ['#ff7a00', '#33aaff', '#ff3355', '#44dd77', '#cc66ff', '#ffd23f
 const COLOR_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const PIN_RE = /^\d{4}$/;
 
-export function genId(prefix) {
-  return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
-}
 
 // ---------- state construction ----------
 
@@ -44,6 +46,7 @@ function newSession(pack, now, prev) {
     auto: false,
     budgetLeft: pack.autoBudget,
     voice: prev?.voice && pack.voicesById.has(prev.voice) ? prev.voice : defaultVoiceId(pack),
+    recap: '',
   };
 }
 
@@ -63,6 +66,7 @@ export function createState(pack, now = Date.now()) {
     usedQuips: {},
     feed: [],
     messages: [],
+    prepCards: [],
   };
 }
 
@@ -89,6 +93,8 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.usedQuips = raw.usedQuips && typeof raw.usedQuips === 'object' ? raw.usedQuips : {};
   s.feed = Array.isArray(raw.feed) ? raw.feed.slice(-FEED_SIZE) : [];
   s.messages = Array.isArray(raw.messages) ? raw.messages : [];
+  s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
+  if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.players = (Array.isArray(raw.players) ? raw.players : []).map((p, i) => {
     const sheet = freshSheet(pack);
     // Pre-messaging saves stored private messages on the player; move them into state.messages.
@@ -98,7 +104,7 @@ export function normalizeState(raw, pack, now = Date.now()) {
       s.messages.push({ id: m.id, at: m.at ?? 0, from: m.from ?? pack.systemName, text: m.text ?? '', to: [p.id], onStage: false, readBy: m.read ? [p.id] : [] });
     }
     return {
-      title: '', klass: '', race: '', gold: 0, notes: '', level: 1,
+      title: '', klass: '', race: '', gold: 0, notes: '', level: 1, userId: null,
       color: PALETTE[i % PALETTE.length], inventory: [], achievements: [],
       ...rest,
       stats: { ...sheet.stats, ...(p.stats ?? {}) },
@@ -144,6 +150,14 @@ function playerOf(state, id) {
   const p = state.players.find((x) => x.id === id);
   if (!p) throw notFound(`no player ${id}`);
   return p;
+}
+
+/** Validates a hosted-edition user id: string ≤ 64 (unique) or null to unassign. */
+function userIdOf(state, v, exceptId) {
+  if (v === null) return null;
+  const id = str(v, 'userId', 64);
+  if (state.players.some((p) => p.userId === id && p.id !== exceptId)) throw bad('userId already assigned to another player');
+  return id;
 }
 
 function pinFree(state, pin, exceptId) {
@@ -258,8 +272,9 @@ const GM = {
     } else {
       pin = makePin(st.players.map((p) => p.pin), ctx.randInt);
     }
+    const userId = a.userId === undefined ? null : userIdOf(st, a.userId);
     const p = {
-      id: ctx.genId('p'), name, color: c, level: 1, pin,
+      id: ctx.genId('p'), name, color: c, level: 1, pin, userId,
       title: '', klass: '', race: '', gold: 0, notes: '',
       ...freshSheet(ctx.pack),
       inventory: [], achievements: [],
@@ -286,6 +301,7 @@ const GM = {
       patch.pin = a.pin;
     }
     for (const [k, v] of Object.entries(patch)) if (v !== undefined) p[k] = v;
+    if (a.userId !== undefined) p.userId = userIdOf(st, a.userId, p.id);
   },
 
   'player.stat'(st, a, ctx, out) {
@@ -481,6 +497,54 @@ const GM = {
     st.session.voice = a.voice;
   },
 
+  'session.recap'(st, a) {
+    if (typeof a.text !== 'string') throw bad('text must be a string');
+    if (a.text.length > MAX_RECAP) throw bad(`text too long (max ${MAX_RECAP})`);
+    st.session.recap = a.text.trim();
+  },
+
+  'prep.card.add'(st, a, ctx, out) {
+    if (!Object.hasOwn(PREP_KINDS, a.kind)) throw bad(`kind must be one of ${Object.keys(PREP_KINDS).join(', ')}`);
+    if (!a.payload || typeof a.payload !== 'object' || Array.isArray(a.payload)) throw bad('payload must be an object');
+    const { t, role, rid, ...payload } = a.payload; // payload can never smuggle in another action
+    if (JSON.stringify(payload).length > 4000) throw bad('payload too large');
+    if (st.prepCards.length >= MAX_PREP_CARDS) throw bad(`max ${MAX_PREP_CARDS} prepared cards`);
+    const card = {
+      id: ctx.genId('c'),
+      kind: a.kind,
+      label: str(a.label, 'label', 80, { optional: true }) ?? a.kind,
+      payload,
+      createdAt: ctx.now,
+      used: false,
+      usedAt: null,
+    };
+    st.prepCards.push(card);
+    out.result = { id: card.id };
+  },
+
+  'prep.card.remove'(st, a) {
+    const before = st.prepCards.length;
+    st.prepCards = st.prepCards.filter((c) => c.id !== a.id);
+    if (st.prepCards.length === before) throw notFound(`no prepared card ${a.id}`);
+  },
+
+  /**
+   * Runs the card's action with its stored payload. `playerId` / `to` on the fire action override
+   * the payload (cards are often prepared before the GM knows who earns them). Re-firing is allowed.
+   */
+  'prep.card.fire'(st, a, ctx, out) {
+    const card = st.prepCards.find((c) => c.id === a.id);
+    if (!card) throw notFound(`no prepared card ${a.id}`);
+    const t = PREP_KINDS[card.kind];
+    const action = { ...card.payload, t, role: 'gm' };
+    if (a.playerId !== undefined) action.playerId = a.playerId;
+    if (a.to !== undefined) action.to = a.to;
+    GM[t](st, action, ctx, out);
+    card.used = true;
+    card.usedAt = ctx.now;
+    out.result = { ...(out.result ?? {}), cardId: card.id, action: t };
+  },
+
   'session.new'(st, a, ctx, out) {
     out.effects.push({ type: 'archive', session: st.session });
     st.session = newSession(ctx.pack, ctx.now, st.session);
@@ -547,7 +611,7 @@ export function reduce(state, action, ctx) {
   if (!fn) throw bad(`unknown action ${action.t} for role ${action.role}`);
   const full = {
     rng: Math.random,
-    randInt: (n) => Math.floor(Math.random() * n),
+    randInt,
     genId,
     now: Date.now(),
     ...ctx,
@@ -619,6 +683,7 @@ function common(state, pack, opts) {
     },
     audience: { viewers: a.viewers, hype: Math.round(hypeOf(a, opts.now) * 100) / 100 },
     feed: state.feed,
+    recap: s.recap ?? '',
     players: state.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, level: p.level,
       achievementCount: p.achievements.length,
@@ -648,7 +713,8 @@ export function viewFor(state, pack, role, opts = {}) {
       stageUrl: opts.urls?.stage ?? '',
       gmUrl: opts.urls?.gm ?? '',
       pins: Object.fromEntries(state.players.map((p) => [p.id, p.pin])),
-      playersFull: state.players.map((p) => fullPlayer(state, p)),
+      playersFull: state.players.map((p) => ({ ...fullPlayer(state, p), userId: p.userId ?? null })),
+      prepCards: state.prepCards,
       messages: state.messages.slice(-GM_MESSAGES).map((m) => ({
         id: m.id, at: m.at, from: m.from, text: m.text, to: m.to,
         group: isGroup(m.to), onStage: m.onStage, readBy: m.readBy,
@@ -670,4 +736,14 @@ export function viewFor(state, pack, role, opts = {}) {
     };
   }
   return v;
+}
+
+/**
+ * Hosted edition: the player view for whoever is assigned to `userId`, or null if nobody is.
+ * Same shape as viewFor(..., 'player', ...).
+ */
+export function viewForUser(state, pack, userId, opts = {}) {
+  if (typeof userId !== 'string' || !userId) return null;
+  const p = state.players.find((x) => x.userId === userId);
+  return p ? viewFor(state, pack, 'player', { ...opts, playerId: p.id }) : null;
 }

@@ -77,3 +77,44 @@ test('passes through reward, group, flavor, notifyPrefix without warnings', () =
   assert.deepEqual(warnings, []);
   assert.equal(fallbackPack().notifyPrefix, '');
 });
+
+test('normalizePack works on raw objects with an assetExists callback', async () => {
+  const { normalizePack } = await import('../pack-core.js');
+  const { readPackFiles } = await import('../pack.js');
+  const { raw } = readPackFiles(writePack(tmpDir()));
+  const asked = [];
+  const { pack, warnings } = normalizePack(raw, {
+    assetExists: (sub, rel) => {
+      asked.push(`${sub}/${rel}`);
+      return rel === 'duck.webp';
+    },
+    baseUrl: './pack/',
+  });
+  assert.ok(asked.includes('images/duck.webp'));
+  assert.equal(pack.itemsById.get('duck').image, './pack/images/duck.webp');
+  assert.equal(pack.quipsById.get('nat1_01').audio, null);
+  assert.ok(warnings.some((w) => w.includes('audio/nat1_01.mp3')));
+  // default: assume every asset exists
+  assert.equal(normalizePack(raw).pack.quipsById.get('nat1_01').audio, '/pack/audio/nat1_01.mp3');
+  assert.throws(() => normalizePack({}), /pack\.json is missing/);
+  assert.throws(() => normalizePack({ ...raw, items: [{ id: 'x' }] }), /items\.json \[0\]\.name/);
+});
+
+test('serializePack/deserializePack round trip is JSON-safe and complete', async () => {
+  const { serializePack, deserializePack } = await import('../pack-core.js');
+  const { pack } = loadPack(writePack(tmpDir()));
+  const json = JSON.stringify(serializePack(pack));
+  assert.ok(!json.includes(pack.dir), 'host path not embedded');
+  const back = deserializePack(json);
+  assert.equal(back.dir, null);
+  for (const k of ['achievementsById', 'itemsById', 'quipsById', 'quipsByCategory', 'tiersById', 'statsById', 'resourcesById', 'voicesById']) {
+    assert.ok(back[k] instanceof Map, k);
+    assert.deepEqual([...back[k].keys()], [...pack[k].keys()], k);
+  }
+  assert.deepEqual(back.loot, pack.loot);
+  assert.equal(quipAudio(back.quipsById.get('nat1_01'), 'gremlin'), '/pack/audio/gremlin/nat1_01.mp3');
+  assert.deepEqual(serializePack(back), serializePack(pack));
+  assert.throws(() => deserializePack({ id: 'x' }), /format/);
+  const fb = deserializePack(serializePack(fallbackPack()));
+  assert.equal(fb.id, 'fallback');
+});

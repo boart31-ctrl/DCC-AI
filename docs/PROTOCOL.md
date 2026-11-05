@@ -82,6 +82,8 @@ pack does not set them; `achId` is `null` for custom achievements.
   }
 }
 ```
+`gm.prepCards` = `[ { "id": "c_...", "kind": "achievement", "label": "...", "payload": {...}, "createdAt": 0, "used": false, "usedAt": null } ]`.
+`gm.playersFull[]` entries also carry `userId` (hosted edition; `null` otherwise). Every view has top-level `recap` (string).
 `gm.messages` = last 50 messages of the session, all recipients. The server keeps at most 200 messages
 (oldest dropped). `achievementsCatalog` entries also carry `reward` and `group`.
 
@@ -95,8 +97,8 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 
 | `t` | Fields | Effect |
 |-----|--------|--------|
-| `player.add` | `name`, `color?`, `pin?` | Creates player; random 4-digit PIN if none |
-| `player.update` | `playerId`, `name?`, `color?`, `level?`, `pin?`, `title?`, `klass?`, `race?`, `gold?`, `notes?` | |
+| `player.add` | `name`, `color?`, `pin?`, `userId?` | Creates player; random 4-digit PIN if none |
+| `player.update` | `playerId`, `name?`, `color?`, `level?`, `pin?`, `userId?` (hosted edition: string ≤ 64, unique, or `null` to unassign), `title?`, `klass?`, `race?`, `gold?`, `notes?` | |
 | `player.stat` | `playerId`, `stat`, `value` **or** `delta` | Changes a stat defined in pack `stats`; event `stat` to that player + gm |
 | `player.resource` | `playerId`, `res`, `cur?`, `max?`, `delta?` | Changes hp/mana etc. (clamped 0..max) |
 | `player.remove` | `playerId` | |
@@ -116,6 +118,10 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `session.voice` | `voice` (id from pack `voices`) | Switches the System voice live; stage applies it to the next line |
 | `auto.veto` | `id` | Cancels a pending P2 line |
 | `queue.clear` | — | Stop everything: drops queue, sends `stop` to stage |
+| `session.recap` | `text` (max 4000) | Sets `session.recap` ("Previously on…"), shown to everyone as top-level `recap` in every view. Cleared by `session.new` |
+| `prep.card.add` | `kind`: `achievement`/`loot`/`message`/`line`, `payload` (object), `label?` | Stores a prepared one-tap card; ack `result.id`. Payload = the fields of `ach.award` / `loot.open` / `msg.send` / `say` |
+| `prep.card.remove` | `id` | |
+| `prep.card.fire` | `id`, `playerId?`, `to?` | Runs the card's action with its payload (`playerId`/`to` override it), marks the card `used`. Same events/voice lines as the underlying action |
 | `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories) |
 
 ## 4. Player actions
