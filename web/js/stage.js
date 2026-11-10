@@ -388,7 +388,8 @@ function showSub(text) {
 }
 const voicePlayer = createVoicePlayer({ ack: (id) => client.raw({ t: 'audio.done', id }), onSub: showSub, onDuck: (on) => duck(on) });
 const subOnly = createSubtitleOnly(showSub);
-const audioHere = () => !PREVIEW && (view?.show?.audioDevice ?? 'stage') === 'stage';
+// The hosted edition (claude.ai artifact) keeps its own routing: its stage always plays.
+const audioHere = () => !PREVIEW && (isHosted() || (view?.show?.audioDevice ?? 'stage') === 'stage');
 const showAudio = createShowAudio({ isDevice: () => audioHere() && started });
 
 function enqueueLine(m) {

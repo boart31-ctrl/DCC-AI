@@ -76,19 +76,26 @@ export function bossSvg(boss, { lit = true } = {}) {
   const c = threatColor(boss);
   const s = SHAPES[hash(boss?.name) % SHAPES.length];
   const id = `g${hash(`${boss?.name}${lit}`) % 1e6}`;
-  const eyes = lit ? s.eyes.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="7" fill="#fff"/><circle cx="${x}" cy="${y}" r="15" fill="${c}" opacity=".45"/>`).join('') : '';
+  const eyes = lit ? s.eyes.map(([x, y]) => `<circle cx="${x}" cy="${y}" r="18" fill="${c}" opacity=".35"/><circle cx="${x}" cy="${y}" r="9" fill="${c}"/><circle cx="${x}" cy="${y}" r="4.5" fill="#fff"/>`).join('') : '';
   const initial = String(boss?.name || '?').replace(/^the\s+/i, '').trim().charAt(0).toUpperCase() || '?';
+  const rays = lit ? Array.from({ length: 18 }, (_, i) => {
+    const a = (i / 18) * Math.PI * 2;
+    return `<line x1="200" y1="300" x2="${(200 + Math.cos(a) * 420).toFixed(0)}" y2="${(300 + Math.sin(a) * 420).toFixed(0)}"/>`;
+  }).join('') : '';
   return `<svg viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
   <defs>
-    <radialGradient id="${id}b" cx="50%" cy="78%" r="70%"><stop offset="0" stop-color="${c}" stop-opacity="${lit ? 0.85 : 0.5}"/><stop offset=".45" stop-color="${c}" stop-opacity=".18"/><stop offset="1" stop-color="#05020a" stop-opacity="0"/></radialGradient>
-    <linearGradient id="${id}f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${lit ? c : '#000'}" stop-opacity="${lit ? 0.55 : 1}"/><stop offset=".5" stop-color="#140820"/><stop offset="1" stop-color="#05020a"/></linearGradient>
-    <pattern id="${id}s" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="1" fill="#fff" opacity=".05"/></pattern>
+    <radialGradient id="${id}b" cx="50%" cy="62%" r="65%"><stop offset="0" stop-color="${c}" stop-opacity="${lit ? 0.95 : 0.45}"/><stop offset=".4" stop-color="${c}" stop-opacity="${lit ? 0.3 : 0.12}"/><stop offset="1" stop-color="#05020a" stop-opacity="0"/></radialGradient>
+    <linearGradient id="${id}f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${lit ? '#fff' : '#000'}" stop-opacity="${lit ? 0.18 : 1}"/><stop offset=".12" stop-color="${lit ? c : '#000'}" stop-opacity="${lit ? 0.75 : 1}"/><stop offset=".55" stop-color="#1a0a2e"/><stop offset="1" stop-color="#05020a"/></linearGradient>
+    <pattern id="${id}s" width="4" height="4" patternUnits="userSpaceOnUse"><rect width="4" height="1" fill="#fff" opacity=".06"/></pattern>
   </defs>
   <rect width="400" height="500" fill="#07030f"/>
+  <g stroke="${c}" stroke-opacity=".16" stroke-width="10">${rays}</g>
   <rect width="400" height="500" fill="url(#${id}b)"/>
-  <g fill="none" stroke="${c}" stroke-opacity=".22" stroke-width="2"><circle cx="200" cy="300" r="120"/><circle cx="200" cy="300" r="175"/><circle cx="200" cy="300" r="235"/></g>
-  <text x="200" y="250" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-style="italic" font-weight="900" font-size="300" fill="${c}" fill-opacity="${lit ? 0.1 : 0.05}">${initial.replace(/[<&>"]/g, '')}</text>
-  <path d="${s.body}" fill="url(#${id}f)" stroke="${c}" stroke-width="${lit ? 4 : 3}" stroke-opacity="${lit ? 0.95 : 0.7}"/>
+  <g fill="none" stroke="${c}" stroke-opacity="${lit ? 0.35 : 0.18}" stroke-width="2"><circle cx="200" cy="300" r="110"/><circle cx="200" cy="300" r="165"/><circle cx="200" cy="300" r="225"/></g>
+  <text x="200" y="230" text-anchor="middle" font-family="Barlow Condensed, sans-serif" font-style="italic" font-weight="900" font-size="300" fill="${c}" fill-opacity="${lit ? 0.16 : 0.05}">${initial.replace(/[<&>"]/g, '')}</text>
+  <path d="${s.body}" fill="url(#${id}f)"/>
+  <path d="${s.body}" fill="none" stroke="${lit ? '#fff' : c}" stroke-width="${lit ? 2 : 3}" stroke-opacity="${lit ? 0.9 : 0.6}"/>
+  ${lit ? `<path d="${s.body}" fill="none" stroke="${c}" stroke-width="10" stroke-opacity=".35"/>` : ''}
   ${s.inner ? `<path d="${s.inner}" fill="#020005"/>` : ''}
   ${eyes}
   <rect width="400" height="500" fill="url(#${id}s)"/>

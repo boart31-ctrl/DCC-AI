@@ -23,9 +23,11 @@ export default function explore(root, sc, env) {
     floor.textContent = d.floor || '';
     floor.hidden = !d.floor;
     loc.textContent = d.location || 'Somewhere below';
-    loc.classList.toggle('long', loc.textContent.length > 18);
     text.textContent = d.text || '';
     textBox.hidden = !d.text;
+    textBox.classList.toggle('long', (d.text || '').length > 220 && (d.text || '').length <= 420);
+    textBox.classList.toggle('xlong', (d.text || '').length > 420);
+    loc.classList.toggle('long', loc.textContent.length > 18 || (d.text || '').length > 220);
     if ((d.image || '') !== img) {
       img = d.image || '';
       bg.replaceChildren();

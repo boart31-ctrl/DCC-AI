@@ -1,7 +1,7 @@
 // The System — service worker. Caches the app shell only.
 // Never touches /ws, /pack/* (images, audio), /qr or anything else dynamic.
 
-const CACHE = 'system-shell-v2';
+const CACHE = 'system-shell-v3';
 const SHELL = [
   '/',
   '/gm',
@@ -24,6 +24,27 @@ const SHELL = [
   '/js/dicelog.js',
   '/js/library.js',
   '/js/combat.js',
+  '/js/gm-scenes.js',
+  '/js/gm-audio.js',
+  '/js/voice.js',
+  '/js/stingers.js',
+  '/js/show-audio.js',
+  '/js/scenes/director.js',
+  '/js/scenes/common.js',
+  '/js/scenes/lobby.js',
+  '/js/scenes/explore.js',
+  '/js/scenes/boss.js',
+  '/js/scenes/loot.js',
+  '/js/scenes/countdown.js',
+  '/js/scenes/roll.js',
+  '/js/scenes/recap.js',
+  '/js/scenes/blank.js',
+  '/css/scenes.css',
+  '/css/neon.css',
+  '/css/gm-scenes.css',
+  '/fonts/barlow-condensed-latin-800-italic.woff2',
+  '/fonts/barlow-condensed-latin-900-italic.woff2',
+  '/fonts/barlow-condensed-latin-800-normal.woff2',
   '/fonts/barlow-semi-condensed-latin-500-normal.woff2',
   '/fonts/barlow-semi-condensed-latin-600-normal.woff2',
   '/fonts/barlow-semi-condensed-latin-700-normal.woff2',

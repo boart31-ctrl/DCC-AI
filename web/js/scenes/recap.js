@@ -15,11 +15,18 @@ export default function recap(root, sc, env) {
     text = t;
     crawl.replaceChildren(...(t ? t.split(/\n\s*\n|\n/).filter(Boolean).map((p) => h('p', p)) : [h('p.rc-empty', 'Nothing happened. Suspicious.')]));
     const words = t.split(/\s+/).length;
-    // ~2.6 words/s reading speed at 3 m, at least 25 s, at most 4 min.
-    const dur = Math.max(25, Math.min(240, words / 2.6 + 10));
-    crawl.style.animationDuration = `${dur}s`;
-    crawl.classList.remove('go'); void crawl.offsetWidth;
-    if (!env.reduced) crawl.classList.add('go');
+    // ~2.6 words/s reading speed at 3 m, at least 25 s, at most 4 min. The crawl travels from the
+    // bottom of the view until its last line has left the top (distance measured, not guessed).
+    const dur = Math.max(25, Math.min(240, words / 2.6 + 8));
+    crawl.classList.remove('go');
+    if (env.reduced) return;
+    requestAnimationFrame(() => {
+      const dist = plane.clientHeight * 0.62 + crawl.offsetHeight;
+      crawl.style.setProperty('--dist', `${-dist}px`);
+      crawl.style.animationDuration = `${dur}s`;
+      void crawl.offsetWidth;
+      crawl.classList.add('go');
+    });
   }
   update(sc, env.view);
   return { update };

@@ -2,11 +2,13 @@
 // (`play` / `stop`, acks with `audio.done`) and the scene stingers, unless view.show.audioDevice
 // is "stage". Browsers allow sound only after a gesture, so the first click or key unlocks it.
 import { createVoicePlayer } from './voice.js';
+import { isHosted } from './client.js';
 import { createShowAudio } from './show-audio.js';
 import { VOICE_HOLD, stingFor } from './stingers.js';
 
 export function createGmAudio({ client, getView }) {
-  const isDevice = () => (getView()?.show?.audioDevice || 'gm') === 'gm' && !!getView()?.show;
+  // Hosted edition: the stage stays the audio device (its host never sends `play` to the GM).
+  const isDevice = () => !isHosted() && (getView()?.show?.audioDevice || 'gm') === 'gm' && !!getView()?.show;
   let stingersOn = (() => { try { return localStorage.getItem('system.stingers') !== '0'; } catch { return true; } })();
   const voice = createVoicePlayer({ ack: (id) => client.raw({ t: 'audio.done', id }) });
   const show = createShowAudio({ isDevice: () => isDevice() && stingersOn });

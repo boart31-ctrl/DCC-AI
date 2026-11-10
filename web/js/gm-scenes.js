@@ -205,7 +205,7 @@ export function createScenes({ client, act, getView }) {
         h('span', `HP ${d.hp}: phase "${b.phases[d.suggestPhase].name}" is due.`),
         h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => send({ t: 'boss.phase', index: d.suggestPhase }, `Phase: ${b.phases[d.suggestPhase].name}.`) }, 'Advance'))
       : null;
-    const tvLoot = field(d.lootHint, { placeholder: lib?.lootHint ? 'TV loot line (the pack hint below stays here)' : 'TV loot line, e.g. Silver crate incoming', onCommit: (v) => send({ t: 'scene.update', data: { lootHint: v } }, 'Loot line set.') });
+    const tvLoot = field(d.lootHint, { placeholder: 'e.g. Silver crate incoming', onCommit: (v) => send({ t: 'scene.update', data: { lootHint: v } }, 'Loot line set.') });
     return h('div.sc-boss',
       h('div.sc-boss-top',
         h('div', h('div.sc-boss-name', b.name), b.title ? h('div.dim', b.title) : null),
@@ -352,8 +352,16 @@ export function createScenes({ client, act, getView }) {
     const actions = h('div.row-end',
       extra,
       isLive && !['boss', 'roll', 'countdown', 'loot'].includes(kind) ? h('button.btn', { type: 'button', onclick: () => act({ t: 'scene.update', data: (() => { const x = dataFor(kind); delete x.locationId; return x; })() }, 'TV updated.') }, 'Update TV') : null,
-      kind === 'roll' ? null : h('button.btn.btn-primary', { type: 'button', onclick: () => showOnTv(kind) }, icon('tv', { size: 15 }), isLive ? `Restart ${meta.label.toLowerCase()} on TV` : `Show ${meta.label.toLowerCase()} on TV`, h('kbd', meta.key)));
+      kind === 'roll' ? null : h('button.btn.btn-primary', { type: 'button', onclick: () => showOnTv(kind) }, icon('tv', { size: 15 }), showLabel(kind, isLive, meta), h('kbd', meta.key)));
     form.replaceChildren(h('div.sc-form-head', h('h2', meta.label), h('span.dim', meta.hint)), h('div.form-grid', body.flat().filter(Boolean)), actions);
+  }
+
+  function showLabel(kind, isLive, meta) {
+    if (kind === 'boss' && (D('boss').mode || 'library') !== 'adhoc') {
+      const b = bossLib(bossPick);
+      if (b) return isLive && view().scene?.data?.bossId === b.id ? `Restart ${b.name} on TV` : `Show ${b.name} on TV`;
+    }
+    return isLive ? `Restart ${meta.label.toLowerCase()} on TV` : `Show ${meta.label.toLowerCase()} on TV`;
   }
 
   async function rollOnTv() {

@@ -282,6 +282,53 @@ Access, devices and backups (handled by `server/host.js`, both editions):
 | `backup.create` | — | Manual restore point. Ack `result.id` |
 | `backup.restore` | `id` | Takes a `before-restore` point, then replaces the game state with the restore point. Links, TVs, room and legacy tokens stay as they are now; phones and TVs stay connected (a phone whose player does not exist in the restored state is closed with 4004). Voice queue cleared. Ack `result: {restored, backup}` |
 
+### 3a. Scenes (what the TV shows)
+
+Every view carries `scene` and `show` (all roles):
+```json
+"scene": { "id": "sc_...", "kind": "boss", "since": 0, "now": 0, "data": { ... },
+           "party": [ { "id": "p_x7", "tracks": [ { "id": "hp", "label": "Health", "color": "#ff3355", "kind": "slots", "cur": 7, "max": 10 } ] } ] },
+"show":  { "audioDevice": "gm" }
+```
+`now` = server time when the view was built (clients correct their clock with it). `party` = up to two
+tracks per crawler (HP first) for the TV strip. `pack.theme` (`"dark"|"light"|"neon"|null`) is the pack's
+default look for the GM desk and phones (a device's own choice wins).
+
+`scene.kind` and `data` (defaults in brackets):
+
+| kind | data |
+|------|------|
+| `lobby` (initial) | `title` [""], `subtitle` [""], `showQr` [true] |
+| `explore` | `locationId` [null], `location`, `floor`, `image` (http(s) / `/pack/` / small data:image, else null), `text` (≤1200), `showFeed` [true] |
+| `boss` | `bossId` (library id or null), `boss` `{name, title, image, hpSlots, phases:[{name, text, image, atHp}], flavor, color, lootTier, floor, intro, defeatLine}`, `phase` [0], `hp` [hpSlots], `revealed` [false], `defeated` [false], `lootHint` [""] (the TV loot line); view adds `lootTierInfo`, `suggestPhase` (index or null) |
+| `loot` | `playerId`, `tier`; view adds `tierInfo` |
+| `countdown` | `label`, `totalMs`, `remainingMs`; view adds `running`, `endsAt` (server ms or null). Clients compute `endsAt − (Date.now() + (now − receivedAt))` |
+| `roll` | `playerId`, `name`, `color`, `label`, `formula`, `rollId`, `dice`, `total` (null = waiting), `nat1`, `nat20`, `at` |
+| `recap` | `title`, `text` (defaults to `session.recap`) |
+| `blank` | `text` |
+
+The library boss fields `tactics` and `lootHint` are GM-only: they are never copied into the scene.
+Location `features` are GM-only too.
+
+| `t` | Fields | Effect |
+|-----|--------|--------|
+| `scene.set` | `kind`, `data?` | New scene (new `id`, `since` = now). `data` is validated per kind; unknown fields → `bad_request`. Boss: `bossId` **or** ad-hoc `boss` (name required, `hpSlots` 1..100, ≤10 phases); HP starts full. Explore: `locationId` fills location/floor/image/text from the library location (other fields override). Countdown: `seconds` (1..86400), `autostart?` |
+| `scene.update` | `data` | Shallow merge into the current scene's data, same validation (no transition on the TV). Boss: `hp`, `phase`, `revealed`, `defeated`, `lootHint`, `bossId`/`boss` (swap). Countdown: `label`, `seconds` (resets), `running` |
+| `scene.roll` | `playerId?`, `formula?` [d20] **or** `what?` (as `roll.what`), `label?`, `name?` — or `rollId` (re-show a public dice-log roll) | Rolls exactly like `roll` (dice log, `roll` event, nat1/nat20 line), then sets the `roll` scene. Ack `result: {rollId, total, sceneId}` |
+| `show.audio` | `device`: `"gm"` / `"stage"` | Which page plays the System voice and the stingers (default `gm`). Both pages receive `play`/`stop`; only the device plays and acks `audio.done`, the other shows the subtitle |
+| `boss.intro` | `line?` [true] | `revealed = true`; event `boss.intro`; feed line; P1 voice line = boss `intro` text, else a quip from category `boss` |
+| `boss.damage` | `amount?` [1] (1..100) | HP − amount (min 0); event `boss.hit`; ack `result: {hp, max, suggestPhase}` |
+| `boss.heal` | `amount?` [1] | HP + amount (max hpSlots), clears `defeated`; event `boss.heal` |
+| `boss.phase` | `index?` [next] | Event `boss.phase`; feed line. `bad_request` if there is no further phase |
+| `boss.defeat` | `lootHint?`, `line?` [true] | `defeated`, HP 0; event `boss.defeat`; feed line; +20% viewers; P1 voice line = boss `defeatLine` |
+| `countdown.start` / `countdown.pause` | — | Server-timestamped; `bad_request` at zero |
+| `countdown.add` | `seconds` (±, not 0) | Adds/removes time, keeps running |
+| `countdown.reset` | `seconds?` | Back to `totalMs` (or a new total), paused |
+
+`suggestPhase`: phases with `atHp` are suggested (never applied) when HP drops to that value: the furthest
+later phase whose `atHp ≥ hp`. The GM confirms with `boss.phase`.
+All scene/boss/countdown actions are GM-only (players and the stage get `bad_request: unknown action`).
+
 ## 4. Player actions
 
 | `t` | Fields | Effect |
@@ -370,14 +417,26 @@ the dice RNG (tests); default Web Crypto.
 | `viewers` | `viewers`, `delta` | stage, gm |
 | `chat` | `user`, `text` | stage |
 | `joinRequest` | `requestId`, `name` | gm (a phone asked to join, §1a) |
+| `boss.intro` | `sceneId`, `name`, `title`, `intro` | stage, gm (TV cinematic; GM desk plays the sting) |
+| `boss.hit` | `sceneId`, `amount`, `from`, `hp`, `max`, `suggestPhase` | stage, gm |
+| `boss.heal` | `sceneId`, `amount`, `from`, `hp`, `max` | stage, gm |
+| `boss.phase` | `sceneId`, `index`, `name`, `text`, `of` | stage, gm |
+| `boss.defeat` | `sceneId`, `name`, `lootHint`, `lootTier`, `defeatLine` | stage, gm |
 
-Audio for stage only:
+Scene changes arrive as views; `boss.*` events carry `sceneId` and may arrive before the view of their
+scene (views are debounced) — the stage holds them up to 4 s. Countdown ticks are computed on the client.
+
+Audio (sent to the stage **and** the GM desk; only `view.show.audioDevice` plays it and acks):
 ```json
 { "t": "play", "id": "q_...", "priority": 0, "text": "line text", "audio": "/pack/audio/nat1_03.mp3" | null, "voice": { "id": "host", "lang": "en-US", "rate": 1.05, "pitch": 0.8, "prefer": ["Daniel", "Google UK English Male"] } }
 { "t": "stop" }
 ```
 If `audio` is null the stage speaks `text` with the browser's `speechSynthesis` (English voice).
-The stage must send `audio.done` when finished or after a 12 s safety timeout.
+The audio device (stage, or GM desk via `audio.done` from the GM socket) must send `audio.done` when
+finished or after a 12 s safety timeout. The other page shows the text as a subtitle only. Stingers
+(boss intro, hit, heal, phase, defeat, dice tumble, nat 20/1, countdown ticks + klaxon) are generated with
+WebAudio on the audio device; the voice line after a boss intro / defeat waits for its sting.
+`/stage?preview=1#token` (the GM desk's mini-preview) never plays or acks anything.
 
 ## 7. Static routes
 

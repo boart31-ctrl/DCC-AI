@@ -18,6 +18,8 @@ my-pack/
   races.json
   classes.json
   backgrounds.json
+  bosses.json         optional: bosses for the TV boss scene
+  locations.json      optional: locations for the Explore scene
   images/             item art (webp/png, 512x512 recommended)
   audio/              pre-rendered voice lines (mp3/ogg)
 ```
@@ -54,6 +56,8 @@ my-pack/
 }
 ```
 `notifyPrefix` (optional) is the banner text shown above achievement pop-ups.
+`theme` (optional): `"dark"`, `"light"` or `"neon"` — default look of the GM desk and phones (each device
+can still pick its own).
 `stats` and `resources` define what every character sheet shows (generic — your rulebook decides the
 actual numbers). They are the v1 way; a pack with `ruleset.json` (or an inline `"ruleset"` object in
 pack.json) defines stats and tracks there instead, and `stats`/`resources` are then derived from it.
@@ -104,7 +108,7 @@ Optional v2 fields (all validated; a bad effect is skipped with a load warning, 
 ## Library files
 
 `spells.json`, `skills.json`, `buffs.json`, `features.json`, `races.json`, `classes.json`,
-`backgrounds.json`: arrays of library entries (RULESET §4). Common fields: `id`, `name` (required), `desc`,
+`backgrounds.json` (and `bosses.json`, `locations.json`, below): arrays of library entries (RULESET §4). Common fields: `id`, `name` (required), `desc`,
 `tags[]`. Per kind:
 
 | file | extra fields |
@@ -122,6 +126,29 @@ exist in the matching file (warning otherwise). Pack entries are read-only in th
 homebrew in the campaign library (`lib.upsert`). Unknown keys anywhere are ignored.
 Rarity: `common`, `uncommon`, `rare`, `epic`, `legendary`. `image` is relative to `images/` and optional
 (the UI draws a rarity-colored placeholder).
+
+## bosses.json and locations.json (TV scenes)
+
+Optional arrays, library kinds `boss` and `location` (GM library + the Scenes panel; never sent to phones).
+
+```json
+[{
+  "id": "porter_grim", "name": "Porter Grim", "title": "Employee of the Month, Every Month, Forever",
+  "floor": 1, "image": "porter_grim.webp", "hpSlots": 20, "color": "#b45cff", "lootTier": "silver",
+  "phases": [ { "name": "Check-In", "atHp": 20, "text": "..." }, { "name": "Overbooked", "atHp": 12, "text": "..." } ],
+  "intro": "Crawlers, please welcome ...", "defeatLine": "Porter Grim has checked out.",
+  "flavor": "...", "tactics": "GM only", "lootHint": "GM only"
+}]
+```
+- `hpSlots` 1..100 (default 10) — the TV's segmented HP bar. `phases` ≤ 10; `atHp` (optional) makes the GM
+  desk suggest that phase when the boss's HP drops to it (the GM confirms).
+- `intro` is shown and spoken (System voice) when the GM presses Intro; `defeatLine` on defeat.
+- `tactics` and `lootHint` stay on the GM desk. `lootTier` (a pack tier id) names the TV loot line.
+- `image` is relative to `images/`; missing art → a generated silhouette in the boss's `color`.
+- Unknown keys (`attacks`, `evade`, `cues`, ...) are ignored by the scene system.
+
+Locations: `{ id, name, floor, image, readAloud, features[] }` — picking one fills the Explore scene
+(name, "Floor N", backdrop image, `readAloud` as the on-screen text). `features` are GM-only notes.
 
 ## loot.json
 ```json

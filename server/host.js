@@ -37,7 +37,7 @@ export const LIMITS = {
   maxWaiting: 6, // TVs showing a code / players waiting for approval, each
   authFailures: 5,
   authWindowMs: 60_000,
-  rate: { gm: [20, 40], stage: [20, 40], player: [10, 20], other: [10, 20] }, // [per second, burst]
+  rate: { gm: [50, 120], stage: [20, 40], player: [10, 20], other: [10, 20] }, // [per second, burst]
   viewDebounceMs: 50,
   voiceTickMs: 250,
   audienceTickMs: 5_000,

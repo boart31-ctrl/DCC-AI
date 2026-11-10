@@ -32,11 +32,14 @@ export default function boss(root, sc, env) {
   let art = bossArt(b, { onUrl: (u) => { artUrl = u; } });
   const frame = h('div.bs-frame', art, flash, h('i.c1'), h('i.c2'), h('i.c3'), h('i.c4'), stamp);
   const party = partyStrip();
+  // Fighting-game layout: name, HP and the System's phase report on the left, a tall portrait
+  // on the right, the party under the report.
   const fight = h('div.bs-fight',
     h('div.bs-head', h('div.bs-namebox', name, title), phase),
     hp,
-    h('div.bs-body', info, h('div.bs-framewrap', frame, dmg)),
-    loot,
+    h('div.bs-mid', info, loot),
+    h('div.bs-party', party.el),
+    h('div.bs-framewrap', frame, dmg),
   );
 
   /* ---------- pre-reveal ---------- */
@@ -48,7 +51,7 @@ export default function boss(root, sc, env) {
     h('p.bs-pre-name', '? ? ? ? ?'),
   );
 
-  root.append(pre, fight, h('div.sc-party', party.el));
+  root.append(pre, fight);
 
   function setColors() {
     const c = threatColor(b);
@@ -80,6 +83,11 @@ export default function boss(root, sc, env) {
       phaseName.textContent = ph.name;
     }
     phaseText.textContent = ph?.text || b.title || '';
+    // Pack phase texts can be long: size the report down and drop the flavor line before overflowing.
+    const n2 = phaseText.textContent.length;
+    phaseText.classList.toggle('long', n2 > 110 && n2 <= 200);
+    phaseText.classList.toggle('xlong', n2 > 200);
+    root.classList.toggle('wordy', n2 > 110);
     info.querySelector('.bs-sys-head').textContent = `${(env.view.pack?.systemName || 'The System').toUpperCase()} // ${ph ? 'Phase report' : 'Threat report'}`;
   }
 
@@ -91,8 +99,8 @@ export default function boss(root, sc, env) {
   function drawStatic() {
     setColors();
     name.textContent = b.name;
-    name.classList.toggle('long', b.name.length > 16);
-    name.classList.toggle('xlong', b.name.length > 26);
+    name.classList.toggle('long', b.name.length > 11 && b.name.length <= 20);
+    name.classList.toggle('xlong', b.name.length > 20);
     title.textContent = b.title || '';
     title.hidden = !b.title;
     flavor.textContent = b.flavor || '';
@@ -248,20 +256,19 @@ export default function boss(root, sc, env) {
     // Shards sit exactly over the frame, then fly.
     const shards = shatter();
     frame.append(shards);
-    root.classList.add('dying');
+    root.classList.add('dying', 'defeating');
     replay(fight, 'quake');
     const fx = h('div.bd',
       h('div.bd-flash'),
       h('div.bd-ring'),
       h('div.bd-band', h('span', 'Boss defeated')),
       h('p.bd-name', b.name),
-      (e?.defeatLine || b.defeatLine) ? h('p.bd-line', e?.defeatLine || b.defeatLine) : null,
       h('div.bd-loot', h('span.bs-loot-k', 'Loot'), h('span', e?.lootHint || lootText())),
     );
     root.append(fx);
     T.after(1300, () => { root.classList.remove('dying'); root.classList.add('dead'); shards.remove(); });
     T.after(7600, () => fx.classList.add('out'));
-    T.after(8200, () => { fx.remove(); busy = false; drawStatic(); });
+    T.after(8200, () => { fx.remove(); busy = false; root.classList.remove('defeating'); drawStatic(); });
   }
 
   /* ---------- wiring ---------- */
