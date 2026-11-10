@@ -6,7 +6,21 @@ state snapshots) and **events** (one-shot things to animate or play).
 
 ## 1. Handshake
 
-Client → server, first message:
+The same protocol is spoken by the Node server (`server/index.js`) and the Cloudflare edition
+(`cloud/worker.js`, one Durable Object per campaign). Both run `server/host.js`.
+
+Client → server, first message (one of):
+
+```json
+{ "t": "hello", "role": "gm",     "key": "<GM_KEY>" }
+{ "t": "hello", "role": "player", "token": "<playerToken>" }
+{ "t": "hello", "role": "player", "claim": true, "name": "Lucie" }
+{ "t": "hello", "role": "stage",  "pair": true }
+{ "t": "hello", "role": "stage",  "tvToken": "<tvToken>" }
+{ "t": "hello", "role": "stage",  "key": "<GM_KEY>" }
+```
+
+Legacy forms (Node edition only, kept for backwards compatibility):
 
 ```json
 { "t": "hello", "role": "gm",     "token": "<gmToken>" }
@@ -18,11 +32,49 @@ Server → client:
 
 ```json
 { "t": "welcome", "role": "player", "playerId": "p_x7", "view": { ... } }
-{ "t": "error", "code": "bad_auth" | "bad_request" | "not_found" | "forbidden" | "rate_limited", "msg": "..." }
+{ "t": "error", "code": "bad_auth" | "bad_request" | "not_found" | "forbidden" | "rate_limited" | "busy" | "denied" | "internal", "msg": "..." }
 ```
 
-After `bad_auth` the server closes the socket. Players are rate-limited: 5 failed PINs per IP per minute.
-Tokens and the room code are printed on server start and also available to the GM in its view.
+After `bad_auth` / `rate_limited` the server closes the socket (code 4001). `bad_request` keeps it open.
+`{"t":"ping"}` is answered with `{"t":"pong"}` at any time (also before `hello`).
+
+### 1a. Access model
+
+| Who | How |
+|-----|-----|
+| GM | Secret `GM_KEY` (Cloudflare secret; Node: `.env`). The GM page asks once, keeps it in `localStorage` (`system.gmKey`), sends `hello {role:'gm', key}`. Constant-time compare. 5 failures per minute per IP → `rate_limited` (even for the right key). No key configured → nobody gets in (`bad_auth`, msg mentions `GM_KEY`). |
+| Player | Every player gets a random link token (32 url-safe chars) when created. The GM sees `gm.playersFull[].joinUrl` = `<origin>/p/<token>` (QR on the desk). The page at `/p/<token>` stores the token (`localStorage` `system.playerToken`) so "Add to Home Screen" (manifest `start_url` `/play`) reopens the character. `player.relink` makes a new token: the old one stops working and its sockets are closed (4001 `relinked`). Removing the player drops the token (4004). |
+| Player without a link | `hello {role:'player', claim:true, name}` → `{ "t": "claim", "requestId": "rq_…", "characters": [{id, name, color, connected}] }`. The phone may send `{ "t": "claim.pick", "playerId": "p_…" }` (ack). The GM gets event `joinRequest` and `gm.requests[]`, then `player.approve {requestId, playerId?}` → the phone receives `{ "t": "token", "token": "…", "playerId": "p_…" }` followed by `welcome` (it stores the token like a `/p/` link). `player.deny {requestId}` → error `denied`, close 4001. Requests expire after 10 min (close 4002), max 6 waiting. |
+| TV | `/tv` sends `hello {role:'stage', pair:true}` → `{ "t": "pairing", "code": "KJAM", "expiresAt": 0 }` (4 letters, no I/L/O, per socket, valid 10 min, then close 4002 and the page reconnects for a new one). GM `tv.pair {code, label?}` → that socket gets `{ "t": "paired", "tvToken": "…", "tvId": "tv_…" }` and `welcome` as `stage`. Later: `hello {role:'stage', tvToken}`. `tv.unpair {tvId}` revokes (sockets closed 4001 `revoked`). Max 3 TVs, max 6 screens waiting with a code. The GM's own browser may open the stage with the GM key instead. |
+
+Secrets are never sent to non-GM roles: player views carry no tokens; a TV token is sent once, to that TV;
+the GM view shows player links but never TV tokens or the GM key.
+
+### 1b. Limits and close codes
+
+| | |
+|---|---|
+| Message size | max 16 KB (Node: ws `maxPayload`; host: close 1009) |
+| Rate | per socket token bucket: GM and stage 20 msg/s (burst 40), players and not-yet-authenticated sockets 10/s (burst 20). Over the limit: message dropped, one `error rate_limited` per second |
+| Sockets | max 40 per campaign (close 1013 / HTTP 503) |
+| Hello | sockets without a successful `hello` within 10 s are closed (4000) |
+| Origin | `/ws` accepts only same-origin browsers (Cloudflare: `Origin` must equal the site origin, else HTTP 403; Node: a foreign `Origin` is refused) |
+| Close codes | 4000 hello timeout · 4001 auth refused / relinked / revoked / denied · 4002 pairing code or join request expired, or busy · 4004 player removed |
+
+### 1c. Persistence and restore points
+
+Every accepted mutating action (GM and player) is applied, then persisted **before** its ack and events are
+sent (Cloudflare: synchronous SQLite write in the same turn; the runtime's output gate holds the ack until the
+write is durable). If saving fails the action is rejected (`internal`) and the state is unchanged.
+
+Cloudflare Durable Object tables: `state` (the whole state as JSON, one row; split into parts only above
+~400 k chars), `log` (`seq, at, by, action` — every accepted mutating action, with `token`/`pin`/`key`/
+`tvToken`/`code`/`rid` stripped), `snapshots` (`id, part, at, reason, json`). Node: `data/state.json`
+(written on every action), `data/snapshots/<id>_<reason>.json`, session archives in `data/sessions/`.
+
+Restore points (newest 50 kept) are taken of the state *before* the triggering action: `session.new`; `idle`
+(first action after more than 30 min without one); `periodic` (≥ 10 min since the last restore point);
+`manual` (`backup.create`); `before-restore` (taken by every `backup.restore`, so a restore can be undone).
 
 ## 2. Views
 
@@ -155,6 +207,21 @@ pack does not set them; `achId` is `null` for custom achievements.
 (oldest dropped). `achievementsCatalog` entries also carry `reward` and `group`.
 `gm.itemsCatalog` = every library item (pack + homebrew): `{ id, name, rarity, desc, flavor, slot, stackable, source }`.
 
+Access additions (both editions):
+```json
+{
+  "gm": {
+    "playersFull": [ { "...": "as above", "joinUrl": "https://the-system.example.workers.dev/p/<token>" } ],
+    "requests": [ { "id": "rq_...", "name": "Lucie", "wants": "p_x7" | null, "at": 0 } ],
+    "tvs": [ { "id": "tv_...", "label": "Living room", "at": 0, "connected": 1 } ],
+    "tvWaiting": 0,
+    "access": { "edition": "cloud" | "node", "legacy": false, "keyLogin": true, "backups": true, "maxTvs": 3 }
+  }
+}
+```
+Cloudflare edition: `gm.pins` is `{}` (no PIN login), `gm.joinUrl` / stage `joinUrl` = `<origin>/join`,
+`gm.stageUrl` = `<origin>/tv`.
+
 ### Stage view
 Common fields + `"joinUrl"` (for the QR code) + `"queueLength"`.
 
@@ -201,6 +268,19 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 
 The GM may also send every action in [§4 Sheet actions](#sheet-actions) (with `playerId` required, except
 `roll` with `kind: "custom"`), without permission checks.
+
+Access, devices and backups (handled by `server/host.js`, both editions):
+
+| `t` | Fields | Effect |
+|-----|--------|--------|
+| `player.relink` | `playerId` | New personal link; old token refused, its sockets closed (4001 `relinked`). Ack `result: {playerId, joinUrl}` |
+| `player.approve` | `requestId`, `playerId?` (default: what the phone picked) | Lets a join request in as that player (see §1a). Ack `result: {playerId}` |
+| `player.deny` | `requestId` | Declines a join request |
+| `tv.pair` | `code` (4 letters, case-insensitive), `label?` | Pairs the screen showing that code. Ack `result: {tvId}`. Max 3 TVs |
+| `tv.unpair` | `tvId` | Revokes that TV |
+| `backup.list` | — | Ack `result.backups: [{id, at, reason, size?}]`, newest first |
+| `backup.create` | — | Manual restore point. Ack `result.id` |
+| `backup.restore` | `id` | Takes a `before-restore` point, then replaces the game state with the restore point. Links, TVs, room and legacy tokens stay as they are now; phones and TVs stay connected (a phone whose player does not exist in the restored state is closed with 4004). Voice queue cleared. Ack `result: {restored, backup}` |
 
 ## 4. Player actions
 
@@ -289,6 +369,7 @@ the dice RNG (tests); default Web Crypto.
 | `secret` | `playerId`, `messageId` | legacy: also sent for every private message, to that player + gm |
 | `viewers` | `viewers`, `delta` | stage, gm |
 | `chat` | `user`, `text` | stage |
+| `joinRequest` | `requestId`, `name` | gm (a phone asked to join, §1a) |
 
 Audio for stage only:
 ```json
@@ -305,4 +386,16 @@ The stage must send `audio.done` when finished or after a 12 s safety timeout.
 | `/`, `/gm`, `/play`, `/stage` | `web/` pages |
 | `/pack/*` | files from the active content pack directory (images, audio) — read-only, no path traversal |
 | `/manifest.webmanifest`, `/sw.js` | PWA |
-| `/qr?text=...` | SVG QR code generated server-side (no external service) |
+| `/qr?text=...` | SVG QR code generated server-side (no external service). The GM desk draws player QR codes in the browser (`web/js/qr.js`) so secret links never appear in a request URL |
+| `/tv` | alias of `/stage` |
+| `/join` | player page (join request when there is no personal link) |
+| `/p/<token>` | player page for a personal link (`Cache-Control: no-store`) |
+| `/api/info` | `{ edition, legacy, keyLogin }` — tells the player page whether room + PIN login exists |
+| `/api/export?kind=session\|campaign` | GM only, header `X-GM-Key: <GM_KEY>` (Node also `X-GM-Token: <gmToken>`); same rate limit as the GM login. JSON download `{ format: "the-system-export/1", kind, edition, exportedAt, pack, session, state, log, snapshots }`. `session` = log since the current session started, `campaign` = everything. `state` contains the secrets (links, legacy tokens): treat the file like a password |
+
+Every response carries `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`,
+`X-Content-Type-Options: nosniff` and a Content-Security-Policy (`default-src 'self'`, `script-src 'self'`,
+inline styles allowed, images also from `https:` and `data:`, `connect-src 'self'` + the ws(s) origin,
+`frame-ancestors 'self'`). `/ws` and `/api/*` are never cached. Cloudflare: a non-WebSocket request to `/ws`
+gets 426, unknown routes 404, raw pack JSON (`/pack/*.json`) is never served (the pack is compiled into the
+worker).

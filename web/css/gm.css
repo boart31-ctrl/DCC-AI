@@ -1,6 +1,8 @@
 /* GM desk (tool UI). Laptop first (1366 / 1920), works on tablets. */
 @import url("tool.css");
+@import url("neon.css");
 @import url("sheet.css");
+@import url("gm-scenes.css");
 
 body.gm { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 .tool kbd { font-family: var(--f-ui); font-size: 11px; font-weight: 600; padding: 0 4px; border: 1px solid var(--c-line-2); border-bottom-width: 2px; border-radius: 3px; color: var(--c-ink-3); background: transparent; }

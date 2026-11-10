@@ -7,3 +7,6 @@ data/
 .DS_Store
 packs/*
 !packs/demo/
+dist-cloud/
+.wrangler/
+.dev.vars

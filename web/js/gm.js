@@ -8,16 +8,20 @@ import { createDiceLog, showRollCard } from './dicelog.js';
 import { sheetModel, effectTargets, effectText, LIB_KINDS, playerEditLevel } from './rules.js';
 import {
   icon, explain, whyContent, avatar, openDrawer, closeDrawer, drawerOpen, field, select, labeled,
-  applyTheme, toggleTheme, applyAccent,
+  applyTheme, toggleTheme, applyAccent, setTheme, applyPackTheme,
 } from './ui.js';
 import { createLibrary } from './library.js';
 import { createCombat } from './combat.js';
+import { createScenes } from './gm-scenes.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
 const client = new TransportHub();
 /** Hooks the hosted edition sets (lobby, prep cards, AI writer, library AI draft); all optional. */
 export const ext = { afterRender: [], customAchievementWriter: null, libraryDraft: null, hosted: false };
+// Players & devices panel (devices.js) + GM key login (gmlogin.js) hook in here.
+ext.client = client;
+ext.credential = null; // { key } or { token }
 
 let view = null;
 const shownPins = new Set();
@@ -45,6 +49,7 @@ client.on('status', (s) => {
   $('.conn-text', el).textContent = statusText(s);
   if (s.status === 'rejected') {
     $('#gate').hidden = false;
+    if (ext.credential?.key) { ext.onKeyRejected?.(s); return; }
     $('#gate .gate-title').textContent = 'GM link refused.';
     $('#gate .gate-desc').textContent = 'The token in this link is not valid for the running host. Copy the GM link from the host terminal again.';
   }
@@ -104,8 +109,11 @@ function render() {
   renderSettings();
   renderCampaign();
   applyAccent(view.pack);
+  applyPackTheme(view.pack?.theme);
+  drawTheme();
   library.update(view);
   combat.update(view);
+  scenes.update(view);
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -851,13 +859,13 @@ setLog(logPref() ? logPref() === '1' : window.innerWidth >= 1500);
 const themeBtn = $('#theme-btn');
 const drawTheme = () => {
   const t = document.documentElement.dataset.theme || 'dark';
-  themeBtn.replaceChildren(icon(t === 'light' ? 'moon' : 'sun', { size: 16 }));
+  themeBtn.replaceChildren(icon(t === 'light' ? 'sparkle' : t === 'neon' ? 'moon' : 'sun', { size: 16 }) /* icon = the next theme */);
   for (const b of document.querySelectorAll('#theme-seg [data-theme-pick]')) b.setAttribute('aria-checked', String(b.dataset.themePick === t));
 };
 themeBtn.addEventListener('click', () => { toggleTheme(); drawTheme(); });
 $('#theme-seg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-theme-pick]');
-  if (b && (document.documentElement.dataset.theme || 'dark') !== b.dataset.themePick) { toggleTheme(); drawTheme(); }
+  if (b) { setTheme(b.dataset.themePick); drawTheme(); }
 });
 applyTheme();
 drawTheme();
@@ -904,6 +912,9 @@ const library = createLibrary({
 });
 $('#view-library').append(library.el);
 const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a) });
+// Show → Scenes (TV director + this desk as the audio device). Hoisted use in render() is safe: views arrive after boot.
+const scenes = createScenes({ client, act, getView: () => view });
+scenes.mountInto($('#view-show'));
 $('#view-combat').append(combat.el);
 
 /* ---------- keyboard ---------- */
@@ -948,10 +959,12 @@ export function mountGm(transport, opts = {}) {
 
 if (!isHosted()) {
   const token = takeHashToken('system.gmToken');
-  if (!token) {
-    $('#gate').hidden = false;
-  } else {
+  if (token) {
+    ext.credential = { token };
     mountGm(new SystemClient({ hello: () => ({ role: 'gm', token }) }));
+  } else {
+    // No #token: log in with the GM key (Cloudflare edition, or Node with GM_KEY set).
+    import('./gmlogin.js').then(({ bootKeyLogin }) => bootKeyLogin({ ext, mountGm, SystemClient }));
   }
   registerSW();
 }

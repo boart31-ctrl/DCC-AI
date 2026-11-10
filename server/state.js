@@ -8,6 +8,7 @@ import { makeToken, makeRoomCode, makePin, randInt, genId } from './random.js';
 import { MODES, pickQuip, markQuipUsed, quipsLeft } from './quips.js';
 import { STANDARD_CATEGORIES } from './constants.js';
 import { ActionError, bad, notFound } from './errors.js';
+import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView, showView } from './scenes.js';
 import {
   SHEET, SHEET_GM, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS,
@@ -65,6 +66,8 @@ export function createState(pack, now = Date.now()) {
     prepCards: [],
     library: emptyHomebrew(),
     rolls: [],
+    scene: initScene(now), // scenes.js
+    show: initShow(),
   };
 }
 
@@ -89,6 +92,8 @@ export function normalizeState(raw, pack, now = Date.now()) {
   if (!PLAYER_EDIT.includes(s.session.permissions?.playerEdit)) s.session.permissions = { playerEdit: 'sheet' };
   s.library = normalizeHomebrew(raw.library);
   s.rolls = Array.isArray(raw.rolls) ? raw.rolls.filter((r) => r && typeof r === 'object').slice(-MAX_ROLLS) : [];
+  s.scene = normalizeScene(raw.scene, now);
+  s.show = normalizeShow(raw.show);
   s.players = (Array.isArray(raw.players) ? raw.players : []).map((p, i) => {
     // Pre-messaging saves stored private messages on the player; move them into state.messages.
     // Pre-v2 saves keep flat `stats` numbers and `resources`; they move into `sheet` (RULESET §5).
@@ -559,7 +564,7 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
@@ -610,7 +615,7 @@ export function reduce(state, action, ctx) {
     ...ctx,
     // Who is acting: never taken from the payload for players (actorId is set by the host).
     actor: { role: action.role, playerId: action.role === 'player' ? action.actorId : null },
-    h: { feedPush, categoryLine },
+    h: { feedPush, categoryLine, bumpPct },
   };
   const st = structuredClone(state);
   const out = {
@@ -683,10 +688,13 @@ function common(state, pack, opts) {
       resources: pack.resources.map(({ id, label, color }) => ({ id, label, color })),
       voices: pack.voices,
       ruleset: pack.ruleset,
+      theme: pack.theme ?? null,
     },
     audience: { viewers: a.viewers, hype: Math.round(hypeOf(a, opts.now) * 100) / 100 },
     feed: state.feed,
     recap: s.recap ?? '',
+    scene: sceneView(state, pack, opts.now),
+    show: showView(state),
     players: state.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, level: p.level,
       achievementCount: p.achievements.length,

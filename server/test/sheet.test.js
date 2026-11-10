@@ -598,7 +598,7 @@ test('library: upsert / remove homebrew, pack read-only, give each kind, views c
   assert.equal(gm(r.state, { t: 'item.give', playerId: id, itemId: 'hb_blade' }).state.players[0].inventory.length, 2);
   // views
   const gv = viewFor(r.state, pack, 'gm', {});
-  assert.deepEqual(Object.keys(gv.library).sort(), ['background', 'buff', 'class', 'feature', 'item', 'race', 'skill', 'spell']);
+  assert.deepEqual(Object.keys(gv.library).sort(), ['background', 'boss', 'buff', 'class', 'feature', 'item', 'location', 'race', 'skill', 'spell']);
   assert.equal(gv.library.item.find((x) => x.id === 'hb_blade').source, 'homebrew');
   assert.equal(gv.library.item.find((x) => x.id === 'sword').source, 'pack');
   assert.equal(gv.gm.itemsCatalog.find((x) => x.id === 'hb_blade').source, 'homebrew');

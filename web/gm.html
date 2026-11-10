@@ -9,6 +9,7 @@
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/gm.css">
+  <link rel="stylesheet" href="/css/access.css">
 </head>
 <body class="gm tool">
   <header class="topbar">
@@ -23,7 +24,7 @@
       <span class="auto-state">Off</span>
     </button>
     <button class="btn btn-quiet btn-sm" id="log-toggle" type="button" aria-controls="gm-log" aria-expanded="true">Dice log</button>
-    <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch light or dark"></button>
+    <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme (dark, light, neon)"></button>
     <button class="btn btn-danger stop" id="stop" type="button" title="Stop all audio and clear the queue (Esc)">Stop <kbd>Esc</kbd></button>
   </header>
 
@@ -189,6 +190,7 @@
             <div class="seg" id="theme-seg" role="radiogroup" aria-label="Theme">
               <button type="button" role="radio" data-theme-pick="dark">Dark</button>
               <button type="button" role="radio" data-theme-pick="light">Light</button>
+              <button type="button" role="radio" data-theme-pick="neon">Neon</button>
             </div>
           </section>
           <section class="panel links" id="links">
@@ -211,6 +213,39 @@
             <p class="dim">Archives the current session. Crawlers, sheets and inventories stay.</p>
             <button type="button" class="btn danger" id="new-session">Start new session</button>
           </section>
+          <section class="panel dev-panel" id="devices" hidden aria-labelledby="h-devices">
+            <h2 id="h-devices">Players &amp; devices</h2>
+            <p class="dim">Every crawler has a personal link. Show its QR code to that player once; the phone remembers it.</p>
+            <div class="dev-sec" id="dev-requests" hidden>
+              <h3>Waiting to join</h3>
+              <ul class="dev-list" id="dev-req-list"></ul>
+            </div>
+            <div class="dev-sec">
+              <h3>Crawler links</h3>
+              <ul class="dev-list" id="dev-players"></ul>
+            </div>
+            <div class="dev-sec">
+              <h3>TV screens</h3>
+              <form class="dev-pair" id="dev-pair-form" autocomplete="off">
+                <label class="dim" for="dev-pair-code">Code on the TV</label>
+                <input class="inp" id="dev-pair-code" maxlength="4" autocapitalize="characters" spellcheck="false" placeholder="ABCD" required>
+                <button type="submit" class="btn btn-primary btn-sm">Pair TV</button>
+                <span class="hint" id="dev-tv-hint"></span>
+              </form>
+              <ul class="dev-list" id="dev-tvs"></ul>
+            </div>
+          </section>
+          <section class="panel dev-panel" id="backups" hidden aria-labelledby="h-backups">
+            <h2 id="h-backups">Backups</h2>
+            <p class="dim">Restore points are saved automatically (new session, after a long break, every 10 minutes of play). Restoring saves the current state first, so it can be undone.</p>
+            <div class="row-start">
+              <button type="button" class="btn btn-sm" id="bk-refresh">Show restore points</button>
+              <button type="button" class="btn btn-sm" id="bk-create">Save a restore point now</button>
+              <button type="button" class="btn btn-sm" id="bk-export-session">Export session</button>
+              <button type="button" class="btn btn-sm" id="bk-export-campaign">Export campaign</button>
+            </div>
+            <ul class="dev-list dev-sec" id="bk-list"></ul>
+          </section>
         </div>
       </section>
     </main>
@@ -232,9 +267,17 @@
     <div class="gate-box">
       <p class="gate-title">GM token missing.</p>
       <p class="gate-desc">Open the GM link printed in the host terminal. It ends with # and a long token.</p>
+      <form class="gate-form" id="gate-key" hidden>
+        <input type="text" name="username" value="gm" autocomplete="username" hidden>
+        <label class="dim" for="gate-key-input">GM key</label>
+        <input class="inp" id="gate-key-input" type="password" autocomplete="current-password" required>
+        <p class="gate-err" id="gate-err" role="alert"></p>
+        <button type="submit" class="btn btn-primary">Open the desk</button>
+      </form>
     </div>
   </div>
 
   <script type="module" src="/js/gm.js"></script>
+  <script type="module" src="/js/devices.js"></script>
 </body>
 </html>

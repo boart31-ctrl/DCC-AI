@@ -1,4 +1,6 @@
-// Entry: loads pack + saved state, serves HTTP static + WebSocket, prints join links.
+// Node edition: loads pack + saved state, serves HTTP static + WebSocket (ws), prints join links.
+// All session logic lives in host.js (shared with the Cloudflare edition); this file is the adapter:
+// files on disk, the ws library, the QR route and static files.
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -7,19 +9,16 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
 
-import { loadPack, fallbackPack, voiceFor, quipAudio } from './pack.js';
-import { createState, normalizeState, reduce, reducePlayerAction, viewFor, genId, ActionError } from './state.js';
-import { VoiceQueue } from './quips.js';
-import { authenticate, RateLimiter } from './auth.js';
+import { loadPack, fallbackPack } from './pack.js';
+import { createState, normalizeState } from './state.js';
+import { createHost, LIMITS } from './host.js';
 import { createAI } from './ai.js';
+import { pageFor, isSecretPath, securityHeaders } from './routes.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const MAX_MSG = 16 * 1024;
-const VIEW_DEBOUNCE_MS = 50;
 const SAVE_DEBOUNCE_MS = 500;
 const PING_MS = 20_000;
-const HELLO_TIMEOUT_MS = 10_000;
-const LOG_MAX = 5000;
+const KEEP_SNAPSHOTS = 50;
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -44,8 +43,6 @@ const MIME = {
   '.woff': 'font/woff',
   '.txt': 'text/plain; charset=utf-8',
 };
-
-const PAGES = { '/': 'index.html', '/gm': 'gm.html', '/play': 'play.html', '/stage': 'stage.html' };
 
 /** Minimal .env parser: KEY=VALUE lines, # comments, optional quotes. Never overrides real env. */
 export function loadEnvFile(file, env = process.env) {
@@ -81,25 +78,6 @@ export function safeJoin(base, rel) {
   return full === base || full.startsWith(base + path.sep) ? full : null;
 }
 
-function sendFile(req, res, file) {
-  fs.stat(file, (err, st) => {
-    if (err || !st.isFile()) return notFoundRes(res);
-    res.writeHead(200, {
-      'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
-      'content-length': st.size,
-      'cache-control': 'no-cache',
-      'x-content-type-options': 'nosniff',
-    });
-    if (req.method === 'HEAD') return res.end();
-    fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
-  });
-}
-
-function notFoundRes(res) {
-  res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });
-  res.end('not found');
-}
-
 function writeJsonAtomic(file, data) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   const tmp = `${file}.${process.pid}.tmp`;
@@ -107,9 +85,38 @@ function writeJsonAtomic(file, data) {
   fs.renameSync(tmp, file);
 }
 
+/** Restore points as files: data/snapshots/<id>_<reason>.json, newest KEEP_SNAPSHOTS kept. */
+export function fileSnapshots(dir, keep = KEEP_SNAPSHOTS) {
+  fs.mkdirSync(dir, { recursive: true });
+  let last = 0;
+  const entries = () =>
+    fs.readdirSync(dir)
+      .map((f) => /^(\d+)_([a-z.-]+)\.json$/.exec(f))
+      .filter(Boolean)
+      .map((m) => ({ id: Number(m[1]), reason: m[2], file: path.join(dir, m[0]) }))
+      .sort((a, b) => a.id - b.id);
+  return {
+    create(reason, state, at) {
+      const id = Math.max(at, last + 1, (entries().at(-1)?.id ?? 0) + 1);
+      last = id;
+      writeJsonAtomic(path.join(dir, `${id}_${reason.replace(/[^a-z.-]/g, '')}.json`), { id, at, reason, state });
+      const all = entries();
+      for (const e of all.slice(0, Math.max(0, all.length - keep))) fs.rmSync(e.file, { force: true });
+      return id;
+    },
+    list() {
+      return entries().reverse().map(({ id, reason, file }) => ({ id, at: JSON.parse(fs.readFileSync(file, 'utf8')).at ?? id, reason }));
+    },
+    load(id) {
+      const e = entries().find((x) => x.id === Number(id));
+      return e ? JSON.parse(fs.readFileSync(e.file, 'utf8')).state : null;
+    },
+  };
+}
+
 /**
  * Starts the server. All options are optional; tests pass port 0 and temp dirs.
- * Returns { port, state(), urls, close() }.
+ * Returns { port, state, urls, log, host, close() }.
  */
 export async function startServer(opts = {}) {
   const env = opts.env ?? process.env;
@@ -139,22 +146,22 @@ export async function startServer(opts = {}) {
   }
 
   // ---- state ----
-  let state;
+  let initial;
   try {
-    state = normalizeState(JSON.parse(fs.readFileSync(stateFile, 'utf8')), pack, now());
-    log.log(`[state] restored ${state.players.length} player(s) from ${stateFile}`);
+    initial = normalizeState(JSON.parse(fs.readFileSync(stateFile, 'utf8')), pack, now());
+    log.log(`[state] restored ${initial.players.length} player(s) from ${stateFile}`);
   } catch (e) {
     if (e.code !== 'ENOENT') log.warn(`[state] could not read ${stateFile} (${e.message}), starting fresh`);
-    state = createState(pack, now());
+    initial = createState(pack, now());
   }
-  let eventLog = [];
 
+  let latest = initial;
   let saveTimer = null;
   const saveNow = () => {
     clearTimeout(saveTimer);
     saveTimer = null;
     try {
-      writeJsonAtomic(stateFile, state);
+      writeJsonAtomic(stateFile, latest);
     } catch (e) {
       log.error(`[state] save failed: ${e.message}`);
     }
@@ -164,208 +171,68 @@ export async function startServer(opts = {}) {
   };
 
   const ai = createAI(env, opts.fetch);
-  const limiter = new RateLimiter({ max: 5, windowMs: 60_000, now });
-  const clients = new Set(); // ws with ws.meta = { role, playerId, alive }
+  const ip0 = opts.publicHost ?? lanIp();
+  let base = '';
 
-  // ---- outbound ----
-  const send = (ws, msg) => {
-    if (ws.readyState === 1) ws.send(JSON.stringify(msg));
-  };
-
-  const connectedPlayers = () => {
-    const s = new Set();
-    for (const c of clients) if (c.meta.role === 'player') s.add(c.meta.playerId);
-    return s;
-  };
-
-  let urls = { join: '', stage: '', gm: '' };
-  const viewOpts = () => ({
-    now: now(),
-    connected: connectedPlayers(),
-    urls,
-    queue: voice.snapshot(),
-    aiAvailable: ai.aiAvailable,
-    aiCallsLeft: ai.callsLeft,
-  });
-  const viewOf = (meta, o = viewOpts()) => viewFor(state, pack, meta.role, { ...o, playerId: meta.playerId });
-
-  let viewTimer = null;
-  const broadcastViews = () => {
-    viewTimer = null;
-    const o = viewOpts();
-    for (const c of clients) send(c, { t: 'view', view: viewOf(c.meta, o) });
-  };
-  const scheduleViews = () => {
-    if (!viewTimer) viewTimer = setTimeout(broadcastViews, VIEW_DEBOUNCE_MS);
-  };
-
-  const deliver = (event, to) => {
-    for (const c of clients) {
-      const { role, playerId } = c.meta;
-      const ok =
-        to === 'all' ||
-        to.roles?.includes(role) ||
-        (role === 'player' && ((to.playerId && to.playerId === playerId) || to.playerIds?.includes(playerId)));
-      if (ok) send(c, { t: 'event', event });
-    }
-  };
-
-  const toStage = (msg) => {
-    for (const c of clients) if (c.meta.role === 'stage') send(c, msg);
-  };
-
-  const logEvent = (entry) => {
-    eventLog.push(entry);
-    if (eventLog.length > LOG_MAX) eventLog = eventLog.slice(-LOG_MAX);
-  };
-
-  // ---- voice queue ----
-  const voice = new VoiceQueue({
+  const host = createHost({
+    pack,
+    state: initial,
     now,
-    genId,
-    getSession: () => state.session,
-    consumeBudget: () => apply({ role: 'system', t: 'budget.consume' }),
-    onPlay: (item) => {
-      const quip = item.quipId ? pack.quipsById.get(item.quipId) : null;
-      const msg = {
-        t: 'play',
-        id: item.id,
-        priority: item.priority,
-        text: item.text,
-        audio: quip ? quipAudio(quip, state.session.voice) : null,
-        voice: voiceFor(pack, state.session.voice),
-      };
-      logEvent({ at: now(), kind: 'play', id: item.id, priority: item.priority, text: item.text, quipId: item.quipId });
-      toStage(msg);
+    rng,
+    ai,
+    log,
+    legacy: true,
+    edition: 'node',
+    chat: opts.chat !== false,
+    gmKey: env.GM_KEY?.trim() || '',
+    send: (ws, text) => {
+      if (ws.readyState === 1) ws.send(text);
     },
-    onStop: () => toStage({ t: 'stop' }),
-    onChange: scheduleViews,
-  });
-
-  function archiveSession(session) {
-    const file = path.join(dataDir, 'sessions', `${session.id}.json`);
-    try {
+    close: (ws, code, reason) => ws.close(code, reason),
+    // Actions are written right away (atomic rename); background ticks are batched.
+    persist: (state, entry) => {
+      latest = state;
+      if (entry.system) scheduleSave();
+      else saveNow();
+    },
+    snapshots: fileSnapshots(path.join(dataDir, 'snapshots')),
+    onArchive: (session, eventLog, state) => {
+      const file = path.join(dataDir, 'sessions', `${session.id}.json`);
       writeJsonAtomic(file, { session, endedAt: now(), players: state.players.map(({ pin, ...p }) => p), messages: state.messages, log: eventLog });
       log.log(`[session] archived ${file}`);
-    } catch (e) {
-      log.error(`[session] archive failed: ${e.message}`);
-    }
-    eventLog = [];
-    ai.resetSession();
-  }
-
-  /** Runs one action through the reducer and performs all side effects. Throws ActionError. */
-  function apply(action, reducer = (st, a, ctx) => reduce(st, a, ctx)) {
-    const r = reducer(state, action, { now: now(), rng, pack });
-    if (!r.changed) return r;
-    state = r.state;
-    if (action.role !== 'system') {
-      const { token, pin, ...safe } = action; // keep secrets out of the log
-      logEvent({ at: now(), kind: 'action', action: safe });
-    }
-    for (const { event, to } of r.events) {
-      logEvent({ ...event, log: 'event' });
-      deliver(event, to);
-    }
-    for (const fx of r.effects) {
-      if (fx.type === 'archive') archiveSession(fx.session);
-      else if (fx.type === 'clearPending') voice.clearPending();
-      else if (fx.type === 'queueClear') voice.clear();
-    }
-    for (const line of r.lines) voice.push(line);
-    if (action.t === 'player.remove') {
-      for (const c of clients) if (c.meta.role === 'player' && c.meta.playerId === action.playerId) c.close(4004, 'removed');
-    }
-    scheduleSave();
-    scheduleViews();
-    return r;
-  }
-
-  /** Player-originated action: identity comes from the socket, never from the payload. */
-  function applyPlayer(payload, playerId) {
-    return apply({ ...payload, role: 'player', actorId: playerId }, (st, a, ctx) => reducePlayerAction(st, payload, { ...ctx, playerId }));
-  }
-
-  // ---- incoming messages ----
-  async function handleAction(ws, msg) {
-    const { role, playerId } = ws.meta;
-    const rid = typeof msg.rid === 'string' || typeof msg.rid === 'number' ? msg.rid : undefined;
-    try {
-      if (msg.t === 'ping') return send(ws, { t: 'pong', rid });
-      if (role === 'stage') {
-        if (msg.t === 'audio.done') {
-          if (typeof msg.id !== 'string') throw new ActionError('bad_request', 'id required');
-          voice.done(msg.id);
-        } else if (msg.t === 'audio.pause') {
-          if (typeof msg.silent !== 'boolean') throw new ActionError('bad_request', 'silent must be a boolean');
-          // Phase 1 treats the table as always silent; phase-3 hook: voice.setSilent(msg.silent)
-        } else {
-          throw new ActionError('bad_request', `unknown action ${msg.t} for role stage`);
-        }
-      } else if (role === 'gm') {
-        if (msg.t === 'auto.veto') {
-          if (!voice.veto(msg.id)) throw new ActionError('not_found', `no pending line ${msg.id}`);
-        } else if (msg.t === 'queue.clear') {
-          voice.clear();
-        } else {
-          let action = { ...msg, role: 'gm' };
-          // Custom achievement without desc: let AI write one if available.
-          if (msg.t === 'ach.award' && msg.achId === undefined && typeof msg.title === 'string' && !msg.desc && ai.available()) {
-            const p = state.players.find((x) => x.id === msg.playerId);
-            const desc = await ai.generateAchievementText({ title: msg.title, playerName: p?.name, klass: p?.klass, race: p?.race });
-            if (desc) action = { ...action, desc: desc.slice(0, 300) };
-          }
-          const r = apply(action);
-          if (rid !== undefined) return send(ws, { t: 'ack', rid, ok: true, ...(r.result ? { result: r.result } : {}) });
-        }
-      } else {
-        const { rid: _rid, ...payload } = msg;
-        const r = applyPlayer(payload, playerId);
-        if (rid !== undefined) return send(ws, { t: 'ack', rid, ok: true, ...(r.result ? { result: r.result } : {}) });
-      }
-      if (rid !== undefined) send(ws, { t: 'ack', rid, ok: true });
-    } catch (e) {
-      const code = e instanceof ActionError ? e.code : 'bad_request';
-      if (!(e instanceof ActionError)) log.error('[ws] action failed:', e);
-      if (rid !== undefined) send(ws, { t: 'ack', rid, ok: false, error: code, msg: e.message });
-      else send(ws, { t: 'error', code, msg: e.message });
-    }
-  }
-
-  function onMessage(ws, data, isBinary, ip) {
-    let msg;
-    try {
-      if (isBinary) throw new Error('binary');
-      msg = JSON.parse(data.toString('utf8'));
-    } catch {
-      return send(ws, { t: 'error', code: 'bad_request', msg: 'invalid JSON' });
-    }
-    if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof msg.t !== 'string') {
-      return send(ws, { t: 'error', code: 'bad_request', msg: 'message must be an object with string t' });
-    }
-    if (!ws.meta.role) {
-      if (msg.t !== 'hello') return send(ws, { t: 'error', code: 'bad_request', msg: 'send hello first' });
-      const a = authenticate(state, msg, ip, limiter);
-      if (!a.ok) {
-        send(ws, { t: 'error', code: a.code, msg: a.code === 'rate_limited' ? 'too many wrong PINs, wait a minute' : 'authentication failed' });
-        if (a.code !== 'bad_request') ws.close(4001, a.code);
-        return;
-      }
-      clearTimeout(ws.helloTimer);
-      ws.meta.role = a.role;
-      ws.meta.playerId = a.playerId;
-      clients.add(ws);
-      const welcome = { t: 'welcome', role: a.role, view: viewOf(ws.meta) };
-      if (a.playerId) welcome.playerId = a.playerId;
-      send(ws, welcome);
-      if (a.role === 'player') scheduleViews();
-      return;
-    }
-    if (msg.t === 'hello') return send(ws, { t: 'error', code: 'bad_request', msg: 'already authenticated' });
-    handleAction(ws, msg);
-  }
+    },
+    urls: (b, st) => ({ join: `${b}/play?room=${st.room}`, stage: `${b}/stage#${st.stageToken}`, gm: `${b}/gm#${st.gmToken}` }),
+  });
 
   // ---- HTTP ----
+  const baseHeaders = () => securityHeaders({ wsOrigin: base.replace(/^http/, 'ws') });
+
+  function notFoundRes(res) {
+    res.writeHead(404, { ...baseHeaders(), 'content-type': 'text/plain; charset=utf-8' });
+    res.end('not found');
+  }
+
+  function sendFile(req, res, file, extra = {}) {
+    fs.stat(file, (err, st) => {
+      if (err || !st.isFile()) return notFoundRes(res);
+      res.writeHead(200, {
+        ...baseHeaders(),
+        'content-type': MIME[path.extname(file).toLowerCase()] ?? 'application/octet-stream',
+        'content-length': st.size,
+        'cache-control': 'no-cache',
+        ...extra,
+      });
+      if (req.method === 'HEAD') return res.end();
+      fs.createReadStream(file).on('error', () => res.destroy()).pipe(res);
+    });
+  }
+
+  function sendJson(res, status, data, extra = {}) {
+    const body = JSON.stringify(data);
+    res.writeHead(status, { ...baseHeaders(), 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...extra });
+    res.end(body);
+  }
+
   async function onRequest(req, res) {
     try {
       if (req.method !== 'GET' && req.method !== 'HEAD') {
@@ -387,20 +254,32 @@ export async function startServer(opts = {}) {
           return res.end('text required (max 1000 chars)');
         }
         const svg = await QRCode.toString(text, { type: 'svg', margin: 1 });
-        res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-cache' });
+        res.writeHead(200, { 'content-type': 'image/svg+xml', 'cache-control': 'no-store', 'x-robots-tag': 'noindex' });
         return res.end(req.method === 'HEAD' ? undefined : svg);
       }
       if (p === '/healthz') {
         res.writeHead(200, { 'content-type': 'text/plain' });
         return res.end('ok');
       }
+      if (p === '/api/info') return sendJson(res, 200, { edition: 'node', legacy: true, keyLogin: !!env.GM_KEY?.trim() });
+      if (p === '/api/export') {
+        const ip = req.socket.remoteAddress ?? '?';
+        const r = host.checkGm({ key: req.headers['x-gm-key'], token: req.headers['x-gm-token'] }, ip);
+        if (r !== 'ok') return sendJson(res, r === 'rate_limited' ? 429 : 401, { error: r });
+        const kind = url.searchParams.get('kind') === 'campaign' ? 'campaign' : 'session';
+        const st = host.state;
+        const data = { format: 'the-system-export/1', kind, edition: 'node', exportedAt: now(), pack: { id: pack.id, version: pack.version }, state: st, log: host.log };
+        return sendJson(res, 200, data, { 'content-disposition': `attachment; filename="system-${kind}-${new Date(now()).toISOString().slice(0, 10)}.json"` });
+      }
+      if (p.startsWith('/api/')) return notFoundRes(res);
       if (p.startsWith('/pack/')) {
         const file = pack.dir && safeJoin(pack.dir, p.slice('/pack/'.length));
         return file ? sendFile(req, res, file) : notFoundRes(res);
       }
-      const rel = PAGES[p.replace(/\/+$/, '') || '/'] ?? p.slice(1);
-      const file = safeJoin(webDir, rel);
-      return file ? sendFile(req, res, file) : notFoundRes(res);
+      const page = pageFor(p);
+      const file = safeJoin(webDir, page ?? p.slice(1));
+      if (!file) return notFoundRes(res);
+      return sendFile(req, res, file, isSecretPath(p) ? { 'cache-control': 'no-store' } : {});
     } catch (e) {
       log.error('[http]', e);
       if (!res.headersSent) res.writeHead(500);
@@ -409,93 +288,70 @@ export async function startServer(opts = {}) {
   }
 
   const server = http.createServer(onRequest);
-  const wss = new WebSocketServer({ noServer: true, maxPayload: MAX_MSG });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: LIMITS.maxMessage });
 
   server.on('upgrade', (req, socket, head) => {
     if (new URL(req.url, 'http://x').pathname !== '/ws') return socket.destroy();
+    // Browsers always send Origin on WebSocket upgrades; a foreign one means another site is trying.
+    const origin = req.headers.origin;
+    if (origin) {
+      let ok = false;
+      try {
+        ok = new URL(origin).host === req.headers.host;
+      } catch {}
+      if (!ok) return socket.destroy();
+    }
+    if (!host.canAccept()) return socket.destroy();
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
   wss.on('connection', (ws, req) => {
-    const ip = req.socket.remoteAddress ?? '?';
-    ws.meta = { role: null, playerId: null, alive: true };
-    ws.helloTimer = setTimeout(() => ws.close(4000, 'hello timeout'), HELLO_TIMEOUT_MS);
-    ws.on('pong', () => (ws.meta.alive = true));
-    ws.on('message', (data, isBinary) => onMessage(ws, data, isBinary, ip));
+    ws.alive = true;
+    if (!host.connect(ws, { ip: req.socket.remoteAddress ?? '?' })) return;
+    ws.on('pong', () => (ws.alive = true));
+    ws.on('message', (data, isBinary) => host.message(ws, isBinary ? null : data.toString('utf8')));
     ws.on('error', () => {}); // e.g. maxPayload exceeded; ws closes the socket itself
-    ws.on('close', () => {
-      clearTimeout(ws.helloTimer);
-      const wasPlayer = clients.has(ws) && ws.meta.role === 'player';
-      clients.delete(ws);
-      if (wasPlayer) scheduleViews();
-    });
+    ws.on('close', () => host.disconnect(ws));
   });
 
-  // ---- timers ----
-  const timers = [];
-  timers.push(
-    setInterval(() => {
-      for (const ws of wss.clients) {
-        if (!ws.meta.alive) {
-          ws.terminate();
-          continue;
-        }
-        ws.meta.alive = false;
-        ws.ping();
+  // Transport keepalive: ws ping frames; dead sockets are terminated.
+  const pingTimer = setInterval(() => {
+    for (const ws of wss.clients) {
+      if (!ws.alive) {
+        ws.terminate();
+        continue;
       }
-    }, opts.pingMs ?? PING_MS),
-  );
-  timers.push(setInterval(() => voice.tick(), 250));
-  timers.push(
-    setInterval(() => {
-      const r = reduce(state, { role: 'system', t: 'audience.tick' }, { now: now(), pack });
-      if (r.changed) {
-        state = r.state;
-        scheduleViews();
-        scheduleSave();
-      }
-    }, 5_000),
-  );
-
-  let chatTimer = null;
-  const scheduleChat = () => {
-    chatTimer = setTimeout(() => {
-      const c = pack.chat[Math.floor(rng() * pack.chat.length)];
-      if (c) deliver({ id: genId('e'), at: now(), kind: 'chat', user: c.user, text: c.text }, { roles: ['stage'] });
-      scheduleChat();
-    }, 8_000 + rng() * 12_000);
-  };
-  if (pack.chat.length && opts.chat !== false) scheduleChat();
+      ws.alive = false;
+      ws.ping();
+    }
+  }, opts.pingMs ?? PING_MS);
 
   await new Promise((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, opts.host ?? '0.0.0.0', resolve);
   });
   const actualPort = server.address().port;
-  const ip = opts.publicHost ?? lanIp();
-  const base = `http://${ip}:${actualPort}`;
-  urls = {
-    join: `${base}/play?room=${state.room}`,
-    stage: `${base}/stage#${state.stageToken}`,
-    gm: `${base}/gm#${state.gmToken}`,
-  };
+  base = `http://${ip0}:${actualPort}`;
+  host.setBase(base);
+  latest = host.state;
   saveNow();
+  const urls = host.urls;
 
   return {
     port: actualPort,
     urls,
     pack,
     ai,
+    host,
     get state() {
-      return state;
+      return host.state;
     },
     get log() {
-      return eventLog;
+      return host.log;
     },
     async close() {
-      timers.forEach(clearInterval);
-      clearTimeout(chatTimer);
-      clearTimeout(viewTimer);
+      clearInterval(pingTimer);
+      host.close();
       for (const ws of wss.clients) ws.terminate();
       wss.close();
       saveNow();
@@ -521,7 +377,9 @@ async function main() {
     `Players:     ${urls.join}`,
     `GM link:     ${urls.gm}`,
     `Stage link:  ${urls.stage}`,
+    `TV pairing:  ${srv.host.base}/tv`,
     '',
+    `GM key:      ${process.env.GM_KEY?.trim() ? 'set (log in at /gm with it)' : 'not set (use the GM link above)'}`,
     `AI: ${ai.aiAvailable ? 'enabled' : 'off (no ANTHROPIC_API_KEY) - fully playable without it'}`,
   ];
   console.log('\n' + lines.join('\n') + '\n');

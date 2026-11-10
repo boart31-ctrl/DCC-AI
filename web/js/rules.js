@@ -315,7 +315,7 @@ export function libraryOf(view) {
   const src = view?.library || view?.gm?.library || view?.pack?.library || {};
   if (view && view.__libCache?.src === src) return view.__libCache.out;
   const out = {};
-  for (const kind of ['item', 'spell', 'skill', 'buff', 'feature', 'race', 'class', 'background']) {
+  for (const kind of ['item', 'spell', 'skill', 'buff', 'feature', 'race', 'class', 'background', 'boss', 'location']) {
     const v = src[kind] || src[`${kind}s`] || (kind === 'class' ? src.classes : null) || [];
     out[kind] = Array.isArray(v) ? v : Object.values(v);
   }
@@ -590,6 +590,8 @@ export const LIB_KINDS = [
   { id: 'race', label: 'Race', plural: 'Races' },
   { id: 'class', label: 'Class', plural: 'Classes' },
   { id: 'background', label: 'Background', plural: 'Backgrounds' },
+  { id: 'boss', label: 'Boss', plural: 'Bosses' },
+  { id: 'location', label: 'Location', plural: 'Locations' },
 ];
 
 export const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'];

@@ -322,15 +322,31 @@ export function avatar(name, { color, src, size = 56 } = {}) {
 /* ---------------- theme ---------------- */
 
 const THEME_KEY = 'system.theme';
+export const THEMES = ['dark', 'light', 'neon'];
+const storedTheme = () => { try { return localStorage.getItem(THEME_KEY); } catch { return null; } };
+let packTheme = null;
+/** Applies `t`, else this device's choice, else the pack default (pack.json "theme"), else dark. */
 export function applyTheme(t) {
-  const theme = t || (() => { try { return localStorage.getItem(THEME_KEY); } catch { return null; } })() || 'dark';
-  document.documentElement.dataset.theme = theme;
-  return theme;
+  const pick = [t, storedTheme(), packTheme].find((x) => THEMES.includes(x)) || 'dark';
+  document.documentElement.dataset.theme = pick;
+  return pick;
 }
+/** Stores a per-device choice. */
+export function setTheme(t) {
+  if (!THEMES.includes(t)) return applyTheme();
+  try { localStorage.setItem(THEME_KEY, t); } catch {}
+  return applyTheme(t);
+}
+/** Cycles dark → light → neon (the single theme button). */
 export function toggleTheme() {
-  const next = document.documentElement.dataset.theme === 'light' ? 'dark' : 'light';
-  try { localStorage.setItem(THEME_KEY, next); } catch {}
-  return applyTheme(next);
+  const cur = document.documentElement.dataset.theme;
+  return setTheme(THEMES[(THEMES.indexOf(cur) + 1) % THEMES.length]);
+}
+/** Pack default theme: used only while this device has not picked one. */
+export function applyPackTheme(t) {
+  if (t === packTheme) return;
+  packTheme = THEMES.includes(t) ? t : null;
+  applyTheme();
 }
 /** Pack accent (ruleset/pack may set `ui.accent`). */
 export function applyAccent(pack) {

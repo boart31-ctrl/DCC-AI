@@ -1,5 +1,6 @@
 /* Player phone: the character sheet (tool UI). The takeovers below keep the broadcast look. */
 @import url("tool.css");
+@import url("neon.css");
 @import url("sheet.css");
 
 body.play { --me: var(--c-accent); padding-bottom: calc(32px + env(safe-area-inset-bottom)); }

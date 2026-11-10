@@ -5,7 +5,7 @@ import {
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
 import { openBuilder } from './builder.js';
 import { createDiceLog, showRollCard } from './dicelog.js';
-import { icon, applyTheme, toggleTheme, applyAccent } from './ui.js';
+import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme } from './ui.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -18,6 +18,13 @@ try { saved = JSON.parse(store.get('localStorage', KEY) || '{}') || {}; } catch 
 let room = (params.get('room') || saved.room || '').toUpperCase();
 let pin = saved.room === room ? (saved.pin || '') : '';
 let entry = '';
+// Personal link: /p/<token> (QR from the GM). Stored so "Add to Home Screen" (start_url /play) still works.
+const TOKEN_KEY = 'system.playerToken';
+const pathToken = (/^\/p\/([A-Za-z0-9_-]{16,128})\/?$/.exec(location.pathname) || [])[1] || '';
+if (pathToken) store.set('localStorage', TOKEN_KEY, pathToken);
+let token = pathToken || store.get('localStorage', TOKEN_KEY) || '';
+let claimName = ''; // set while asking the GM to let us in
+let cloud = false; // server has no room/PIN login (Cloudflare edition)
 
 const client = new TransportHub();
 /** Hosted edition hooks: notes storage and read-state live outside the engine there. */
@@ -32,9 +39,36 @@ function remember() {
 }
 function forget() {
   store.del('localStorage', KEY);
+  store.del('localStorage', TOKEN_KEY);
+  token = '';
+}
+
+function showClaim(err = '', waiting = false) {
+  $('#claim').hidden = false;
+  $('#join').hidden = true;
+  $('#app').hidden = true;
+  $('#reconnect').hidden = true;
+  $('#claim-form').hidden = waiting;
+  $('#claim-wait').hidden = !waiting;
+  $('#claim-pin').hidden = cloud;
+  $('#claim-err').textContent = err;
+  if (!waiting) setTimeout(() => $('#claim-name').focus(), 50);
+}
+
+function claimChars(list, requestId) {
+  let picked = null;
+  const draw = () => $('#claim-chars').replaceChildren(...list.map((c) => h('button.claim-char', {
+    type: 'button', style: { '--cc': c.color }, 'aria-pressed': String(picked === c.id),
+    onclick: () => { picked = c.id; client.raw({ t: 'claim.pick', playerId: c.id }); draw(); buzz(8); },
+  }, h('span.cdot', { 'aria-hidden': 'true' }), c.name, c.connected ? h('small', 'already playing') : null)));
+  draw();
+  $('#claim-status').textContent = list.length ? 'Waiting for the GM to let you in. Pick your crawler meanwhile.' : 'Waiting for the GM to let you in.';
+  $('#claim-wait').dataset.request = requestId;
 }
 
 function showJoin(err = '') {
+  if (cloud) return showClaim(err);
+  $('#claim').hidden = true;
   $('#join').hidden = false;
   $('#app').hidden = true;
   $('#reconnect').hidden = true;
@@ -94,9 +128,38 @@ $('#room-input').addEventListener('keydown', (e) => {
   if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); }
 });
 
+$('#claim-form').addEventListener('submit', (e) => {
+  e.preventDefault();
+  const name = $('#claim-name').value.trim();
+  if (!name) return;
+  claimName = name;
+  showClaim('', true);
+  $('#claim-chars').replaceChildren();
+  $('#claim-status').textContent = 'Asking the GM.';
+  client.retry();
+});
+$('#claim-cancel').addEventListener('click', () => {
+  claimName = '';
+  client.close();
+  showClaim();
+});
+$('#claim-pin').addEventListener('click', () => { claimName = ''; client.close(); $('#claim').hidden = true; showJoin(); });
+$('#join-claim').addEventListener('click', () => { client.close(); showClaim(); });
+
+client.on('message', (m) => {
+  if (m.t === 'claim') claimChars(m.characters || [], m.requestId);
+  else if (m.t === 'token' && typeof m.token === 'string') {
+    // The GM let us in: from now on this phone uses the personal link.
+    token = m.token;
+    claimName = '';
+    store.set('localStorage', TOKEN_KEY, token);
+  }
+});
+
 $('#leave').addEventListener('click', async () => {
-  if (!(await ask('Leave on this phone? You can rejoin with your PIN.', { ok: 'Leave' }))) return;
+  if (!(await ask('Leave on this phone? You can rejoin with your QR code (or PIN).', { ok: 'Leave' }))) return;
   forget();
+  claimName = '';
   pin = '';
   everJoined = false;
   client.close();
@@ -112,16 +175,28 @@ client.on('status', (s) => {
     return;
   }
   if (s.status === 'rejected') {
+    const hadToken = !!token;
+    const asked = !!claimName;
     pin = '';
+    claimName = '';
     forget();
     const msg = s.code === 'removed'
-      ? 'The GM removed you from this game. Ask them for a new PIN.'
+      ? 'The GM removed you from this game. Ask them for a new QR code.'
+      : s.code === 'relinked'
+      ? 'The GM made a new link for your crawler. Scan the new QR code.'
+      : s.code === 'denied'
+      ? 'The GM said no. Check your name and ask again.'
+      : hadToken && s.code === 'bad_auth'
+      ? 'This link does not work any more. Ask your GM for your QR code.'
+      : s.code === 'rate_limited' && (hadToken || cloud)
+      ? 'Too many tries from this network. Wait a minute.'
       : s.code === 'rate_limited'
       ? 'Too many wrong PINs. Wait a minute, then try again.'
       : s.code === 'not_found' ? 'That room does not exist. Check the code on the TV.'
         : 'Wrong PIN. Ask your GM.';
     everJoined = false;
-    showJoin(msg);
+    if (hadToken || asked || cloud) showClaim(msg);
+    else showJoin(msg);
     return;
   }
   if (everJoined && (s.status === 'closed' || s.status === 'connecting')) {
@@ -135,6 +210,11 @@ client.on('status', (s) => {
 client.on('welcome', () => {
   everJoined = true;
   remember();
+  // Keep the personal link in the address bar so "Add to Home Screen" saves it.
+  if (token && !location.pathname.startsWith('/p/')) {
+    try { history.replaceState(null, '', `/p/${token}`); } catch {}
+  }
+  $('#claim').hidden = true;
   $('#join').hidden = true;
   $('#app').hidden = false;
   $('#reconnect').hidden = true;
@@ -205,7 +285,7 @@ $('#log-btn').addEventListener('click', () => {
   $('#log-btn').setAttribute('aria-expanded', String(open));
 });
 const themeBtn = $('#theme-btn');
-const drawTheme = () => themeBtn.replaceChildren(icon(document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun', { size: 16 }));
+const drawTheme = () => { const t = document.documentElement.dataset.theme; themeBtn.replaceChildren(icon(t === 'light' ? 'sparkle' : t === 'neon' ? 'moon' : 'sun', { size: 16 })); };
 themeBtn.addEventListener('click', () => { toggleTheme(); drawTheme(); });
 applyTheme();
 drawTheme();
@@ -216,6 +296,8 @@ function render() {
   $('#brand').textContent = sysName();
   $('#viewers').textContent = fmtNum(view.audience?.viewers ?? 0);
   applyAccent(view.pack);
+  applyPackTheme(view.pack?.theme);
+  drawTheme();
   sheet.update(view, me);
   renderLog();
   renderTicker();
@@ -450,19 +532,32 @@ export function mountPlay(transport, opts = {}) {
 }
 
 function bootNode() {
-const transport = new SystemClient({ hello: () => ({ role: 'player', room, pin }) });
+const transport = new SystemClient({
+  hello: () => token ? { role: 'player', token }
+    : claimName ? { role: 'player', claim: true, name: claimName }
+      : { role: 'player', room, pin },
+});
 client.attach(transport);
-if (room && pin) {
+const rejoin = (label) => {
   $('#join').hidden = true;
   $('#reconnect').hidden = false;
   $('#reconnect .sys-title').textContent = 'Rejoining.';
-  $('#reconnect-msg').textContent = `Room ${room}`;
+  $('#reconnect-msg').textContent = label;
   everJoined = true; // show reconnect overlay rather than keypad while we try
   client.on('welcome', () => { $('#reconnect .sys-title').textContent = 'Signal lost.'; });
   client.connect();
-} else {
-  showJoin();
+};
+if (token) {
+  rejoin('Opening your crawler');
+} else if (room && pin) {
+  rejoin(`Room ${room}`);
 }
+// Which login does this server offer? (Cloudflare: personal links + join requests only.)
+fetch('/api/info', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null).then((info) => {
+  cloud = info?.legacy === false;
+  $('#join-claim').hidden = false;
+  if (!token && !(room && pin) && !everJoined) showJoin();
+});
 registerSW();
 }
 

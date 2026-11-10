@@ -81,10 +81,20 @@ function loadMeta(raw, warnings) {
     language: isStr(raw.language) ? raw.language : 'en',
     systemName: isStr(raw.systemName) ? raw.systemName : 'The System',
     notifyPrefix: isStr(raw.notifyPrefix) ? raw.notifyPrefix.trim().slice(0, 60) : '',
+    theme: loadTheme(raw.theme, warnings),
     lootTiers,
     audience: { startViewers, sponsorHypeThreshold },
     autoBudget,
   };
+}
+
+/** Default look for the GM desk + player sheets ("dark" | "light" | "neon"); each device may override it. */
+export const THEMES = ['dark', 'light', 'neon'];
+function loadTheme(v, warnings) {
+  if (v == null) return null;
+  if (THEMES.includes(v)) return v;
+  warnings.push(`pack.json "theme" must be one of ${THEMES.join(', ')}, ignoring`);
+  return null;
 }
 
 export const DEFAULT_VOICE = Object.freeze({ id: 'host', label: 'Host', lang: 'en-US', rate: 1, pitch: 1, prefer: [] });
@@ -242,10 +252,10 @@ function loadItems(io, raw, warnings) {
 }
 
 // Optional library files (spells.json, skills.json, ...): arrays; bad entries are skipped with a warning.
-const LIB_FILES = { spell: 'spells', skill: 'skills', buff: 'buffs', feature: 'features', race: 'races', class: 'classes', background: 'backgrounds' };
+const LIB_FILES = { spell: 'spells', skill: 'skills', buff: 'buffs', feature: 'features', race: 'races', class: 'classes', background: 'backgrounds', boss: 'bosses', location: 'locations' };
 export const LIBRARY_FILES = Object.values(LIB_FILES);
 
-function loadLibrary(raw, ruleset, warnings) {
+function loadLibrary(raw, ruleset, warnings, io) {
   const lib = {};
   for (const [kind, key] of Object.entries(LIB_FILES)) {
     const F = `${key}.json`;
@@ -263,7 +273,14 @@ function loadLibrary(raw, ruleset, warnings) {
     const data = raw[key];
     if (data !== undefined) {
       if (!Array.isArray(data)) warnings.push(`${F} must be an array, ignoring`);
-      else data.forEach((x, i) => pushEntry(normalizeLibEntry(kind, x, { warnings, where: `${F} [${i}]`, source: 'pack' })));
+      else {
+        data.forEach((x, i) => {
+          const where = `${F} [${i}]`;
+          // Boss art (and per-phase art) are pack-relative image paths, like item images.
+          const image = kind === 'boss' || kind === 'location' ? (rel) => assetUrl(io, 'images', rel, warnings, `${kind} ${x?.id ?? i}`) : undefined;
+          pushEntry(normalizeLibEntry(kind, x, { warnings, where, source: 'pack', image }));
+        });
+      }
     }
     if (kind === 'skill') for (const e of ruleset.skills.catalog) if (!seen.has(e.id)) pushEntry(e);
     if (ruleset.inlineLibrary?.[kind]) for (const e of ruleset.inlineLibrary[kind]) if (!seen.has(e.id)) pushEntry(e);
@@ -383,7 +400,7 @@ export function normalizePack(raw, opts = {}) {
   const chat = loadChat(raw.chat, warnings);
   const rawRuleset = raw.ruleset !== undefined ? raw.ruleset : raw.pack.ruleset;
   const ruleset = normalizeRuleset(rawRuleset, { stats: meta.stats, resources: meta.resources }, warnings);
-  const library = loadLibrary(raw, ruleset, warnings);
+  const library = loadLibrary(raw, ruleset, warnings, io);
   const pack = finish({ ...meta, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
   return { pack, warnings };
 }
@@ -394,7 +411,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -426,6 +443,7 @@ export function deserializePack(data) {
     }
   }
   pack.library = lib;
+  pack.theme = THEMES.includes(d.theme) ? d.theme : null;
   pack.items = pack.items.map((it) => ({ tags: [], slot: null, stackable: false, effects: [], attack: null, use: null, source: 'pack', ...it }));
   pack.dir = null;
   return finish(pack);
@@ -440,6 +458,7 @@ export function fallbackPack() {
     language: 'en',
     systemName: 'The System',
     notifyPrefix: '',
+    theme: null,
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },
     autoBudget: 6,

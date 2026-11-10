@@ -39,6 +39,23 @@ The console prints three links (also saved to `data/links.txt`):
 
 GM shortcuts: `1–9` quips, `A` toggle AUTO, `Esc` stop everything. Stage: `F` fullscreen, `Q` hide QR.
 
+## On the internet (Cloudflare, free plan)
+
+The same game runs as a Cloudflare Worker with one SQLite-backed Durable Object per campaign
+(`cloud/worker.js`), speaking the same WebSocket protocol. Every action is written to SQLite before it is
+acknowledged; restore points, a GM restore button and session/campaign export are built in.
+
+```bash
+node tools/build_cloud.mjs packs/demo dist-cloud   # → dist-cloud/{assets,worker,wrangler.jsonc}
+npx wrangler dev --config dist-cloud/wrangler.jsonc --var GM_KEY:pick-a-long-key
+npm run test:cloud                                  # end-to-end: wrangler dev, crash + restart, restore
+```
+
+Logins: GM key (secret `GM_KEY`), a personal QR link per player (`/p/<token>`), TVs pair with a 4-letter
+code shown at `/tv`. Details in [docs/PROTOCOL.md](docs/PROTOCOL.md) §1. A private content repo deploys by
+installing this repo as a dependency and running `tools/build_cloud.mjs <pack> dist` in its build step.
+The Node edition accepts the same logins (set `GM_KEY` in `.env`) next to the room + PIN flow.
+
 ## Your own content
 
 Copy `packs/demo`, edit the JSON, start with `PACK_DIR=path/to/your-pack npm start`.

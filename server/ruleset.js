@@ -2,7 +2,7 @@
 // Contract: docs/RULESET.md (v2).
 import { evaluate, diceText, validateFormula } from './formula.js';
 
-export const LIB_KINDS = ['item', 'spell', 'skill', 'buff', 'feature', 'race', 'class', 'background'];
+export const LIB_KINDS = ['item', 'spell', 'skill', 'buff', 'feature', 'race', 'class', 'background', 'boss', 'location'];
 export const EFFECT_WHENS = ['equipped', 'carried', 'active', 'always'];
 export const RANKUP_RULES = ['gt', 'gte', 'lt', 'lte'];
 export const FIELD_TYPES = ['number', 'text', 'longtext'];
@@ -184,11 +184,64 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
     Object.assign(e, { effects: normalizeEffects(raw.effects, ctx), duration: text(raw.duration, 80), external: raw.external === true });
   } else if (kind === 'feature') {
     Object.assign(e, { effects: normalizeEffects(raw.effects, ctx) });
+  } else if (kind === 'boss') {
+    Object.assign(e, normalizeBossEntry(raw, ctx, opts));
+  } else if (kind === 'location') {
+    Object.assign(e, {
+      floor: floorText(raw.floor),
+      image: opts.image ? opts.image(raw.image) : homebrewImage(raw.image, ctx),
+      readAloud: text(raw.readAloud, 1200),
+      features: Array.isArray(raw.features) ? raw.features.filter(isStr).slice(0, 30).map((f) => text(f, 300)) : [],
+    });
   } else {
     Object.assign(e, { features: idList(raw.features), statBonuses: normalizeEffects(raw.statBonuses, ctx), skills: idList(raw.skills) });
   }
   if (ctx.unverified.length) e.unverified = ctx.unverified;
   return e;
+}
+
+/** Boss library entry (bosses.json / homebrew): art, HP slots, phases. See docs/CONTENT_PACKS.md. */
+function normalizeBossEntry(raw, ctx, opts) {
+  const img = (v) => (opts.image ? opts.image(v) : homebrewImage(v, ctx));
+  let hpSlots = 10;
+  if (raw.hpSlots !== undefined) {
+    if (Number.isInteger(raw.hpSlots) && raw.hpSlots >= 1 && raw.hpSlots <= 100) hpSlots = raw.hpSlots;
+    else problem(ctx, `${ctx.where}: hpSlots must be an integer 1..100, using 10`);
+  }
+  const phases = [];
+  if (raw.phases != null && !Array.isArray(raw.phases)) problem(ctx, `${ctx.where}: phases must be an array`);
+  for (const [i, p] of (Array.isArray(raw.phases) ? raw.phases : []).entries()) {
+    if (phases.length >= 10) { problem(ctx, `${ctx.where}: max 10 phases`); break; }
+    if (!isObj(p) || !isStr(p.name)) { problem(ctx, `${ctx.where}: phases[${i}] needs a name`); continue; }
+    const atHp = Number.isInteger(p.atHp) && p.atHp >= 0 && p.atHp <= 100 ? p.atHp : null;
+    if (p.atHp != null && atHp === null) problem(ctx, `${ctx.where}: phases[${i}].atHp must be an integer 0..100`);
+    phases.push({ name: text(p.name, 60), text: text(p.text, 300), image: img(p.image), atHp });
+  }
+  let color = null;
+  if (raw.color != null && raw.color !== '') {
+    if (typeof raw.color === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(raw.color)) color = raw.color;
+    else problem(ctx, `${ctx.where}: color must be #rrggbb`);
+  }
+  return {
+    title: text(raw.title, 120),
+    image: img(raw.image),
+    hpSlots,
+    phases,
+    flavor: text(raw.flavor, 600),
+    color,
+    lootTier: safeId(raw.lootTier) ? raw.lootTier : null,
+    floor: floorText(raw.floor),
+    intro: text(raw.intro, 600), // the System's announcement: TV + voice
+    defeatLine: text(raw.defeatLine, 300), // TV + voice on defeat
+    lootHint: text(raw.lootHint, 300), // GM desk only (never copied into the scene)
+    tactics: text(raw.tactics, 3000), // GM desk only
+  };
+}
+
+/** Floor as display text: 1 → "1", "B2" → "B2". */
+function floorText(v) {
+  if (Number.isInteger(v) && v >= -99 && v <= 999) return String(v);
+  return text(v, 20);
 }
 
 /**

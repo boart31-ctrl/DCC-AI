@@ -17,7 +17,9 @@ export function checkIsomorphic(entry) {
     const src = fs.readFileSync(file, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
     for (const m of src.matchAll(IMPORT_RE)) {
       const spec = m[1] ?? m[2];
-      if (spec.startsWith('.')) visit(path.resolve(path.dirname(file), spec));
+      if (spec.startsWith('.')) {
+        if (!spec.endsWith('.json')) visit(path.resolve(path.dirname(file), spec)); // JSON data modules have no imports
+      }
       else if (FORBIDDEN.test(spec)) problems.push({ file, spec });
       else problems.push({ file, spec, note: 'bare package import (not available in the browser build)' });
     }

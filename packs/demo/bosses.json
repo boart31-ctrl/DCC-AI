@@ -1,0 +1,49 @@
+[
+  {
+    "id": "mall_cop_prime",
+    "name": "Mall Cop Prime",
+    "title": "Keeper of the Lost and Found",
+    "desc": "A security guard who never clocked out. The food court is his kingdom.",
+    "flavor": "He has confiscated four hundred and twelve skateboards and one soul.",
+    "image": "bosses/mall_cop_prime.webp",
+    "hpSlots": 12,
+    "color": "#3b8cff",
+    "lootTier": "silver",
+    "phases": [
+      { "name": "On Patrol", "text": "He has seen you on camera seven." },
+      { "name": "Segway Charge", "text": "He found his wheels. Get out of the walkway." },
+      { "name": "Code Red", "text": "He called for backup. The backup is also him." }
+    ]
+  },
+  {
+    "id": "hungry_jukebox",
+    "name": "The Hungry Jukebox",
+    "title": "Plays Requests. Eats Requesters.",
+    "desc": "A chrome-and-neon jukebox that learned to walk on its cables.",
+    "flavor": "Insert coin to continue. Insert crawler to skip the track.",
+    "image": "bosses/hungry_jukebox.webp",
+    "hpSlots": 8,
+    "color": "#ff2fb9",
+    "lootTier": "gold",
+    "phases": [
+      { "name": "Easy Listening", "text": "Smooth jazz. Suspiciously smooth." },
+      { "name": "The Drop", "text": "The bass hits. So does the jukebox." }
+    ]
+  },
+  {
+    "id": "lint_queen",
+    "name": "The Lint Queen",
+    "title": "Sovereign of Everything Under the Couch",
+    "desc": "A towering monarch of dust, hair ties and one very old french fry.",
+    "flavor": "Every coin you ever lost is in her crown.",
+    "image": "bosses/lint_queen.webp",
+    "hpSlots": 16,
+    "color": "#e4ff2e",
+    "lootTier": "legendary",
+    "phases": [
+      { "name": "Royal Audience", "text": "She permits you to approach. Briefly." },
+      { "name": "Static Cling", "text": "Your gear sticks to her. Your hope does not." },
+      { "name": "Dust Storm", "text": "The whole floor is under the couch now." }
+    ]
+  }
+]

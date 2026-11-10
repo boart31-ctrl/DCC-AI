@@ -1,0 +1,46 @@
+/* Login, join and pairing flows (TV pairing screen, player join request, GM "Players & devices"). */
+
+/* ---- TV: pairing code ---- */
+.pair { position: fixed; inset: 0; z-index: 90; /* above the curtain (80): the code must be readable before any click */ display: grid; place-items: center; background: repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.03) 0 2px, transparent 2px 4px), var(--void); }
+.pair[hidden] { display: none; }
+.pair-box { text-align: center; display: grid; gap: 1.2rem; justify-items: center; padding: 3rem 4rem; border: 3px solid var(--cyan); background: var(--sys-bg); box-shadow: 0 0 60px -20px var(--cyan); }
+.pair-kicker { margin: 0; font-size: 1.6rem; letter-spacing: 0.2em; text-transform: uppercase; color: var(--cyan); }
+.pair-code { margin: 0; font-size: clamp(5rem, 16vw, 12rem); font-weight: 800; letter-spacing: 0.25em; line-height: 1; color: var(--ink); text-shadow: 0 0 40px var(--cyan); padding-left: 0.25em; }
+.pair-how { margin: 0; font-size: 1.7rem; color: var(--sys-ink); max-width: 30em; }
+.pair-exp { margin: 0; font-size: 1.1rem; color: var(--ink-dim); }
+
+/* ---- phone: join request ---- */
+.claim-form { display: grid; gap: 12px; width: min(100%, 320px); }
+.claim-label { display: grid; gap: 6px; font-family: var(--f-ui); font-weight: 600; color: var(--c-ink-2); }
+.claim-input { padding: 10px 12px; font-size: 18px; color: var(--c-ink); background: var(--c-sunk); border: 1px solid var(--c-line-2); border-radius: var(--r-1); }
+.claim-input:focus { outline: none; border-color: var(--c-accent); }
+.claim-wait { display: grid; gap: 10px; justify-items: center; width: min(100%, 360px); }
+.claim-wait[hidden] { display: none; }
+.claim-status { margin: 0; font-family: var(--f-ui); font-weight: 600; text-align: center; }
+.claim-chars { display: grid; gap: 8px; width: 100%; }
+.claim-char { display: flex; align-items: center; gap: 10px; min-height: 48px; padding: 0 14px; font: inherit; font-family: var(--f-ui); font-weight: 600; font-size: 17px; text-align: left; color: var(--c-ink); background: var(--c-panel); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
+.claim-char[aria-pressed="true"] { border-color: var(--cc, var(--c-accent)); box-shadow: inset 0 0 0 1px var(--cc, var(--c-accent)); }
+.claim-char .cdot { width: 10px; height: 10px; border-radius: 50%; background: var(--cc, var(--c-accent)); flex: none; }
+.claim-char small { margin-left: auto; color: var(--c-ink-3); font-weight: 500; font-size: 13px; }
+
+/* ---- GM: key gate ---- */
+.gate-form { display: grid; gap: 10px; margin-top: 14px; }
+.gate-form[hidden] { display: none; }
+.gate-err { min-height: 1.3em; margin: 0; color: var(--c-bad); font-size: 14px; }
+
+/* ---- GM: players & devices, backups ---- */
+.dev-panel { grid-column: 1 / -1; }
+.dev-sec { margin-top: 14px; }
+.dev-sec h3 { margin: 0 0 6px; font-family: var(--f-ui); font-size: 14px; color: var(--c-ink-2); }
+.dev-list { display: grid; gap: 6px; margin: 0; padding: 0; list-style: none; }
+.dev-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; background: var(--c-raised); border: 1px solid var(--c-line); border-radius: var(--r-1); }
+.dev-row .grow { flex: 1 1 140px; min-width: 0; }
+.dev-row .dev-name { font-family: var(--f-ui); font-weight: 700; }
+.dev-row .dev-sub { font-size: 12px; color: var(--c-ink-3); }
+.dev-row.req { border-color: var(--c-accent); }
+.dev-qr { flex-basis: 100%; display: flex; gap: 12px; align-items: center; padding-top: 6px; }
+.dev-qr svg { width: 168px; height: 168px; background: #fff; padding: 4px; border-radius: var(--r-1); flex: none; }
+.dev-qr .url { font-size: 12px; }
+.dev-pair { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+.dev-pair .inp { width: 7.5em; text-transform: uppercase; letter-spacing: 0.2em; font-family: var(--f-ui); font-weight: 700; text-align: center; }
+.dev-empty { font-size: 13px; color: var(--c-ink-3); margin: 0; }

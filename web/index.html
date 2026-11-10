@@ -70,28 +70,26 @@
       <a class="door gm" href="/gm">
         <b>GM desk</b>
         <span>Quips, achievements, loot boxes, secrets and the big STOP button.</span>
-        <small>Use the link with the token from the host terminal</small>
+        <small>Your GM key, or the link from the host terminal</small>
       </a>
       <a class="door play" href="/play">
         <b>Player</b>
         <span>Your character sheet, inventory and private messages.</span>
-        <small>Scan the code on the TV, enter your PIN</small>
+        <small>Scan your personal QR code from the GM</small>
       </a>
-      <a class="door stage" href="/stage">
+      <a class="door stage" href="/tv">
         <b>Stage</b>
         <span>The broadcast for the TV: viewers, chat, animations and the voice.</span>
-        <small>Open on the laptop, drag to the TV, press F</small>
+        <small>Open /tv on the TV, type its code on the GM desk</small>
       </a>
     </nav>
 
     <div class="sys note" data-head="SYSTEM">
-      <p class="sys-desc">Everything runs on this network. No accounts, no cloud database. Without an API key the show uses lines from the content pack and your browser's own voice. Wrong PINs are counted. I am always counting.</p>
+      <p class="sys-desc">No accounts. Your game lives in one place you control, with automatic restore points. Without an API key the show uses lines from the content pack and your browser's own voice. Wrong keys are counted. I am always counting.</p>
     </div>
 
     <footer>Unofficial fan tool. Contains no text or art from any commercial game.</footer>
   </main>
-  <script type="module">
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('/sw.js').catch(() => {});
-  </script>
+  <script type="module" src="/js/landing.js"></script>
 </body>
 </html>

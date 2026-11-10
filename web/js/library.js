@@ -15,6 +15,9 @@ const FIELDS = {
   race: ['features', 'statBonuses', 'skills'],
   class: ['features', 'statBonuses', 'skills'],
   background: ['features', 'statBonuses', 'skills'],
+  // scenes (TV): tactics + lootHint stay on the GM desk; the rest can reach the TV
+  boss: ['title', 'floor', 'hpSlots', 'image', 'phases', 'intro', 'defeatLine', 'flavor', 'tactics', 'lootHint'],
+  location: ['floor', 'image', 'readAloud', 'featureNotes'],
 };
 
 function blank(kind, rs) {
@@ -25,6 +28,8 @@ function blank(kind, rs) {
   if (kind === 'buff') Object.assign(e, { duration: '', external: false, effects: [] });
   if (kind === 'feature') Object.assign(e, { effects: [] });
   if (['race', 'class', 'background'].includes(kind)) Object.assign(e, { features: [], statBonuses: [], skills: [] });
+  if (kind === 'boss') Object.assign(e, { title: '', floor: '', hpSlots: 10, image: null, phases: [], intro: '', defeatLine: '', flavor: '', tactics: '', lootHint: '' });
+  if (kind === 'location') Object.assign(e, { floor: '', image: null, readAloud: '', features: [] });
   return e;
 }
 
@@ -186,6 +191,23 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     if (f.includes('checkType')) formRows.push(labeled('Check type', select(rs.skills.checkTypes.map((x) => ({ value: x, label: x })), d.checkType, { disabled: ro, onChange: set('checkType') })));
     if (f.includes('external')) formRows.push(h('label.chk.lbl-chk', h('input', { type: 'checkbox', checked: !!d.external, disabled: ro, onchange: (e) => set('external')(e.target.checked) }), h('span', `External buff (counts toward the ${rs.buffSlots?.external?.max ?? '?'} cap)`)));
     if (f.includes('flavor')) formRows.push(labeled('Flavor text', field(d.flavor, { multiline: true, rows: 2, disabled: ro, onCommit: set('flavor'), placeholder: 'The line in italics players love to read aloud.' }), { cls: 'span-all' }));
+
+    // Boss / location (TV scenes)
+    const textRow = (k, label, o = {}) => formRows.push(labeled(label, field(d[k] ?? '', { disabled: ro, multiline: !!o.rows, rows: o.rows || 3, placeholder: o.ph || '', onCommit: set(k) }), { cls: o.cls || '', hint: o.hint }));
+    if (f.includes('title')) textRow('title', 'Title / epithet', { cls: 'span-2' });
+    if (f.includes('floor')) textRow('floor', 'Floor');
+    if (f.includes('hpSlots')) formRows.push(labeled('HP slots', field(d.hpSlots ?? 10, { type: 'number', disabled: ro, attrs: { min: 1, max: 100 }, onCommit: (v) => set('hpSlots')(Math.max(1, Math.min(100, Math.round(v) || 10))) })));
+    if (f.includes('image')) formRows.push(labeled('Image', field(d.image || '', { disabled: ro, placeholder: '/pack/images/… or https://…', onCommit: (v) => set('image')(v || null) }), { cls: 'span-2' }));
+    if (f.includes('phases')) {
+      const src = (d.phases || []).map((p) => [p.name, p.text || '', p.atHp ?? ''].join(' | ').replace(/( \| )+$/, '')).join('\n');
+      formRows.push(labeled('Phases', field(src, { multiline: true, rows: 3, disabled: ro, placeholder: 'Name | text | at HP, one per line', onCommit: (v) => set('phases')(String(v).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [name, text = '', at = ''] = l.split('|').map((x) => x.trim()); return { name, text, ...( /^\d+$/.test(at) ? { atHp: Number(at) } : {}) }; })) }), { cls: 'span-all', hint: 'At HP: the desk suggests the phase when the boss drops to it.' }));
+    }
+    if (f.includes('intro')) textRow('intro', 'Intro announcement (TV + System voice)', { rows: 2, cls: 'span-all' });
+    if (f.includes('defeatLine')) textRow('defeatLine', 'Defeat line (TV + System voice)', { rows: 2, cls: 'span-all' });
+    if (f.includes('tactics')) textRow('tactics', 'Tactics (GM only)', { rows: 3, cls: 'span-all' });
+    if (f.includes('lootHint')) textRow('lootHint', 'Loot hint (GM only)', { cls: 'span-all' });
+    if (f.includes('readAloud')) textRow('readAloud', 'Read-aloud (shown on the TV)', { rows: 4, cls: 'span-all' });
+    if (f.includes('featureNotes')) formRows.push(labeled('Features (GM only), one per line', field((d.features || []).join('\n'), { multiline: true, rows: 3, disabled: ro, onCommit: (v) => set('features')(String(v).split('\n').map((x) => x.trim()).filter(Boolean)) }), { cls: 'span-all' }));
 
     const sections = [h('div.form-grid', formRows)];
     if (f.includes('effects')) sections.push(effectsEditor('Effects', d.effects || (d.effects = []), ro, kind === 'item' ? 'equipped' : kind === 'spell' || kind === 'buff' ? 'active' : 'always'));

@@ -10,6 +10,7 @@
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/play.css">
+  <link rel="stylesheet" href="/css/access.css">
 </head>
 <body class="play tool-page">
 
@@ -36,6 +37,30 @@
       <button type="button" data-k="0">0</button>
       <button type="button" data-k="back" class="k-soft" aria-label="Delete last digit">⌫</button>
     </div>
+    <button type="button" class="btn btn-quiet btn-sm" id="join-claim">No PIN? Ask the GM to let you in</button>
+  </section>
+
+  <!-- Join request: name → pick your crawler → the GM lets you in (personal QR link is the normal way) -->
+  <section id="claim" class="join tool" hidden>
+    <div class="join-head">
+      <p class="join-brand">The System</p>
+      <h1 class="join-title">Join the game</h1>
+      <p class="dim" id="claim-lead">The quickest way: scan the QR code the GM shows you for your crawler. No QR at hand? Ask to join here.</p>
+    </div>
+    <form id="claim-form" class="claim-form" autocomplete="off">
+      <label class="claim-label">Your name
+        <input id="claim-name" class="claim-input" maxlength="40" autocomplete="nickname" required>
+      </label>
+      <button class="btn btn-primary" type="submit">Ask the GM</button>
+    </form>
+    <div id="claim-wait" class="claim-wait" hidden>
+      <p class="claim-status" id="claim-status">Waiting for the GM to let you in.</p>
+      <p class="dim">Which crawler are you?</p>
+      <div id="claim-chars" class="claim-chars"></div>
+      <button type="button" class="btn btn-quiet btn-sm" id="claim-cancel">Cancel</button>
+    </div>
+    <p class="join-err" id="claim-err" role="alert"></p>
+    <button type="button" class="btn btn-quiet btn-sm" id="claim-pin" hidden>I have a room code and PIN</button>
   </section>
 
   <!-- Character sheet -->
@@ -45,7 +70,7 @@
       <span class="appbar-live" title="Audience watching right now"><span class="live-dot" aria-hidden="true"></span><b id="viewers">0</b> watching</span>
       <span class="grow"></span>
       <button type="button" class="btn btn-quiet btn-sm" id="log-btn" aria-controls="log-rail" aria-expanded="false">Dice log <span class="tab-n" id="log-n"></span></button>
-      <button type="button" class="icon-btn" id="theme-btn" aria-label="Switch light or dark"></button>
+      <button type="button" class="icon-btn" id="theme-btn" aria-label="Switch theme (dark, light, neon)"></button>
       <button type="button" class="btn btn-quiet btn-sm" id="leave" title="Leave this device">Leave</button>
     </header>
     <div class="app-cols">
