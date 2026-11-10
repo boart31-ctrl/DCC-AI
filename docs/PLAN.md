@@ -1,6 +1,7 @@
 # Implementation plan — web edition (v3)
 
-Goal: TV (Xbox Edge) = the show, notebook = GM desk controlling TV, music and messages,
+Goal: TV (its own browser, TCL; Xbox Edge as fallback) = the show, **picture only**;
+notebook = GM desk + **all audio** (wired to the soundbar: Spotify app, SFX pads, System voice);
 phones = character sheets. Free hosting, auto-deploy from GitHub, nothing to install,
 state survives for months. AI work (recaps, new items, quips) happens offline in chat and
 lands in the repo — the site needs no API key.
@@ -34,8 +35,6 @@ lands in the repo — the site needs no API key.
 
 ## Phases
 
-0. **Hardware smoke test (first!)** — one test page opened on the Xbox: speech, audio files,
-   YouTube embed, Spotify Web Playback SDK, fullscreen. Decides the music path.
 1. **Server + deploy** — Worker/Durable Object adapter around the engine, SQLite persistence,
    restore points, tokens, pairing, CI tests, deploy from GitHub. Existing GM/player/TV UI
    running on the real URL.
@@ -44,9 +43,11 @@ lands in the repo — the site needs no API key.
    Recap, Floor countdown, big dice rolls, announcements. Neon theme switch for GM/phones.
 3. **Bestiary + combat** — bosses, mobs, NPCs as library kinds (art, stats, HP slots, notes),
    synced combat tracker (replaces the local one), reveal-to-TV button.
-4. **Music + sound** — GM mixer: scenes ↔ playlists, play/pause/volume from the notebook,
-   ducking under the System voice, SFX pads. Adapter chosen by phase 0:
-   Spotify (Premium) → YouTube → own files. Pre-rendered System voice files.
+4. **Sound desk (on the notebook)** — SFX pads from repo files, System voice via ElevenLabs
+   (key stored as a server secret, never in the browser): pre-render known lines once and cache,
+   regenerate an edited achievement in 1–2 s, free-text announcements. Music stays in the
+   Spotify app on the notebook (optional playlist buttons later). Live table listening is
+   dropped (latency, mixed CZ/EN, cost).
 5. **Art pipeline** — icon library: base icon per item category + variants; any item/boss/
    mob/NPC picks an image; prompts in one comic-colour dark-fantasy style; images sent in
    chat are cropped, converted and committed; missing art falls back to the category icon.
@@ -58,13 +59,11 @@ lands in the repo — the site needs no API key.
 ## Needed from the GM
 
 - Cloudflare account + connect the private GitHub repo (guided, ~15 min, once).
-- Phase 0 test on the Xbox (10 min).
-- If Spotify path: register one Spotify developer app (guided, ~5 min).
+- ElevenLabs API key (phase 4).
 - Images generated from supplied prompts; rule corrections once the book arrives.
 
 ## Known risks
 
-- Spotify in a browser on Xbox is unverified; 2026 developer-mode restrictions apply.
-- YouTube on Xbox Edge: no extensions, ads possible.
-- Browser TTS quality on Xbox unknown → pre-rendered voice files as the default.
+- TCL TV browser may be slow/old → the TV page stays light; Xbox Edge as fallback.
+- Web audio is stereo; the soundbar upmixes (no real Atmos objects).
 - Free-plan daily request limits: fine for one table; state is batched over WebSocket.
