@@ -1,6 +1,7 @@
 // Pure pack normalization + validation (browser-safe, no Node imports). See docs/CONTENT_PACKS.md.
 // pack.js does the file reading; the hosted edition calls normalizePack/deserializePack directly.
 import { STANDARD_CATEGORIES } from './constants.js';
+import { normalizeRuleset, normalizeLibEntry, LIB_KINDS } from './ruleset.js';
 
 export { STANDARD_CATEGORIES };
 
@@ -219,6 +220,8 @@ function loadItems(io, raw, warnings) {
       warnings.push(`items.json ${it.id}: unknown rarity "${rarity}", using common`);
       rarity = 'common';
     }
+    // v2 fields (slot, stackable, effects, attack, use, tags) — invalid parts are skipped with a warning.
+    const extra = normalizeLibEntry('item', { ...it, rarity }, { warnings, where: 'items.json', source: 'pack', image: () => null }) ?? {};
     return {
       id: it.id,
       name: it.name,
@@ -226,8 +229,64 @@ function loadItems(io, raw, warnings) {
       flavor: isStr(it.flavor) ? it.flavor.trim() : '',
       rarity,
       image: assetUrl(io, 'images', it.image, warnings, `item ${it.id}`),
+      tags: extra.tags ?? [],
+      slot: extra.slot ?? null,
+      stackable: !!extra.stackable,
+      effects: extra.effects ?? [],
+      attack: extra.attack ?? null,
+      use: extra.use ?? null,
+      source: 'pack',
+      ...(extra.unverified ? { unverified: extra.unverified } : {}),
     };
   });
+}
+
+// Optional library files (spells.json, skills.json, ...): arrays; bad entries are skipped with a warning.
+const LIB_FILES = { spell: 'spells', skill: 'skills', buff: 'buffs', feature: 'features', race: 'races', class: 'classes', background: 'backgrounds' };
+export const LIBRARY_FILES = Object.values(LIB_FILES);
+
+function loadLibrary(raw, ruleset, warnings) {
+  const lib = {};
+  for (const [kind, key] of Object.entries(LIB_FILES)) {
+    const F = `${key}.json`;
+    const list = [];
+    const seen = new Set();
+    const pushEntry = (e) => {
+      if (!e) return;
+      if (seen.has(e.id)) {
+        warnings.push(`${F}: duplicate ${kind} id "${e.id}", skipping`);
+        return;
+      }
+      seen.add(e.id);
+      list.push(e);
+    };
+    const data = raw[key];
+    if (data !== undefined) {
+      if (!Array.isArray(data)) warnings.push(`${F} must be an array, ignoring`);
+      else data.forEach((x, i) => pushEntry(normalizeLibEntry(kind, x, { warnings, where: `${F} [${i}]`, source: 'pack' })));
+    }
+    if (kind === 'skill') for (const e of ruleset.skills.catalog) if (!seen.has(e.id)) pushEntry(e);
+    if (ruleset.inlineLibrary?.[kind]) for (const e of ruleset.inlineLibrary[kind]) if (!seen.has(e.id)) pushEntry(e);
+    lib[kind] = list;
+  }
+  for (const [kind, key] of [['race', 'races'], ['class', 'classes'], ['background', 'backgrounds']]) {
+    for (const id of ruleset[key]) {
+      if (!lib[kind].some((e) => e.id === id)) warnings.push(`ruleset.json ${key}: "${id}" is not defined in ${key}.json`);
+    }
+  }
+  const featureIds = new Set(lib.feature.map((f) => f.id));
+  for (const kind of ['race', 'class', 'background']) {
+    for (const e of lib[kind]) for (const f of e.features) if (!featureIds.has(f)) warnings.push(`${LIB_FILES[kind]}.json ${e.id}: unknown feature "${f}"`);
+  }
+  return lib;
+}
+
+/** Legacy pack.stats / pack.resources (v1 view + player.stat/player.resource) derived from the ruleset. */
+function legacyFromRuleset(ruleset) {
+  return {
+    stats: ruleset.stats.map((s) => ({ id: s.id, label: s.label, abbr: s.abbr, default: s.default[ruleset.statMod.from] ?? s.default[s.parts[0]] ?? 0 })),
+    resources: ruleset.tracks.map((t) => ({ id: t.id, label: t.label, color: t.color, default: t.kind === 'slots' ? t.slots : t.default })),
+  };
 }
 
 function loadLoot(raw, tiers, itemsById, warnings) {
@@ -288,6 +347,7 @@ function finish(pack) {
   pack.statsById = new Map(pack.stats.map((s) => [s.id, s]));
   pack.resourcesById = new Map(pack.resources.map((r) => [r.id, r]));
   pack.voicesById = new Map(pack.voices.map((v) => [v.id, v]));
+  pack.tracksById = new Map(pack.ruleset.tracks.map((t) => [t.id, t]));
   return pack;
 }
 
@@ -321,7 +381,10 @@ export function normalizePack(raw, opts = {}) {
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const loot = loadLoot(raw.loot, meta.lootTiers, itemsById, warnings);
   const chat = loadChat(raw.chat, warnings);
-  const pack = finish({ ...meta, dir: opts.dir ?? null, achievements, items, loot, quips, chat });
+  const rawRuleset = raw.ruleset !== undefined ? raw.ruleset : raw.pack.ruleset;
+  const ruleset = normalizeRuleset(rawRuleset, { stats: meta.stats, resources: meta.resources }, warnings);
+  const library = loadLibrary(raw, ruleset, warnings);
+  const pack = finish({ ...meta, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
   return { pack, warnings };
 }
 
@@ -330,11 +393,17 @@ const DATA_KEYS = [
   'id', 'name', 'version', 'language', 'systemName', 'notifyPrefix', 'lootTiers', 'audience', 'autoBudget',
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
+// v2 keys: optional on deserialize (packs serialized before v2 still load).
+const OPTIONAL_KEYS = ['ruleset', 'library'];
+
+function emptyLibrary() {
+  return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
+}
 
 /** JSON-safe plain object of a normalized pack (no Maps, no host paths). */
 export function serializePack(pack) {
   const out = { format: PACK_FORMAT };
-  for (const k of DATA_KEYS) out[k] = pack[k];
+  for (const k of [...DATA_KEYS, ...OPTIONAL_KEYS]) out[k] = pack[k];
   return JSON.parse(JSON.stringify(out));
 }
 
@@ -347,6 +416,17 @@ export function deserializePack(data) {
   }
   const pack = {};
   for (const k of DATA_KEYS) pack[k] = structuredClone(d[k]);
+  // Re-normalize the ruleset (idempotent) so hand-edited / old embeds are safe.
+  pack.ruleset = JSON.parse(JSON.stringify(normalizeRuleset(d.ruleset ?? null, { stats: pack.stats, resources: pack.resources })));
+  const lib = emptyLibrary();
+  if (isObj(d.library)) {
+    for (const k of Object.keys(lib)) {
+      if (!Array.isArray(d.library[k])) continue;
+      lib[k] = d.library[k].map((e) => normalizeLibEntry(k, e, { source: 'pack' })).filter(Boolean);
+    }
+  }
+  pack.library = lib;
+  pack.items = pack.items.map((it) => ({ tags: [], slot: null, stackable: false, effects: [], attack: null, use: null, source: 'pack', ...it }));
   pack.dir = null;
   return finish(pack);
 }
@@ -372,5 +452,7 @@ export function fallbackPack() {
     loot: {},
     quips: [],
     chat: [],
+    ruleset: JSON.parse(JSON.stringify(normalizeRuleset(null, { stats: [], resources: [] }))),
+    library: emptyLibrary(),
   });
 }

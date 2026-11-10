@@ -1,7 +1,7 @@
 // Node-side pack loader: reads the pack folder from disk, then validates via pack-core.js.
 import fs from 'node:fs';
 import path from 'node:path';
-import { normalizePack, PackError } from './pack-core.js';
+import { normalizePack, PackError, LIBRARY_FILES } from './pack-core.js';
 
 export * from './pack-core.js';
 
@@ -28,7 +28,7 @@ export function readPackFiles(dir) {
     throw new PackError(`pack folder not found: ${abs}`);
   }
   const raw = {};
-  for (const k of ['pack', 'achievements', 'items', 'loot', 'quips', 'chat']) raw[k] = readJson(abs, `${k}.json`);
+  for (const k of ['pack', 'achievements', 'items', 'loot', 'quips', 'chat', 'ruleset', ...LIBRARY_FILES]) raw[k] = readJson(abs, `${k}.json`);
   if (raw.pack === undefined) throw new PackError(`pack.json is missing (looked in ${abs})`);
   return { abs, raw };
 }

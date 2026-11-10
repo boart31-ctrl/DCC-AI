@@ -7,18 +7,13 @@
 import { makeToken, makeRoomCode, makePin, randInt, genId } from './random.js';
 import { MODES, pickQuip, markQuipUsed, quipsLeft } from './quips.js';
 import { STANDARD_CATEGORIES } from './constants.js';
+import { ActionError, bad, notFound } from './errors.js';
+import {
+  SHEET, SHEET_GM, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
+  sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS,
+} from './character.js';
 
-export { genId };
-
-export class ActionError extends Error {
-  constructor(code, msg) {
-    super(msg);
-    this.code = code;
-  }
-}
-
-const bad = (msg) => new ActionError('bad_request', msg);
-const notFound = (msg) => new ActionError('not_found', msg);
+export { genId, ActionError };
 
 export const FEED_SIZE = 30;
 export const MAX_PREP_CARDS = 100;
@@ -47,6 +42,7 @@ function newSession(pack, now, prev) {
     budgetLeft: pack.autoBudget,
     voice: prev?.voice && pack.voicesById.has(prev.voice) ? prev.voice : defaultVoiceId(pack),
     recap: '',
+    permissions: { playerEdit: PLAYER_EDIT.includes(prev?.permissions?.playerEdit) ? prev.permissions.playerEdit : 'sheet' },
   };
 }
 
@@ -67,13 +63,8 @@ export function createState(pack, now = Date.now()) {
     feed: [],
     messages: [],
     prepCards: [],
-  };
-}
-
-function freshSheet(pack) {
-  return {
-    stats: Object.fromEntries(pack.stats.map((s) => [s.id, s.default])),
-    resources: Object.fromEntries(pack.resources.map((r) => [r.id, { cur: r.default, max: r.default }])),
+    library: emptyHomebrew(),
+    rolls: [],
   };
 }
 
@@ -95,10 +86,13 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.messages = Array.isArray(raw.messages) ? raw.messages : [];
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
   if (typeof s.session.recap !== 'string') s.session.recap = '';
+  if (!PLAYER_EDIT.includes(s.session.permissions?.playerEdit)) s.session.permissions = { playerEdit: 'sheet' };
+  s.library = normalizeHomebrew(raw.library);
+  s.rolls = Array.isArray(raw.rolls) ? raw.rolls.filter((r) => r && typeof r === 'object').slice(-MAX_ROLLS) : [];
   s.players = (Array.isArray(raw.players) ? raw.players : []).map((p, i) => {
-    const sheet = freshSheet(pack);
     // Pre-messaging saves stored private messages on the player; move them into state.messages.
-    const { secrets, ...rest } = p;
+    // Pre-v2 saves keep flat `stats` numbers and `resources`; they move into `sheet` (RULESET §5).
+    const { secrets, stats, resources, ...rest } = p;
     for (const m of Array.isArray(secrets) ? secrets : []) {
       if (s.messages.some((x) => x.id === m.id)) continue;
       s.messages.push({ id: m.id, at: m.at ?? 0, from: m.from ?? pack.systemName, text: m.text ?? '', to: [p.id], onStage: false, readBy: m.read ? [p.id] : [] });
@@ -107,8 +101,8 @@ export function normalizeState(raw, pack, now = Date.now()) {
       title: '', klass: '', race: '', gold: 0, notes: '', level: 1, userId: null,
       color: PALETTE[i % PALETTE.length], inventory: [], achievements: [],
       ...rest,
-      stats: { ...sheet.stats, ...(p.stats ?? {}) },
-      resources: { ...sheet.resources, ...(p.resources ?? {}) },
+      inventory: migrateInventory(p.inventory, pack.ruleset),
+      sheet: migrateSheet(p.sheet, { stats, resources }, pack.ruleset),
     };
   });
   s.messages.sort((a, b) => a.at - b.at);
@@ -219,19 +213,6 @@ export function rollLoot(pack, tier, rng = Math.random) {
   return pack.itemsById.get(rows[rows.length - 1].item);
 }
 
-function invItem(item, ctx) {
-  return {
-    uid: ctx.genId('i'),
-    itemId: item.id,
-    name: item.name,
-    desc: item.desc,
-    flavor: item.flavor ?? '',
-    rarity: item.rarity,
-    image: item.image,
-    at: ctx.now,
-  };
-}
-
 function lootRoll(st, ctx, tier) {
   if (typeof tier !== 'string' || !ctx.pack.tiersById.has(tier)) throw notFound(`unknown loot tier ${tier}`);
   const item = rollLoot(ctx.pack, tier, ctx.rng);
@@ -276,9 +257,12 @@ const GM = {
     const p = {
       id: ctx.genId('p'), name, color: c, level: 1, pin, userId,
       title: '', klass: '', race: '', gold: 0, notes: '',
-      ...freshSheet(ctx.pack),
+      sheet: freshSheet(ctx.pack.ruleset),
       inventory: [], achievements: [],
     };
+    // Formula-based track maxima (e.g. "10 + mod.con") start full.
+    const { computed } = computeFor(p, ctx.pack, libraryOf(st, ctx.pack));
+    for (const t of ctx.pack.ruleset.tracks) if (t.maxFormula) p.sheet.tracks[t.id] = { cur: computed.tracks[t.id].max, max: computed.tracks[t.id].max };
     st.players.push(p);
     out.result = { playerId: p.id, pin };
   },
@@ -310,30 +294,20 @@ const GM = {
     const value = num(a.value, 'value', { optional: true });
     const delta = num(a.delta, 'delta', { optional: true });
     if ((value === undefined) === (delta === undefined)) throw bad('give exactly one of value or delta');
-    const from = p.stats[a.stat] ?? 0;
+    const rs = ctx.pack.ruleset;
+    const def = rs.stats.find((x) => x.id === a.stat);
+    const part = def.parts.includes(rs.statMod.from) ? rs.statMod.from : def.parts[0];
+    const from = p.sheet.stats[a.stat]?.[part] ?? 0;
     const to = value ?? from + delta;
-    p.stats[a.stat] = to;
+    p.sheet.stats[a.stat] = { ...p.sheet.stats[a.stat], [part]: to };
     if (to !== from) out.emit({ kind: 'stat', playerId: p.id, stat: a.stat, from, to }, { roles: ['gm', 'stage'], playerId: p.id });
   },
 
   'player.resource'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
     if (typeof a.res !== 'string' || !ctx.pack.resourcesById.has(a.res)) throw notFound(`unknown resource ${a.res}`);
-    const max = num(a.max, 'max', { optional: true });
-    const cur = num(a.cur, 'cur', { optional: true });
-    const delta = num(a.delta, 'delta', { optional: true });
-    if (max === undefined && cur === undefined && delta === undefined) throw bad('give cur, max or delta');
-    if (max !== undefined && max < 0) throw bad('max must be >= 0');
-    const r = { ...(p.resources[a.res] ?? { cur: 0, max: 0 }) };
-    const from = r.cur;
-    if (max !== undefined) r.max = max;
-    if (cur !== undefined) r.cur = cur;
-    if (delta !== undefined) r.cur += delta;
-    r.cur = Math.max(0, Math.min(r.max, r.cur));
-    p.resources[a.res] = r;
-    if (r.cur !== from) {
-      out.emit({ kind: 'stat', playerId: p.id, stat: a.res, resource: true, from, to: r.cur, max: r.max }, { roles: ['gm', 'stage'], playerId: p.id });
-    }
+    // Legacy alias of track.set (clamps 0..max, max includes effects).
+    setTrack(st, p, { track: a.res, cur: a.cur, max: a.max, delta: a.delta }, ctx, out);
   },
 
   'player.remove'(st, a) {
@@ -374,9 +348,8 @@ const GM = {
 
   'loot.open'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
-    const item = lootRoll(st, ctx, a.tier);
-    const inv = invItem(item, ctx);
-    p.inventory.push(inv);
+    const item = libraryOf(st, ctx.pack).get('item', lootRoll(st, ctx, a.tier).id);
+    const inv = giveItem(p, item, ctx);
     const ev = out.emit({ kind: 'loot', playerId: p.id, tier: a.tier, item: inv }, 'all');
     feedPush(st, ev, `${p.name} opened a ${ctx.pack.tiersById.get(a.tier).name}: ${item.name}`);
     out.emit(bumpPct(st, ctx, randRange(ctx.rng, 0.03, 0.08)));
@@ -389,9 +362,8 @@ const GM = {
     const p = playerOf(st, a.playerId);
     const tier = a.tier ?? ctx.pack.lootTiers[ctx.pack.lootTiers.length - 1]?.id;
     const sponsor = str(a.sponsor, 'sponsor', 60, { optional: true }) ?? 'A Mysterious Sponsor';
-    const item = lootRoll(st, ctx, tier);
-    const inv = invItem(item, ctx);
-    p.inventory.push(inv);
+    const item = libraryOf(st, ctx.pack).get('item', lootRoll(st, ctx, tier).id);
+    const inv = giveItem(p, item, ctx);
     const ev = out.emit({ kind: 'sponsor', playerId: p.id, sponsor, tier, item: inv }, 'all');
     feedPush(st, ev, `${sponsor} sent ${p.name}: ${item.name}`);
     out.emit(bumpPct(st, ctx, 0.1));
@@ -402,10 +374,10 @@ const GM = {
 
   'item.give'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
-    const item = ctx.pack.itemsById.get(a.itemId);
+    const item = libraryOf(st, ctx.pack).get('item', a.itemId);
     if (!item) throw notFound(`unknown item ${a.itemId}`);
-    const inv = invItem(item, ctx);
-    p.inventory.push(inv);
+    const qty = int(a.qty, 'qty', 1, 9999, { optional: true }) ?? 1;
+    const inv = giveItem(p, item, ctx, qty);
     out.result = { uid: inv.uid };
   },
 
@@ -414,6 +386,7 @@ const GM = {
     const before = p.inventory.length;
     p.inventory = p.inventory.filter((i) => i.uid !== a.uid);
     if (p.inventory.length === before) throw notFound(`no item ${a.uid}`);
+    p.sheet.hotlist = p.sheet.hotlist.map((x) => (x === a.uid ? null : x));
   },
 
   'quip.play'(st, a, ctx, out) {
@@ -550,6 +523,7 @@ const GM = {
     st.session = newSession(ctx.pack, ctx.now, st.session);
     st.usedQuips = {};
     st.feed = [];
+    st.rolls = [];
     st.audience.bumps = [];
     touch(st, ctx);
     out.effects.push({ type: 'queueClear' });
@@ -578,10 +552,15 @@ const PLAYER = {
     if (!m) throw notFound(`no message ${a.id}`);
     if (!m.readBy.includes(p.id)) m.readBy.push(p.id);
   },
-  'me.notes'(st, a) {
+  'me.notes'(st, a, ctx) {
+    requireNotes(st, ctx);
     playerOf(st, a.actorId).notes = notesText(a.text);
   },
 };
+
+// v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
+Object.assign(GM, SHEET, SHEET_GM);
+for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
 const SYSTEM = {
@@ -604,6 +583,20 @@ const SYSTEM = {
 export const GM_ACTIONS = Object.keys(GM);
 export const PLAYER_ACTIONS = Object.keys(PLAYER);
 
+/**
+ * Host entry point for actions sent by a player (Node server socket or hosted-edition room relay).
+ * `playerId` is the authenticated player; any role/actorId in the payload is discarded, and a payload
+ * `playerId` that differs from it is rejected ('forbidden').
+ *   reducePlayerAction(state, action, { playerId, pack, now?, randInt?, rng?, genId? }) → same as reduce()
+ */
+export function reducePlayerAction(state, action, ctx) {
+  if (!action || typeof action !== 'object' || Array.isArray(action)) throw bad('action must be an object');
+  if (typeof ctx?.playerId !== 'string') throw bad('reducePlayerAction: ctx.playerId required');
+  const { role, actorId, rid, ...a } = action;
+  const { playerId, ...rest } = ctx;
+  return reduce(state, { ...a, role: 'player', actorId: playerId }, rest);
+}
+
 /** Applies one action. `action.role` selects the action table ('gm' | 'player' | 'system'). */
 export function reduce(state, action, ctx) {
   const table = action.role === 'gm' ? GM : action.role === 'player' ? PLAYER : action.role === 'system' ? SYSTEM : null;
@@ -615,6 +608,9 @@ export function reduce(state, action, ctx) {
     genId,
     now: Date.now(),
     ...ctx,
+    // Who is acting: never taken from the payload for players (actorId is set by the host).
+    actor: { role: action.role, playerId: action.role === 'player' ? action.actorId : null },
+    h: { feedPush, categoryLine },
   };
   const st = structuredClone(state);
   const out = {
@@ -653,13 +649,16 @@ function messagesFor(state, playerId) {
     .map((m) => ({ id: m.id, at: m.at, from: m.from, text: m.text, group: isGroup(m.to), read: m.readBy.includes(playerId) }));
 }
 
-function fullPlayer(state, p) {
+function fullPlayer(state, p, pack, library) {
   const messages = messagesFor(state, p.id);
+  const sheet = sheetView(p, pack, library);
+  const { stats, resources } = legacyStats(p, pack, sheet.computed);
   return {
     id: p.id, name: p.name, color: p.color, level: p.level,
     title: p.title, klass: p.klass, race: p.race,
-    stats: p.stats, resources: p.resources, gold: p.gold, notes: p.notes,
-    inventory: p.inventory, achievements: p.achievements,
+    stats, resources, gold: p.gold, notes: p.notes,
+    inventory: enrichInventory(p.inventory, library), achievements: p.achievements,
+    sheet,
     secrets: messages.filter((m) => !m.group).map(({ group, ...m }) => m),
     messages,
   };
@@ -669,7 +668,10 @@ function common(state, pack, opts) {
   const { session: s, audience: a } = state;
   return {
     room: state.room,
-    session: { id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, budgetLeft: s.budgetLeft, voice: s.voice },
+    session: {
+      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, budgetLeft: s.budgetLeft, voice: s.voice,
+      permissions: { playerEdit: s.permissions?.playerEdit ?? 'sheet' },
+    },
     pack: {
       id: pack.id,
       name: pack.name,
@@ -680,6 +682,7 @@ function common(state, pack, opts) {
       stats: pack.stats.map(({ id, label, abbr }) => ({ id, label, abbr })),
       resources: pack.resources.map(({ id, label, color }) => ({ id, label, color })),
       voices: pack.voices,
+      ruleset: pack.ruleset,
     },
     audience: { viewers: a.viewers, hype: Math.round(hypeOf(a, opts.now) * 100) / 100 },
     feed: state.feed,
@@ -700,10 +703,14 @@ export function viewFor(state, pack, role, opts = {}) {
   const now = opts.now ?? Date.now();
   const v = common(state, pack, { ...opts, now });
   const q = opts.queue ?? { queue: [], pendingAuto: [], playing: null };
+  const library = libraryOf(state, pack);
+  v.rolls = rollsFor(state, role, opts.playerId);
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
-    v.me = p ? fullPlayer(state, p) : null;
+    v.me = p ? fullPlayer(state, p, pack, library) : null;
+    v.library = playerLibrary(state, pack, library, p ?? null);
   } else if (role === 'stage') {
+    v.library = playerLibrary(state, pack, library, null);
     v.joinUrl = opts.urls?.join ?? '';
     v.queueLength = q.queue.length + (q.playing ? 1 : 0);
   } else if (role === 'gm') {
@@ -713,7 +720,7 @@ export function viewFor(state, pack, role, opts = {}) {
       stageUrl: opts.urls?.stage ?? '',
       gmUrl: opts.urls?.gm ?? '',
       pins: Object.fromEntries(state.players.map((p) => [p.id, p.pin])),
-      playersFull: state.players.map((p) => ({ ...fullPlayer(state, p), userId: p.userId ?? null })),
+      playersFull: state.players.map((p) => ({ ...fullPlayer(state, p, pack, library), userId: p.userId ?? null })),
       prepCards: state.prepCards,
       messages: state.messages.slice(-GM_MESSAGES).map((m) => ({
         id: m.id, at: m.at, from: m.from, text: m.text, to: m.to,
@@ -726,7 +733,7 @@ export function viewFor(state, pack, role, opts = {}) {
         total: pack.quipsByCategory.get(id)?.length ?? 0,
       })),
       achievementsCatalog: pack.achievements.map(({ id, title, desc, reward, group }) => ({ id, title, desc, reward, group })),
-      itemsCatalog: pack.items.map(({ id, name, rarity, desc, flavor }) => ({ id, name, rarity, desc, flavor })),
+      itemsCatalog: library.list('item').map(({ id, name, rarity, desc, flavor, slot, stackable, source }) => ({ id, name, rarity, desc, flavor, slot, stackable, source })),
       pendingAuto: q.pendingAuto,
       queue: q.queue,
       playing: q.playing,
@@ -734,6 +741,7 @@ export function viewFor(state, pack, role, opts = {}) {
       aiCallsLeft: opts.aiCallsLeft ?? 0,
       sponsorReady: hypeOf(state.audience, now) >= pack.audience.sponsorHypeThreshold,
     };
+    v.library = gmLibrary(library);
   }
   return v;
 }

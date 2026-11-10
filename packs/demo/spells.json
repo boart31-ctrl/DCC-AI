@@ -1,0 +1,7 @@
+[
+  { "id": "spark_of_annoyance", "name": "Spark of Mild Annoyance", "desc": "A tiny zap. Ranged spell attack, 1d4 lightning.", "cost": 1, "range": "30 ft", "duration": "instant",
+    "attack": { "skill": "spellcraft", "stat": "int", "dice": "1d4", "effects": "lightning" }, "dice": "1d4", "rankScaling": "+1d4 at rank 3." },
+  { "id": "feather_step", "name": "Feather Step", "desc": "You weigh about as much as a strong opinion. +2 Speed, +2 Climb while active.", "cost": "1 + floor(rank / 2)", "range": "self", "duration": "10 minutes",
+    "effects": [ { "target": "speed", "value": 2, "when": "active" }, { "target": "skill.climb", "value": 2, "when": "active" } ] },
+  { "id": "borrowed_courage", "name": "Borrowed Courage", "desc": "Touch an ally: they feel brave for one fight (+1 Defense, +1 to hit).", "cost": 2, "range": "touch", "duration": "1 fight", "applies": "brave" }
+]

@@ -1,0 +1,66 @@
+{
+  "id": "demo-generic",
+  "dice": "d20",
+  "stats": [
+    { "id": "str", "label": "Strength", "abbr": "STR", "parts": ["enhanced", "unenhanced"], "default": { "enhanced": 10, "unenhanced": 10 } },
+    { "id": "dex", "label": "Dexterity", "abbr": "DEX", "parts": ["enhanced", "unenhanced"], "default": { "enhanced": 10, "unenhanced": 10 } },
+    { "id": "con", "label": "Constitution", "abbr": "CON", "parts": ["enhanced", "unenhanced"], "default": { "enhanced": 10, "unenhanced": 10 } },
+    { "id": "int", "label": "Intelligence", "abbr": "INT", "parts": ["enhanced", "unenhanced"], "default": { "enhanced": 10, "unenhanced": 10 } },
+    { "id": "wis", "label": "Wisdom", "abbr": "WIS", "parts": ["enhanced", "unenhanced"], "default": { "enhanced": 10, "unenhanced": 10 } },
+    { "id": "cha", "label": "Charisma", "abbr": "CHA", "parts": ["enhanced", "unenhanced"], "default": { "enhanced": 10, "unenhanced": 10 } }
+  ],
+  "statMod": { "from": "enhanced", "formula": "floor((x - 10) / 2)" },
+  "derived": [
+    { "id": "defense", "label": "Defense", "formula": "10 + mod.dex + field.armor + buff.defense", "note": "Attackers must roll this or higher." },
+    { "id": "initiative", "label": "Initiative", "formula": "mod.dex + buff.initiative", "display": "d20 + {value}", "roll": "d20" },
+    { "id": "speed", "label": "Speed", "formula": "field.speed + buff.speed" }
+  ],
+  "fields": [
+    { "id": "armor", "label": "Armor", "type": "number", "default": 0, "group": "defense" },
+    { "id": "speed", "label": "Speed (base)", "type": "number", "default": 6, "group": "movement" },
+    { "id": "maxMana", "label": "Mana (base)", "type": "number", "default": 3, "group": "magic" },
+    { "id": "pronouns", "label": "Pronouns", "type": "text", "default": "", "group": "identity" },
+    { "id": "backstory", "label": "Backstory", "type": "longtext", "default": "", "group": "story" }
+  ],
+  "tracks": [
+    { "id": "hp", "label": "Health", "kind": "pool", "color": "#ff3355", "default": 10, "maxFormula": "10 + mod.con + level" },
+    { "id": "mp", "label": "Mana", "kind": "pool", "color": "#33aaff", "default": 3, "maxFormula": "field.maxMana + mod.int" }
+  ],
+  "slots": [
+    { "id": "head", "label": "Head", "max": 1 },
+    { "id": "body", "label": "Body", "max": 1 },
+    { "id": "hands", "label": "Hands", "max": 2 },
+    { "id": "feet", "label": "Feet", "max": 1 },
+    { "id": "trinkets", "label": "Trinkets", "max": 3 }
+  ],
+  "buffSlots": { "external": { "label": "Sponsor buffs", "max": 2 } },
+  "hotlist": { "size": 6 },
+  "skills": {
+    "columns": ["rank", "stat", "checkType", "notes", "used"],
+    "rankMin": 1,
+    "rankMax": 10,
+    "checkTypes": ["Standard", "Opposed"],
+    "usedTracking": true,
+    "check": { "roll": "d20", "formula": "skill.rank + mod.{stat}" },
+    "rankUp": { "roll": "d20", "rule": "gt", "target": "rank * 2", "verify": true, "note": "Demo rule: beat twice your rank to improve. Made up for the demo." },
+    "catalog": [
+      { "id": "melee", "name": "Melee", "stat": "str", "checkType": "Standard", "desc": "Hitting things that are close." },
+      { "id": "sneak", "name": "Sneak", "stat": "dex", "checkType": "Opposed", "desc": "Not being noticed." },
+      { "id": "climb", "name": "Climb", "stat": "str", "checkType": "Standard", "desc": "Going up things." },
+      { "id": "spellcraft", "name": "Spellcraft", "stat": "int", "checkType": "Standard", "desc": "Making magic do the thing." },
+      { "id": "banter", "name": "Banter", "stat": "cha", "checkType": "Opposed", "desc": "Talking your way out. Or in." }
+    ]
+  },
+  "attack": { "roll": "d20", "toHit": "skill.rank + mod.{stat} + buff.toHit", "damage": "{dice} + mod.{stat} + buff.damage" },
+  "spells": { "costTrack": "mp" },
+  "identity": ["name", "race", "class", "level", "pronouns"],
+  "storyFields": ["backstory", "notes"],
+  "races": [
+    { "id": "human", "name": "Human", "desc": "Adaptable, stubborn, everywhere.", "statBonuses": [ { "target": "skill.banter", "value": 1, "label": "Human charm" } ] },
+    { "id": "gnomish", "name": "Gnomish", "desc": "Small, quick and suspiciously well-informed.", "statBonuses": [ { "target": "stat.dex", "value": 2, "label": "Gnomish nimbleness" }, { "target": "speed", "value": -1, "label": "Short legs" } ] }
+  ],
+  "classes": [
+    { "id": "brawler", "name": "Brawler", "desc": "Solves problems with elbows.", "statBonuses": [ { "target": "track.hp.max", "value": 2, "label": "Brawler toughness" } ], "skills": ["melee", "climb"] },
+    { "id": "hedge_mage", "name": "Hedge Mage", "desc": "Self-taught. Mostly self-taught.", "statBonuses": [ { "target": "track.mp.max", "value": 2, "label": "Hedge training" } ], "skills": ["spellcraft", "banter"] }
+  ]
+}

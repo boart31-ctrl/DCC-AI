@@ -11,14 +11,29 @@
     "name": "Spare Left Boot",
     "desc": "For when you lose exactly one boot. It happens.",
     "rarity": "common",
-    "image": "spare_left_boot.webp"
+    "image": "spare_left_boot.webp",
+    "slot": "feet",
+    "effects": [
+      {
+        "target": "speed",
+        "value": 1,
+        "when": "equipped"
+      }
+    ]
   },
   {
     "id": "emergency_spoon",
     "name": "Emergency Spoon",
     "desc": "Rated for soup, self-defense, and very slow tunneling.",
     "rarity": "common",
-    "image": "emergency_spoon.webp"
+    "image": "emergency_spoon.webp",
+    "slot": "hands",
+    "attack": {
+      "skill": "melee",
+      "stat": "str",
+      "dice": "1d3",
+      "effects": ""
+    }
   },
   {
     "id": "participation_ribbon",
@@ -32,7 +47,15 @@
     "name": "Jerky of Unknown Origin",
     "desc": "Restores a little health. Do not ask from what.",
     "rarity": "common",
-    "image": "mystery_jerky.webp"
+    "image": "mystery_jerky.webp",
+    "stackable": true,
+    "use": {
+      "heal": {
+        "track": "hp",
+        "amount": 2
+      },
+      "consume": true
+    }
   },
   {
     "id": "nine_foot_pole",
@@ -53,14 +76,31 @@
     "name": "Saucepan Helmet",
     "desc": "Protects your head. Mostly from rain.",
     "rarity": "common",
-    "image": "saucepan_helmet.webp"
+    "image": "saucepan_helmet.webp",
+    "slot": "head",
+    "effects": [
+      {
+        "target": "field.armor",
+        "value": 1,
+        "when": "equipped"
+      }
+    ]
   },
   {
     "id": "pep_pebble",
     "name": "Pebble of Encouragement",
     "desc": "Whispers \"you got this.\" It is often wrong.",
     "rarity": "common",
-    "image": "pep_pebble.webp"
+    "image": "pep_pebble.webp",
+    "slot": "trinkets",
+    "effects": [
+      {
+        "target": "mod.cha",
+        "value": 1,
+        "when": "carried",
+        "label": "Pebble pep talk"
+      }
+    ]
   },
   {
     "id": "suspicious_die",
@@ -88,7 +128,16 @@
     "name": "Healing Juice Box",
     "desc": "Restores health. Comes with a tiny straw of dignity.",
     "rarity": "uncommon",
-    "image": "healing_juice_box.webp"
+    "image": "healing_juice_box.webp",
+    "stackable": true,
+    "use": {
+      "heal": {
+        "track": "hp",
+        "amount": 4
+      },
+      "removeBuff": "soggy",
+      "consume": true
+    }
   },
   {
     "id": "honest_compass",
@@ -102,21 +151,49 @@
     "name": "Gecko Gloves",
     "desc": "Stick to walls. Also to everything else, forever.",
     "rarity": "uncommon",
-    "image": "gecko_gloves.webp"
+    "image": "gecko_gloves.webp",
+    "slot": "hands",
+    "effects": [
+      {
+        "target": "skill.climb",
+        "value": 2,
+        "when": "equipped"
+      }
+    ]
   },
   {
     "id": "returning_sword",
     "name": "Returning Sword",
     "desc": "Throw it. It comes back. Duck.",
     "rarity": "rare",
-    "image": "returning_sword.webp"
+    "image": "returning_sword.webp",
+    "slot": "hands",
+    "attack": {
+      "skill": "melee",
+      "stat": "str",
+      "dice": "1d8",
+      "effects": "returns when thrown"
+    }
   },
   {
     "id": "mostly_invisible_cloak",
     "name": "Mostly Invisible Cloak",
     "desc": "Hides everything except your feet and your fear.",
     "rarity": "rare",
-    "image": "mostly_invisible_cloak.webp"
+    "image": "mostly_invisible_cloak.webp",
+    "slot": "body",
+    "effects": [
+      {
+        "target": "skill.sneak",
+        "value": 3,
+        "when": "equipped"
+      },
+      {
+        "target": "defense",
+        "value": 1,
+        "when": "equipped"
+      }
+    ]
   },
   {
     "id": "bottomless_belt_pouch",
@@ -144,7 +221,15 @@
     "name": "Sponsor-Grade Jetpack",
     "desc": "Flies for nine seconds. Ads play for thirty.",
     "rarity": "epic",
-    "image": "sponsor_jetpack.webp"
+    "image": "sponsor_jetpack.webp",
+    "slot": "body",
+    "effects": [
+      {
+        "target": "speed",
+        "value": 4,
+        "when": "equipped"
+      }
+    ]
   },
   {
     "id": "timeout_hourglass",
@@ -165,6 +250,16 @@
     "name": "Plot Armor",
     "desc": "You cannot die this episode. Ratings demand it.",
     "rarity": "legendary",
-    "image": "plot_armor.webp"
+    "image": "plot_armor.webp",
+    "slot": "body",
+    "effects": [
+      {
+        "target": "defense",
+        "op": "set",
+        "value": 25,
+        "when": "equipped",
+        "label": "Plot Armor"
+      }
+    ]
   }
 ]

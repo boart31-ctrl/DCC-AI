@@ -1,4 +1,4 @@
-# WebSocket protocol (v1)
+# WebSocket protocol (v1, with RULESET v2 sheets)
 
 Single WebSocket endpoint: `ws(s)://<host>:<port>/ws`. All messages are JSON objects with a `t` (type) field.
 The server is authoritative. Clients send **actions**; the server replies with **views** (role-filtered
@@ -18,7 +18,7 @@ Server → client:
 
 ```json
 { "t": "welcome", "role": "player", "playerId": "p_x7", "view": { ... } }
-{ "t": "error", "code": "bad_auth" | "bad_request" | "not_found" | "rate_limited", "msg": "..." }
+{ "t": "error", "code": "bad_auth" | "bad_request" | "not_found" | "forbidden" | "rate_limited", "msg": "..." }
 ```
 
 After `bad_auth` the server closes the socket. Players are rate-limited: 5 failed PINs per IP per minute.
@@ -33,16 +33,36 @@ Each role gets its own projection.
 ```json
 {
   "room": "ABCD",
-  "session": { "id": "s_...", "startedAt": 0, "mode": "roleplay", "auto": false, "budgetLeft": 6, "voice": "host" },
+  "session": { "id": "s_...", "startedAt": 0, "mode": "roleplay", "auto": false, "budgetLeft": 6, "voice": "host",
+               "permissions": { "playerEdit": "sheet" } },
   "pack": { "id": "demo", "name": "Demo Pack", "version": "1.0.0", "systemName": "The System", "notifyPrefix": "New achievement!", "lootTiers": [ {"id":"bronze","name":"Bronze Box","color":"#cd7f32"} ],
             "stats": [ {"id":"str","label":"Strength","abbr":"STR"} ], "resources": [ {"id":"hp","label":"Health","color":"#ff3355"} ],
-            "voices": [ {"id":"host","label":"Game-show host"} ] },
+            "voices": [ {"id":"host","label":"Game-show host"} ],
+            "ruleset": { /* full normalized ruleset, see below */ } },
   "audience": { "viewers": 1200, "hype": 0.3 },
   "feed": [ { "id": "e_...", "at": 0, "kind": "achievement", "playerId": "p_x7", "text": "..." } ],
   "players": [ { "id": "p_x7", "name": "Carl", "color": "#ff7a00", "level": 1, "achievementCount": 3, "connected": true } ]
 }
 ```
 `feed` = last 30 public events.
+
+Every view also has:
+- `rolls`: last 50 dice-log entries visible to that role (see [Rolls](#rolls)). GM: all. Player:
+  non-secret + their own secret rolls. Stage: non-secret only.
+- `library`: `{ item:[], spell:[], skill:[], buff:[], feature:[], race:[], class:[], background:[] }`.
+  Every entry has `source: "pack" | "homebrew"`. GM: everything (pack + homebrew). Player: every entry their
+  own sheet references (inventory items, known spells, buffs on them, buffs their items/spells apply),
+  plus the full `skill`, `race`, `class`, `background` lists and the `feature`s those reference
+  (character builder). Stage: the builder lists only.
+- `pack.ruleset`: the normalized ruleset (docs/RULESET.md §1) with every default filled in, plus
+  `unverified: [{kind:"unverified", path, note}]` (all `verify: true` markers). Shape:
+  `{ id, dice, stats:[{id,label,abbr,parts,default:{part:n},verify?,note?}], statMod:{from,formula,verify?,note?},
+  derived:[{id,label,formula,display,roll,verify?,note?}], fields:[{id,label,type,default,group}],
+  tracks:[{id,label,kind:"pool"|"slots",color,default,slots?,labels?,maxFormula?}], slots:[{id,label,max}],
+  buffSlots:{external:{label,max|null}}, hotlist:{size}, skills:{columns,rankMin,rankMax,check:{roll,formula},
+  checkTypes,usedTracking,rankUp:{roll,rule,target,amount}|null,catalog}, attack:{roll,toHit,damage},
+  spells:{costTrack}, identity:[], storyFields:[], races:[ids], classes:[ids], backgrounds:[ids], unverified:[] }`.
+  `buffSlots.external.max: null` = no cap. Unknown ruleset keys are dropped.
 
 ### Player view adds
 ```json
@@ -53,13 +73,60 @@ Each role gets its own projection.
     "stats": { "str": 3, "dex": 2 },
     "resources": { "hp": { "cur": 12, "max": 15 } },
     "gold": 0, "notes": "",
-    "inventory": [ { "uid": "i_...", "itemId": "rubber_duck", "name": "...", "desc": "...", "flavor": "", "rarity": "common", "image": "/pack/images/rubber_duck.webp", "at": 0 } ],
+    "inventory": [ { "uid": "i_...", "itemId": "rubber_duck", "name": "...", "desc": "...", "flavor": "", "rarity": "common", "image": "/pack/images/rubber_duck.webp", "at": 0,
+                     "qty": 1, "notes": "", "equippedSlot": null,
+                     "slot": null, "stackable": false, "effects": [], "attack": null, "use": null, "tags": [], "source": "pack" } ],
     "achievements": [ { "uid": "a_...", "achId": "first_blood", "title": "...", "desc": "...", "reward": "", "group": "", "at": 0 } ],
     "secrets": [ { "id": "m_...", "at": 0, "from": "Sponsor", "text": "...", "read": false } ],
     "messages": [ { "id": "m_...", "at": 0, "from": "The System", "text": "...", "group": true, "read": false } ]
   }
 }
 ```
+`stats` / `resources` are the v1 projection of the sheet (base value of `statMod.from` per stat; tracks with
+the computed max). `inventory` entries are enriched from the library (current name/desc/image, `slot`,
+`stackable`, `effects`, `attack`, `use`, `source`); an item no longer in the library gets `missing: true`.
+
+`me.sheet` = the raw character (docs/RULESET.md §5) with `me.sheet.computed`:
+```json
+{
+  "name": "Carl", "level": 1,
+  "identity": { "name": "Carl", "level": 1, "race": "Gnomish", "class": "", "pronouns": "" },
+  "stats": { "dex": { "enhanced": 14, "unenhanced": 10 } },
+  "fields": { "armor": 0, "speed": 6 },
+  "tracks": { "hp": { "cur": 10, "max": 10 } },
+  "skills": [ { "uid": "s_..", "skillId": "melee", "name": "Melee", "rank": 2, "stat": "str", "checkType": "Standard", "notes": "", "used": false } ],
+  "attacks": [ { "uid": "k_..", "name": "Sword", "skillUid": "s_..", "stat": "str", "dice": "1d8", "effects": "" } ],
+  "spells": [ { "uid": "sp_..", "spellId": "feather_step", "rank": 1, "active": false, "name": "Feather Step", "cost": "1 + floor(rank / 2)", "...": "all library spell fields" } ],
+  "inventory": [ /* same as me.inventory */ ],
+  "hotlist": [ "i_..", null ],
+  "buffs": [ { "uid": "b_..", "buffId": "sponsor_glow", "name": "Sponsor Glow", "desc": "", "external": true, "effects": [], "until": "1 episode", "at": 0 } ],
+  "story": { "backstory": "", "notes": "" },
+  "portrait": null,
+  "computed": {
+    "stats":   { "dex": { "value": 16, "parts": [Part], "raw": {"enhanced":14,"unenhanced":10}, "mod": Breakdown } },
+    "derived": { "defense": Breakdown + { "display": "14" } },
+    "fields":  { "armor": Breakdown },
+    "buffs":   { "defense": Breakdown },
+    "tracks":  { "hp": { "cur": 10, "max": 11, "maxBreakdown": Breakdown } },
+    "skills":  [ { "uid": "s_..", "total": Breakdown } ],
+    "attacks": [ { "uid": "k_..", "toHit": Breakdown, "damage": "1d8+3", "damageParts": [Part] } ],
+    "spells":  [ { "uid": "sp_..", "cost": Breakdown, "costTrack": "mp", "active": false } ],
+    "effects": [ { "target": "defense", "op": "add", "value": 1, "label": "Mostly Invisible Cloak", "source": { "kind": "item", "uid": "i_..", "id": "...", "name": "..." }, "debuff": false } ],
+    "externalBuffs": { "used": 1, "max": 2 },
+    "warnings": [ { "kind": "unverified", "path": "statMod", "note": "..." } ]
+  }
+}
+```
+`Breakdown = { value, parts: [Part], warnings: [Warning] }`, `Part = { label, value, source, parts?, op? }` —
+e.g. Evade 7 = `[{label:"DEX mod",value:3,source:"mod.dex"}, {label:"Buffs",value:4,source:"buff.evade",
+parts:[{label:"Ring of Dodging",value:2,source:"item:i_1"}, {label:"Haste",value:2,source:"buff:b_2"}]}]`.
+Zero-valued `buff.*` parts with no contributors are omitted. `Warning.kind`: `unverified` (`path`, `note`),
+`unknown` (`name`: identifier counted as 0), `formula` (syntax error), `div0`, `overflow`, `missing`
+(`ref: "item:<id>"`: sheet references a library entry that no longer exists).
+Identity keys `name`, `level`, `race`, `class` and story `notes` are the same values as the player's
+top-level `name`, `level`, `race`, `klass`, `notes` (one source of truth). `fields` lists every ruleset field;
+fields that are also identity / story keys show the identity / story value.
+
 `messages` = every message addressed to this player, oldest first: private ones (`group: false`) and
 group ones (`group: true`, sent to `all` or to several players). `secrets` = only the private ones
 (kept for backwards compatibility). `read` is per player. `flavor`, `reward`, `group` are `""` when the
@@ -83,9 +150,10 @@ pack does not set them; `achId` is `null` for custom achievements.
 }
 ```
 `gm.prepCards` = `[ { "id": "c_...", "kind": "achievement", "label": "...", "payload": {...}, "createdAt": 0, "used": false, "usedAt": null } ]`.
-`gm.playersFull[]` entries also carry `userId` (hosted edition; `null` otherwise). Every view has top-level `recap` (string).
+`gm.playersFull[]` entries are the same shape as `me` (incl. `sheet` with `computed`) and also carry `userId` (hosted edition; `null` otherwise). Every view has top-level `recap` (string).
 `gm.messages` = last 50 messages of the session, all recipients. The server keeps at most 200 messages
 (oldest dropped). `achievementsCatalog` entries also carry `reward` and `group`.
+`gm.itemsCatalog` = every library item (pack + homebrew): `{ id, name, rarity, desc, flavor, slot, stackable, source }`.
 
 ### Stage view
 Common fields + `"joinUrl"` (for the QR code) + `"queueLength"`.
@@ -104,8 +172,8 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `player.remove` | `playerId` | |
 | `ach.award` | `playerId`, `achId` **or** `title`+`desc?`+`reward?` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
 | `loot.open` | `playerId`, `tier` | Rolls pack loot table for tier, adds item, event `loot` |
-| `item.give` | `playerId`, `itemId` | Direct give, no animation |
-| `item.remove` | `playerId`, `uid` | |
+| `item.give` | `playerId`, `itemId`, `qty?` | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack (`qty` added) |
+| `item.remove` | `playerId`, `uid` | Also clears it from the hotlist |
 | `quip.play` | `category` **or** `quipId` | P0: plays immediately on stage |
 | `say` | `text` | P0: GM typed text, spoken via TTS fallback |
 | `msg.send` | `to`: `"all"` or `[playerId, ...]`, `text` (max 1000), `from?` (default pack `systemName`), `onStage?`: bool | Message to one, several or all players. Event `message` to recipients + gm. If `onStage` and it is a group message, stage also gets event `announcement` (text only, no audio — use `say` for voice) |
@@ -122,17 +190,79 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.card.add` | `kind`: `achievement`/`loot`/`message`/`line`, `payload` (object), `label?` | Stores a prepared one-tap card; ack `result.id`. Payload = the fields of `ach.award` / `loot.open` / `msg.send` / `say` |
 | `prep.card.remove` | `id` | |
 | `prep.card.fire` | `id`, `playerId?`, `to?` | Runs the card's action with its payload (`playerId`/`to` override it), marks the card `used`. Same events/voice lines as the underlying action |
-| `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories) |
+| `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories + homebrew + permissions; clears the dice log) |
+| `session.permissions` | `playerEdit`: `"none"` / `"notes"` / `"sheet"` | What players may change on their own sheet (default `sheet`) |
+| `buff.add` | `playerId`, `buffId` **or** `name`, `effects?`, `external?`, `desc?`, `duration?` | Adds a buff. Enforces `buffSlots.external.max`. A library buff the character already has is not added twice (`result.added: false`) |
+| `buff.remove` | `playerId`, `uid` | |
+| `skills.rankUp` | `playerId?` (all players if omitted) | For every skill with `used: true`: rolls `skills.rankUp.roll`, compares (`gt`/`gte`/`lt`/`lte`) with `target` (number or formula; `rank` = the skill's rank), on success `rank += amount` (default 1, capped at `rankMax`). Clears `used`. Every roll goes to the dice log with `rankUp: {skillUid, name, rule, target, success, from, to}`. Ack `result.results: [{playerId, uid, name, roll, target, success, from, to, rollId}]` |
+| `lib.upsert` | `kind` (`item`/`spell`/`skill`/`buff`/`feature`/`race`/`class`/`background`), `entry` | Create/update homebrew (validated like pack files; strict: any invalid part is an error). `entry.id` optional (generated `hb_...`). Ids of pack entries are refused (duplicate under a new id). Ack `result: {id, created}` |
+| `lib.remove` | `kind`, `id` | Homebrew only (pack entries are read-only → `not_found`) |
+| `lib.give` | `playerId`, `kind` (`item`/`spell`/`skill`/`buff`), `id`, `qty?` / `rank?` | Item → inventory, spell → learned, skill → added, buff → `buff.add` |
+
+The GM may also send every action in [§4 Sheet actions](#sheet-actions) (with `playerId` required, except
+`roll` with `kind: "custom"`), without permission checks.
 
 ## 4. Player actions
 
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `secret.read` | `id` | Marks a message read for this player (private or group) |
-| `me.notes` | `text` (max 2000 chars) | Player edits own notes |
+| `me.notes` | `text` (max 2000 chars) | Player edits own notes (needs `playerEdit` ≥ `notes`) |
 | `ping` | — | Keepalive, server answers `pong` |
 
-Players cannot change state otherwise.
+### Sheet actions
+
+Sent by players for **their own** character, or by the GM with `playerId`. A player's `playerId`, if sent,
+must be their own (else `forbidden`); `role`/`actorId` in a payload are ignored — identity always comes from
+the connection. The "player needs" column is the minimum `session.permissions.playerEdit`
+(`play` = always allowed). Denials answer `{ ok:false, error:"forbidden" }`. Acks carry `result` for players too.
+
+| `t` | Fields | Player needs | Effect |
+|-----|--------|--------------|--------|
+| `sheet.set` | `path`, `value` | `sheet` (`notes` for `story.*` and story fields) | Paths: `identity.<key>` (keys from `ruleset.identity` + name/level/race/class/floor/pronouns; `name`/`level`/`race`/`class` write the player's top-level fields), `stats.<id>` (number → the `statMod.from` part, or `{part: n}`), `stats.<id>.<part>`, `fields.<id>` (ruleset fields; fields that are identity/story keys are stored there), `story.<key>` (`storyFields` + `notes`; `notes` = the player notes), `portrait` (http(s) URL, `/pack/` path, or `data:image/...;base64` ≤ 200 000 chars, or null). Stat changes emit `stat` |
+| `track.set` | `track`, `cur?`, `max?`, `delta?` | `sheet` | Sets stored max / cur; cur clamped to 0..computed max (incl. `maxFormula` and effects). Emits `stat` (`resource: true`) |
+| `skill.add` | `skillId` **or** `name` + `stat?` + `checkType?`; `rank?`, `notes?` | `sheet` | Default rank `max(rankMin, 1)`. Ack `result.uid` |
+| `skill.update` | `uid`, `rank?`, `stat?`, `checkType?`, `name?`, `notes?`, `used?` | `notes` for notes/used only, else `sheet` | |
+| `skill.remove` | `uid` | `sheet` | Unlinks attacks that used it |
+| `attack.add` | `name`, `skillUid?`, `stat?`, `dice?` (validated dice notation), `effects?` (text) | `sheet` | Ack `result.uid` |
+| `attack.update` | `uid` + any of the above | `sheet` | |
+| `attack.remove` | `uid` | `sheet` | |
+| `spell.learn` | `spellId`, `rank?` | `sheet` | Ack `result.uid` |
+| `spell.forget` | `uid` | `sheet` | |
+| `spell.update` | `uid`, `rank?`, `active?` | `sheet` for rank, `play` for active | (extension) switch an active spell off/on |
+| `spell.cast` | `uid`, `target?` (playerId, GM only unless it is the caster), `activate?` | `play` | Deducts the computed cost from `costTrack` (`not enough Mana: 1/3` → `bad_request`, nothing spent). Activates the spell if it has `when: "active"` effects (or `activate: true`). If the spell `applies` a buff: on `target`, else on the caster unless the buff is tagged `debuff`. Event `spell`, feed line. Ack `result: {cost, track, cur, active, applied}` |
+| `item.equip` | `uid`, `slot` (ruleset slot id or null) | `sheet` | Enforces slot `max` and the item's own `slot` |
+| `item.qty` | `uid`, `qty` (0..9999; 0 removes) | `sheet` | |
+| `item.use` | `uid`, `target?` (playerId, GM only unless self) | `play` | Applies the item's `use`: heal a track, remove a buff, apply a buff (on `target`, or on the user when `use.target` is `"self"`; otherwise reported as `pendingBuff` for the GM), consume one (`use.consume`, default = stackable). Event `itemUse`, feed line |
+| `hotlist.set` | `index`, `uid` or null | `sheet` | Hotlisted items count as equipped for effects |
+| `roll` | `what`, `secret?` | `play` | `what`: `{kind:"stat", id}` → `dice + mod`; `{kind:"derived", id}` → `derived.roll + value`; `{kind:"skill", uid, markUsed?}` → `skills.check.roll + total`, marks the skill used; `{kind:"attack", uid, part?: "toHit"|"damage"}`; `{kind:"custom", formula, label?}` (formula may use sheet identifiers; GM may omit `playerId`). Server RNG (Web Crypto). Ack `result: {rollId, total}` |
+
+### Rolls
+
+Dice log entry (`state.rolls`, last 200; views get the last 50) — event `roll` carries the same object plus
+`kind: "roll"`:
+```json
+{ "id": "r_...", "at": 0, "playerId": "p_x7", "by": "gm" | "p_x7", "what": "derived",
+  "label": "Evade", "formula": "d20+3", "dice": [ { "die": "d20", "value": 20 } ], "total": 23,
+  "breakdown": { "value": 23, "parts": [ {"label":"1d20","value":20,"source":"dice","rolls":[20]},
+                 {"label":"Evade","value":3,"source":"derived.evade","parts":[...]} ], "warnings": [] },
+  "secret": false, "nat1": false, "nat20": true, "rankUp": { ... } }
+```
+`what` = `stat` / `derived` / `skill` / `attack` / `custom` / `rankUp`. Event recipients: everyone, or
+for `secret` the GM + the rolling player (a GM's secret roll is GM-only). `nat1`/`nat20` only when the roll
+has exactly one d20; a non-secret nat 1/20 also queues a P1 voice line from quip category `nat1`/`nat20`.
+
+### Hosted edition
+
+The GM's browser runs the reducers for player actions relayed over the room channel. Call
+```js
+import { reducePlayerAction } from './engine.js';
+reducePlayerAction(state, action, { playerId, pack, now?, randInt?, rollInt?, rng?, genId? })
+// → { state, changed, events, lines, effects, result }  (same as reduce); throws ActionError
+```
+with `playerId` = the player assigned to the relaying user. It discards `role`/`actorId`/`rid` from the
+payload and applies exactly the same permission checks as the Node server. `rollInt(n)` (0..n-1) overrides
+the dice RNG (tests); default Web Crypto.
 
 ## 5. Stage actions
 
@@ -148,7 +278,10 @@ Players cannot change state otherwise.
 | `kind` | Payload | Who receives |
 |--------|---------|--------------|
 | `achievement` | `playerId`, `achId`, `title`, `desc`, `reward`, `group` | all |
-| `stat` | `playerId`, `stat`, `from`, `to` | that player + gm + stage |
+| `stat` | `playerId`, `stat`, `from`, `to` (+ `resource: true`, `max` for tracks) | that player + gm + stage |
+| `roll` | the roll object (see [Rolls](#rolls)) | all, or gm + roller when secret |
+| `spell` | `playerId`, `spellId`, `name`, `cost`, `track`, `applied` | all |
+| `itemUse` | `playerId`, `itemId`, `name`, `healed`, `applied`, `removedBuff`, `consumed`, `pendingBuff`, `buffOnFail`, `note` | all |
 | `loot` | `playerId`, `tier`, `item` (full inventory item, incl. `flavor`) | all |
 | `sponsor` | `playerId`, `sponsor`, `tier`, `item` | all |
 | `message` | `id` (= message id), `group`, `from`, `to` | recipients + gm (phone vibrates; text arrives in view) |

@@ -8,7 +8,7 @@ import { WebSocketServer } from 'ws';
 import QRCode from 'qrcode';
 
 import { loadPack, fallbackPack, voiceFor, quipAudio } from './pack.js';
-import { createState, normalizeState, reduce, viewFor, genId, ActionError } from './state.js';
+import { createState, normalizeState, reduce, reducePlayerAction, viewFor, genId, ActionError } from './state.js';
 import { VoiceQueue } from './quips.js';
 import { authenticate, RateLimiter } from './auth.js';
 import { createAI } from './ai.js';
@@ -255,8 +255,8 @@ export async function startServer(opts = {}) {
   }
 
   /** Runs one action through the reducer and performs all side effects. Throws ActionError. */
-  function apply(action) {
-    const r = reduce(state, action, { now: now(), rng, pack });
+  function apply(action, reducer = (st, a, ctx) => reduce(st, a, ctx)) {
+    const r = reducer(state, action, { now: now(), rng, pack });
     if (!r.changed) return r;
     state = r.state;
     if (action.role !== 'system') {
@@ -279,6 +279,11 @@ export async function startServer(opts = {}) {
     scheduleSave();
     scheduleViews();
     return r;
+  }
+
+  /** Player-originated action: identity comes from the socket, never from the payload. */
+  function applyPlayer(payload, playerId) {
+    return apply({ ...payload, role: 'player', actorId: playerId }, (st, a, ctx) => reducePlayerAction(st, payload, { ...ctx, playerId }));
   }
 
   // ---- incoming messages ----
@@ -314,7 +319,9 @@ export async function startServer(opts = {}) {
           if (rid !== undefined) return send(ws, { t: 'ack', rid, ok: true, ...(r.result ? { result: r.result } : {}) });
         }
       } else {
-        apply({ ...msg, role: 'player', actorId: playerId });
+        const { rid: _rid, ...payload } = msg;
+        const r = applyPlayer(payload, playerId);
+        if (rid !== undefined) return send(ws, { t: 'ack', rid, ok: true, ...(r.result ? { result: r.result } : {}) });
       }
       if (rid !== undefined) send(ws, { t: 'ack', rid, ok: true });
     } catch (e) {

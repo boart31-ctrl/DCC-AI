@@ -19,8 +19,11 @@ test('player.add initialises sheet from pack defaults; rejects duplicate pin', (
   const { state, id } = withPlayer();
   const p = state.players[0];
   assert.equal(p.id, id);
-  assert.deepEqual(p.stats, { str: 3 });
-  assert.deepEqual(p.resources, { hp: { cur: 10, max: 10 } });
+  assert.deepEqual(p.sheet.stats, { str: { enhanced: 3, unenhanced: 3 } });
+  assert.deepEqual(p.sheet.tracks, { hp: { cur: 10, max: 10 } });
+  const me = viewFor(state, pack, 'player', { playerId: id }).me;
+  assert.deepEqual(me.stats, { str: 3 });
+  assert.deepEqual(me.resources, { hp: { cur: 10, max: 10 } });
   assert.equal(p.gold, 0);
   assert.equal(p.notes, '');
   assert.throws(() => gm(state, { t: 'player.add', name: 'B', pin: '1234' }), /PIN already used/);
@@ -32,8 +35,8 @@ test('player.add initialises sheet from pack defaults; rejects duplicate pin', (
 test('packs without stats/resources give empty sheet', () => {
   const fb = fallbackPack();
   const r = reduce(createState(fb, 0), { role: 'gm', t: 'player.add', name: 'X' }, ctx({ pack: fb }));
-  assert.deepEqual(r.state.players[0].stats, {});
-  assert.deepEqual(r.state.players[0].resources, {});
+  assert.deepEqual(r.state.players[0].sheet.stats, {});
+  assert.deepEqual(r.state.players[0].sheet.tracks, {});
 });
 
 test('reducers do not mutate input state', () => {
@@ -107,11 +110,11 @@ test('quip.play is P0 and records usage; unknown category → not_found', () => 
 test('player.stat value/delta, event to player+gm+stage', () => {
   const { state, id } = withPlayer();
   const r = gm(state, { t: 'player.stat', playerId: id, stat: 'str', delta: 2 });
-  assert.equal(r.state.players[0].stats.str, 5);
+  assert.equal(r.state.players[0].sheet.stats.str.enhanced, 5);
   assert.deepEqual(r.events[0].to, { roles: ['gm', 'stage'], playerId: id });
   assert.deepEqual({ ...r.events[0].event, id: 0, at: 0 }, { id: 0, at: 0, kind: 'stat', playerId: id, stat: 'str', from: 3, to: 5 });
   const v = gm(r.state, { t: 'player.stat', playerId: id, stat: 'str', value: 1 });
-  assert.equal(v.state.players[0].stats.str, 1);
+  assert.equal(v.state.players[0].sheet.stats.str.enhanced, 1);
   assert.throws(() => gm(state, { t: 'player.stat', playerId: id, stat: 'str', value: 1, delta: 1 }), /exactly one/);
   assert.throws(() => gm(state, { t: 'player.stat', playerId: id, stat: 'wis', value: 1 }), /unknown stat/);
 });
@@ -119,12 +122,12 @@ test('player.stat value/delta, event to player+gm+stage', () => {
 test('player.resource clamps 0..max', () => {
   const { state, id } = withPlayer();
   let r = gm(state, { t: 'player.resource', playerId: id, res: 'hp', delta: -25 });
-  assert.deepEqual(r.state.players[0].resources.hp, { cur: 0, max: 10 });
+  assert.deepEqual(r.state.players[0].sheet.tracks.hp, { cur: 0, max: 10 });
   assert.equal(r.events[0].event.kind, 'stat');
   r = gm(r.state, { t: 'player.resource', playerId: id, res: 'hp', cur: 50 });
-  assert.deepEqual(r.state.players[0].resources.hp, { cur: 10, max: 10 });
+  assert.deepEqual(r.state.players[0].sheet.tracks.hp, { cur: 10, max: 10 });
   r = gm(r.state, { t: 'player.resource', playerId: id, res: 'hp', max: 4 });
-  assert.deepEqual(r.state.players[0].resources.hp, { cur: 4, max: 4 });
+  assert.deepEqual(r.state.players[0].sheet.tracks.hp, { cur: 4, max: 4 });
   assert.throws(() => gm(state, { t: 'player.resource', playerId: id, res: 'hp' }), /cur, max or delta/);
 });
 
@@ -212,8 +215,9 @@ test('normalizeState adds new pack stats to old saves', () => {
   const old = { room: 'ABCD', gmToken: 't', stageToken: 'u', players: [{ id: 'p_1', name: 'Old', pin: '0000', stats: { str: 9 } }] };
   const s = normalizeState(old, pack);
   assert.equal(s.room, 'ABCD');
-  assert.deepEqual(s.players[0].stats, { str: 9 });
-  assert.deepEqual(s.players[0].resources.hp, { cur: 10, max: 10 });
+  assert.deepEqual(s.players[0].sheet.stats, { str: { enhanced: 9, unenhanced: 9 } });
+  assert.deepEqual(s.players[0].sheet.tracks.hp, { cur: 10, max: 10 });
+  assert.equal(s.players[0].stats, undefined);
   assert.deepEqual(s.players[0].inventory, []);
 });
 

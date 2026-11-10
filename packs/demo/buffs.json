@@ -1,0 +1,8 @@
+[
+  { "id": "brave", "name": "Brave", "desc": "+1 Defense, +1 to hit.", "duration": "1 fight", "external": false,
+    "effects": [ { "target": "defense", "value": 1 }, { "target": "toHit", "value": 1 } ], "tags": ["buff"] },
+  { "id": "sponsor_glow", "name": "Sponsor Glow", "desc": "A sponsor likes you. +2 Initiative.", "duration": "1 episode", "external": true,
+    "effects": [ { "target": "initiative", "value": 2 } ], "tags": ["buff"] },
+  { "id": "soggy", "name": "Soggy", "desc": "Wet socks. -1 Speed, -1 Defense.", "duration": "until dry", "external": false,
+    "effects": [ { "target": "speed", "value": -1 }, { "target": "defense", "value": -1 } ], "tags": ["debuff"] }
+]

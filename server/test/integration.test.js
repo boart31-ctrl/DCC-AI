@@ -221,9 +221,53 @@ test('state persists across restart', async () => {
     assert.equal(srv2.state.room, saved.room);
     assert.equal(srv2.state.gmToken, saved.gmToken);
     assert.equal(srv2.state.players[0].name, 'Carl');
-    assert.equal(srv2.state.players[0].resources.hp.cur, 7);
+    assert.equal(srv2.state.players[0].sheet.tracks.hp.cur, 7);
   } finally {
     await srv2.close();
     srv = null;
+  }
+});
+
+test('player sheet actions over the socket: ack carries result, other characters forbidden, roll event', async () => {
+  // Own server: the shared one has used up this IP's PIN attempts in earlier tests.
+  const r2 = tmpDir();
+  fs.mkdirSync(path.join(r2, 'web'));
+  const own = await startServer({ port: 0, host: '127.0.0.1', publicHost: '127.0.0.1', packDir: writePack(path.join(r2, 'pack')), dataDir: path.join(r2, 'data'), webDir: path.join(r2, 'web'), env: {}, log: silent, chat: false });
+  const saved = { srv, wsUrl };
+  srv = own;
+  wsUrl = `ws://127.0.0.1:${own.port}/ws`;
+  try {
+  const gm = await hello({ role: 'gm', token: srv.state.gmToken });
+  await gm.next((m) => m.t === 'welcome');
+  gm.send({ t: 'player.add', name: 'Roller', pin: '7777', rid: 'a1' });
+  const a1 = await gm.next((m) => m.rid === 'a1');
+  assert.equal(a1.ok, true, JSON.stringify(a1));
+  const a = a1.result.playerId;
+  gm.send({ t: 'player.add', name: 'Other', pin: '7778', rid: 'a2' });
+  const b = (await gm.next((m) => m.rid === 'a2')).result.playerId;
+  const pl = await hello({ role: 'player', room: srv.state.room, pin: '7777' });
+  const w = await pl.next((m) => m.t === 'welcome' || m.t === 'error');
+  assert.equal(w.t, 'welcome', JSON.stringify(w));
+  assert.ok(w.view.me.sheet.computed.stats.str);
+  assert.ok(w.view.pack.ruleset);
+  pl.send({ t: 'roll', what: { kind: 'custom', formula: '1d6 + 2' }, rid: 'p1' });
+  const ack = await pl.next((m) => m.rid === 'p1');
+  assert.equal(ack.ok, true, JSON.stringify(ack));
+  assert.ok(ack.result.total >= 3 && ack.result.total <= 8);
+  const ev = await pl.next((m) => m.t === 'event' && m.event.kind === 'roll');
+  assert.equal(ev.event.playerId, a);
+  pl.send({ t: 'track.set', playerId: b, track: 'hp', cur: 1, rid: 'p2' });
+  const denied = await pl.next((m) => m.rid === 'p2');
+  assert.equal(denied.ok, false);
+  assert.equal(denied.error, 'forbidden');
+  pl.send({ t: 'track.set', role: 'gm', actorId: b, track: 'hp', cur: 4, rid: 'p3' });
+  assert.equal((await pl.next((m) => m.rid === 'p3')).ok, true);
+  assert.equal(srv.state.players.find((p) => p.id === a).sheet.tracks.hp.cur, 4);
+  assert.equal(srv.state.players.find((p) => p.id === b).sheet.tracks.hp.cur, 10);
+  pl.ws.close();
+  gm.ws.close();
+  } finally {
+    ({ srv, wsUrl } = saved);
+    own.close();
   }
 });

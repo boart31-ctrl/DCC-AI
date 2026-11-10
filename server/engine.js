@@ -6,6 +6,7 @@ export {
   createState,
   normalizeState,
   reduce,
+  reducePlayerAction,
   viewFor,
   viewForUser,
   rollLoot,
@@ -30,4 +31,7 @@ export {
   PACK_FORMAT,
 } from './pack-core.js';
 export { STANDARD_CATEGORIES, ROOM_ALPHABET } from './constants.js';
+export { evaluate, rollDice, diceText, validateFormula, parseFormula, objectResolver, FormulaError } from './formula.js';
+export { normalizeRuleset, computeSheet, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, LIB_KINDS, EFFECT_WHENS } from './ruleset.js';
+export { PLAYER_EDIT, MAX_ROLLS, VIEW_ROLLS, rollsFor } from './character.js';
 export { genId, makeToken, makeRoomCode, makePin, randInt } from './random.js';
