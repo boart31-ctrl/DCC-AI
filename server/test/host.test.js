@@ -323,12 +323,12 @@ test('hardening: hello timeout, per-socket rate limit, max message size, max soc
   assert.deepEqual(idle.closed, { code: 4000, reason: 'hello timeout' });
 
   const g = gm();
-  for (let i = 0; i < 45; i++) g.send({ t: 'ping' });
-  assert.equal(g.inbox.filter((m) => m.t === 'pong').length, 40, 'GM burst 40 (fresh bucket after auth)');
+  for (let i = 0; i < 125; i++) g.send({ t: 'ping' });
+  assert.equal(g.inbox.filter((m) => m.t === 'pong').length, 120, 'GM burst 120 (fresh bucket after auth)');
   assert.equal(g.inbox.filter((m) => m.t === 'error' && m.code === 'rate_limited').length, 1, 'one warning, not a flood');
   c.advance(1000);
   g.send({ t: 'ping' });
-  assert.equal(g.inbox.filter((m) => m.t === 'pong').length, 41, 'refills over time');
+  assert.equal(g.inbox.filter((m) => m.t === 'pong').length, 121, 'refills over time');
 
   const anon = sock();
   for (let i = 0; i < 25; i++) anon.send({ t: 'ping' });
