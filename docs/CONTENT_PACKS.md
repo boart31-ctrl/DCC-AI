@@ -186,3 +186,8 @@ documentation. The demo pack ships a small generic ruleset (`packs/demo/ruleset.
 If you own a rulebook (PDF), you can turn parts of it into a private pack for your own table.
 Keep that pack in a **private** repository — never publish text, names or art from commercial books.
 The engine never needs the book itself; it only reads the JSON above.
+
+### Boss phase text on the TV
+`bosses.json` phases may carry `text` (GM mechanics, shown on the GM desk only) and an optional
+`tv` line (short, spoiler-free, shown in the TV's phase report). Library phase `text` never reaches
+the TV.
