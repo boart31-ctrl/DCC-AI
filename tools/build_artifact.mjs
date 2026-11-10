@@ -82,6 +82,17 @@ export function build(packDir, outDir) {
   for (const f of fs.readdirSync(path.join(art, 'css'))) copy(path.join(art, 'css', f), path.join(out, 'css', f));
   for (const f of fs.readdirSync(path.join(art, 'js', 'hosted'))) copy(path.join(art, 'js', 'hosted', f), path.join(out, 'js', 'hosted', f));
 
+  // Artifact CSP only allows fonts from Google or as data: URIs, so inline the bundled woff2 files
+  // and drop the binaries (the OFL licence text stays).
+  for (const f of fs.readdirSync(path.join(out, 'css')).filter((x) => x.endsWith('.css'))) {
+    const p = path.join(out, 'css', f);
+    const css = fs.readFileSync(p, 'utf8');
+    if (!css.includes('.woff2')) continue;
+    fs.writeFileSync(p, css.replace(/url\(['"]?([^'")]+\.woff2)['"]?\)/g, (_, rel) =>
+      `url(data:font/woff2;base64,${fs.readFileSync(path.resolve(path.dirname(p), rel)).toString('base64')})`));
+  }
+  for (const f of fs.readdirSync(path.join(out, 'fonts')).filter((x) => x.endsWith('.woff2'))) fs.rmSync(path.join(out, 'fonts', f));
+
   // index.html with the three page bodies inlined as templates.
   let index = fs.readFileSync(path.join(art, 'index.html'), 'utf8');
   for (const page of ['gm', 'play', 'stage']) {
