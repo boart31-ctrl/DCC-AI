@@ -1,0 +1,439 @@
+// GM library: browse pack + homebrew entries, edit homebrew with live formula validation,
+// preview exactly what players see, give entries to crawlers, draft with Claude (hosted edition).
+import { h, toast, rarityOf, ask } from './client.js';
+import {
+  libraryOf, normalizeRuleset, effectTargets, effectText, validateFormula, knownIdentifiers, WHEN, LIB_KINDS, RARITIES, slugId,
+} from './rules.js';
+import { icon, field, select, labeled, openDrawer, closeDrawer, signed } from './ui.js';
+
+const FIELDS = {
+  item: ['rarity', 'slot', 'stackable', 'flavor', 'effects', 'attack'],
+  spell: ['cost', 'costTrack', 'range', 'duration', 'dice', 'rankScaling', 'effects', 'attack', 'flavor'],
+  skill: ['stat', 'checkType', 'upgrades'],
+  buff: ['duration', 'external', 'effects'],
+  feature: ['effects'],
+  race: ['features', 'statBonuses', 'skills'],
+  class: ['features', 'statBonuses', 'skills'],
+  background: ['features', 'statBonuses', 'skills'],
+};
+
+function blank(kind, rs) {
+  const e = { id: '', name: '', desc: '', tags: [], source: 'homebrew' };
+  if (kind === 'item') Object.assign(e, { rarity: 'common', slot: null, stackable: false, flavor: '', effects: [] });
+  if (kind === 'spell') Object.assign(e, { cost: 1, costTrack: rs.spells?.costTrack || rs.tracks[0]?.id || '', range: '', duration: '', dice: '', rankScaling: '', effects: [] });
+  if (kind === 'skill') Object.assign(e, { stat: rs.stats[0]?.id || '', checkType: rs.skills.checkTypes[0] || 'Standard', upgrades: [] });
+  if (kind === 'buff') Object.assign(e, { duration: '', external: false, effects: [] });
+  if (kind === 'feature') Object.assign(e, { effects: [] });
+  if (['race', 'class', 'background'].includes(kind)) Object.assign(e, { features: [], statBonuses: [], skills: [] });
+  return e;
+}
+
+export function createLibrary({ act, getView, aiDraft, hasAi }) {
+  const st = { kind: 'all', source: 'all', tag: '', q: '', sel: null, draft: null, dirty: false };
+  let view = null;
+  let rs = null;
+  let lib = null;
+  let listSig = '';
+
+  const search = h('input.inp', { type: 'search', placeholder: 'Search the library  ( / )', 'aria-label': 'Search the library', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); drawList(true); } });
+  const kindSeg = h('div.lib-kinds', { role: 'tablist', 'aria-label': 'Kind' });
+  const sourceSel = select([{ value: 'all', label: 'Pack and homebrew' }, { value: 'pack', label: 'Pack only' }, { value: 'homebrew', label: 'Homebrew only' }], 'all', { cls: 'inp-sm', label: 'Source', onChange: (v) => { st.source = v; drawList(true); } });
+  const tagSel = h('select.inp.inp-sm', { 'aria-label': 'Tag', onchange: (e) => { st.tag = e.target.value; drawList(true); } });
+  const newSel = select([{ value: '', label: 'New entry…' }, ...LIB_KINDS.map((k) => ({ value: k.id, label: `New ${k.label.toLowerCase()}` }))], '', { cls: 'inp-sm lib-new', label: 'Create', onChange: (v) => { if (v) { startNew(v); newSel.value = ''; } } });
+  const count = h('span.dim');
+  const list = h('ul.lib-list', { role: 'listbox', 'aria-label': 'Library entries' });
+  const editor = h('div.lib-editor');
+  const el = h('div.library',
+    h('div.view-head', h('h1', 'Library'), count, h('span.grow'), newSel),
+    kindSeg,
+    h('div.lib-cols',
+      h('div.lib-side', search, h('div.lib-filters', sourceSel, tagSel), list),
+      editor,
+    ),
+  );
+
+  /* ---------- list ---------- */
+
+  function entries() {
+    const out = [];
+    for (const k of LIB_KINDS) for (const e of lib[k.id] || []) out.push({ kind: k.id, e });
+    return out;
+  }
+
+  function drawKinds() {
+    const counts = Object.fromEntries(LIB_KINDS.map((k) => [k.id, (lib[k.id] || []).length]));
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    kindSeg.replaceChildren(
+      ...[{ id: 'all', plural: 'All' }, ...LIB_KINDS].map((k) => h('button', {
+        type: 'button', role: 'tab', 'aria-selected': String(st.kind === k.id),
+        onclick: () => { st.kind = k.id; drawKinds(); drawList(true); },
+      }, k.plural, h('span.tab-n', String(k.id === 'all' ? total : counts[k.id])))),
+    );
+  }
+
+  function drawList(force = false) {
+    const all = entries();
+    const tags = [...new Set(all.flatMap(({ e }) => e.tags || []))].sort();
+    const sig = JSON.stringify([all.map(({ kind, e }) => [kind, e.id, e.name, e.source, e.tags]), st.kind, st.source, st.tag, st.q, st.sel]);
+    if (!force && sig === listSig) return;
+    listSig = sig;
+    if (tagSel.dataset.sig !== tags.join('|')) {
+      tagSel.replaceChildren(h('option', { value: '' }, 'Any tag'), ...tags.map((t) => h('option', { value: t }, t)));
+      tagSel.dataset.sig = tags.join('|');
+      tagSel.value = st.tag;
+    }
+    const hits = all.filter(({ kind, e }) => (st.kind === 'all' || st.kind === kind)
+      && (st.source === 'all' || (e.source || 'pack') === st.source)
+      && (!st.tag || (e.tags || []).includes(st.tag))
+      && (!st.q || `${e.name} ${e.desc || ''} ${(e.tags || []).join(' ')}`.toLowerCase().includes(st.q)))
+      .sort((a, b) => a.e.name.localeCompare(b.e.name));
+    count.textContent = `${hits.length} of ${all.length}`;
+    list.replaceChildren(...(hits.length ? hits.map(({ kind, e }) => {
+      const on = st.sel && st.sel.kind === kind && st.sel.id === e.id;
+      return h('li', h('button.lib-row', {
+        type: 'button', role: 'option', 'aria-selected': String(!!on),
+        onclick: () => select_(kind, e.id),
+      },
+      h('span.lr-n', e.name),
+      h('span.lr-k', LIB_KINDS.find((k) => k.id === kind).label),
+      e.rarity ? h('span.lr-r', { class: `lr-r rar-${rarityOf(e.rarity)}` }, e.rarity) : null,
+      (e.source || 'pack') === 'homebrew' ? h('span.lr-hb', 'Homebrew') : null,
+      ));
+    }) : [h('li.empty-s', st.q ? 'Nothing matches. Try another word or kind.' : 'Nothing here yet. Create the first entry.')]));
+  }
+
+  /* ---------- selection ---------- */
+
+  async function select_(kind, id) {
+    if (st.dirty && !(await ask('Discard your unsaved changes?', { ok: 'Discard', danger: true }))) return;
+    const e = lib[kind]?.find((x) => x.id === id);
+    if (!e) return;
+    st.sel = { kind, id };
+    st.draft = structuredClone(e);
+    st.dirty = false;
+    drawList(true);
+    drawEditor();
+  }
+
+  async function startNew(kind, seed = null) {
+    if (st.dirty && !(await ask('Discard your unsaved changes?', { ok: 'Discard', danger: true }))) return;
+    st.sel = { kind, id: null };
+    st.draft = seed || blank(kind, rs);
+    st.dirty = !!seed;
+    drawList(true);
+    drawEditor();
+    editor.querySelector('input')?.focus();
+  }
+
+  function duplicate() {
+    const { kind } = st.sel;
+    const copy = structuredClone(st.draft);
+    copy.id = '';
+    copy.source = 'homebrew';
+    copy.name = `${copy.name} (homebrew)`;
+    startNew(kind, copy);
+  }
+
+  /* ---------- editor ---------- */
+
+  const markDirty = () => { st.dirty = true; saveBtnState(); drawPreview(); };
+  let saveBtn = null;
+  let previewEl = null;
+  const saveBtnState = () => { if (saveBtn) { saveBtn.disabled = !st.dirty || hasErrors(); saveBtn.textContent = st.sel?.id ? 'Save changes' : 'Create'; } };
+
+  function hasErrors() {
+    const d = st.draft;
+    if (!d?.name?.trim()) return true;
+    const known = knownIdentifiers(rs);
+    const bad = (v) => typeof v === 'string' && v.trim() && !validateFormula(v, known).ok;
+    if (bad(d.cost)) return true;
+    for (const e of [...(d.effects || []), ...(d.statBonuses || [])]) if (bad(e.value)) return true;
+    for (const dice of [d.dice, d.attack?.dice]) if (dice && !validateFormula(dice).ok) return true;
+    return false;
+  }
+
+  function drawEditor() {
+    if (!st.sel || !st.draft) {
+      editor.replaceChildren(h('div.lib-empty',
+        h('p', h('b', 'Pick an entry to see it, or create one.')),
+        h('p.dim', 'Pack entries are read-only. Duplicate one to make a homebrew version you can change.'),
+        h('div.row-start', ...['item', 'spell', 'buff'].map((k) => h('button.btn.btn-sm', { type: 'button', onclick: () => startNew(k) }, icon('plus', { size: 14 }), `New ${k}`))),
+      ));
+      return;
+    }
+    const { kind } = st.sel;
+    const d = st.draft;
+    const ro = (d.source || 'pack') === 'pack' && !!st.sel.id;
+    const set = (k) => (v) => { d[k] = v; markDirty(); };
+    const meta = LIB_KINDS.find((k) => k.id === kind);
+
+    const formRows = [
+      labeled('Name', field(d.name, { disabled: ro, onCommit: (v) => { d.name = v; markDirty(); drawPreview(); } , attrs: { maxlength: 80 } }), { cls: 'span-2' }),
+      labeled('Tags', field((d.tags || []).join(', '), { disabled: ro, placeholder: 'comma, separated', onCommit: (v) => { d.tags = v.split(',').map((x) => x.trim()).filter(Boolean); markDirty(); } })),
+      labeled('Description', field(d.desc, { multiline: true, rows: 3, disabled: ro, onCommit: set('desc') }), { cls: 'span-all' }),
+    ];
+    const f = FIELDS[kind] || [];
+    if (f.includes('rarity')) formRows.push(labeled('Rarity', select(RARITIES.map((r) => ({ value: r, label: r })), d.rarity || 'common', { disabled: ro, onChange: set('rarity') })));
+    if (f.includes('slot')) formRows.push(labeled('Gear slot', select([{ value: '', label: 'None (carried)' }, ...rs.slots.map((s) => ({ value: s.id, label: s.label }))], d.slot || '', { disabled: ro, onChange: (v) => set('slot')(v || null) })));
+    if (f.includes('stackable')) formRows.push(h('label.chk.lbl-chk', h('input', { type: 'checkbox', checked: !!d.stackable, disabled: ro, onchange: (e) => set('stackable')(e.target.checked) }), h('span', 'Stackable')));
+    if (f.includes('cost')) formRows.push(formulaField('Cost', d.cost, ro, (v) => { d.cost = /^\s*-?\d+(\.\d+)?\s*$/.test(String(v)) ? Number(v) : v; markDirty(); }, 'Number or formula, e.g. max(1, 4 - mod.int)'));
+    if (f.includes('costTrack')) formRows.push(labeled('Paid from', select(rs.tracks.map((t) => ({ value: t.id, label: t.label })), d.costTrack || '', { disabled: ro, onChange: set('costTrack') })));
+    if (f.includes('range')) formRows.push(labeled('Range', field(d.range, { disabled: ro, onCommit: set('range') })));
+    if (f.includes('duration')) formRows.push(labeled('Duration', field(d.duration, { disabled: ro, onCommit: set('duration') })));
+    if (f.includes('dice')) formRows.push(diceInput('Dice', d.dice, ro, set('dice')));
+    if (f.includes('rankScaling')) formRows.push(labeled('Rank scaling', field(d.rankScaling, { disabled: ro, onCommit: set('rankScaling'), placeholder: '+1 die per 3 ranks' }), { cls: 'span-2' }));
+    if (f.includes('stat')) formRows.push(labeled('Stat', select(rs.stats.map((s) => ({ value: s.id, label: s.label })), d.stat, { disabled: ro, onChange: set('stat') })));
+    if (f.includes('checkType')) formRows.push(labeled('Check type', select(rs.skills.checkTypes.map((x) => ({ value: x, label: x })), d.checkType, { disabled: ro, onChange: set('checkType') })));
+    if (f.includes('external')) formRows.push(h('label.chk.lbl-chk', h('input', { type: 'checkbox', checked: !!d.external, disabled: ro, onchange: (e) => set('external')(e.target.checked) }), h('span', `External buff (counts toward the ${rs.buffSlots?.external?.max ?? '?'} cap)`)));
+    if (f.includes('flavor')) formRows.push(labeled('Flavor text', field(d.flavor, { multiline: true, rows: 2, disabled: ro, onCommit: set('flavor'), placeholder: 'The line in italics players love to read aloud.' }), { cls: 'span-all' }));
+
+    const sections = [h('div.form-grid', formRows)];
+    if (f.includes('effects')) sections.push(effectsEditor('Effects', d.effects || (d.effects = []), ro, kind === 'item' ? 'equipped' : kind === 'spell' || kind === 'buff' ? 'active' : 'always'));
+    if (f.includes('statBonuses')) sections.push(effectsEditor('Stat bonuses', d.statBonuses || (d.statBonuses = []), ro, 'always'));
+    if (f.includes('attack')) sections.push(attackEditor(d, ro));
+    if (f.includes('upgrades')) sections.push(upgradesEditor(d, ro));
+    if (f.includes('features')) sections.push(checkList('Features', lib.feature, d.features || (d.features = []), ro));
+    if (f.includes('skills')) sections.push(checkList('Starting skills', lib.skill.length ? lib.skill : rs.skills.catalog, d.skills || (d.skills = []), ro));
+
+    saveBtn = h('button.btn.btn-primary', { type: 'button', onclick: save });
+    saveBtnState();
+    const actions = [];
+    if (ro) actions.push(h('button.btn.btn-primary', { type: 'button', onclick: duplicate }, icon('copyPlus', { size: 15 }), 'Duplicate and edit'));
+    else actions.push(saveBtn);
+    if (st.sel.id && ['item', 'spell', 'skill', 'buff'].includes(kind)) actions.unshift(h('button.btn', { type: 'button', disabled: st.dirty, title: st.dirty ? 'Save first' : null, onclick: () => giveTo(kind, d) }, icon('gift', { size: 15 }), 'Give to…'));
+    if (st.sel.id && !ro) actions.unshift(h('button.btn.btn-quiet.danger', { type: 'button', onclick: remove }, icon('trash', { size: 15 }), 'Delete'));
+    if (!ro && st.dirty && st.sel.id) actions.unshift(h('button.btn.btn-quiet', { type: 'button', onclick: () => { st.dirty = false; select_(kind, st.sel.id); } }, 'Revert'));
+
+    previewEl = h('div.lib-preview');
+    editor.replaceChildren(...[
+      h('header.ed-head',
+        h('div.ed-titles', h('h2', d.name || `New ${meta.label.toLowerCase()}`), h('p.dim', `${meta.label}, ${ro ? 'from the pack (read-only)' : st.sel.id ? 'homebrew' : 'not saved yet'}${d.id ? `, id ${d.id}` : ''}`)),
+        h('div.ed-act', actions),
+      ),
+      !ro && hasAi() ? aiBar(kind, d) : null,
+      h('div.ed-cols',
+        h('div.ed-form', { class: ro ? 'ed-form ro' : 'ed-form' }, sections),
+        h('aside.ed-side', h('h3.sub-t', 'As players see it'), previewEl),
+      ),
+    ].filter(Boolean));
+    drawPreview();
+  }
+
+  function formulaField(label, value, ro, onCommit, hint) {
+    const known = knownIdentifiers(rs);
+    const msg = h('span.lbl-hint', hint || '');
+    const inp = field(value ?? '', { disabled: ro, cls: 'mono-in', attrs: { spellcheck: 'false' }, onCommit });
+    const check = () => {
+      const v = inp.value.trim();
+      if (!v) { msg.textContent = hint || ''; msg.className = 'lbl-hint'; inp.classList.remove('bad'); return; }
+      const r = validateFormula(v, known);
+      inp.classList.toggle('bad', !r.ok);
+      msg.className = r.ok && !r.unknown.length ? 'lbl-hint' : 'lbl-hint bad';
+      msg.textContent = !r.ok ? r.error : r.unknown.length ? `Unknown: ${r.unknown.join(', ')} (counts as 0)` : (hint || 'Looks good.');
+    };
+    inp.addEventListener('input', () => { check(); });
+    check();
+    return h('label.lbl', h('span.lbl-t', label), inp, msg);
+  }
+
+  function diceInput(label, value, ro, onCommit) {
+    const msg = h('span.lbl-hint', '1d6, 2d4+1');
+    const inp = field(value ?? '', { disabled: ro, cls: 'mono-in', attrs: { spellcheck: 'false' }, onCommit });
+    inp.addEventListener('input', () => {
+      const r = inp.value.trim() ? validateFormula(inp.value) : { ok: true };
+      inp.classList.toggle('bad', !r.ok);
+      msg.className = r.ok ? 'lbl-hint' : 'lbl-hint bad';
+      msg.textContent = r.ok ? '1d6, 2d4+1' : r.error;
+    });
+    return h('label.lbl', h('span.lbl-t', label), inp, msg);
+  }
+
+  function effectsEditor(title, effs, ro, defWhen) {
+    const known = knownIdentifiers(rs);
+    const targets = effectTargets(rs);
+    const rowsEl = h('div.fx-rows');
+    const draw = () => {
+      rowsEl.replaceChildren(...(effs.length ? effs.map((e, i) => {
+        const msg = h('span.fx-msg');
+        const val = h('input.inp.mono-in', { value: e.value ?? 0, disabled: ro, 'aria-label': 'Value or formula', spellcheck: 'false' });
+        const check = () => {
+          const v = val.value.trim();
+          const r = /^-?\d+(\.\d+)?$/.test(v) ? { ok: true, unknown: [] } : validateFormula(v, known);
+          val.classList.toggle('bad', !r.ok || !v);
+          msg.textContent = !v ? 'Needs a value' : !r.ok ? r.error : r.unknown.length ? `Unknown: ${r.unknown.join(', ')}` : '';
+          msg.classList.toggle('bad', !r.ok || !v || r.unknown.length > 0);
+        };
+        val.addEventListener('input', check);
+        val.addEventListener('change', () => { const v = val.value.trim(); e.value = /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : v; markDirty(); });
+        check();
+        const knownTarget = targets.some((g) => g.options.some((o) => o.value === e.target));
+        const tSel = select(knownTarget ? targets : [...targets, { label: 'Other', options: [{ value: e.target, label: e.target }] }], e.target, { disabled: ro, label: 'Target', onChange: (v) => { e.target = v; markDirty(); } });
+        return h('div.fx-row',
+          tSel,
+          select([{ value: 'add', label: 'adds' }, { value: 'set', label: 'sets to' }], e.op || 'add', { disabled: ro, label: 'Operation', onChange: (v) => { e.op = v; markDirty(); } }),
+          val,
+          select(WHEN, e.when || defWhen, { disabled: ro, label: 'When', onChange: (v) => { e.when = v; markDirty(); } }),
+          ro ? h('span') : h('button.icon-btn', { type: 'button', 'aria-label': 'Remove effect', onclick: () => { effs.splice(i, 1); markDirty(); draw(); } }, icon('x', { size: 15 })),
+          msg,
+        );
+      }) : [h('p.empty-s', 'No effects. This changes no numbers on the sheet.')]));
+    };
+    draw();
+    return h('section.ed-sec',
+      h('div.sec-head', h('h3.sub-t', title), h('span.dim', 'Target, then how much. Negative values are debuffs.')),
+      h('div.fx-head', h('span', 'Target'), h('span', 'Op'), h('span', 'Value or formula'), h('span', 'When'), h('span', '')),
+      rowsEl,
+      ro ? null : h('button.btn.btn-sm', { type: 'button', onclick: () => { effs.push({ target: rs.derived[0]?.id || `stat.${rs.stats[0]?.id}`, op: 'add', value: 1, when: defWhen }); markDirty(); draw(); } }, icon('plus', { size: 14 }), 'Add effect'),
+    );
+  }
+
+  function attackEditor(d, ro) {
+    const on = !!d.attack;
+    const body = h('div.form-grid');
+    const draw = () => {
+      if (!d.attack) { body.replaceChildren(); return; }
+      const a = d.attack;
+      const skills = (lib.skill.length ? lib.skill : rs.skills.catalog);
+      body.replaceChildren(
+        labeled('Skill', select([{ value: '', label: 'None' }, ...skills.map((s) => ({ value: s.id, label: s.name }))], a.skill || '', { disabled: ro, onChange: (v) => { a.skill = v; markDirty(); } })),
+        labeled('Stat', select(rs.stats.map((s) => ({ value: s.id, label: s.label })), a.stat || rs.stats[0]?.id, { disabled: ro, onChange: (v) => { a.stat = v; markDirty(); } })),
+        diceInput('Damage dice', a.dice, ro, (v) => { a.dice = v; markDirty(); }),
+        labeled('On hit', field(a.effects, { disabled: ro, placeholder: 'Knockback 1, sets on fire…', onCommit: (v) => { a.effects = v; markDirty(); } }), { cls: 'span-all' }),
+      );
+    };
+    draw();
+    return h('section.ed-sec',
+      h('div.sec-head', h('h3.sub-t', 'Attack'), h('label.chk', h('input', { type: 'checkbox', checked: on, disabled: ro, onchange: (e) => { d.attack = e.target.checked ? { skill: '', stat: rs.stats[0]?.id, dice: '1d6', effects: '' } : undefined; if (!e.target.checked) delete d.attack; markDirty(); draw(); } }), h('span', 'Can be used to attack'))),
+      body,
+    );
+  }
+
+  function upgradesEditor(d, ro) {
+    d.upgrades ||= [];
+    const rows = h('div.up-rows');
+    const draw = () => rows.replaceChildren(...d.upgrades.map((u, i) => h('div.up-row',
+      field(u.rank, { type: 'number', disabled: ro, attrs: { min: 1, max: rs.skills.rankMax, 'aria-label': 'Rank' }, onCommit: (v) => { u.rank = v; markDirty(); } }),
+      field(u.text, { disabled: ro, attrs: { 'aria-label': 'What it unlocks' }, onCommit: (v) => { u.text = v; markDirty(); } }),
+      ro ? h('span') : h('button.icon-btn', { type: 'button', 'aria-label': 'Remove', onclick: () => { d.upgrades.splice(i, 1); markDirty(); draw(); } }, icon('x', { size: 15 })),
+    )));
+    draw();
+    return h('section.ed-sec', h('div.sec-head', h('h3.sub-t', 'Upgrades by rank')), rows,
+      ro ? null : h('button.btn.btn-sm', { type: 'button', onclick: () => { d.upgrades.push({ rank: (d.upgrades.at(-1)?.rank || 0) + 5, text: '' }); markDirty(); draw(); } }, icon('plus', { size: 14 }), 'Add upgrade'));
+  }
+
+  function checkList(title, options, chosen, ro) {
+    return h('section.ed-sec', h('div.sec-head', h('h3.sub-t', title)),
+      options.length ? h('div.chk-grid', options.map((o) => h('label.chk', h('input', { type: 'checkbox', checked: chosen.includes(o.id), disabled: ro, onchange: (e) => { const i = chosen.indexOf(o.id); if (e.target.checked && i < 0) chosen.push(o.id); if (!e.target.checked && i >= 0) chosen.splice(i, 1); markDirty(); } }), h('span', o.name))))
+        : h('p.empty-s', `No ${title.toLowerCase()} in the library yet.`));
+  }
+
+  /* ---------- preview (same pieces as the player's item / spell drawer) ---------- */
+
+  function drawPreview() {
+    if (!previewEl || !st.draft) return;
+    const d = st.draft;
+    const kind = st.sel.kind;
+    const r = rarityOf(d.rarity);
+    const slot = rs.slots.find((s) => s.id === d.slot);
+    const kv = [];
+    if (kind === 'spell') kv.push(['Cost', `${d.cost ?? 0}${rs.tracks.find((t) => t.id === d.costTrack) ? ` ${rs.tracks.find((t) => t.id === d.costTrack).label.toLowerCase()}` : ''}`], ['Range', d.range], ['Duration', d.duration], ['Dice', d.dice], ['Scaling', d.rankScaling]);
+    if (kind === 'skill') kv.push(['Stat', rs.stats.find((s) => s.id === d.stat)?.label], ['Check', d.checkType]);
+    if (kind === 'buff') kv.push(['Lasts', d.duration], ['Type', d.external ? 'External buff' : 'Buff']);
+    const effs = [...(d.effects || []), ...(d.statBonuses || [])];
+    previewEl.replaceChildren(h('div.preview-card',
+      h('div.pv-head', h('b.pv-name', { class: kind === 'item' ? `pv-name r-${r}` : 'pv-name' }, d.name || 'Unnamed'),
+        h('span.dim', kind === 'item' ? `${r} item` : LIB_KINDS.find((k) => k.id === kind).label)),
+      kind === 'item' ? h('div.item-tags', h('span.pill', { class: `pill rar-${r}` }, r), h('span.pill', slot ? slot.label : 'No slot'), d.stackable ? h('span.pill', 'Stacks') : null, (d.tags || []).map((t) => h('span.pill.pill-tag', t))) : null,
+      kv.filter(([, v]) => v != null && v !== '').length ? h('dl.kv', kv.filter(([, v]) => v != null && v !== '').map(([k, v]) => h('div', h('dt', k), h('dd', String(v))))) : null,
+      d.desc ? h('p.desc', d.desc) : h('p.desc.dim', 'No description yet.'),
+      d.flavor ? h('p.flavor-t', d.flavor) : null,
+      effs.length ? h('div', h('h3.sub-t', 'Effects'), h('ul.eff-list', effs.map((e) => h('li', effectText(rs, e), h('span.eff-when', ` ${e.when || ''}`))))) : null,
+      d.attack ? h('div', h('h3.sub-t', 'Attack'), h('p.desc', `${(lib.skill.find((s) => s.id === d.attack.skill) || rs.skills.catalog.find((s) => s.id === d.attack.skill))?.name || 'No skill'} + ${rs.stats.find((s) => s.id === d.attack.stat)?.abbr || ''}, ${d.attack.dice || '—'} damage${d.attack.effects ? `. ${d.attack.effects}` : ''}`)) : null,
+      d.upgrades?.length ? h('div', h('h3.sub-t', 'Upgrades'), h('ul.upgrades', d.upgrades.map((u) => h('li.got', h('b', `Rank ${u.rank}`), u.text)))) : null,
+    ));
+  }
+
+  /* ---------- AI draft (hosted) ---------- */
+
+  function aiBar(kind, d) {
+    const inp = h('input.inp', { placeholder: `Describe the ${LIB_KINDS.find((k) => k.id === kind).label.toLowerCase()} in one line, e.g. "boots that make you louder but faster"`, maxlength: 300, 'aria-label': 'Describe it for Claude' });
+    const status = h('span.lbl-hint');
+    const go = h('button.btn', { type: 'button', onclick: async () => {
+      const prompt = inp.value.trim() || d.name;
+      if (!prompt) { inp.focus(); return; }
+      go.disabled = true;
+      status.textContent = 'Drafting. Takes a few seconds.';
+      try {
+        const r = await aiDraft({ kind, prompt, draft: d, ruleset: rs, targets: effectTargets(rs) });
+        if (r) {
+          for (const k of ['name', 'desc', 'flavor', 'rarity', 'slot', 'cost', 'range', 'duration', 'dice', 'stat', 'checkType', 'tags']) if (r[k] != null && r[k] !== '') d[k] = r[k];
+          if (Array.isArray(r.effects)) d.effects = r.effects.filter((e) => e && e.target).map((e) => ({ target: String(e.target), op: e.op === 'set' ? 'set' : 'add', value: e.value ?? 0, when: e.when || 'equipped' }));
+          if (r.attack && typeof r.attack === 'object') d.attack = r.attack;
+          st.dirty = true;
+          drawEditor();
+          toast('Draft ready. Check it, then save.');
+        }
+      } catch (err) {
+        status.textContent = err?.userMessage || err?.message || 'Claude could not draft it.';
+      } finally { go.disabled = false; }
+    } }, icon('sparkle', { size: 15 }), 'Draft with Claude');
+    return h('div.ai-bar', inp, go, status);
+  }
+
+  /* ---------- save / remove / give ---------- */
+
+  async function save() {
+    if (hasErrors()) { toast('Fix the fields marked in red first.', { error: true }); return; }
+    const { kind } = st.sel;
+    const d = structuredClone(st.draft);
+    if (!d.id) d.id = slugId(d.name, (lib[kind] || []).map((x) => x.id));
+    d.source = 'homebrew';
+    d.kind = kind;
+    const r = await act({ t: 'lib.upsert', kind, entry: d }, `${d.name} saved.`);
+    if (!r) return;
+    st.sel = { kind, id: r?.result?.id || d.id };
+    st.draft = d;
+    st.dirty = false;
+    drawList(true);
+    drawEditor();
+  }
+
+  async function remove() {
+    const { kind, id } = st.sel;
+    if (!(await ask(`Delete ${st.draft.name} from the library? Crawlers who carry it keep their copy.`, { ok: 'Delete', danger: true }))) return;
+    if (await act({ t: 'lib.remove', kind, id }, 'Deleted.')) { st.sel = null; st.draft = null; st.dirty = false; drawList(true); drawEditor(); }
+  }
+
+  function giveTo(kind, d) {
+    const players = view.players || [];
+    openDrawer({
+      title: `Give ${d.name}`,
+      sub: 'Pick a crawler. It lands on their sheet right away.',
+      body: players.length ? h('ul.pick-list', players.map((p) => h('li', h('button.pick', {
+        type: 'button',
+        onclick: async () => { if (await act({ t: 'lib.give', playerId: p.id, kind, id: d.id }, `Gave ${d.name} to ${p.name}.`)) closeDrawer(); },
+      }, h('span', h('b', p.name)), h('span.dim', p.connected ? 'online' : 'offline'))))) : h('p.empty-s', 'No crawlers yet.'),
+    });
+  }
+
+  return {
+    el,
+    update(v) {
+      view = v;
+      rs = normalizeRuleset(v.pack);
+      lib = libraryOf(v);
+      drawKinds();
+      drawList();
+      // Refresh the editor if the saved entry changed under us and nothing is being edited.
+      if (st.sel?.id && !st.dirty) {
+        const e = lib[st.sel.kind]?.find((x) => x.id === st.sel.id);
+        if (e && JSON.stringify(e) !== JSON.stringify(st.draft)) { st.draft = structuredClone(e); drawEditor(); }
+        if (!e) { st.sel = null; st.draft = null; drawEditor(); }
+      } else if (!st.sel && !editor.firstChild) drawEditor();
+    },
+    focusSearch() { setTimeout(() => { search.focus(); search.select(); }, 0); },
+    open(kind, id) { select_(kind, id); },
+  };
+}
+
+export { signed };

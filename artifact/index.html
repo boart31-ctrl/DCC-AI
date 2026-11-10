@@ -27,16 +27,10 @@
 
 <!-- Extra GM-desk parts for the hosted edition. -->
 <template id="tpl-hosted-gm">
-  <nav class="htabs" id="htabs" aria-label="GM views">
-    <button type="button" data-view="desk" aria-pressed="true">Desk</button>
-    <button type="button" data-view="campaign" aria-pressed="false">Campaign</button>
-    <button type="button" id="tv-btn">TV view</button>
-  </nav>
-
   <section class="lobby-wrap" id="lobby-wrap" aria-labelledby="h-lobby">
     <div class="col-head">
       <h2 id="h-lobby">Lobby</h2>
-      <span class="dim mono" id="lobby-count"></span>
+      <span class="dim" id="lobby-count"></span>
     </div>
     <div class="lobby" id="lobby"></div>
   </section>
@@ -104,11 +98,11 @@
       <p class="ask-text"><b>Put the show on the TV</b></p>
       <ol class="tv-steps">
         <li>Open this artifact again in a second browser window, signed in as you.</li>
-        <li>In that window, choose <b>Use this window as the TV</b>, or add <span class="mono">#stage</span> to the end of its address.</li>
+        <li>In that window, choose <b>This screen is the TV</b>, or add <span class="mono">#stage</span> to the end of its address. A TV or console browser signed in as you works the same way.</li>
         <li>Drag that window to the TV and click it once to start the broadcast and unlock sound.</li>
       </ol>
       <div class="ask-row">
-        <button type="button" class="btn btn-ghost" id="tv-here">Make this window the TV</button>
+        <button type="button" class="btn btn-ghost" id="tv-here">Make this screen the TV</button>
         <button class="btn btn-cyan" value="ok">Done</button>
       </div>
     </form>

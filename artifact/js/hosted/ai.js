@@ -57,6 +57,40 @@ Reply with only JSON: {"title": "...", "desc": "...", "reward": "..."}`;
     }
   }
 
+  /**
+   * Library "Draft with Claude": a homebrew entry from a one-line idea, in the System's voice.
+   * Returns a partial entry; the GM reviews it in the editor before saving.
+   */
+  async draftLibraryEntry({ kind, prompt, ruleset, targets }) {
+    if (this.disabled) throw this.fail({ code: 'not_granted' });
+    const targetList = (targets || []).flatMap((g) => g.options.map((o) => `${o.value} (${o.label})`)).slice(0, 80).join(', ');
+    const slots = (ruleset?.slots || []).map((s) => s.id).join(', ');
+    const shape = {
+      item: '{"name","desc","flavor","rarity":"common|uncommon|rare|epic|legendary","slot":"<slot id or null>","tags":[],"effects":[{"target","op":"add","value":<number>,"when":"equipped|carried|always"}],"attack":null|{"skill":"","stat":"","dice":"1d6","effects":""}}',
+      spell: '{"name","desc","flavor","cost":<number>,"range","duration","dice":"","tags":[],"effects":[{"target","op":"add","value":<number>,"when":"active"}]}',
+      buff: '{"name","desc","duration","tags":[],"effects":[{"target","op":"add","value":<number>,"when":"active"}]}',
+      skill: '{"name","desc","stat":"<stat id>","checkType":"Standard"}',
+    }[kind] || '{"name","desc","tags":[],"effects":[]}';
+    const q = `${this.voiceBrief()}
+
+The GM wants a new homebrew ${kind} for the game. Their idea: "${prompt}"
+
+Write it. Rules:
+- name: 2-5 words. desc: 1-3 sentences, what it does in plain words, addressed to the player. flavor: one dry, funny line in the System's voice.
+- Keep numbers small and fair (+1 or +2 typical, a downside is welcome). Use negative values for drawbacks.
+- effects[].target must be one of: ${targetList || 'evade, dr, move'}.
+- Gear slots: ${slots || 'none'}. Stats: ${(ruleset?.stats || []).map((s) => s.id).join(', ')}.
+
+Reply with only JSON shaped like ${shape}`;
+    try {
+      const r = await this.sample.json(q, { cache: false });
+      if (!r || typeof r !== 'object') throw { code: 'invalid_json' };
+      return r;
+    } catch (e) {
+      throw this.fail(e);
+    }
+  }
+
   /** End of session: factual summary + dramatic "Previously on…". */
   async summarizeSession({ story, log, players }) {
     if (this.disabled) throw this.fail({ code: 'not_granted' });

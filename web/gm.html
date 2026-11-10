@@ -3,169 +3,235 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0a0614">
+  <meta name="theme-color" content="#1a1d23">
   <title>GM Desk · The System</title>
   <link rel="manifest" href="/manifest.webmanifest">
   <link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/gm.css">
 </head>
-<body class="gm">
+<body class="gm tool">
   <header class="topbar">
     <div class="brand">
-      <span class="brand-mark" aria-hidden="true">◢</span>
       <span class="brand-name">The System</span>
-      <span class="room mono" title="Room code">Room <b id="room">····</b></span>
+      <span class="room" title="Room code">Room <b id="room">····</b></span>
       <span class="conn" id="conn"><span class="dot"></span><span class="conn-text">Connecting</span></span>
     </div>
-
+    <span class="grow"></span>
     <button class="auto-toggle" id="auto" type="button" role="switch" aria-checked="false" title="Toggle AUTO (A)">
       <span class="auto-label">Auto</span>
       <span class="auto-state">Off</span>
-      <kbd>A</kbd>
     </button>
-
-    <div class="seg" id="mode" role="radiogroup" aria-label="Mode">
-      <button type="button" role="radio" data-mode="roleplay">Roleplay</button>
-      <button type="button" role="radio" data-mode="combat">Combat</button>
-      <button type="button" role="radio" data-mode="quiet">Quiet</button>
-    </div>
-
-    <label class="voice">
-      <span class="sr-only">System voice</span>
-      <select id="voice" class="field"></select>
-    </label>
-
-    <div class="budget mono" title="Spontaneous lines left this session">
-      <button type="button" class="mini" data-budget="-1" aria-label="Lower auto budget">−</button>
-      <span><b id="budget">–</b> auto left</span>
-      <button type="button" class="mini" data-budget="1" aria-label="Raise auto budget">+</button>
-    </div>
-
-    <button class="btn btn-alarm stop" id="stop" type="button" title="Stop all audio and clear the queue (Esc)">
-      Stop <kbd>Esc</kbd>
-    </button>
+    <button class="btn btn-quiet btn-sm" id="log-toggle" type="button" aria-controls="gm-log" aria-expanded="true">Dice log</button>
+    <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch light or dark"></button>
+    <button class="btn btn-danger stop" id="stop" type="button" title="Stop all audio and clear the queue (Esc)">Stop <kbd>Esc</kbd></button>
   </header>
 
-  <main class="desk">
-    <section class="col col-players" aria-labelledby="h-players">
-      <div class="col-head">
-        <h2 id="h-players">Crawlers</h2>
-        <span class="dim mono" id="player-count"></span>
-      </div>
-      <div id="players" class="players"></div>
-      <form id="add-player" class="add-player" autocomplete="off">
-        <input class="field" name="name" placeholder="New player name" required maxlength="40">
-        <input class="field pin" name="pin" placeholder="PIN" inputmode="numeric" pattern="\d{4}" maxlength="4" title="Optional 4-digit PIN">
-        <input class="swatch" type="color" name="color" value="#2ef2ff" aria-label="Player color">
-        <button class="btn btn-cyan" type="submit">Add player</button>
-      </form>
-    </section>
+  <div class="gm-shell">
+    <nav class="gm-nav" id="gm-nav" aria-label="Desk sections">
+      <button type="button" data-view="party" aria-current="page">Party</button>
+      <button type="button" data-view="combat">Combat</button>
+      <button type="button" data-view="library">Library <kbd>/</kbd></button>
+      <button type="button" data-view="show">Show</button>
+      <button type="button" data-view="campaign">Campaign</button>
+      <button type="button" data-view="settings">Settings</button>
+    </nav>
 
-    <section class="col col-show" aria-label="Show control">
-      <div id="pending" class="pending" aria-live="assertive"></div>
-
-      <section class="prep" id="prep" hidden aria-labelledby="h-prep">
-        <div class="col-head">
-          <h2 id="h-prep">Prepared</h2>
-          <span class="dim mono" id="prep-count"></span>
+    <main class="gm-main">
+      <!-- Party -->
+      <section class="gm-view view-party" id="view-party" aria-labelledby="h-party">
+        <div class="view-head">
+          <h1 id="h-party">Party</h1>
+          <span class="dim" id="player-count"></span>
+          <span class="grow"></span>
+          <button type="button" class="btn btn-sm" id="rank-up" title="Roll the rank-up check for every skill marked used this session">End-of-session rank-up</button>
+          <button type="button" class="btn btn-sm btn-primary" id="add-player-btn">Add crawler</button>
         </div>
-        <div class="prep-cards" id="prep-cards"></div>
-      </section>
-
-      <div class="col-head">
-        <h2>Quips</h2>
-        <span class="dim mono" id="queue-info"></span>
-      </div>
-      <div id="quips" class="quips"></div>
-
-      <form id="say" class="say" autocomplete="off">
-        <label for="say-text" class="say-label">Make the System say</label>
-        <div class="say-row">
-          <textarea id="say-text" class="field" rows="2" maxlength="400" placeholder="Type a line. Enter plays it now."></textarea>
-          <button class="btn btn-hot" type="submit">Say it</button>
-        </div>
-      </form>
-
-      <section class="comms" id="comms" aria-labelledby="h-comms">
-        <div class="col-head">
-          <h2 id="h-comms">Comms</h2>
-          <span class="dim mono"><kbd>M</kbd> to write</span>
-        </div>
-        <form id="comms-form" class="comms-form" autocomplete="off">
-          <div class="chips" id="chips" role="group" aria-label="Recipients"></div>
-          <div class="comms-row">
-            <label class="comms-from">
-              <span class="sr-only">From</span>
-              <input class="field" id="comms-from" maxlength="60" placeholder="From">
-            </label>
-            <label class="tv-toggle" id="tv-wrap" title="Also show this message as a banner on the TV">
-              <input type="checkbox" id="comms-tv"> <span>Also show on TV (group only)</span>
-            </label>
-          </div>
-          <div class="say-row">
-            <textarea id="comms-text" class="field" rows="2" maxlength="1000" placeholder="Write a message. Enter sends, Shift+Enter for a new line."></textarea>
-            <button class="btn btn-cyan" type="submit" id="comms-send">Send</button>
-          </div>
+        <form id="add-player" class="add-player" autocomplete="off" hidden>
+          <input class="inp" name="name" placeholder="Crawler name" required maxlength="40" aria-label="Crawler name">
+          <input class="inp pin" name="pin" placeholder="PIN" inputmode="numeric" pattern="\d{4}" maxlength="4" title="Optional 4-digit PIN" aria-label="PIN (optional)">
+          <input class="swatch" type="color" name="color" value="#e3a33b" aria-label="Crawler color">
+          <button class="btn btn-primary btn-sm" type="submit">Add</button>
         </form>
-        <ol class="msg-history" id="msg-history"></ol>
+        <div class="party" id="party">
+          <div class="party-list" id="players"></div>
+          <div class="party-sheet" id="party-sheet" hidden></div>
+        </div>
       </section>
-    </section>
 
-    <aside class="col col-room" aria-label="Audience and links">
-      <div class="audience" id="audience">
-        <div class="viewers">
-          <span class="live-badge">Live</span>
-          <span class="viewers-num" id="viewers">0</span>
-          <span class="dim">viewers</span>
-        </div>
-        <div class="hype" aria-label="Hype">
-          <div class="hype-fill" id="hype"></div>
-          <span class="hype-label mono" id="hype-label">hype 0%</span>
-        </div>
-        <div class="bumps">
-          <button type="button" class="btn btn-ghost" data-bump="-500">−500</button>
-          <button type="button" class="btn btn-ghost" data-bump="-100">−100</button>
-          <button type="button" class="btn btn-ghost" data-bump="100">+100</button>
-          <button type="button" class="btn btn-acid" data-bump="1000">+1k</button>
-        </div>
-        <div id="sponsor-ready" class="sponsor-ready" hidden>Hype is high. A sponsor wants in. Open a sponsor box.</div>
-      </div>
+      <!-- Combat -->
+      <section class="gm-view view-combat" id="view-combat" aria-label="Combat" hidden></section>
 
-      <div class="col-head"><h2>Feed</h2></div>
-      <ol id="feed" class="feed"></ol>
+      <!-- Library -->
+      <section class="gm-view view-library" id="view-library" aria-label="Library" hidden></section>
 
-      <details class="links" id="links">
-        <summary>Join links &amp; session</summary>
-        <div class="links-body">
-          <img id="qr" class="qr" alt="QR code for the player join link" width="160" height="160">
-          <div class="link-list">
-            <p class="dim">Players scan this or open:</p>
-            <a id="join-url" class="mono url" target="_blank" rel="noopener"></a>
-            <p class="dim">TV screen:</p>
-            <a id="stage-url" class="mono url" target="_blank" rel="noopener">Open stage</a>
-            <button type="button" class="btn btn-ghost" id="copy-stage">Copy stage link</button>
+      <!-- Show: the broadcast controls, unchanged in function -->
+      <section class="gm-view view-show desk" id="view-show" aria-label="Show control" hidden>
+        <div class="show-bar">
+          <div class="seg" id="mode" role="radiogroup" aria-label="Mode">
+            <button type="button" role="radio" data-mode="roleplay">Roleplay</button>
+            <button type="button" role="radio" data-mode="combat">Combat</button>
+            <button type="button" role="radio" data-mode="quiet">Quiet</button>
           </div>
+          <label class="voice">
+            <span class="sr-only">System voice</span>
+            <select id="voice" class="inp inp-sm"></select>
+          </label>
+          <div class="budget" title="Spontaneous lines left this session">
+            <button type="button" class="icon-btn" data-budget="-1" aria-label="Lower auto budget">−</button>
+            <span><b id="budget">–</b> auto left</span>
+            <button type="button" class="icon-btn" data-budget="1" aria-label="Raise auto budget">+</button>
+          </div>
+          <span class="grow"></span>
+          <span class="dim" id="queue-info"></span>
         </div>
-        <button type="button" class="btn btn-ghost danger" id="new-session">Start new session</button>
-      </details>
-    </aside>
-  </main>
 
-  <dialog id="sheet" class="sheet">
+        <div class="show-cols">
+          <div class="col col-show">
+            <div id="pending" class="pending" aria-live="assertive"></div>
+
+            <section class="prep" id="prep" hidden aria-labelledby="h-prep">
+              <div class="col-head"><h2 id="h-prep">Prepared</h2><span class="dim" id="prep-count"></span></div>
+              <div class="prep-cards" id="prep-cards"></div>
+            </section>
+
+            <div class="col-head"><h2>Quips</h2><span class="dim">Keys 1–9</span></div>
+            <div id="quips" class="quips"></div>
+
+            <form id="say" class="say" autocomplete="off">
+              <label for="say-text" class="col-head"><h2>Make the System say</h2></label>
+              <div class="say-row">
+                <textarea id="say-text" class="inp" rows="2" maxlength="400" placeholder="Type a line. Enter plays it now."></textarea>
+                <button class="btn btn-primary" type="submit">Say it</button>
+              </div>
+            </form>
+
+            <section class="comms" id="comms" aria-labelledby="h-comms">
+              <div class="col-head"><h2 id="h-comms">Comms</h2><span class="dim"><kbd>M</kbd> to write</span></div>
+              <form id="comms-form" class="comms-form" autocomplete="off">
+                <div class="chips" id="chips" role="group" aria-label="Recipients"></div>
+                <div class="comms-row">
+                  <label class="comms-from">
+                    <span class="sr-only">From</span>
+                    <input class="inp" id="comms-from" maxlength="60" placeholder="From">
+                  </label>
+                  <label class="tv-toggle chk" id="tv-wrap" title="Also show this message as a banner on the TV">
+                    <input type="checkbox" id="comms-tv"> <span>Also show on TV (group only)</span>
+                  </label>
+                </div>
+                <div class="say-row">
+                  <textarea id="comms-text" class="inp" rows="2" maxlength="1000" placeholder="Write a message. Enter sends, Shift+Enter for a new line."></textarea>
+                  <button class="btn btn-primary" type="submit" id="comms-send">Send</button>
+                </div>
+              </form>
+              <ol class="msg-history" id="msg-history"></ol>
+            </section>
+          </div>
+
+          <aside class="col col-room" aria-label="Audience and feed">
+            <div class="audience" id="audience">
+              <div class="viewers">
+                <span class="live-dot" aria-hidden="true"></span>
+                <span class="viewers-num" id="viewers">0</span>
+                <span class="dim">viewers</span>
+              </div>
+              <div class="hype" aria-label="Hype">
+                <div class="hype-fill" id="hype"></div>
+                <span class="hype-label" id="hype-label">hype 0%</span>
+              </div>
+              <div class="bumps">
+                <button type="button" class="btn btn-sm" data-bump="-500">−500</button>
+                <button type="button" class="btn btn-sm" data-bump="-100">−100</button>
+                <button type="button" class="btn btn-sm" data-bump="100">+100</button>
+                <button type="button" class="btn btn-sm" data-bump="1000">+1k</button>
+              </div>
+              <div id="sponsor-ready" class="sponsor-ready" hidden>Hype is high. A sponsor wants in. Open a sponsor box from a crawler's row.</div>
+            </div>
+            <div class="col-head"><h2>Feed</h2></div>
+            <ol id="feed" class="feed"></ol>
+          </aside>
+        </div>
+      </section>
+
+      <!-- Campaign -->
+      <section class="gm-view view-campaign" id="view-campaign" aria-label="Campaign" hidden>
+        <div class="view-head"><h1>Campaign</h1></div>
+        <div class="node-campaign" id="node-campaign">
+          <section class="panel">
+            <h2>"Previously on…"</h2>
+            <p class="dim">Shown to every phone and the TV when you press Show recap.</p>
+            <textarea class="inp" id="node-recap" rows="6" maxlength="4000" placeholder="What happened last time."></textarea>
+            <div class="row-end">
+              <button type="button" class="btn" id="node-recap-clear">Clear recap</button>
+              <button type="button" class="btn btn-primary" id="node-recap-show">Show recap</button>
+            </div>
+          </section>
+        </div>
+      </section>
+
+      <!-- Settings -->
+      <section class="gm-view view-settings" id="view-settings" aria-label="Settings" hidden>
+        <div class="view-head"><h1>Settings</h1></div>
+        <div class="settings-grid">
+          <section class="panel">
+            <h2>Player editing</h2>
+            <p class="dim">What players may change on their own sheet. You can always edit everything.</p>
+            <div class="seg" id="perm-seg" role="radiogroup" aria-label="Player editing">
+              <button type="button" role="radio" data-perm="none">Locked</button>
+              <button type="button" role="radio" data-perm="notes">Notes only</button>
+              <button type="button" role="radio" data-perm="sheet">Whole sheet</button>
+            </div>
+            <p class="hint" id="perm-hint"></p>
+          </section>
+          <section class="panel">
+            <h2>Look</h2>
+            <p class="dim">Applies to this screen. Phones choose their own.</p>
+            <div class="seg" id="theme-seg" role="radiogroup" aria-label="Theme">
+              <button type="button" role="radio" data-theme-pick="dark">Dark</button>
+              <button type="button" role="radio" data-theme-pick="light">Light</button>
+            </div>
+          </section>
+          <section class="panel links" id="links">
+            <h2>Join links</h2>
+            <div class="links-body">
+              <img id="qr" class="qr" alt="QR code for the player join link" width="140" height="140">
+              <div class="link-list">
+                <p class="dim">Players scan this or open:</p>
+                <a id="join-url" class="url" target="_blank" rel="noopener"></a>
+                <p class="dim">TV screen:</p>
+                <div class="row-start">
+                  <a id="stage-url" class="btn btn-sm" target="_blank" rel="noopener">Open stage</a>
+                  <button type="button" class="btn btn-sm" id="copy-stage">Copy stage link</button>
+                </div>
+              </div>
+            </div>
+          </section>
+          <section class="panel">
+            <h2>Session</h2>
+            <p class="dim">Archives the current session. Crawlers, sheets and inventories stay.</p>
+            <button type="button" class="btn danger" id="new-session">Start new session</button>
+          </section>
+        </div>
+      </section>
+    </main>
+
+    <aside class="gm-log" id="gm-log" aria-label="Dice log"></aside>
+  </div>
+
+  <dialog id="sheet" class="sheet-dlg tool">
     <form method="dialog" class="sheet-inner" id="sheet-form">
       <header class="sheet-head">
         <h3 id="sheet-title"></h3>
-        <button class="sheet-x" value="cancel" aria-label="Close">✕</button>
+        <button class="icon-btn sheet-x" value="cancel" aria-label="Close">✕</button>
       </header>
       <div id="sheet-body" class="sheet-body"></div>
     </form>
   </dialog>
 
   <div class="gate" id="gate" hidden>
-    <div class="sys" data-head="SYSTEM">
-      <p class="sys-title">GM token missing.</p>
-      <p class="sys-desc">Open the GM link printed in the host terminal. It ends with <span class="mono">#</span> and a long token.</p>
+    <div class="gate-box">
+      <p class="gate-title">GM token missing.</p>
+      <p class="gate-desc">Open the GM link printed in the host terminal. It ends with # and a long token.</p>
     </div>
   </div>
 

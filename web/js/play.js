@@ -2,6 +2,10 @@ import {
   SystemClient, TransportHub, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
   prefersReducedMotion, registerSW, isHosted, ask,
 } from './client.js';
+import { createSheet, localRolls, onLocalRoll } from './sheet.js';
+import { openBuilder } from './builder.js';
+import { createDiceLog, showRollCard } from './dicelog.js';
+import { icon, applyTheme, toggleTheme, applyAccent } from './ui.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -142,13 +146,14 @@ client.on('view', (v) => {
   const prev = me;
   me = v.me || null;
   if (!me) return;
-  render(prev);
+  render();
   maybeRecap(v.recap);
 });
 
 client.on('event', (e) => {
   if (!me) return;
-  if (e.kind === 'stat' && e.playerId === me.id) { if (!e.resource) flashStat(e.stat, e.from, e.to); return; }
+  if (e.kind === 'roll') { const r = e.roll || e; if (r.playerId === me.id) showRollCard(r, { meId: me.id }); return; }
+  if (e.kind === 'stat') return;
   if (e.kind === 'secret' || e.kind === 'message') {
     // Group messages may target everyone (no playerId, or a list). The text arrives in the next view.
     const forMe = !e.playerId || e.playerId === me.id || (Array.isArray(e.to) && (e.to.includes(me.id) || e.to.includes('all'))) || e.to === 'all' || e.group;
@@ -163,163 +168,80 @@ client.on('event', (e) => {
 
 /* ---------- render ---------- */
 
-function render(prev) {
-  document.body.style.setProperty('--me', me.color || 'var(--cyan)');
-  document.title = `${me.name} · The System`;
-  $('#name').textContent = me.name || 'Crawler';
-  const lv = $('#level');
-  if (prev && prev.level !== me.level) { const l = lv.parentElement; l.classList.remove('bump'); void l.offsetWidth; l.classList.add('bump'); }
-  lv.textContent = me.level ?? 1;
+const sheet = createSheet({
+  mode: 'player',
+  send: (a) => client.send(a),
+  extraTabs: () => (me ? [
+    { id: 'ach', label: 'Achievements', count: me.achievements?.length || '', sig: achSig(), render: renderAchievements },
+    { id: 'msg', label: 'Messages', badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
+  ] : []),
+  onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act }),
+});
+$('#sheet-root').append(sheet.el);
 
-  const sub = [];
-  const rc = [me.race, me.klass].filter(Boolean).join(' ');
-  const subEl = $('#subtitle');
-  subEl.replaceChildren();
-  if (me.title) subEl.append(h('b', me.title));
-  if (me.title && rc) subEl.append(document.createTextNode('  /  '));
-  if (rc) subEl.append(document.createTextNode(rc));
-  if (!me.title && !rc && view.room) subEl.append(document.createTextNode(`Room ${view.room}`));
+const diceLog = createDiceLog({
+  gm: false,
+  onCustomRoll: async (formula) => {
+    try {
+      const r = await client.send({ t: 'roll', what: { kind: 'custom', formula, label: formula } });
+      if (r?.result?.roll) showRollCard(r.result.roll, { meId: me?.id });
+    } catch (err) { toast(err.message, { error: true }); throw err; }
+  },
+});
+$('#log-rail').append(diceLog.el);
+onLocalRoll(() => renderLog());
 
-  $('#gold').textContent = fmtNum(me.gold ?? 0);
-  $('#ach-count').textContent = me.achievements?.length ?? 0;
+function renderLog() {
+  if (!view) return;
+  const rolls = [...(view.rolls || []), ...localRolls].sort((a, b) => (a.at || 0) - (b.at || 0));
+  diceLog.update({ ...view, rolls }, me?.id);
+  const n = rolls.filter((r) => !r.secret || r.playerId === me?.id).length;
+  $('#log-n').textContent = n ? String(n) : '';
+}
+
+$('#log-btn').addEventListener('click', () => {
+  const open = !document.body.classList.contains('log-open');
+  document.body.classList.toggle('log-open', open);
+  $('#log-btn').setAttribute('aria-expanded', String(open));
+});
+const themeBtn = $('#theme-btn');
+const drawTheme = () => themeBtn.replaceChildren(icon(document.documentElement.dataset.theme === 'light' ? 'moon' : 'sun', { size: 16 }));
+themeBtn.addEventListener('click', () => { toggleTheme(); drawTheme(); });
+applyTheme();
+drawTheme();
+
+function render() {
+  document.body.style.setProperty('--me', me.color || 'var(--c-accent)');
+  document.title = `${me.sheet?.identity?.name || me.name} · ${sysName()}`;
+  $('#brand').textContent = sysName();
   $('#viewers').textContent = fmtNum(view.audience?.viewers ?? 0);
-
-  renderResources(prev);
-  renderStats();
-  renderInventory();
-  renderAchievements();
-  renderMessages();
-  renderNotes();
+  applyAccent(view.pack);
+  sheet.update(view, me);
+  renderLog();
   renderTicker();
 }
 
-function renderResources(prev) {
-  const defs = view.pack?.resources || [];
-  const wrap = $('#resources');
-  wrap.hidden = !defs.length;
-  for (const r of defs) {
-    const v = me.resources?.[r.id] || { cur: 0, max: r.default ?? 0 };
-    let row = wrap.querySelector(`[data-res="${CSS.escape(r.id)}"]`);
-    if (!row) {
-      row = h('div.res', { 'data-res': r.id },
-        h('span.res-label', { title: r.label }, (r.abbr || r.id).toUpperCase()),
-        h('div.bar', { style: { '--c': r.color || 'var(--alarm)' }, role: 'meter', 'aria-label': r.label, 'aria-valuemin': 0 },
-          h('div.bar-fill'), h('span.bar-text')),
-      );
-      wrap.append(row);
-    }
-    const bar = $('.bar', row);
-    const pct = v.max > 0 ? Math.max(0, Math.min(100, (v.cur / v.max) * 100)) : 0;
-    $('.bar-fill', row).style.width = pct + '%';
-    $('.bar-text', row).textContent = `${v.cur} / ${v.max}`;
-    bar.setAttribute('aria-valuenow', v.cur);
-    bar.setAttribute('aria-valuemax', v.max);
-    bar.classList.toggle('low', v.max > 0 && v.cur / v.max <= 0.25);
-    const was = prev?.resources?.[r.id]?.cur;
-    if (was != null && v.cur < was) { bar.classList.remove('hit'); void bar.offsetWidth; bar.classList.add('hit'); buzz(40); }
-  }
-  for (const row of [...wrap.children]) if (!defs.some((r) => r.id === row.dataset.res)) row.remove();
-}
-
-function renderStats() {
-  const defs = view.pack?.stats || [];
-  const wrap = $('#stats');
-  wrap.hidden = !defs.length;
-  for (const s of defs) {
-    let el = wrap.querySelector(`[data-stat="${CSS.escape(s.id)}"]`);
-    if (!el) {
-      el = h('div.stat', { 'data-stat': s.id, title: s.label }, h('b.v'), h('span.a', s.abbr || s.id));
-      wrap.append(el);
-    }
-    $('.v', el).textContent = me.stats?.[s.id] ?? s.default ?? 0;
-  }
-  for (const el of [...wrap.children]) if (!defs.some((s) => s.id === el.dataset.stat)) el.remove();
-}
-
-function flashStat(id, from, to) {
-  const el = $(`#stats [data-stat="${CSS.escape(id)}"]`);
-  if (!el) return;
-  const d = Number(to) - Number(from);
-  if (!d) return;
-  buzz(d > 0 ? [15, 40, 15] : 60);
-  el.classList.remove('up', 'down');
-  void el.offsetWidth;
-  el.classList.add(d > 0 ? 'up' : 'down');
-  el.querySelector('.d')?.remove();
-  const tag = h('span.d', { class: d > 0 ? 'd' : 'd neg' }, d > 0 ? `+${d}` : String(d));
-  el.append(tag);
-  $('.v', el).textContent = to;
-  setTimeout(() => tag.remove(), 1700);
-}
-
-let invSig = '';
-function renderInventory() {
-  const inv = me.inventory || [];
-  $('#n-inv').textContent = inv.length ? String(inv.length) : '';
-  const sig = JSON.stringify(inv);
-  if (sig === invSig) return;
-  invSig = sig;
-  const p = $('#panel-inv');
-  if (!inv.length) { p.replaceChildren(h('p.empty', 'Nothing yet. Do something the audience will pay for.')); return; }
-  p.replaceChildren(h('div.inv-grid', [...inv].reverse().map((it) => {
-    const r = rarityOf(it.rarity);
-    return h('button.item', { type: 'button', class: `item r-${r}`, onclick: () => showItem(it) },
-      itemArt(it),
-      h('div.meta', h('span.nm', it.name), h('span', h('span.rarity-tag', r)), it.flavor ? h('span.flv', it.flavor) : null),
-    );
-  })));
-}
-
-function showItem(it) {
-  const r = rarityOf(it.rarity);
-  const dlg = $('#item-dlg');
-  dlg.className = `item-dlg r-${r}`;
-  dlg.replaceChildren(h('form', { method: 'dialog' },
-    itemArt(it),
-    h('div.meta',
-      h('span', h('span.rarity-tag', r)),
-      h('h2.nm', it.name),
-      it.desc ? h('p', it.desc) : null,
-      it.flavor ? h('p.flavor', it.flavor) : null,
-      h('button.btn.btn-ghost', { value: 'close' }, 'Close'),
-    ),
-  ));
-  dlg.showModal();
-}
-
-let achSig = '';
+const achSig = () => JSON.stringify(me?.achievements || []);
 function renderAchievements() {
   const list = me.achievements || [];
-  const sig = JSON.stringify(list);
-  if (sig === achSig) return;
-  achSig = sig;
-  const p = $('#panel-ach');
-  if (!list.length) { p.replaceChildren(h('p.empty', 'No achievements. The System is watching. It is not impressed yet.')); return; }
-  p.replaceChildren(h('ul.ach-list', [...list].reverse().map((a) => h('li.sys', { 'data-head': 'ACHIEVEMENT' },
-    h('p.sys-title', a.title),
-    a.desc ? h('p.sys-desc', a.desc) : null,
-    a.reward ? h('p.reward', h('b', 'Reward: '), a.reward) : null,
-    h('time', timeAgo(a.at)),
-  ))));
+  if (!list.length) return h('p.empty-s', 'No achievements yet. The System is watching.');
+  return h('ul.ach-list', [...list].reverse().map((a) => h('li.ach',
+    h('div.ach-top', h('b.ach-t', a.title), h('time', timeAgo(a.at))),
+    a.desc ? h('p.ach-d', a.desc) : null,
+    a.reward ? h('p.ach-r', h('span', 'Reward'), a.reward) : null,
+  )));
 }
 
-let msgSig = '';
 const sysName = () => view?.pack?.systemName || 'The System';
-const myMessages = () => me.messages || me.secrets || [];
+const myMessages = () => me?.messages || me?.secrets || [];
 const isGroup = (m) => !!(m.group || m.to === 'all' || (Array.isArray(m.to) && m.to.includes('all')));
+const unreadCount = () => myMessages().filter((m) => !m.read).length;
+const msgSig = () => JSON.stringify(myMessages().map((m) => [m.id, m.read]));
 
 function renderMessages() {
   const list = myMessages();
-  const unread = list.filter((m) => !m.read).length;
-  const badge = $('#unread');
-  badge.hidden = !unread;
-  badge.textContent = unread;
-  const sig = JSON.stringify(list);
-  if (sig === msgSig) return;
-  msgSig = sig;
-  const p = $('#panel-msg');
-  if (!list.length) { p.replaceChildren(h('p.empty', 'No messages yet. When the GM or a sponsor writes to you, it lands here.')); return; }
-  p.replaceChildren(h('ul.msg-list', [...list].reverse().map((m) => {
+  if (!list.length) return h('p.empty-s', 'No messages yet. When the GM or a sponsor writes to you, it lands here.');
+  return h('ul.msg-list', [...list].reverse().map((m) => {
     const grp = isGroup(m);
     return h('li',
       h('button.msg', {
@@ -334,58 +256,24 @@ function renderMessages() {
           client.send({ t: 'secret.read', id: m.id }).catch(() => {});
         },
       },
-      h('span.tag', grp ? 'TO ALL CRAWLERS' : 'PRIVATE'),
-      h('span.from', h('span', `${m.from || sysName()}`), h('time', timeAgo(m.at))),
+      h('span.msg-top', h('span.tag', grp ? 'To all crawlers' : 'Private'), h('span.from', m.from || sysName()), h('time', timeAgo(m.at))),
       h('span.body', m.text),
+      m.read ? null : h('span.msg-hint', 'Tap to read'),
       ),
     );
-  })));
-}
-
-/* notes: debounced save, never overwrite while typing */
-const notesEl = $('#notes');
-let notesTimer = null;
-let notesDirty = false;
-function renderNotes() {
-  if (notesDirty || document.activeElement === notesEl) return;
-  if (notesEl.value !== (me.notes || '')) notesEl.value = me.notes || '';
-}
-notesEl.addEventListener('input', () => {
-  notesDirty = true;
-  $('#notes-state').textContent = 'Typing';
-  clearTimeout(notesTimer);
-  notesTimer = setTimeout(saveNotes, 800);
-});
-notesEl.addEventListener('blur', () => { if (notesDirty) { clearTimeout(notesTimer); saveNotes(); } });
-async function saveNotes() {
-  const text = notesEl.value.slice(0, 2000);
-  try {
-    if (ext.saveNotes) await ext.saveNotes(text);
-    else await client.send({ t: 'me.notes', text });
-    notesDirty = false;
-    $('#notes-state').textContent = ext.hosted ? 'Saved' : 'Saved on the host';
-  } catch (err) {
-    if (err?.local) {
-      notesDirty = false;
-      $('#notes-state').textContent = 'Saved on this device only';
-      return;
-    }
-    $('#notes-state').textContent = `Not saved: ${err.message}. Retrying`;
-    clearTimeout(notesTimer);
-    notesTimer = setTimeout(saveNotes, 3000);
-  }
+  }));
 }
 
 let tickSig = '';
 function renderTicker() {
-  const feed = (view.feed || []).slice(-8);
+  const feed = (view.feed || []).slice(-6);
   const sig = feed.map((e) => e.id).join();
   if (sig === tickSig) return;
   tickSig = sig;
   const t = $('#ticker');
-  const items = feed.length ? feed.map((e) => e.text || e.kind) : [`Room ${view.room} is live`];
+  const items = feed.length ? feed.map((e) => e.text || e.kind) : [`${sysName()} is live`];
   t.replaceChildren(...items.map((x) => h('span', x)));
-  t.style.setProperty('--dur', `${Math.max(16, items.join(' ').length * 0.22)}s`);
+  t.style.setProperty('--dur', `${Math.max(20, items.join(' ').length * 0.25)}s`);
 }
 
 const seenMsgs = new Set();
@@ -418,21 +306,6 @@ function maybeRecap(text) {
   lastRecap = t;
   try { localStorage.setItem('system.recapSeen', t); } catch {}
   enqueueTakeover({ kind: 'recap', text: t });
-}
-
-/* ---------- tabs ---------- */
-
-$('#tabs').addEventListener('click', (e) => {
-  const b = e.target.closest('button[data-tab]');
-  if (!b) return;
-  buzz(6);
-  for (const t of document.querySelectorAll('#tabs button')) t.setAttribute('aria-selected', String(t === b));
-  for (const p of document.querySelectorAll('.panel')) p.hidden = p.id !== `panel-${b.dataset.tab}`;
-  store.set('sessionStorage', 'system.tab', b.dataset.tab);
-});
-{
-  const t = store.get('sessionStorage', 'system.tab');
-  if (t) $(`#tabs [data-tab="${t}"]`)?.click();
 }
 
 /* ---------- takeovers ---------- */
@@ -535,7 +408,7 @@ function nextTakeover() {
         type: 'button',
         onclick: (ev) => {
           ev.stopPropagation();
-          $('#tabs [data-tab="msg"]').click();
+          sheet.setTab('msg');
           nextTakeover();
         },
       }, 'Open messages'),

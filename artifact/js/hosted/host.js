@@ -10,7 +10,7 @@
 // Player -> GM: read receipts come from player presence (`readIds`), trusted only when the peer's
 // platform-stamped `by` matches the player's assigned userId.
 import {
-  createState, normalizeState, reduce, viewFor, viewForUser, VoiceQueue, voiceFor, genId, ActionError,
+  createState, normalizeState, reduce, reducePlayerAction, viewFor, viewForUser, VoiceQueue, voiceFor, genId, ActionError,
 } from '../../engine/engine.js';
 import { BaseTransport, DocWriter, ring, bytes, sleep, tabId, sentenceChunks } from './util.js';
 
@@ -18,6 +18,8 @@ const LOG_MAX = 600;
 const PLAYER_EVENTS = 20;
 const STAGE_EVENTS = 30;
 const LEASE_MS = 30_000;
+const ACT_MAX_AGE_MS = 60_000; // relayed player actions older than this are ignored (stale presence)
+const ACT_RATE = 10; // per sender per second
 
 export class EngineHost extends BaseTransport {
   /**
@@ -49,6 +51,9 @@ export class EngineHost extends BaseTransport {
     this.leaseOk = false;
     this.writeError = null;
     this.listeners = new Set();
+    this.actSeen = new Map(); // userId -> last relayed action number applied
+    this.actTimes = new Map(); // userId -> recent action timestamps (rate limit)
+    this.pvAcks = new Map(); // userId -> recent acks, mirrored into pv/<userId>
 
     const after = (fn) => (...a) => { try { fn(...a); } catch (e) { console.error(e); } };
     this.voice = new VoiceQueue({
@@ -85,6 +90,7 @@ export class EngineHost extends BaseTransport {
       try {
         this.state = normalizeState(structuredClone(saved.state), this.pack, Date.now());
         this.log = Array.isArray(saved.log) ? saved.log.slice(-LOG_MAX) : [];
+        for (const [k, v] of Object.entries(saved.actSeen || {})) if (Number.isFinite(v)) this.actSeen.set(k, v);
       } catch (e) {
         console.error('[host] saved state unreadable, starting fresh', e);
       }
@@ -179,9 +185,9 @@ export class EngineHost extends BaseTransport {
 
   /* ---------- engine ---------- */
 
-  apply(action) {
+  apply(action, reducer = reduce, ctxExtra = {}) {
     const now = Date.now();
-    const r = reduce(this.state, action, { now, pack: this.pack });
+    const r = reducer(this.state, action, { now, pack: this.pack, ...ctxExtra });
     if (!r.changed) return r;
     this.state = r.state;
     if (action.role !== 'system') {
@@ -325,10 +331,57 @@ export class EngineHost extends BaseTransport {
         } catch { /* not addressed to them: ignore */ }
       }
     }
+    for (const pl of this.state.players) {
+      const peerList = pl.userId ? peers.filter((p) => p.kind === 'viewer' && p.by === pl.userId) : [];
+      for (const peer of peerList) this.relayActions(pl, peer);
+    }
     const same = connected.size === this.connected.size && [...connected].every((x) => this.connected.has(x));
     this.connected = connected;
     this.emit('peers', peers);
     if (!same || reads) this.changed({ views: true, save: reads });
+  }
+
+  /**
+   * Player phone -> GM: the phone lists pending actions in its presence (`acts: [{n, a}]`), which any
+   * viewer may set. Trust comes only from the platform-stamped `by` matching the assigned userId;
+   * any playerId inside the payload is ignored by reducePlayerAction. Rate-limited per sender.
+   */
+  relayActions(pl, peer) {
+    const acts = Array.isArray(peer.presence?.acts) ? peer.presence.acts : [];
+    if (!acts.length) return;
+    const uid = pl.userId;
+    let last = this.actSeen.get(uid) ?? 0;
+    const now = Date.now();
+    for (const item of [...acts].sort((x, y) => (x?.n ?? 0) - (y?.n ?? 0))) {
+      const n = Number(item?.n);
+      if (!Number.isFinite(n) || n <= last) continue;
+      last = n;
+      this.actSeen.set(uid, n);
+      if (now - Math.floor(n / 1000) > ACT_MAX_AGE_MS) continue;
+      const a = item.a;
+      if (!a || typeof a !== 'object' || typeof a.t !== 'string') { this.ackPlayer(uid, n, false, 'bad_request', 'Malformed action'); continue; }
+      const times = (this.actTimes.get(uid) || []).filter((t) => now - t < 1000);
+      if (times.length >= ACT_RATE) { this.actTimes.set(uid, times); this.ackPlayer(uid, n, false, 'rate_limited', 'Too many actions at once. Try again.'); continue; }
+      times.push(now);
+      this.actTimes.set(uid, times);
+      if (a.t === 'ping') { this.ackPlayer(uid, n, true); continue; }
+      try {
+        const { rid, role, actorId, playerId, ...clean } = a;
+        const r = this.apply({ ...clean, role: 'player', actorId: pl.id }, (st, act, ctx) => reducePlayerAction(st, act, { ...ctx, playerId: pl.id }));
+        this.ackPlayer(uid, n, true, null, null, r.result);
+      } catch (e) {
+        this.ackPlayer(uid, n, false, e?.code || 'bad_request', e?.message || 'Refused');
+      }
+    }
+  }
+
+  ackPlayer(uid, n, ok, error = null, msg = null, result = null) {
+    const ack = { to: uid, n, ok, ...(error ? { error, msg } : {}), ...(result ? { result } : {}) };
+    if (this.room) this.room.emit('player.ack', ack).catch(() => {});
+    const list = this.pvAcks.get(uid) || [];
+    ring(list, ack, 12);
+    this.pvAcks.set(uid, list);
+    this.pvWriters.get(uid)?.schedule();
   }
 
   /* ---------- projections ---------- */
@@ -341,7 +394,7 @@ export class EngineHost extends BaseTransport {
 
   persistBody() {
     if (!this.state || !this.leaseOk) return null;
-    let body = { v: 1, savedAt: Date.now(), state: this.state, log: this.log };
+    let body = { v: 1, savedAt: Date.now(), state: this.state, log: this.log, actSeen: Object.fromEntries(this.actSeen) };
     while (bytes(body) > 240_000 && body.log.length > 10) body = { ...body, log: body.log.slice(Math.floor(body.log.length / 2)) };
     return body;
   }
@@ -366,7 +419,7 @@ export class EngineHost extends BaseTransport {
     const v = viewForUser(this.state, this.pack, userId, this.viewOpts());
     if (!v) return { v: 1, view: null, events: [] };
     v.room = '';
-    let body = { v: 1, view: v, events: (this.pvEvents.get(userId) || []).map(slimEvent) };
+    let body = { v: 1, view: v, events: (this.pvEvents.get(userId) || []).map(slimEvent), acks: this.pvAcks.get(userId) || [] };
     if (bytes(body) > 240_000) body = { ...body, view: { ...v, feed: v.feed.slice(-5), me: { ...v.me, messages: v.me.messages.slice(-40), secrets: v.me.secrets.slice(-20) } } };
     return body;
   }

@@ -2,17 +2,25 @@ import {
   SystemClient, TransportHub, takeHashToken, buzz, h, toast, itemArt, fmtNum, timeAgo,
   rarityOf, statusText, registerSW, isHosted, ask,
 } from './client.js';
+import { createSheet, localRolls, onLocalRoll } from './sheet.js';
+import { openBuilder } from './builder.js';
+import { createDiceLog, showRollCard } from './dicelog.js';
+import { sheetModel, effectTargets, effectText, LIB_KINDS, playerEditLevel } from './rules.js';
+import {
+  icon, explain, whyContent, avatar, openDrawer, closeDrawer, drawerOpen, field, select, labeled,
+  applyTheme, toggleTheme, applyAccent,
+} from './ui.js';
+import { createLibrary } from './library.js';
+import { createCombat } from './combat.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
 const client = new TransportHub();
-/** Hooks the hosted edition sets (lobby, prep cards, AI writer); all optional. */
-export const ext = { afterRender: [], customAchievementWriter: null, hosted: false };
+/** Hooks the hosted edition sets (lobby, prep cards, AI writer, library AI draft); all optional. */
+export const ext = { afterRender: [], customAchievementWriter: null, libraryDraft: null, hosted: false };
 
 let view = null;
-const openCards = new Set();
 const shownPins = new Set();
-const dirtyCards = new Set();
 
 /* ---------- action helper: haptic + toast from ack ---------- */
 
@@ -37,14 +45,24 @@ client.on('status', (s) => {
   $('.conn-text', el).textContent = statusText(s);
   if (s.status === 'rejected') {
     $('#gate').hidden = false;
-    $('#gate .sys-title').textContent = 'GM link refused.';
-    $('#gate .sys-desc').textContent = 'The token in this link is not valid for the running host. Copy the GM link from the host terminal again.';
+    $('#gate .gate-title').textContent = 'GM link refused.';
+    $('#gate .gate-desc').textContent = 'The token in this link is not valid for the running host. Copy the GM link from the host terminal again.';
   }
 });
 
 client.on('view', (v) => { view = v; render(); });
 
 client.on('event', (e) => {
+  if (e.kind === 'roll') {
+    const r = e.roll || e;
+    if (!r.playerId || r.nat20 || r.nat1) showRollCard(r, { nameOf: (id) => fullPlayer(id)?.name || 'Someone' });
+    return;
+  }
+  if (e.kind === 'itemUse' && e.pendingBuff) {
+    const who = fullPlayer(e.playerId)?.name || 'A crawler';
+    toast(`${who} used ${e.name}. Apply ${e.pendingBuff.name || e.pendingBuff.id || e.pendingBuff} to its target from the sheet (Apply buff).`, { ms: 8000 });
+    return;
+  }
   if (e.kind === 'secret') return;
   if (e.kind === 'viewers') return;
   if (e.kind === 'stat') return;
@@ -82,6 +100,12 @@ function render() {
   renderLinks();
   renderComms();
   renderPrep();
+  renderLog();
+  renderSettings();
+  renderCampaign();
+  applyAccent(view.pack);
+  library.update(view);
+  combat.update(view);
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -165,200 +189,229 @@ function renderPending(list) {
   }
 }
 
-/* ---------- players ---------- */
+/* ---------- party ---------- */
 
-function fullPlayer(id) {
-  return view.gm?.playersFull?.find((p) => p.id === id) || view.players?.find((p) => p.id === id) || { id };
+const fullPlayer = (id) => view?.gm?.playersFull?.find((p) => p.id === id) || view?.players?.find((p) => p.id === id) || { id };
+let selectedId = null;
+try { selectedId = sessionStorage.getItem('system.gm.sel') || null; } catch {}
+
+const gmTools = {
+  addBuff: (p, M) => buffPicker(p, M),
+  give: (p, M) => givePicker(p, M),
+};
+const sheetCmp = createSheet({
+  mode: 'gm',
+  send: (a) => client.send(a),
+  gmTools,
+  onBuilder: (model, p) => openBuilder({ model, player: p, gm: true, act: sheetCmp.act }),
+});
+
+function selectPlayer(id) {
+  selectedId = selectedId === id ? null : id;
+  try { selectedId ? sessionStorage.setItem('system.gm.sel', selectedId) : sessionStorage.removeItem('system.gm.sel'); } catch {}
+  renderPlayers(true);
 }
 
-function renderPlayers() {
+let partySig = '';
+function renderPlayers(force = false) {
   const wrap = $('#players');
   const list = view.players || [];
-  $('#player-count').textContent = list.length ? `${list.filter((p) => p.connected).length}/${list.length} online` : '';
+  $('#player-count').textContent = list.length ? `${list.filter((p) => p.connected).length} of ${list.length} online` : '';
+  if (selectedId && !list.some((p) => p.id === selectedId)) selectedId = null;
+  $('#party').classList.toggle('has-sheet', !!selectedId);
+  const sheetHost = $('#party-sheet');
+  sheetHost.hidden = !selectedId;
+  if (selectedId) {
+    if (!sheetHost.contains(sheetCmp.el)) sheetHost.replaceChildren(sheetCmp.el, crawlerAdmin());
+    sheetCmp.update(view, fullPlayer(selectedId));
+    const adm = sheetHost.querySelector('.crawler-admin');
+    if (adm && adm.dataset.for !== selectedId + JSON.stringify(view.gm?.pins?.[selectedId]) && !adm.contains(document.activeElement)) adm.replaceWith(crawlerAdmin());
+  }
+  const sig = JSON.stringify([list, view.gm?.playersFull, view.gm?.pins, [...shownPins], selectedId, view.session?.permissions, view.library ? Object.keys(view.library).length : 0]);
+  if (!force && sig === partySig) return;
+  if (wrap.contains(document.activeElement) && document.activeElement.matches('input, textarea, select')) return;
+  partySig = sig;
   if (!list.length) {
-    wrap.replaceChildren(h('p.empty', 'No players yet. Add the first one below, then send them the join link and their PIN.'));
+    wrap.replaceChildren(h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add the first one, then give them the join link and their PIN.'), h('button.btn.btn-primary', { type: 'button', onclick: showAddPlayer }, 'Add crawler')));
     return;
   }
-  // remove cards for players that left
-  for (const el of [...wrap.querySelectorAll('.pcard')]) {
-    if (!list.some((p) => p.id === el.dataset.id)) el.remove();
-  }
-  wrap.querySelector('.empty')?.remove();
-  list.forEach((summary, idx) => {
-    const full = { ...fullPlayer(summary.id), connected: summary.connected, achievementCount: summary.achievementCount };
-    const sig = JSON.stringify([full, view.gm?.pins?.[summary.id], openCards.has(summary.id), shownPins.has(summary.id), view.pack?.stats, view.pack?.resources]);
-    let el = wrap.querySelector(`.pcard[data-id="${CSS.escape(summary.id)}"]`);
-    if (el && el.dataset.sig === sig) { placeAt(wrap, el, idx); return; }
-    if (el && el.contains(document.activeElement) && document.activeElement.matches('input, textarea, select')) {
-      dirtyCards.add(summary.id); // re-render after the GM leaves the field
-      return;
+  const head = h('div.prow.prow-head', h('span', 'Crawler'), h('span', 'Health'), h('span', 'Mana'), h('span.c', 'Evade'), h('span.c', 'DR'), h('span', 'Buffs and conditions'), h('span.c', 'Used'), h('span', ''));
+  wrap.replaceChildren(head, ...list.map((s) => partyRow(fullPlayer(s.id), s)));
+}
+
+function partyRow(p, summary) {
+  const M = sheetModel(view, p);
+  const c = M.computed;
+  const hpDef = M.rs.tracks.find((t) => t.id === 'hp') || M.rs.tracks[0];
+  const manaDef = M.rs.tracks.find((t) => t.id !== hpDef?.id);
+  const hp = hpDef ? (c.tracks?.[hpDef.id] || { cur: 0, max: 0 }) : null;
+  const mana = manaDef ? (c.tracks?.[manaDef.id] || { cur: 0, max: 0 }) : null;
+  const evadeDef = M.rs.derived.find((d) => d.roll) || M.rs.derived[0];
+  const drDef = M.rs.derived.find((d) => /^dr$|resist/i.test(d.id + d.label) && d !== evadeDef);
+  const id = M.sheet.identity || {};
+  const sel = selectedId === p.id;
+  const track = (def, v) => {
+    if (!def || !v) return h('span.dim', '—');
+    const step = (d) => h('button.icon-btn.xs', { type: 'button', 'aria-label': `${def.label} ${d > 0 ? 'plus' : 'minus'} 1 for ${p.name}`, onclick: (e) => { e.stopPropagation(); quickTrack(p, def, d); } }, icon(d > 0 ? 'plus' : 'minus', { size: 13 }));
+    if (def.kind === 'slots') {
+      const n = def.slots || v.max || 10;
+      return h('div.mini-track', step(-1), h('span.mini-slots', { title: `${v.cur} of ${n}`, style: { '--n': n } }, Array.from({ length: n }, (_, i) => h('i', { class: i < v.cur ? 'on' : null }))), h('b.mini-v', String(v.cur)), step(1));
     }
-    const fresh = playerCard(full);
-    fresh.dataset.sig = sig;
-    if (el) el.replaceWith(fresh); else wrap.append(fresh);
-    placeAt(wrap, fresh, idx);
+    return h('div.mini-track', step(-1), h('b.mini-v', `${v.cur}/${v.max}`), step(1));
+  };
+  const why = (b, title) => {
+    const el = h('span.num', { tabindex: '0' }, String(b?.value ?? '—'));
+    if (b) explain(el, () => whyContent(b, { title }));
+    return el;
+  };
+  const buffs = (M.sheet.buffs || []).map((b) => {
+    const def = M.lib.buff.find((x) => x.id === b.buffId) || {};
+    const effs = b.effects?.length ? b.effects : (def.effects || []);
+    const neg = effs.reduce((s, e) => s + (typeof e.value === 'number' ? e.value : 0), 0) < 0;
+    return h('span.mini-buff', { class: neg ? 'mini-buff neg' : 'mini-buff', title: b.until ? `${b.name}: ${b.until}` : b.name }, b.name || def.name);
+  });
+  const used = (M.sheet.skills || []).filter((s) => s.used).length;
+  const pin = view.gm?.pins?.[p.id];
+  return h('div.prow', { class: `prow${sel ? ' sel' : ''}${summary.connected ? '' : ' off'}`, 'data-id': p.id },
+    h('button.prow-who', { type: 'button', 'aria-pressed': String(sel), onclick: () => selectPlayer(p.id), title: sel ? 'Close the sheet' : 'Open the sheet' },
+      avatar(id.name || p.name, { color: p.color, size: 32 }),
+      h('span.pw',
+        h('span.pn', h('span.cdot', { class: summary.connected ? 'cdot on' : 'cdot', title: summary.connected ? 'Connected' : 'Not connected' }), id.name || p.name || 'Unnamed'),
+        h('span.pl', [[id.race, id.class].filter(Boolean).join(' ') || '—', `Lv ${id.level ?? p.level ?? 1}`].join(', ')),
+      ),
+    ),
+    h('div.pc-hp', track(hpDef, hp)),
+    h('div.pc-mana', track(manaDef, mana)),
+    h('div.c', evadeDef ? why(c.derived?.[evadeDef.id], evadeDef.label) : h('span.dim', '—')),
+    h('div.c', drDef ? why(c.derived?.[drDef.id], drDef.label) : h('span.dim', '—')),
+    h('div.pc-buffs', buffs.length ? buffs : h('span.dim', 'None')),
+    h('div.c', used ? h('span.pill.pill-on', { title: 'Skills used this session' }, String(used)) : h('span.dim', '0')),
+    h('div.pc-act',
+      pin != null && !ext.hosted ? h('button.pin-btn', { type: 'button', title: 'Show or hide the PIN', onclick: () => { shownPins.has(p.id) ? shownPins.delete(p.id) : shownPins.add(p.id); renderPlayers(true); } }, shownPins.has(p.id) ? pin : 'PIN') : null,
+      iconBtn('sparkle', 'Award achievement', () => achievementSheet(p)),
+      iconBtn('gift', 'Loot box', () => lootSheet(p, false)),
+      iconBtn('star', 'Sponsor box', () => lootSheet(p, true)),
+      iconBtn('log', 'Message', () => { showView('show'); openComms([p.id]); }),
+    ),
+  );
+}
+
+function iconBtn(name, label, fn) {
+  return h('button.icon-btn', { type: 'button', title: label, 'aria-label': label, onclick: (e) => { e.stopPropagation(); buzz(10); fn(); } }, icon(name, { size: 16 }));
+}
+
+function quickTrack(p, def, d) {
+  if (p.sheet) act({ t: 'track.set', playerId: p.id, track: def.id, delta: d });
+  else act({ t: 'player.resource', playerId: p.id, res: def.id, delta: d });
+}
+
+/** Name, color, PIN and removal: the parts of a crawler that are not on the sheet. */
+function crawlerAdmin() {
+  const p = fullPlayer(selectedId);
+  const upd = (field, value) => act({ t: 'player.update', playerId: p.id, [field]: value }, 'Saved.');
+  const pin = view.gm?.pins?.[p.id] || '';
+  return h('details.crawler-admin', { 'data-for': selectedId + JSON.stringify(view.gm?.pins?.[selectedId]) },
+    h('summary', 'Crawler settings'),
+    h('div.form-grid',
+      labeled('Display name', field(p.name, { onCommit: (v) => upd('name', v) })),
+      labeled('Color', h('input.swatch', { type: 'color', value: p.color || '#e3a33b', onchange: (e) => upd('color', e.target.value) })),
+      ext.hosted ? null : labeled('PIN', field(pin, { attrs: { inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4 }, onCommit: (v) => upd('pin', v) })),
+      labeled('Gold', field(p.gold ?? 0, { type: 'number', onCommit: (v) => upd('gold', Math.max(0, v)) })),
+    ),
+    h('div.row-end', h('button.btn.btn-sm.danger', {
+      type: 'button',
+      onclick: async () => { if (await ask(`Remove ${p.name} from the game? Their sheet and inventory go too.`, { ok: 'Remove crawler', danger: true })) { await act({ t: 'player.remove', playerId: p.id }, 'Crawler removed.'); selectedId = null; renderPlayers(true); } },
+    }, icon('trash', { size: 14 }), 'Remove crawler')),
+  );
+}
+
+function showAddPlayer() {
+  const f = $('#add-player');
+  f.hidden = !f.hidden;
+  if (!f.hidden) f.name.focus();
+}
+
+/* GM sheet tools: apply buff, give from library */
+
+function buffPicker(p, M) {
+  const extCap = M.rs.buffSlots?.external;
+  const extUsed = M.computed.externalBuffs?.used ?? (M.sheet.buffs || []).filter((b) => b.external).length;
+  const list = h('ul.pick-list', M.lib.buff.map((b) => h('li', h('button.pick', {
+    type: 'button',
+    disabled: b.external && extCap?.max != null && extUsed >= extCap.max,
+    onclick: async () => { if (await act({ t: 'buff.add', playerId: p.id, buffId: b.id }, `${b.name} applied.`)) closeDrawer(); },
+  }, h('span', h('b', b.name), b.external ? h('span.dim', ' external') : null), h('span.dim', (b.effects || []).map((e) => effectText(M.rs, e)).join(', '))))));
+  const name = field('', { placeholder: 'e.g. Inspired' });
+  const target = select(effectTargets(M.rs), M.rs.derived[0]?.id || '', { label: 'Affects' });
+  const val = field(1, { type: 'number' });
+  const ext = h('input', { type: 'checkbox' });
+  const until = field('', { placeholder: 'Until end of fight' });
+  openDrawer({
+    title: `Apply buff to ${p.name}`,
+    sub: extCap ? `${extCap.label}: ${extUsed}${extCap.max != null ? ` of ${extCap.max}` : ''} used` : null,
+    body: [
+      M.lib.buff.length ? list : h('p.empty-s', 'No buffs in the library yet.'),
+      h('h3.sub-t', 'Or a one-off modifier'),
+      h('div.form-grid', labeled('Name', name), labeled('Affects', target), labeled('Value', val, { hint: 'Negative makes it a debuff' }), labeled('Lasts', until), h('label.chk.span-all', ext, h('span', 'Counts as an external buff'))),
+    ],
+    actions: [h('button.btn.btn-primary', { type: 'button', onclick: async () => {
+      if (!name.value.trim()) { name.focus(); return; }
+      const a = { t: 'buff.add', playerId: p.id, name: name.value.trim(), external: ext.checked, duration: until.value.trim(), effects: [{ target: target.value, op: 'add', value: Number(val.value) || 0, when: 'active', label: name.value.trim() }] };
+      if (await act(a, `${a.name} applied.`)) closeDrawer();
+    } }, 'Apply modifier')],
   });
 }
 
-function placeAt(parent, el, idx) {
-  if (parent.children[idx] !== el) parent.insertBefore(el, parent.children[idx] || null);
-}
-
-document.addEventListener('focusout', () => {
-  setTimeout(() => {
-    if (dirtyCards.size && !document.activeElement?.closest?.('.pcard')) {
-      dirtyCards.clear();
-      renderPlayers();
-    }
-  }, 0);
-});
-
-function playerCard(p) {
-  const id = p.id;
-  const pin = view.gm?.pins?.[id];
-  const open = openCards.has(id);
-  const subParts = [p.title, [p.race, p.klass].filter(Boolean).join(' '), `Lv ${p.level ?? 1}`].filter(Boolean);
-
-  const card = h('article.pcard', { 'data-id': id, class: open ? 'pcard open' : 'pcard', style: { '--pc': p.color || 'var(--cyan)' } },
-    h('div.pc-head',
-      h('div.pc-name',
-        h('span.dot', { class: p.connected ? 'dot on' : 'dot off', title: p.connected ? 'Connected' : 'Not connected' }),
-        h('span.n', p.name || 'Unnamed'),
-      ),
-      h('button.pc-pin', {
-        type: 'button',
-        class: shownPins.has(id) ? 'pc-pin shown' : 'pc-pin',
-        title: 'Tap to show or hide the PIN',
-        onclick: () => { shownPins.has(id) ? shownPins.delete(id) : shownPins.add(id); buzz(10); renderPlayers(); },
-      }, shownPins.has(id) ? (pin || '----') : 'PIN ••••'),
-      h('div.pc-sub', subParts.join('  /  '), `  ·  ${p.achievementCount ?? p.achievements?.length ?? 0} ach  ·  ${fmtNum(p.gold ?? 0)} gold`),
-    ),
-    resourceBars(p),
-    h('div.pc-actions',
-      actionBtn('ach', '✦', 'Achieve', () => achievementSheet(p)),
-      actionBtn('loot', '▣', 'Loot', () => lootSheet(p, false)),
-      actionBtn('sponsor', '$', 'Sponsor', () => lootSheet(p, true)),
-      actionBtn('secret', '✉', 'Message', () => openComms([p.id])),
-    ),
-    h('button.pc-more', {
+function givePicker(p, M, kind = 'item') {
+  const kinds = ['item', 'spell', 'skill', 'buff'];
+  let q = '';
+  const listEl = h('ul.pick-list');
+  const draw = () => {
+    const hits = M.lib[kind].filter((e) => !q || `${e.name} ${(e.tags || []).join(' ')}`.toLowerCase().includes(q)).slice(0, 150);
+    listEl.replaceChildren(...(hits.length ? hits.map((e) => h('li', h('button.pick', {
       type: 'button',
-      'aria-expanded': String(open),
-      onclick: () => { open ? openCards.delete(id) : openCards.add(id); renderPlayers(); },
-    }, open ? 'Hide sheet' : `Edit sheet · ${p.inventory?.length ?? 0} items`),
-    open ? playerDetail(p) : null,
-  );
-  return card;
+      onclick: async () => { if (await act({ t: 'lib.give', playerId: p.id, kind, id: e.id }, `Gave ${e.name} to ${p.name}.`)) closeDrawer(); },
+    }, h('span', h('b', e.name), e.source === 'homebrew' ? h('span.dim', ' homebrew') : null), h('span.dim', e.rarity || e.checkType || ''))))
+      : [h('li.empty-s', 'Nothing matches.')]));
+  };
+  const search = h('input.inp', { type: 'search', placeholder: 'Search the library', oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } });
+  const seg = h('div.seg', kinds.map((k) => h('button', { type: 'button', 'aria-pressed': String(k === kind), onclick: () => { kind = k; for (const b of seg.children) b.setAttribute('aria-pressed', String(b.textContent === LIB_KINDS.find((x) => x.id === k).plural)); draw(); } }, LIB_KINDS.find((x) => x.id === k).plural)));
+  draw();
+  openDrawer({ title: `Give to ${p.name}`, body: [seg, search, listEl] });
+  setTimeout(() => search.focus(), 50);
 }
 
-function actionBtn(act, glyph, label, fn) {
-  return h('button', { type: 'button', 'data-act': act, onclick: () => { buzz(10); fn(); } },
-    h('span.g', { 'aria-hidden': 'true' }, glyph), label);
-}
+/* ---------- rank-up ---------- */
 
-function resourceBars(p) {
-  const defs = view.pack?.resources || [];
-  if (!defs.length) return null;
-  return h('div.pc-res', defs.map((r) => {
-    const v = p.resources?.[r.id] || { cur: 0, max: r.default ?? 0 };
-    const pct = v.max > 0 ? Math.max(0, Math.min(100, (v.cur / v.max) * 100)) : 0;
-    return h('div.res',
-      h('span.res-label', { title: r.label }, (r.abbr || r.id).toUpperCase()),
-      h('div.bar', { style: { '--c': r.color || 'var(--alarm)' }, role: 'meter', 'aria-label': r.label, 'aria-valuenow': v.cur, 'aria-valuemax': v.max, 'aria-valuemin': 0 },
-        h('div.bar-fill', { style: { width: pct + '%' } }),
-        h('span.bar-text', `${v.cur} / ${v.max}`),
-      ),
-      h('span.step',
-        h('button', { type: 'button', 'aria-label': `${r.label} minus 1`, onclick: () => act({ t: 'player.resource', playerId: p.id, res: r.id, delta: -1 }) }, '−'),
-        h('button', { type: 'button', 'aria-label': `${r.label} plus 1`, onclick: () => act({ t: 'player.resource', playerId: p.id, res: r.id, delta: 1 }) }, '+'),
-      ),
-    );
-  }));
-}
-
-function stepper(value, onDelta, label) {
-  return h('span.step',
-    h('button', { type: 'button', 'aria-label': `${label} minus 1`, onclick: () => onDelta(-1) }, '−'),
-    h('span.v', String(value ?? 0)),
-    h('button', { type: 'button', 'aria-label': `${label} plus 1`, onclick: () => onDelta(1) }, '+'),
-  );
-}
-
-function playerDetail(p) {
-  const statDefs = view.pack?.stats || [];
-  const resDefs = view.pack?.resources || [];
-  const upd = (field, value) => act({ t: 'player.update', playerId: p.id, [field]: value }, 'Saved.');
-
-  const fld = (label, field, attrs = {}) => h('label', { class: attrs.wide ? 'wide' : null },
-    label,
-    h('input.field', {
-      value: p[field] ?? '',
-      maxlength: 60,
-      ...attrs,
-      onchange: (e) => {
-        let v = e.target.value;
-        if (attrs.type === 'number') v = Number(v) || 0;
-        upd(field, v);
-      },
-    }),
-  );
-
-  return h('div.pc-detail',
-    statDefs.length ? h('div',
-      h('h4', 'Stats'),
-      h('div.stats-grid', statDefs.map((s) => h('div.stat-row',
-        h('span.abbr', { title: s.label }, s.abbr || s.id),
-        stepper(p.stats?.[s.id] ?? s.default ?? 0, (d) => act({ t: 'player.stat', playerId: p.id, stat: s.id, delta: d }), s.label),
-      ))),
-    ) : null,
-    resDefs.length ? h('div',
-      h('h4', 'Maximums'),
-      h('div.stats-grid', resDefs.map((r) => {
-        const v = p.resources?.[r.id] || { cur: 0, max: 0 };
-        return h('div.stat-row',
-          h('span.abbr', { title: r.label }, `${(r.abbr || r.id).toUpperCase()} max`),
-          stepper(v.max, (d) => act({ t: 'player.resource', playerId: p.id, res: r.id, max: Math.max(0, (v.max || 0) + d) }), `${r.label} max`),
-        );
-      })),
-    ) : null,
-    h('div',
-      h('h4', 'Identity'),
-      h('div.ident-row',
-        h('span', 'Level', stepper(p.level ?? 1, (d) => upd('level', Math.max(0, (p.level ?? 1) + d)), 'Level')),
-        h('span', 'Gold', stepper(p.gold ?? 0, (d) => upd('gold', Math.max(0, (p.gold ?? 0) + d * 10)), 'Gold by 10')),
-      ),
-      h('div.ident', { style: { marginTop: '8px' } },
-        fld('Name', 'name'),
-        h('label', 'Color', h('input.field', { type: 'color', value: p.color || '#2ef2ff', onchange: (e) => upd('color', e.target.value) })),
-        fld('Title', 'title', { wide: true }),
-        fld('Class', 'klass'),
-        fld('Race', 'race'),
-        fld('Gold', 'gold', { type: 'number', min: 0, inputmode: 'numeric' }),
-        fld('PIN', 'pin', { inputmode: 'numeric', pattern: '\\d{4}', maxlength: 4, value: view.gm?.pins?.[p.id] || '' }),
-      ),
-    ),
-    h('div',
-      h('h4', `Inventory (${p.inventory?.length ?? 0})`),
-      p.inventory?.length
-        ? h('ul.inv', p.inventory.map((it) => h('li', { class: `r-${rarityOf(it.rarity)}` },
-          itemArt(it),
-          h('span.nm', it.name, h('small', rarityOf(it.rarity))),
-          h('button.rm', {
-            type: 'button',
-            title: `Remove ${it.name}`,
-            'aria-label': `Remove ${it.name}`,
-            onclick: async () => { if (await ask(`Remove ${it.name} from ${p.name}?`, { ok: 'Remove item', danger: true })) act({ t: 'item.remove', playerId: p.id, uid: it.uid }, 'Item removed.'); },
-          }, '✕'),
-        )))
-        : h('p.empty', 'Empty. Open a loot box to fill it.'),
-    ),
-    p.notes ? h('div', h('h4', 'Player notes'), h('p.empty', { style: { whiteSpace: 'pre-wrap' } }, p.notes)) : null,
-    h('div.pc-danger',
-      h('button.linkish', {
-        type: 'button',
-        onclick: async () => { if (await ask(`Remove ${p.name} from the game? Their inventory goes too.`, { ok: 'Remove player', danger: true })) act({ t: 'player.remove', playerId: p.id }, 'Player removed.'); },
-      }, 'Remove player'),
-    ),
-  );
+async function rankUp() {
+  const before = new Map();
+  for (const p of view.gm?.playersFull || []) for (const s of p.sheet?.skills || []) before.set(s.uid, { p, s });
+  const usedCount = [...before.values()].filter((x) => x.s.used).length;
+  if (!usedCount) { toast('No skills are marked used this session.'); return; }
+  if (!(await ask(`Roll rank-up checks for ${usedCount} used skill${usedCount === 1 ? '' : 's'} across the party? This clears every "used" mark.`, { ok: 'Roll rank-ups' }))) return;
+  let res;
+  try { res = await client.send({ t: 'skills.rankUp' }); } catch (err) { toast(err.message, { error: true }); return; }
+  const show = (rows) => openDrawer({
+    title: 'Rank-up results',
+    sub: `${rows.filter((r) => r.up).length} of ${rows.length} skills went up`,
+    body: h('table.res-table', h('thead', h('tr', h('th', 'Crawler'), h('th', 'Skill'), h('th.c', 'Roll'), h('th.c', 'Rank'))),
+      h('tbody', rows.map((r) => h('tr', { class: r.up ? 'up' : null }, h('td', r.who), h('td', r.name), h('td.c', r.roll ?? '—'), h('td.c', r.up ? `${r.from} → ${r.to}` : String(r.from)))))),
+  });
+  const fromAck = res?.result?.results;
+  if (Array.isArray(fromAck)) {
+    show(fromAck.map((r) => ({ ...r, roll: typeof r.roll === 'object' ? r.roll?.total : r.roll, who: fullPlayer(r.playerId)?.name || '', up: r.success ?? r.up ?? r.to > r.from })));
+    return;
+  }
+  // Engine did not return results: diff the next view.
+  const off = client.on('view', (v) => {
+    off();
+    const rows = [];
+    for (const p of v.gm?.playersFull || []) for (const s of p.sheet?.skills || []) {
+      const b = before.get(s.uid);
+      if (b?.s.used) rows.push({ who: p.name, name: s.name, from: b.s.rank, to: s.rank, up: s.rank > b.s.rank });
+    }
+    show(rows);
+  });
 }
 
 /* ---------- sheets ---------- */
@@ -366,9 +419,7 @@ function playerDetail(p) {
 const sheet = $('#sheet');
 function openSheet(title, body, accent) {
   $('#sheet-title').textContent = title;
-  $('#sheet-body').replaceChildren(...[body].flat());
-  sheet.style.borderColor = accent || '';
-  sheet.style.boxShadow = accent ? `0 0 60px -10px ${accent}` : '';
+  $('#sheet-body').replaceChildren(...[body].flat().filter(Boolean));
   if (!sheet.open) sheet.showModal();
 }
 const closeSheet = () => sheet.open && sheet.close();
@@ -719,13 +770,14 @@ $('#add-player').addEventListener('submit', async (e) => {
   {
     const pin = res?.result?.pin;
     toast(pin ? `Added ${a.name}. PIN ${pin}.` : `Added ${a.name}.`, { ms: 5000 });
-    if (res?.result?.playerId) shownPins.add(res.result.playerId);
+    if (res?.result?.playerId) { shownPins.add(res.result.playerId); selectedId = res.result.playerId; }
     f.name.value = '';
     f.pin.value = '';
     f.color.value = randomNeon();
+    f.hidden = true;
   }
 });
-const NEONS = ['#2ef2ff', '#ff2fb9', '#e4ff2e', '#ff8a1c', '#3ddc5f', '#b44dff', '#3b8cff', '#ff2448'];
+const NEONS = ['#e3a33b', '#70a9e4', '#5db67f', '#c77dd8', '#e0594f', '#4fc1b5', '#d6c14a', '#9aa7ff'];
 const randomNeon = () => NEONS[Math.floor(Math.random() * NEONS.length)];
 
 const sayText = $('#say-text');
@@ -751,18 +803,123 @@ $('#new-session').addEventListener('click', async () => {
   }
 });
 
+/* ---------- views, settings, dice log ---------- */
+
+const VIEWS = ['party', 'combat', 'library', 'show', 'campaign', 'settings'];
+let currentView = 'party';
+function showView(v) {
+  if (!VIEWS.includes(v)) v = 'party';
+  currentView = v;
+  for (const b of document.querySelectorAll('#gm-nav [data-view]')) {
+    if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
+  }
+  for (const id of VIEWS) $(`#view-${id}`).hidden = id !== v;
+  document.body.dataset.view = v;
+  try { sessionStorage.setItem('system.gmView', v); } catch {}
+}
+$('#gm-nav').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]');
+  if (b) showView(b.dataset.view);
+});
+export { showView };
+
+const diceLog = createDiceLog({
+  gm: true,
+  onCustomRoll: async (formula, secret) => {
+    try {
+      const r = await client.send({ t: 'roll', what: { kind: 'custom', formula, label: formula }, secret });
+      if (r?.result?.roll) showRollCard(r.result.roll);
+    } catch (err) { toast(err.message, { error: true }); throw err; }
+  },
+});
+$('#gm-log').append(diceLog.el);
+onLocalRoll(() => renderLog());
+function renderLog() {
+  if (!view) return;
+  const rolls = [...(view.rolls || []), ...localRolls].sort((a, b) => (a.at || 0) - (b.at || 0));
+  diceLog.update({ ...view, rolls }, null);
+}
+const logPref = () => { try { return localStorage.getItem('system.gm.log'); } catch { return null; } };
+function setLog(open) {
+  document.body.classList.toggle('log-closed', !open);
+  $('#log-toggle').setAttribute('aria-expanded', String(open));
+  try { localStorage.setItem('system.gm.log', open ? '1' : '0'); } catch {}
+}
+$('#log-toggle').addEventListener('click', () => setLog(document.body.classList.contains('log-closed')));
+setLog(logPref() ? logPref() === '1' : window.innerWidth >= 1500);
+
+const themeBtn = $('#theme-btn');
+const drawTheme = () => {
+  const t = document.documentElement.dataset.theme || 'dark';
+  themeBtn.replaceChildren(icon(t === 'light' ? 'moon' : 'sun', { size: 16 }));
+  for (const b of document.querySelectorAll('#theme-seg [data-theme-pick]')) b.setAttribute('aria-checked', String(b.dataset.themePick === t));
+};
+themeBtn.addEventListener('click', () => { toggleTheme(); drawTheme(); });
+$('#theme-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-theme-pick]');
+  if (b && (document.documentElement.dataset.theme || 'dark') !== b.dataset.themePick) { toggleTheme(); drawTheme(); }
+});
+applyTheme();
+drawTheme();
+
+const PERM_HINT = {
+  none: 'Players can only roll and read. Their sheet shows a lock.',
+  notes: 'Players can write their story, notes and mark skills used, and track their own health and mana.',
+  sheet: 'Players can edit their whole sheet: stats, skills, attacks, gear. Buffs and gifts stay with you.',
+};
+function renderSettings() {
+  const lvl = playerEditLevel(view);
+  for (const b of document.querySelectorAll('#perm-seg [data-perm]')) b.setAttribute('aria-checked', String(b.dataset.perm === lvl));
+  $('#perm-hint').textContent = PERM_HINT[lvl];
+}
+$('#perm-seg').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-perm]');
+  if (b) act({ t: 'session.permissions', playerEdit: b.dataset.perm }, `Player editing: ${b.textContent}.`);
+});
+
+function renderCampaign() {
+  const r = $('#node-recap');
+  if (r && document.activeElement !== r && !r.dataset.dirty) r.value = view.recap || '';
+}
+$('#node-recap').addEventListener('input', (e) => { e.target.dataset.dirty = '1'; });
+$('#node-recap-show').addEventListener('click', async () => {
+  const r = $('#node-recap');
+  if (await act({ t: 'session.recap', text: r.value.trim() }, 'Recap shown.')) delete r.dataset.dirty;
+});
+$('#node-recap-clear').addEventListener('click', async () => {
+  const r = $('#node-recap');
+  r.value = '';
+  if (await act({ t: 'session.recap', text: '' }, 'Recap cleared.')) delete r.dataset.dirty;
+});
+
+$('#add-player-btn').addEventListener('click', showAddPlayer);
+$('#rank-up').addEventListener('click', rankUp);
+
+const library = createLibrary({
+  send: (a) => client.send(a),
+  act,
+  getView: () => view,
+  aiDraft: (...args) => ext.libraryDraft?.(...args),
+  hasAi: () => !!ext.libraryDraft,
+});
+$('#view-library').append(library.el);
+const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a) });
+$('#view-combat').append(combat.el);
+
 /* ---------- keyboard ---------- */
 
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    if (sheet.open) return; // dialog closes itself first
+    if (sheet.open || drawerOpen() || document.querySelector('dialog[open]')) return; // dialogs close first
     e.preventDefault();
     stopAll();
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target;
-  if (t.closest?.('input, textarea, select, [contenteditable]') || sheet.open) return;
+  if (t.closest?.('input, textarea, select, [contenteditable]') || sheet.open || drawerOpen()) return;
+  if (e.key === '/') { e.preventDefault(); showView('library'); library.focusSearch(); return; }
+  if (currentView !== 'show') return;
   if (e.key === 'a' || e.key === 'A') { e.preventDefault(); toggleAuto(); return; }
   if (e.key === 'm' || e.key === 'M') { e.preventDefault(); openComms(); return; }
   if (/^[1-9]$/.test(e.key)) {
@@ -781,9 +938,12 @@ document.addEventListener('keydown', (e) => {
 export function mountGm(transport, opts = {}) {
   ext.hosted = !!opts.hosted;
   document.body.classList.toggle('hosted', ext.hosted);
+  let v = 'party';
+  try { v = sessionStorage.getItem('system.gmView') || 'party'; } catch {}
+  showView(v);
   client.attach(transport);
   transport.connect?.();
-  return { client, render: () => render(), view: () => view };
+  return { client, render: () => render(), view: () => view, showView };
 }
 
 if (!isHosted()) {

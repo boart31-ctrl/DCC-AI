@@ -1,7 +1,7 @@
 // The System — service worker. Caches the app shell only.
 // Never touches /ws, /pack/* (images, audio), /qr or anything else dynamic.
 
-const CACHE = 'system-shell-v1';
+const CACHE = 'system-shell-v2';
 const SHELL = [
   '/',
   '/gm',
@@ -11,10 +11,24 @@ const SHELL = [
   '/css/gm.css',
   '/css/play.css',
   '/css/stage.css',
+  '/css/tool.css',
+  '/css/sheet.css',
   '/js/client.js',
   '/js/gm.js',
   '/js/play.js',
   '/js/stage.js',
+  '/js/rules.js',
+  '/js/ui.js',
+  '/js/sheet.js',
+  '/js/builder.js',
+  '/js/dicelog.js',
+  '/js/library.js',
+  '/js/combat.js',
+  '/fonts/barlow-semi-condensed-latin-500-normal.woff2',
+  '/fonts/barlow-semi-condensed-latin-600-normal.woff2',
+  '/fonts/barlow-semi-condensed-latin-700-normal.woff2',
+  '/fonts/barlow-latin-400-normal.woff2',
+  '/fonts/barlow-latin-500-normal.woff2',
   '/manifest.webmanifest',
   '/icons/icon.svg',
 ];

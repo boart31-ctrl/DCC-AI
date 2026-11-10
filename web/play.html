@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0a0614">
+  <meta name="theme-color" content="#1a1d23">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Crawler · The System</title>
   <link rel="manifest" href="/manifest.webmanifest">
@@ -11,23 +11,23 @@
   <link rel="stylesheet" href="/css/base.css">
   <link rel="stylesheet" href="/css/play.css">
 </head>
-<body class="play">
+<body class="play tool-page">
 
   <!-- Join: room + PIN keypad -->
-  <section id="join" class="join" hidden>
+  <section id="join" class="join tool" hidden>
     <div class="join-head">
-      <span class="live-badge">Live</span>
-      <h1 class="join-title">You are being broadcast.</h1>
-      <p class="dim">Enter the 4-digit PIN your GM gave you.</p>
+      <p class="join-brand">The System</p>
+      <h1 class="join-title">Join the game</h1>
+      <p class="dim">Type the room code from the TV and the 4-digit PIN your GM gave you.</p>
     </div>
-    <label class="room-line mono">
-      Room
-      <input id="room-input" class="room-input mono" maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD">
+    <label class="room-line">
+      <span>Room</span>
+      <input id="room-input" class="room-input" maxlength="8" autocapitalize="characters" autocomplete="off" spellcheck="false" placeholder="ABCD">
     </label>
     <div class="pin-dots" id="pin-dots" aria-live="polite" aria-label="PIN entered">
       <span></span><span></span><span></span><span></span>
     </div>
-    <p class="join-err mono" id="join-err" role="alert"></p>
+    <p class="join-err" id="join-err" role="alert"></p>
     <div class="keypad" id="keypad">
       <button type="button" data-k="1">1</button><button type="button" data-k="2">2</button><button type="button" data-k="3">3</button>
       <button type="button" data-k="4">4</button><button type="button" data-k="5">5</button><button type="button" data-k="6">6</button>
@@ -38,55 +38,27 @@
     </div>
   </section>
 
-  <!-- Character interface -->
-  <main id="app" class="app" hidden>
-    <header class="sheet-hero" id="hero">
-      <div class="hero-top">
-        <span class="live-badge">Live</span>
-        <span class="mono dim viewers-mini"><b id="viewers">0</b> watching</span>
-        <button type="button" class="leave" id="leave" title="Leave this device">Leave</button>
-      </div>
-      <div class="hero-name">
-        <div class="lvl" aria-label="Level"><small>Lv</small><b id="level">1</b></div>
-        <div class="who">
-          <h1 id="name">—</h1>
-          <p id="subtitle" class="sub"></p>
-        </div>
-      </div>
-      <div id="resources" class="resources"></div>
-      <div id="stats" class="stats"></div>
-      <div class="hero-meta">
-        <span class="gold"><span class="coin" aria-hidden="true"></span><b id="gold">0</b> gold</span>
-        <span class="ach-count"><b id="ach-count">0</b> achievements</span>
-      </div>
+  <!-- Character sheet -->
+  <main id="app" class="app tool" hidden>
+    <header class="appbar">
+      <span class="appbar-brand" id="brand">The System</span>
+      <span class="appbar-live" title="Audience watching right now"><span class="live-dot" aria-hidden="true"></span><b id="viewers">0</b> watching</span>
+      <span class="grow"></span>
+      <button type="button" class="btn btn-quiet btn-sm" id="log-btn" aria-controls="log-rail" aria-expanded="false">Dice log <span class="tab-n" id="log-n"></span></button>
+      <button type="button" class="icon-btn" id="theme-btn" aria-label="Switch light or dark"></button>
+      <button type="button" class="btn btn-quiet btn-sm" id="leave" title="Leave this device">Leave</button>
     </header>
-
-    <nav class="tabs" role="tablist" id="tabs">
-      <button role="tab" data-tab="inv" aria-selected="true">Inventory <span class="n" id="n-inv"></span></button>
-      <button role="tab" data-tab="ach" aria-selected="false">Achievements</button>
-      <button role="tab" data-tab="msg" aria-selected="false">Messages <span class="badge" id="unread" hidden></span></button>
-      <button role="tab" data-tab="notes" aria-selected="false">Notes</button>
-    </nav>
-
-    <section class="panel" id="panel-inv" role="tabpanel"></section>
-    <section class="panel" id="panel-ach" role="tabpanel" hidden></section>
-    <section class="panel" id="panel-msg" role="tabpanel" hidden></section>
-    <section class="panel" id="panel-notes" role="tabpanel" hidden>
-      <label for="notes" class="sr-only">Your notes</label>
-      <textarea id="notes" class="notes" maxlength="2000" placeholder="Your private notes. Names, clues, grudges. Only you and the GM can see them."></textarea>
-      <p class="notes-state mono dim" id="notes-state"></p>
-    </section>
-
-    <footer class="ticker" aria-label="Public feed">
+    <div class="app-cols">
+      <div class="app-sheet" id="sheet-root"></div>
+      <aside class="log-rail" id="log-rail" aria-label="Dice log"></aside>
+    </div>
+    <footer class="ticker" aria-label="Latest from the show">
       <div class="ticker-track" id="ticker"></div>
     </footer>
   </main>
 
-  <!-- Full-screen takeover for things that happen to me -->
+  <!-- Full-screen takeover for things that happen to me (the broadcast look stays here) -->
   <div id="takeover" class="takeover" hidden role="dialog" aria-modal="true" aria-live="assertive"></div>
-
-  <!-- Item detail -->
-  <dialog id="item-dlg" class="item-dlg"></dialog>
 
   <!-- Connection state -->
   <div id="reconnect" class="reconnect" hidden>

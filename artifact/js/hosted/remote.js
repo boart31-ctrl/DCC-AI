@@ -112,6 +112,9 @@ export class PlayerTransport extends BaseTransport {
     this.notes = null;
     this.lastBody = null;
     this.unsubs = [];
+    this.outbox = []; // [{n, a}] relayed to the GM through presence until acked
+    this.waiting = new Map(); // n -> {resolve, reject, timer}
+    this.seq = 0;
   }
 
   connect() {
@@ -137,11 +140,45 @@ export class PlayerTransport extends BaseTransport {
       }
     }, () => {}));
     if (this.notes === null) this.notes = localNotes(this.userId);
+    if (this.room) this.unsubs.push(this.room.on('player.ack', (m) => { if (m.data?.to === this.userId) this.onAck(m.data); }, () => {}));
     this.presence();
   }
 
   presence() {
-    this.room?.presence({ role: 'player', readIds: [...this.readIds].slice(-40) }).catch(() => {});
+    this.room?.presence({ role: 'player', readIds: [...this.readIds].slice(-40), acts: this.outbox.slice(-8) }).catch(() => {});
+  }
+
+  onAck(ack) {
+    const n = Number(ack?.n);
+    const w = this.waiting.get(n);
+    const had = this.outbox.length;
+    this.outbox = this.outbox.filter((x) => x.n !== n);
+    if (this.outbox.length !== had) this.presence();
+    if (!w) return;
+    this.waiting.delete(n);
+    clearTimeout(w.timer);
+    if (ack.ok) w.resolve({ t: 'ack', ok: true, ...(ack.result ? { result: ack.result } : {}) });
+    else w.reject(Object.assign(new Error(ack.msg || ack.error || 'Refused'), { code: ack.error }));
+  }
+
+  /** Sends a sheet action to the GM's page (the game server) and waits for its ack. */
+  relay(action) {
+    if (!this.room) return Promise.reject(new Error('Live connection unavailable on this page'));
+    const { rid, ...a } = action;
+    if (new TextEncoder().encode(JSON.stringify(a)).length > 2600) return Promise.reject(new Error('Too long to send. Shorten it.'));
+    const n = Date.now() * 1000 + (this.seq++ % 1000);
+    this.outbox.push({ n, a });
+    if (this.outbox.length > 8) this.outbox.shift();
+    this.presence();
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.waiting.delete(n);
+        this.outbox = this.outbox.filter((x) => x.n !== n);
+        this.presence();
+        reject(new Error('The GM desk did not answer. Is it open?'));
+      }, 12_000);
+      this.waiting.set(n, { resolve, reject, timer });
+    });
   }
 
   ingest(body, quiet = false) {
@@ -151,12 +188,13 @@ export class PlayerTransport extends BaseTransport {
       this.assigned = isAssigned;
       this.emit('assigned', isAssigned);
     }
+    for (const ack of body?.acks || []) if (this.waiting.has(Number(ack?.n))) this.onAck(ack);
     if (!isAssigned) return;
     // Overlay what lives on this device: read receipts not yet echoed back, and private notes.
     const view = structuredClone(v);
     for (const m of view.me.messages || []) if (this.readIds.has(m.id)) m.read = true;
     for (const m of view.me.secrets || []) if (this.readIds.has(m.id)) m.read = true;
-    if (typeof this.notes === 'string') view.me.notes = this.notes;
+    if (typeof this.notes === 'string' && !view.me.sheet) view.me.notes = this.notes; // v1 engines only
     if (!this.welcomed) {
       this.welcomed = true;
       for (const e of body.events || []) this.seen.add(e.id);
@@ -179,9 +217,13 @@ export class PlayerTransport extends BaseTransport {
       this.presence();
       return { t: 'ack', ok: true };
     }
-    if (action.t === 'me.notes') return this.saveNotes(action.text);
     if (action.t === 'ping') return { t: 'ack', ok: true };
-    throw new Error('Only the GM can change the game');
+    if (action.t === 'me.notes' || (action.t === 'sheet.set' && action.path === 'story.notes')) {
+      // Keep the private copy too (works without the GM page), then relay to the engine.
+      const text = action.t === 'me.notes' ? action.text : action.value;
+      this.saveNotes(text).catch(() => {});
+    }
+    return this.relay(action);
   }
 
   /** Notes go to data/users/<id>/notes; without write access they stay in this browser. */

@@ -72,9 +72,10 @@ export function build(packDir, outDir) {
   if (problems.length) fail(`engine is not browser-safe: ${problems.map((p) => `${path.basename(p.file)} -> ${p.spec}`).join(', ')}`);
   for (const f of files) copy(f, path.join(out, 'engine', path.relative(path.join(ROOT, 'server'), f)));
 
-  // Web UI shared with the Node edition.
-  for (const f of ['base.css', 'gm.css', 'play.css', 'stage.css']) copy(path.join(ROOT, 'web', 'css', f), path.join(out, 'css', f));
-  for (const f of ['client.js', 'gm.js', 'play.js', 'stage.js']) copy(path.join(ROOT, 'web', 'js', f), path.join(out, 'js', f));
+  // Web UI shared with the Node edition: every stylesheet, page module and bundled font.
+  for (const f of fs.readdirSync(path.join(ROOT, 'web', 'css')).filter((x) => x.endsWith('.css'))) copy(path.join(ROOT, 'web', 'css', f), path.join(out, 'css', f));
+  for (const f of fs.readdirSync(path.join(ROOT, 'web', 'js')).filter((x) => x.endsWith('.js'))) copy(path.join(ROOT, 'web', 'js', f), path.join(out, 'js', f));
+  for (const f of fs.readdirSync(path.join(ROOT, 'web', 'fonts')).filter((x) => /\.(woff2|txt)$/.test(x))) copy(path.join(ROOT, 'web', 'fonts', f), path.join(out, 'fonts', f));
 
   // Hosted-only files.
   const art = path.join(ROOT, 'artifact');

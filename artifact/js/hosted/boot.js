@@ -59,8 +59,35 @@ async function main() {
   const owner = await user.isOwner();
   const wantsStage = location.hash === '#stage';
   if (owner && wantsStage) return startStage({ db, room });
-  if (owner) return startGm({ db, user, room, pack });
+  if (owner) {
+    // The owner may be on the laptop (GM desk) or on the TV's browser (Xbox, smart TV): ask, remember per device.
+    let pick = null;
+    try { pick = localStorage.getItem(ROLE_KEY); } catch {}
+    if (location.hash === '#desk') pick = 'gm';
+    if (pick === 'stage') return startStage({ db, room });
+    if (pick === 'gm') return startGm({ db, user, room, pack });
+    return chooseOwnerScreen({ db, user, room, pack });
+  }
   return startPlayer({ db, user, room, pack });
+}
+
+const ROLE_KEY = 'system.ownerScreen';
+
+/** Owner without a remembered choice: GM desk on this screen, or this screen is the TV. */
+function chooseOwnerScreen(ctx) {
+  bootTitle('Which screen is this?');
+  bootMsg('You own this show. Run the GM desk here, or make this screen the TV everyone watches. A TV or console browser signed in as you works.');
+  const remember = h('input', { type: 'checkbox', checked: true });
+  const go = (role) => {
+    if (remember.checked) { try { localStorage.setItem(ROLE_KEY, role); } catch {} }
+    $('#boot-actions').replaceChildren();
+    if (role === 'stage') { location.hash = 'stage'; startStage(ctx); } else startGm(ctx);
+  };
+  $('#boot-actions').replaceChildren(
+    h('button.btn.btn-cyan', { type: 'button', onclick: () => go('gm') }, 'Open the GM desk'),
+    h('button.btn.btn-ghost', { type: 'button', onclick: () => go('stage') }, 'This screen is the TV'),
+    h('label.boot-remember', remember, h('span', 'Remember on this device')),
+  );
 }
 
 /* ---------------- GM desk ---------------- */
@@ -79,14 +106,14 @@ async function startGm({ db, user, room, pack }) {
     return;
   }
   await loadCss('gm');
+  document.body.classList.add('tool');
   mountTemplate('tpl-gm', 'gm');
-  // Hosted extras: tabs, lobby on the left column, campaign view.
+  // Hosted extras: lobby above the party, campaign tools in the Campaign view, a TV button in the nav.
   const extras = document.getElementById('tpl-hosted-gm').content.cloneNode(true);
-  const topbar = $('.topbar');
-  topbar.after(extras.querySelector('#htabs'));
-  $('.col-players').prepend(extras.querySelector('#lobby-wrap'));
-  $('.desk').after(extras.querySelector('#campaign'));
+  $('#party').before(extras.querySelector('#lobby-wrap'));
+  $('#view-campaign').append(extras.querySelector('#campaign'));
   document.body.append(extras.querySelector('#tv-dlg'));
+  $('#gm-nav').append(h('button.nav-tv', { type: 'button', id: 'tv-btn' }, 'TV view'));
 
   const gmMod = await import('../gm.js');
   const sample = await use('sample');
@@ -98,6 +125,7 @@ async function startGm({ db, user, room, pack }) {
   };
   const setWriter = (on) => {
     gmMod.ext.customAchievementWriter = on ? ({ brief, player }) => ai.writeAchievement({ brief, player }) : null;
+    gmMod.ext.libraryDraft = on ? (o) => ai.draftLibraryEntry(o) : null;
   };
   setWriter(ai.available);
   gmMod.mountGm(host, { hosted: true });
@@ -109,22 +137,9 @@ async function startGm({ db, user, room, pack }) {
   mountLobby({ host, user, act });
   mountCampaign({ host, db, ai, act, onAiChange: setWriter });
 
-  // Desk / Campaign tabs.
-  const showView = (v) => {
-    for (const b of document.querySelectorAll('#htabs [data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === v));
-    $('.desk').hidden = v !== 'desk';
-    $('#campaign').hidden = v !== 'campaign';
-    try { sessionStorage.setItem('system.gmView', v); } catch {}
-  };
-  $('#htabs').addEventListener('click', (e) => {
-    const b = e.target.closest('[data-view]');
-    if (b) showView(b.dataset.view);
-  });
-  let saved = 'desk';
-  try { saved = sessionStorage.getItem('system.gmView') || 'desk'; } catch {}
-  showView(saved);
+  $('#campaign').hidden = false;
   $('#tv-btn').addEventListener('click', () => $('#tv-dlg').showModal());
-  $('#tv-here').addEventListener('click', () => { location.hash = 'stage'; location.reload(); });
+  $('#tv-here').addEventListener('click', () => { try { localStorage.setItem(ROLE_KEY, 'stage'); } catch {} location.hash = 'stage'; location.reload(); });
 
   host.on('error', (e) => { if (e?.msg) toast(`Not saved: ${e.msg}`, { error: true, ms: 4000 }); });
   window.addEventListener('pagehide', () => { host.flushAll(); });
@@ -152,6 +167,7 @@ async function startPlayer({ db, user, room, pack }) {
     return;
   }
   await loadCss('play');
+  document.body.classList.add('tool-page');
   mountTemplate('tpl-waiting', 'waiting-on');
   mountTemplate('tpl-play', 'play');
   $('#app').hidden = true;
@@ -179,7 +195,7 @@ async function startPlayer({ db, user, room, pack }) {
     $('#wait-show-meta').textContent = 'The game is not running right now. It starts when the GM opens their desk.';
   });
   const playMod = await import('../play.js');
-  playMod.mountPlay(t, { hosted: true, saveNotes: (text) => t.saveNotes(text) });
+  playMod.mountPlay(t, { hosted: true });
   if (room) room.presence({ role: 'player' }).catch(() => {});
 }
 
