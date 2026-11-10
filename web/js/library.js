@@ -5,6 +5,7 @@ import {
   libraryOf, normalizeRuleset, effectTargets, effectText, validateFormula, knownIdentifiers, WHEN, LIB_KINDS, RARITIES, slugId,
 } from './rules.js';
 import { icon, field, select, labeled, openDrawer, closeDrawer, signed } from './ui.js';
+import { entryArt, imageRef } from './portrait.js';
 
 const FIELDS = {
   item: ['rarity', 'slot', 'stackable', 'flavor', 'effects', 'attack'],
@@ -16,9 +17,13 @@ const FIELDS = {
   class: ['features', 'statBonuses', 'skills'],
   background: ['features', 'statBonuses', 'skills'],
   // scenes (TV): tactics + lootHint stay on the GM desk; the rest can reach the TV
-  boss: ['title', 'floor', 'hpSlots', 'image', 'phases', 'intro', 'defeatLine', 'flavor', 'tactics', 'lootHint'],
-  location: ['floor', 'image', 'readAloud', 'featureNotes'],
+  boss: ['title', 'floor', 'hpSlots', 'evade', 'dr', 'image', 'phases', 'intro', 'defeatLine', 'flavor', 'statAttacks', 'tactics', 'lootHint'],
+  location: ['floor', 'image', 'readAloud', 'featureNotes', 'cast'],
+  // bestiary: notes / tactics / lootHint / voice / hooks / secrets never leave the GM desk
+  monster: ['title', 'floor', 'group', 'hpSlots', 'evade', 'dr', 'image', 'flavor', 'defeatLine', 'statAttacks', 'lootItems', 'notes', 'tactics', 'lootHint'],
+  npc: ['role', 'floor', 'image', 'personality', 'voice', 'hooks', 'secrets'],
 };
+const GM_ONLY_HINT = 'GM only: never shown on the TV or phones';
 
 function blank(kind, rs) {
   const e = { id: '', name: '', desc: '', tags: [], source: 'homebrew' };
@@ -29,7 +34,10 @@ function blank(kind, rs) {
   if (kind === 'feature') Object.assign(e, { effects: [] });
   if (['race', 'class', 'background'].includes(kind)) Object.assign(e, { features: [], statBonuses: [], skills: [] });
   if (kind === 'boss') Object.assign(e, { title: '', floor: '', hpSlots: 10, image: null, phases: [], intro: '', defeatLine: '', flavor: '', tactics: '', lootHint: '' });
-  if (kind === 'location') Object.assign(e, { floor: '', image: null, readAloud: '', features: [] });
+  if (kind === 'boss') Object.assign(e, { evade: 0, dr: 0, attacks: [] });
+  if (kind === 'location') Object.assign(e, { floor: '', image: null, readAloud: '', features: [], npcs: [], monsters: [], bosses: [] });
+  if (kind === 'monster') Object.assign(e, { title: '', floor: '', group: '', hpSlots: 5, evade: 0, dr: 0, image: null, attacks: [{ name: 'Claw', toHit: 2, damage: '1d4', effects: '', buffs: [] }], flavor: '', defeatLine: '', lootItems: [], notes: '', tactics: '', lootHint: '' });
+  if (kind === 'npc') Object.assign(e, { role: '', floor: '', image: null, personality: '', voice: '', hooks: [], secrets: [] });
   return e;
 }
 
@@ -153,7 +161,8 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     const bad = (v) => typeof v === 'string' && v.trim() && !validateFormula(v, known).ok;
     if (bad(d.cost)) return true;
     for (const e of [...(d.effects || []), ...(d.statBonuses || [])]) if (bad(e.value)) return true;
-    for (const dice of [d.dice, d.attack?.dice]) if (dice && !validateFormula(dice).ok) return true;
+    for (const dice of [d.dice, d.attack?.dice, ...(d.attacks || []).map((a) => a.damage)]) if (dice && !validateFormula(String(dice)).ok) return true;
+    if ((d.attacks || []).some((a) => !String(a.name || '').trim())) return true;
     return false;
   }
 
@@ -196,24 +205,48 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     const textRow = (k, label, o = {}) => formRows.push(labeled(label, field(d[k] ?? '', { disabled: ro, multiline: !!o.rows, rows: o.rows || 3, placeholder: o.ph || '', onCommit: set(k) }), { cls: o.cls || '', hint: o.hint }));
     if (f.includes('title')) textRow('title', 'Title / epithet', { cls: 'span-2' });
     if (f.includes('floor')) textRow('floor', 'Floor');
+    if (f.includes('role')) textRow('role', 'Role (shown on the TV)', { cls: 'span-2', ph: 'Floor clerk, bartender, rival crawler' });
+    if (f.includes('group')) textRow('group', 'Group', { ph: 'construct, vermin, undead' });
     if (f.includes('hpSlots')) formRows.push(labeled('HP slots', field(d.hpSlots ?? 10, { type: 'number', disabled: ro, attrs: { min: 1, max: 100 }, onCommit: (v) => set('hpSlots')(Math.max(1, Math.min(100, Math.round(v) || 10))) })));
-    if (f.includes('image')) formRows.push(labeled('Image', field(d.image || '', { disabled: ro, placeholder: '/pack/images/… or https://…', onCommit: (v) => set('image')(v || null) }), { cls: 'span-2' }));
+    const numRow = (k, label) => formRows.push(labeled(label, field(d[k] ?? 0, { type: 'number', disabled: ro, attrs: { min: -99, max: 99 }, onCommit: (v) => set(k)(Math.max(-99, Math.min(99, Math.round(v) || 0))) })));
+    if (f.includes('evade')) numRow('evade', 'Evade');
+    if (f.includes('dr')) numRow('dr', 'DR');
+    if (f.includes('image')) formRows.push(imageField(d, ro, kind));
     if (f.includes('phases')) {
       const src = (d.phases || []).map((p) => [p.name, p.text || '', p.atHp ?? ''].join(' | ').replace(/( \| )+$/, '')).join('\n');
       formRows.push(labeled('Phases', field(src, { multiline: true, rows: 3, disabled: ro, placeholder: 'Name | text | at HP, one per line', onCommit: (v) => set('phases')(String(v).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [name, text = '', at = ''] = l.split('|').map((x) => x.trim()); return { name, text, ...( /^\d+$/.test(at) ? { atHp: Number(at) } : {}) }; })) }), { cls: 'span-all', hint: 'At HP: the desk suggests the phase when the boss drops to it.' }));
     }
     if (f.includes('intro')) textRow('intro', 'Intro announcement (TV + System voice)', { rows: 2, cls: 'span-all' });
     if (f.includes('defeatLine')) textRow('defeatLine', 'Defeat line (TV + System voice)', { rows: 2, cls: 'span-all' });
-    if (f.includes('tactics')) textRow('tactics', 'Tactics (GM only)', { rows: 3, cls: 'span-all' });
-    if (f.includes('lootHint')) textRow('lootHint', 'Loot hint (GM only)', { cls: 'span-all' });
+    if (f.includes('tactics')) textRow('tactics', 'Tactics (GM only)', { rows: 3, cls: 'span-all', hint: GM_ONLY_HINT });
+    if (f.includes('lootHint')) textRow('lootHint', 'Loot hint (GM only)', { cls: 'span-all', hint: GM_ONLY_HINT });
     if (f.includes('readAloud')) textRow('readAloud', 'Read-aloud (shown on the TV)', { rows: 4, cls: 'span-all' });
     if (f.includes('featureNotes')) formRows.push(labeled('Features (GM only), one per line', field((d.features || []).join('\n'), { multiline: true, rows: 3, disabled: ro, onCommit: (v) => set('features')(String(v).split('\n').map((x) => x.trim()).filter(Boolean)) }), { cls: 'span-all' }));
+    const linesRow = (k, label, o = {}) => formRows.push(labeled(label, field((d[k] || []).join('\n'), { multiline: true, rows: o.rows || 3, disabled: ro, placeholder: o.ph || '', onCommit: (v) => set(k)(String(v).split('\n').map((x) => x.trim()).filter(Boolean)) }), { cls: 'span-all', hint: o.hint }));
+    if (f.includes('personality')) textRow('personality', 'Personality', { rows: 3, cls: 'span-all', ph: 'What they are like in two sentences.' });
+    if (f.includes('voice')) textRow('voice', 'Voice tips (GM only)', { rows: 2, cls: 'span-all', ph: 'Accent, tempo, a catchphrase, a prop', hint: GM_ONLY_HINT });
+    if (f.includes('hooks')) linesRow('hooks', 'Hooks (GM only), one per line', { hint: GM_ONLY_HINT });
+    if (f.includes('secrets')) linesRow('secrets', 'Secrets (GM only), one per line', { hint: GM_ONLY_HINT });
+    if (f.includes('notes')) textRow('notes', 'Notes (GM only)', { rows: 2, cls: 'span-all', hint: GM_ONLY_HINT });
+    if (f.includes('lootItems')) {
+      const items = lib.item || [];
+      const names = (ids) => ids.map((id) => items.find((i) => i.id === id)?.name || `${id} (unknown)`).join(', ');
+      const hint = h('span.lbl-hint', (d.lootItems || []).length ? names(d.lootItems) : 'Item ids, comma separated');
+      const inp = field((d.lootItems || []).join(', '), { disabled: ro, cls: 'mono-in', attrs: { list: 'lib-item-ids', spellcheck: 'false' }, placeholder: 'ten_coins, wet_wipes', onCommit: (v) => { d.lootItems = String(v).split(',').map((x) => x.trim()).filter(Boolean); hint.textContent = d.lootItems.length ? names(d.lootItems) : 'Item ids, comma separated'; markDirty(); } });
+      formRows.push(h('label.lbl.span-all', h('span.lbl-t', 'Drops (item ids)'), inp, hint, h('datalist', { id: 'lib-item-ids' }, items.slice(0, 400).map((i) => h('option', { value: i.id }, i.name)))));
+    }
 
     const sections = [h('div.form-grid', formRows)];
     if (f.includes('effects')) sections.push(effectsEditor('Effects', d.effects || (d.effects = []), ro, kind === 'item' ? 'equipped' : kind === 'spell' || kind === 'buff' ? 'active' : 'always'));
     if (f.includes('statBonuses')) sections.push(effectsEditor('Stat bonuses', d.statBonuses || (d.statBonuses = []), ro, 'always'));
     if (f.includes('attack')) sections.push(attackEditor(d, ro));
     if (f.includes('upgrades')) sections.push(upgradesEditor(d, ro));
+    if (f.includes('statAttacks')) sections.push(statAttacksEditor(d, ro));
+    if (f.includes('cast')) {
+      sections.push(checkList('Monsters here', lib.monster || [], d.monsters || (d.monsters = []), ro));
+      sections.push(checkList('Bosses here', lib.boss || [], d.bosses || (d.bosses = []), ro));
+      sections.push(checkList('NPCs here', lib.npc || [], d.npcs || (d.npcs = []), ro));
+    }
     if (f.includes('features')) sections.push(checkList('Features', lib.feature, d.features || (d.features = []), ro));
     if (f.includes('skills')) sections.push(checkList('Starting skills', lib.skill.length ? lib.skill : rs.skills.catalog, d.skills || (d.skills = []), ro));
 
@@ -235,7 +268,7 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
       !ro && hasAi() ? aiBar(kind, d) : null,
       h('div.ed-cols',
         h('div.ed-form', { class: ro ? 'ed-form ro' : 'ed-form' }, sections),
-        h('aside.ed-side', h('h3.sub-t', 'As players see it'), previewEl),
+        h('aside.ed-side', h('h3.sub-t', ['monster', 'npc', 'boss', 'location'].includes(kind) ? 'Card' : 'As players see it'), previewEl),
       ),
     ].filter(Boolean));
     drawPreview();
@@ -330,6 +363,68 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     );
   }
 
+  /** Image id ("goblin.webp" in the pack's images/) or URL, with a live preview and the generated fallback. */
+  function imageField(d, ro, kind) {
+    const box = h('div.img-pv');
+    const msg = h('span.lbl-hint');
+    const draw = () => {
+      box.replaceChildren(entryArt({ name: d.name || '?', image: d.image, color: d.color }, { cls: 'img-pv-art' }));
+      const img = box.querySelector('img');
+      msg.textContent = !d.image ? 'No art yet: the TV draws a silhouette.' : 'Checking…';
+      msg.className = 'lbl-hint';
+      if (img) {
+        img.addEventListener('load', () => { msg.textContent = 'Found.'; });
+        img.addEventListener('error', () => { msg.textContent = 'Not found: the TV draws a silhouette.'; msg.className = 'lbl-hint bad'; });
+      }
+    };
+    const inp = field(d.image || '', {
+      disabled: ro, cls: 'mono-in', attrs: { spellcheck: 'false' }, placeholder: `${kind === 'npc' ? 'quill' : 'goblin'}.webp, /pack/images/… or https://…`,
+      onCommit: (v) => { d.image = imageRef(v); inp.value = d.image || ''; markDirty(); draw(); },
+    });
+    draw();
+    return h('div.lbl.span-all.img-field', h('span.lbl-t', 'Image'), h('div.img-row', box, h('div.img-in', inp, msg)));
+  }
+
+  /** Stat-block attacks (monsters, bosses): name, to hit, damage dice, effects, conditions it applies. */
+  function statAttacksEditor(d, ro) {
+    d.attacks ||= [];
+    const buffs = lib.buff || [];
+    const rows = h('div.sa-rows');
+    const draw = () => rows.replaceChildren(...(d.attacks.length ? d.attacks.map((a, i) => {
+      a.buffs ||= [];
+      const dmgMsg = h('span.fx-msg');
+      const dmg = field(a.damage ?? '', { disabled: ro, cls: 'mono-in', attrs: { 'aria-label': 'Damage dice', spellcheck: 'false' }, placeholder: '1d6+1', onCommit: (v) => { a.damage = String(v).trim(); markDirty(); } });
+      const check = () => {
+        const v = dmg.value.trim();
+        const r = v ? validateFormula(v) : { ok: true };
+        dmg.classList.toggle('bad', !r.ok);
+        dmgMsg.textContent = r.ok ? '' : r.error;
+        dmgMsg.classList.toggle('bad', !r.ok);
+      };
+      dmg.addEventListener('input', check);
+      check();
+      const chips = h('div.sa-buffs', a.buffs.map((id) => h('span.cond', buffs.find((b) => b.id === id)?.name || id,
+        ro ? null : h('button.cond-x', { type: 'button', 'aria-label': `Remove ${id}`, onclick: () => { a.buffs = a.buffs.filter((x) => x !== id); markDirty(); draw(); } }, icon('x', { size: 11 })))));
+      const addBuff = ro || !buffs.length ? null : select([{ value: '', label: '+ condition' }, ...buffs.filter((b) => !a.buffs.includes(b.id)).map((b) => ({ value: b.id, label: b.name }))], '', { cls: 'inp-sm', label: 'Add condition', onChange: (v) => { if (v) { a.buffs.push(v); markDirty(); draw(); } } });
+      return h('div.sa-row',
+        h('div.sa-top',
+          field(a.name ?? '', { disabled: ro, attrs: { 'aria-label': 'Attack name', maxlength: 60 }, placeholder: 'Bite', onCommit: (v) => { a.name = v; markDirty(); } }),
+          h('label.sa-hit', h('span.mini-l', 'To hit'), field(a.toHit ?? 0, { type: 'number', disabled: ro, attrs: { min: -99, max: 99, 'aria-label': 'To hit' }, onCommit: (v) => { a.toHit = Math.max(-99, Math.min(99, Math.round(v) || 0)); markDirty(); } })),
+          h('label.sa-dmg', h('span.mini-l', 'Damage'), dmg),
+          ro ? h('span') : h('div.sa-ord',
+            h('button.icon-btn', { type: 'button', 'aria-label': 'Move up', disabled: i === 0, onclick: () => { d.attacks.splice(i - 1, 0, d.attacks.splice(i, 1)[0]); markDirty(); draw(); } }, icon('chevron', { size: 14 })),
+            h('button.icon-btn', { type: 'button', 'aria-label': 'Remove attack', onclick: () => { d.attacks.splice(i, 1); markDirty(); draw(); } }, icon('x', { size: 15 })))),
+        field(a.effects ?? '', { disabled: ro, cls: 'inp-sm', attrs: { 'aria-label': 'Effects', maxlength: 400 }, placeholder: 'On hit: knocked Prone (DEX 12 to resist)', onCommit: (v) => { a.effects = v; markDirty(); } }),
+        h('div.sa-foot', chips, addBuff, dmgMsg),
+      );
+    }) : [h('p.empty-s', 'No attacks. The combat tracker can still track its HP.')]));
+    draw();
+    return h('section.ed-sec',
+      h('div.sec-head', h('h3.sub-t', 'Attacks'), h('span.dim', 'The combat desk rolls d20 + to hit, then the damage dice.')),
+      rows,
+      ro ? null : h('button.btn.btn-sm', { type: 'button', onclick: () => { d.attacks.push({ name: '', toHit: 0, damage: '1d4', effects: '', buffs: [] }); markDirty(); draw(); rows.lastElementChild?.querySelector('input')?.focus(); } }, icon('plus', { size: 14 }), 'Add attack'));
+  }
+
   function upgradesEditor(d, ro) {
     d.upgrades ||= [];
     const rows = h('div.up-rows');
@@ -355,6 +450,7 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     if (!previewEl || !st.draft) return;
     const d = st.draft;
     const kind = st.sel.kind;
+    if (['monster', 'npc', 'boss', 'location'].includes(kind)) { previewEl.replaceChildren(tvCard(kind, d)); return; }
     const r = rarityOf(d.rarity);
     const slot = rs.slots.find((s) => s.id === d.slot);
     const kv = [];
@@ -373,6 +469,35 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
       d.attack ? h('div', h('h3.sub-t', 'Attack'), h('p.desc', `${(lib.skill.find((s) => s.id === d.attack.skill) || rs.skills.catalog.find((s) => s.id === d.attack.skill))?.name || 'No skill'} + ${rs.stats.find((s) => s.id === d.attack.stat)?.abbr || ''}, ${d.attack.dice || '—'} damage${d.attack.effects ? `. ${d.attack.effects}` : ''}`)) : null,
       d.upgrades?.length ? h('div', h('h3.sub-t', 'Upgrades'), h('ul.upgrades', d.upgrades.map((u) => h('li.got', h('b', `Rank ${u.rank}`), u.text)))) : null,
     ));
+  }
+
+  /** What the TV can show of a bestiary entry (GM-only fields are listed separately, locked). */
+  function tvCard(kind, d) {
+    const gmOnly = [];
+    if (d.tactics) gmOnly.push(['Tactics', d.tactics]);
+    if (d.notes) gmOnly.push(['Notes', d.notes]);
+    if (d.lootHint) gmOnly.push(['Loot', d.lootHint]);
+    if (d.voice) gmOnly.push(['Voice', d.voice]);
+    for (const x of d.hooks || []) gmOnly.push(['Hook', x]);
+    for (const x of d.secrets || []) gmOnly.push(['Secret', x]);
+    for (const x of kind === 'location' ? d.features || [] : []) gmOnly.push(['Feature', x]);
+    const sub = kind === 'npc' ? d.role : kind === 'location' ? (d.floor !== '' && d.floor != null ? `Floor ${d.floor}` : '') : d.title;
+    const stats = kind === 'monster' || kind === 'boss'
+      ? h('div.tvc-stats', h('span', h('b', String(d.hpSlots ?? '')), ' HP'), h('span', h('b', String(d.evade ?? 0)), ' Evade'), h('span', h('b', String(d.dr ?? 0)), ' DR'))
+      : null;
+    return h('div.tv-card', { class: `tv-card k-${kind}` },
+      entryArt({ name: d.name || '?', image: d.image, color: d.color }, { cls: 'tvc-art' }),
+      h('div.tvc-body',
+        h('span.tvc-k', kind === 'npc' ? 'On the TV: NPC card' : kind === 'location' ? 'On the TV: Explore' : 'On the TV: arena'),
+        h('b.tvc-name', d.name || 'Unnamed'),
+        sub ? h('span.tvc-sub', sub) : null,
+        stats,
+        kind === 'location' && d.readAloud ? h('p.tvc-text', d.readAloud) : null,
+        kind === 'npc' && d.personality ? h('p.tvc-text.dim', h('i', 'Personality (desk only): '), d.personality) : null,
+        (kind === 'monster' || kind === 'boss') && (d.attacks || []).length ? h('ul.tvc-atk', d.attacks.map((a) => h('li', h('b', a.name || '—'), ` ${signed(a.toHit ?? 0)} to hit, ${a.damage || 'no'} damage`))) : null,
+      ),
+      gmOnly.length ? h('div.sc-gm-only.tvc-gm', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'), h('ul', gmOnly.map(([k, v]) => h('li', h('b', `${k}. `), v)))) : null,
+    );
   }
 
   /* ---------- AI draft (hosted) ---------- */

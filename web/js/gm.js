@@ -13,6 +13,7 @@ import {
 import { createLibrary } from './library.js';
 import { createCombat } from './combat.js';
 import { createScenes } from './gm-scenes.js';
+import { createNpcs } from './gm-npcs.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -113,6 +114,7 @@ function render() {
   drawTheme();
   library.update(view);
   combat.update(view);
+  npcs.update(view);
   scenes.update(view);
   const q = gm.queue || [];
   const bits = [];
@@ -813,7 +815,7 @@ $('#new-session').addEventListener('click', async () => {
 
 /* ---------- views, settings, dice log ---------- */
 
-const VIEWS = ['party', 'combat', 'library', 'show', 'campaign', 'settings'];
+const VIEWS = ['party', 'combat', 'npcs', 'library', 'show', 'campaign', 'settings'];
 let currentView = 'party';
 function showView(v) {
   if (!VIEWS.includes(v)) v = 'party';
@@ -916,6 +918,8 @@ const combat = createCombat({ act, getView: () => view, send: (a) => client.send
 const scenes = createScenes({ client, act, getView: () => view });
 scenes.mountInto($('#view-show'));
 $('#view-combat').append(combat.el);
+const npcs = createNpcs({ act, getView: () => view, openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
+$('#view-npcs').append(npcs.el);
 
 /* ---------- keyboard ---------- */
 

@@ -252,7 +252,7 @@ function loadItems(io, raw, warnings) {
 }
 
 // Optional library files (spells.json, skills.json, ...): arrays; bad entries are skipped with a warning.
-const LIB_FILES = { spell: 'spells', skill: 'skills', buff: 'buffs', feature: 'features', race: 'races', class: 'classes', background: 'backgrounds', boss: 'bosses', location: 'locations' };
+const LIB_FILES = { spell: 'spells', skill: 'skills', buff: 'buffs', feature: 'features', race: 'races', class: 'classes', background: 'backgrounds', boss: 'bosses', location: 'locations', monster: 'monsters', npc: 'npcs' };
 export const LIBRARY_FILES = Object.values(LIB_FILES);
 
 function loadLibrary(raw, ruleset, warnings, io) {
@@ -277,7 +277,7 @@ function loadLibrary(raw, ruleset, warnings, io) {
         data.forEach((x, i) => {
           const where = `${F} [${i}]`;
           // Boss art (and per-phase art) are pack-relative image paths, like item images.
-          const image = kind === 'boss' || kind === 'location' ? (rel) => assetUrl(io, 'images', rel, warnings, `${kind} ${x?.id ?? i}`) : undefined;
+          const image = ['boss', 'location', 'monster', 'npc'].includes(kind) ? (rel) => assetUrl(io, 'images', rel, warnings, `${kind} ${x?.id ?? i}`) : undefined;
           pushEntry(normalizeLibEntry(kind, x, { warnings, where, source: 'pack', image }));
         });
       }

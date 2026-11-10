@@ -305,7 +305,9 @@ test('private-pack boss shape: intro/defeatLine voiced, atHp suggests phases, ta
   assert.equal(lib.lootHint, 'SECRET LOOT HINT');
   assert.equal(lib.floor, '1');
   assert.deepEqual(lib.phases.map((p) => p.atHp), [20, 12, 5]);
-  assert.equal(lib.attacks, undefined); // unknown keys ignored
+  assert.equal(lib.cues, undefined); // unknown keys ignored
+  assert.deepEqual(lib.attacks, [{ name: 'Luggage Hurl', toHit: 0, damage: '', effects: '', buffs: [] }]); // stat block for combat
+  assert.equal(lib.evade, 2);
   assert.equal(p2.library.location[0].readAloud, 'Marble. Blood. Mints.');
 
   let s = createState(p2, 0);

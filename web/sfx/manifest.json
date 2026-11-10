@@ -1,0 +1,134 @@
+{
+ "format": "the-system-sfx/1",
+ "generator": "tools/gen_sfx.mjs",
+ "pads": [
+  {
+   "id": "boss_sting",
+   "label": "Boss sting",
+   "file": "boss_sting.mp3",
+   "hotkey": "Shift+Digit1",
+   "volume": 1,
+   "duration": 3.05
+  },
+  {
+   "id": "phase_change",
+   "label": "Phase change",
+   "file": "phase_change.mp3",
+   "hotkey": "Shift+Digit2",
+   "volume": 1,
+   "duration": 2.96
+  },
+  {
+   "id": "victory_fanfare",
+   "label": "Victory fanfare",
+   "file": "victory_fanfare.mp3",
+   "hotkey": "Shift+Digit3",
+   "volume": 1,
+   "duration": 3.53
+  },
+  {
+   "id": "death",
+   "label": "Death",
+   "file": "death.mp3",
+   "hotkey": "Shift+Digit4",
+   "volume": 1,
+   "duration": 4.2
+  },
+  {
+   "id": "loot_open",
+   "label": "Loot box open",
+   "file": "loot_open.mp3",
+   "hotkey": "Shift+Digit5",
+   "volume": 1,
+   "duration": 2.6
+  },
+  {
+   "id": "achievement",
+   "label": "Achievement chime",
+   "file": "achievement.mp3",
+   "hotkey": "Shift+Digit6",
+   "volume": 1,
+   "duration": 2.4
+  },
+  {
+   "id": "crowd_cheer",
+   "label": "Crowd cheer",
+   "file": "crowd_cheer.mp3",
+   "hotkey": "Shift+Digit7",
+   "volume": 1,
+   "duration": 3.8
+  },
+  {
+   "id": "crowd_boo",
+   "label": "Crowd boo",
+   "file": "crowd_boo.mp3",
+   "hotkey": "Shift+Digit8",
+   "volume": 1,
+   "duration": 3.2
+  },
+  {
+   "id": "crowd_gasp",
+   "label": "Crowd gasp",
+   "file": "crowd_gasp.mp3",
+   "hotkey": "Shift+Digit9",
+   "volume": 1,
+   "duration": 1.39
+  },
+  {
+   "id": "hype_horn",
+   "label": "Hype horn",
+   "file": "hype_horn.mp3",
+   "hotkey": "Shift+Digit0",
+   "volume": 1,
+   "duration": 2.54
+  },
+  {
+   "id": "drumroll",
+   "label": "Drumroll",
+   "file": "drumroll.mp3",
+   "hotkey": "Shift+KeyQ",
+   "volume": 1,
+   "duration": 4.23
+  },
+  {
+   "id": "fail",
+   "label": "Fail trombone",
+   "file": "fail.mp3",
+   "hotkey": "Shift+KeyW",
+   "volume": 1,
+   "duration": 3.4
+  },
+  {
+   "id": "alarm_collapse",
+   "label": "Alarm / floor collapse",
+   "file": "alarm_collapse.mp3",
+   "hotkey": "Shift+KeyE",
+   "volume": 1,
+   "duration": 4.6
+  },
+  {
+   "id": "door_creak",
+   "label": "Door creak",
+   "file": "door_creak.mp3",
+   "hotkey": "Shift+KeyR",
+   "volume": 1,
+   "duration": 2.4
+  },
+  {
+   "id": "magic_zap",
+   "label": "Magic zap",
+   "file": "magic_zap.mp3",
+   "hotkey": "Shift+KeyT",
+   "volume": 1,
+   "duration": 1.74
+  },
+  {
+   "id": "explosion",
+   "label": "Explosion",
+   "file": "explosion.mp3",
+   "hotkey": "Shift+KeyU",
+   "volume": 1,
+   "duration": 2.93
+  }
+ ]
+}
