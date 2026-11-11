@@ -22,7 +22,9 @@ my-pack/
   locations.json      optional: locations for the Explore scene
   monsters.json       optional: mob stat blocks for the combat tracker
   npcs.json           optional: NPC cards (GM desk + TV name card)
-  images/             item art (webp/png, 512x512 recommended)
+  icons.json          optional: item icon library (fallback art for items, see below)
+  ui.json             optional: art for the show's chrome (mascot, crates, dice, frames, ...)
+  images/             art (webp/png); item icons 512x512. tools/art_ingest.py fills it (docs/ART_PIPELINE.md)
   audio/              pre-rendered voice lines (mp3/ogg)
   audio/sfx/          your own sound-effect pads (see sfx.json)
 ```
@@ -130,6 +132,18 @@ homebrew in the campaign library (`lib.upsert`). Unknown keys anywhere are ignor
 Rarity: `common`, `uncommon`, `rare`, `epic`, `legendary`. `image` is relative to `images/` and optional
 (the UI draws a rarity-colored placeholder).
 
+### icons.json (item icon library)
+
+Optional. Lets many items share a small set of icons instead of needing one picture each.
+```json
+{ "fallback": "icon_trinket",
+  "categories": [ { "id": "boots", "base": "icon_boots", "variants": [ { "id": "icon_boots_winged" } ] } ] }
+```
+Items may carry `icon` (an icon id) and `iconCategory` (a category id). An item's picture is the first of these
+files that exists: its own `image`, `images/<icon>.webp`, `images/<category base>.webp`, `images/<fallback>.webp`.
+Only a missing own `image` with nothing to fall back to is a load warning. Icon files are named by id, so no JSON
+needs to change when the art arrives.
+
 ## bosses.json and locations.json (TV scenes)
 
 Optional arrays, library kinds `boss` and `location` (GM library + the Scenes panel; never sent to phones).
@@ -148,6 +162,9 @@ Optional arrays, library kinds `boss` and `location` (GM library + the Scenes pa
 - `intro` is shown and spoken (System voice) when the GM presses Intro; `defeatLine` on defeat.
 - `tactics` and `lootHint` stay on the GM desk. `lootTier` (a pack tier id) names the TV loot line.
 - `image` is relative to `images/`; missing art → a generated silhouette in the boss's `color`.
+- Optional extra art: `imageSquare` (square crop for the combat tracker and GM cards; when present a boss added
+  to a fight uses it), `imageKo` (shown on the TV once the boss is defeated) and `phases[].image` (the TV swaps
+  to the current phase's portrait). `tools/art_ingest.py` writes all three.
 - Unknown keys (`attacks`, `evade`, `cues`, ...) are ignored by the scene system.
 
 Locations: `{ id, name, floor, image, readAloud, features[], npcs[], monsters[], bosses[] }` — picking one fills
@@ -177,6 +194,56 @@ HP bar and conditions.
 ```
 The TV's NPC card shows `name`, `role`, `floor` and the portrait; `voice`, `hooks` and `secrets` stay on the
 GM desk (`personality` too). Missing art → a generated silhouette. Unknown keys (`art`, …) are ignored.
+
+## ui.json (show chrome art)
+
+Optional. Art for the parts of the show that are not library entries. Every value is a path under `images/`,
+either a string or, for animations, an object:
+
+```json
+{ "src": "anim/system_talk.webp", "still": "anim/system_talk_0.webp",
+  "strip": "anim/system_talk_strip.webp", "frames": 8, "fps": 10, "w": 384, "h": 384, "loop": true }
+```
+
+- `src`: the picture (an animated WebP is fine).
+- `still` (optional): the first frame, used under `prefers-reduced-motion` and where only a still makes sense. A
+  string `"x.webp"` gets `"x_0.webp"` as its still automatically when that file exists.
+- `strip` + `frames`, `w`, `h` (+ `fps`, default 10; `loop`, default true): a horizontal sprite strip. The TV
+  animates it with `transform` + `steps()` (cheaper than decoding an animated WebP on a TV browser).
+
+Every asset is optional. A missing file is skipped with a load warning, and the UI keeps its CSS / procedural look
+for that spot. Keys are ids (`A-Z a-z 0-9 _ -`), at most 200 per section. Unknown sections are ignored with a warning.
+
+| section | keys | used for |
+|---|---|---|
+| `logo` | (one asset) | emblem in the TV bug's corner and on the lobby title card |
+| `logoOptions` | any | alternative emblems (not shown; copy the chosen one to `logo`) |
+| `mascot` | mood: `neutral`, `smug`, `delighted`, `angry`, `glitch`, `presenting`, `laughing`, `fake_sad`, `idle`, ..., and `talking` | the System on TV takeovers: achievement (`delighted` → `presenting` → `smug` → `neutral`), announcement (event `mood`, else `presenting` → `neutral`), recap (`smug`), lobby (`idle` → `neutral`). While the System's voice plays (subtitle on screen) the `talking` art replaces the mood. |
+| `lootBoxes` | tier id (or `default`, `sponsor`) → `closed`, `idle`, `opening`, `open` | the loot reveal and the Loot scene: `idle` (or `closed`) rattles, `opening` plays once at the burst, then `open`. A bare asset means `{ "default": asset }`. |
+| `dice` | `d20`, `d6`, ... → `body`, `nat20`, `nat1`, `sponsor` | die body behind the rolled number (Roll scene, combat auto-mode d20); `nat20` / `nat1` swap in on landing. Numbers are always text. |
+| `conditions` | buff id (or `default` for custom conditions) | icon on the TV's condition chips |
+| `sponsors` | sponsor id (or `{ "name": "Cryo Cola", "image": ... }`) | emblem on the sponsor-box banner. Matched by the slug of the sponsor name (`"Cryo Cola"` → `cryo_cola`) or by `name`. |
+| `finale` | outcome (`victory`, `defeat`, `runaway`, `truce`, `special`, `sponsor`, `timeout`, `stalemate`) and `mvp` | illustration above the finale headline; `mvp` badge next to the MVP |
+| `floors` | floor (`"1"`, `"2"`, ..., `default`) → `default`, `lobby`, `explore`, `combat`, `boss` | dimmed backdrop. Combat uses `combat`; boss uses `boss`, then `combat`; lobby `lobby`; explore `explore` (only when the location has no picture). Floor = the last boss / explore scene's floor; then `default`. A bare asset means `{ "default": asset }`. |
+| `rarityFrames` | rarity (+ `sponsor`) | a top-left corner ornament, mirrored to the four corners of the item card on the TV |
+| `medals` | achievement group slug (`"Death-Adjacent"` → `death_adjacent`) or `default` | medal on the achievement takeover |
+| `fx` | `impact`, `crit`, `heal`, ... | comic decal slammed over a card when it is hit / healed in the arena |
+| `stingers`, `empty`, `avatars`, `anim` | any | stored and served; not shown by the engine yet |
+
+```json
+{
+  "logo": "ui/logo_emblem.webp",
+  "mascot": { "neutral": "ui/system_neutral.webp", "talking": { "src": "anim/system_talk.webp", "strip": "anim/system_talk_strip.webp", "frames": 8, "fps": 10, "w": 384, "h": 384 } },
+  "lootBoxes": { "gold": { "closed": "ui/loot_gold_closed.webp", "open": "ui/loot_gold_open.webp" } },
+  "conditions": { "bleeding": "ui/cond_bleeding.webp", "default": "ui/cond_generic.webp" },
+  "floors": { "1": { "combat": "bg_arena_f1.webp" }, "default": { "lobby": "bg_studio.webp" } }
+}
+```
+
+`tools/art_ingest.py` writes this file for you (ids such as `system_smug`, `loot_gold_open`, `cond_bleeding`,
+`die_d20_nat20`, `fin_victory`, `orn_legendary`, `medal_combat`, `bg_arena_f2` map to their slot; see
+docs/ART_PIPELINE.md). The TV preloads the art of the current scene and the likely next one (boss art and its
+phase / defeat pictures on a boss scene, the fight's mobs and the finale during combat, the tier crate on loot).
 
 ## loot.json
 ```json

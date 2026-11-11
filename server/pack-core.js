@@ -244,7 +244,39 @@ function loadAchievements(raw, quipsById, warnings) {
   });
 }
 
-function loadItems(io, raw, warnings) {
+/** icons.json: { fallback, categories: [{ id, base, variants: [{ id }] }] } → lookups for item art. */
+function loadIcons(raw, warnings) {
+  const out = { base: new Map(), fallback: null };
+  if (raw === undefined) return out;
+  if (!isObj(raw)) {
+    warnings.push('icons.json must be an object, ignoring');
+    return out;
+  }
+  if (isStr(raw.fallback) && ID_RE.test(raw.fallback)) out.fallback = raw.fallback;
+  for (const c of Array.isArray(raw.categories) ? raw.categories : []) {
+    if (isObj(c) && isStr(c.id) && isStr(c.base) && ID_RE.test(c.base)) out.base.set(c.id, c.base);
+  }
+  return out;
+}
+
+/**
+ * Item art: the item's own `image` when that file exists, else images/<icon>.webp, else the icon
+ * category's base icon, else the icon library fallback (see icons.json). Only a missing own `image`
+ * with nothing to fall back to is warned about.
+ */
+function itemImage(io, it, icons, warnings) {
+  const cands = [];
+  if (isStr(it.image)) cands.push(it.image);
+  if (isStr(it.icon) && ID_RE.test(it.icon)) cands.push(`${it.icon}.webp`);
+  if (isStr(it.iconCategory) && icons.base.has(it.iconCategory)) cands.push(`${icons.base.get(it.iconCategory)}.webp`);
+  if (icons.fallback && (cands.length || icons.base.size)) cands.push(`${icons.fallback}.webp`);
+  for (const rel of cands) {
+    if (typeof rel === 'string' && !UNSAFE_PATH.test(rel) && io.assetExists('images', rel)) return assetUrl(io, 'images', rel, warnings, `item ${it.id}`);
+  }
+  return assetUrl(io, 'images', it.image, warnings, `item ${it.id}`);
+}
+
+function loadItems(io, raw, warnings, icons = loadIcons(undefined, [])) {
   const F = 'items.json';
   if (raw === undefined) {
     warnings.push('items.json missing, no items');
@@ -272,7 +304,7 @@ function loadItems(io, raw, warnings) {
       desc: typeof it.desc === 'string' ? it.desc : '',
       flavor: isStr(it.flavor) ? it.flavor.trim() : '',
       rarity,
-      image: assetUrl(io, 'images', it.image, warnings, `item ${it.id}`),
+      image: itemImage(io, it, icons, warnings),
       tags: extra.tags ?? [],
       slot: extra.slot ?? null,
       stackable: !!extra.stackable,
@@ -373,6 +405,115 @@ function loadLoot(raw, tiers, itemsById, warnings) {
   return loot;
 }
 
+/*
+ * ui.json (optional): art for the show's chrome. Every asset is a path under images/ — a string, or
+ * { src, still?, strip?, frames?, fps?, w?, h?, loop? } for animations (still = reduced-motion / phone
+ * fallback; strip = horizontal sprite strip the TV animates with steps()). A string whose
+ * "<name>_0.webp" sibling exists gets that as its still automatically. Missing files are skipped with a
+ * warning; the UI then keeps its CSS / procedural look. Schema: docs/CONTENT_PACKS.md "ui.json".
+ */
+const UI_SECTIONS = {
+  logo: 0, // the show emblem
+  logoOptions: 1, // alternatives the GM can pick from (not shown)
+  mascot: 1, // System mascot by mood: neutral, smug, angry, glitch, delighted, talking, idle, ...
+  lootBoxes: 2, // tier id (or "default") → closed | open | opening | idle
+  dice: 2, // d20 | d6 | ... → body | nat20 | nat1 | sponsor
+  conditions: 1, // buff id (or "default") → icon
+  sponsors: 1, // sponsor id → logo (or { name, image })
+  finale: 1, // combat outcome (victory, defeat, ..., mvp) → illustration
+  floors: 2, // floor ("1", "2", "default") → default | lobby | explore | combat | boss
+  rarityFrames: 1, // rarity (+ "sponsor") → top-left corner ornament, mirrored to four corners
+  medals: 1, // achievement group (slug, or "default") → medal
+  fx: 1, // impact | crit | slash | heal | fire | ... → decal / animation
+  stingers: 1, // boss | loot | break → full-screen panel
+  empty: 1, // empty-state spots
+  avatars: 1, // picker for crawlers without a photo
+  anim: 1, // other animations (ambience props, ...)
+};
+export const UI_SECTION_NAMES = Object.keys(UI_SECTIONS);
+const UI_MAX = 200;
+
+function uiAsset(io, v, warnings, label) {
+  if (typeof v === 'string') v = { src: v };
+  if (!isObj(v)) {
+    warnings.push(`ui.json ${label}: expected a path or { src }, ignoring`);
+    return null;
+  }
+  const rel = isStr(v.src) ? v.src : isStr(v.image) ? v.image : null;
+  if (!rel) {
+    warnings.push(`ui.json ${label}: src missing, ignoring`);
+    return null;
+  }
+  const src = assetUrl(io, 'images', rel, warnings, `ui ${label}`);
+  if (!src) return null;
+  let still = isStr(v.still) ? assetUrl(io, 'images', v.still, warnings, `ui ${label}.still`) : null;
+  if (!still && v.still == null) {
+    const auto = rel.replace(/\.(webp|png|gif)$/i, '_0.webp');
+    if (auto !== rel && !UNSAFE_PATH.test(auto) && io.assetExists('images', auto)) still = assetUrl(io, 'images', auto, [], '');
+  }
+  const out = { src, still };
+  if (isStr(v.strip)) {
+    const strip = assetUrl(io, 'images', v.strip, warnings, `ui ${label}.strip`);
+    const int = (x, lo, hi) => Number.isInteger(x) && x >= lo && x <= hi;
+    if (strip && int(v.frames, 2, 128) && int(v.w, 1, 4096) && int(v.h, 1, 4096)) {
+      out.strip = { src: strip, frames: v.frames, w: v.w, h: v.h, fps: num(v.fps, 0.5, 60, 10), loop: v.loop !== false };
+    } else if (strip) warnings.push(`ui.json ${label}: strip needs integer frames (2-128), w and h, ignoring the strip`);
+  }
+  if (isStr(v.name)) out.name = v.name.trim().slice(0, 60);
+  return out;
+}
+
+function uiMap(io, raw, depth, warnings, label) {
+  const out = {};
+  if (!isObj(raw)) {
+    warnings.push(`ui.json ${label} must be an object, ignoring`);
+    return out;
+  }
+  let n = 0;
+  for (const [k, v] of Object.entries(raw)) {
+    if (!ID_RE.test(k)) {
+      warnings.push(`ui.json ${label}: bad key ${JSON.stringify(k)}, skipping`);
+      continue;
+    }
+    if (++n > UI_MAX) {
+      warnings.push(`ui.json ${label}: more than ${UI_MAX} entries, ignoring the rest`);
+      break;
+    }
+    if (depth === 2) {
+      // floors / lootBoxes / dice: a bare asset is shorthand for { default: asset }.
+      const inner = uiMap(io, typeof v === 'string' || (isObj(v) && (v.src || v.image)) ? { default: v } : v, 1, warnings, `${label}.${k}`);
+      if (Object.keys(inner).length) out[k] = inner;
+    } else {
+      const a = uiAsset(io, v, warnings, `${label}.${k}`);
+      if (a) out[k] = a;
+    }
+  }
+  return out;
+}
+
+export function loadUi(io, raw, warnings) {
+  if (raw === undefined) return null;
+  if (!isObj(raw)) {
+    warnings.push('ui.json must be an object, ignoring');
+    return null;
+  }
+  const ui = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (!(k in UI_SECTIONS)) {
+      warnings.push(`ui.json: unknown section "${k}", ignoring`);
+      continue;
+    }
+    if (UI_SECTIONS[k] === 0) {
+      const a = uiAsset(io, v, warnings, k);
+      if (a) ui[k] = a;
+    } else {
+      const m = uiMap(io, v, UI_SECTIONS[k], warnings, k);
+      if (Object.keys(m).length) ui[k] = m;
+    }
+  }
+  return ui;
+}
+
 function loadChat(raw, warnings) {
   return normalizeChatLines(raw, warnings);
 }
@@ -407,7 +548,7 @@ export function quipAudio(quip, voiceId) {
 
 /**
  * Validates and normalizes already-parsed pack JSON.
- * raw = { pack, achievements?, items?, loot?, quips?, chat? } (undefined = file missing; `pack` required).
+ * raw = { pack, achievements?, items?, loot?, quips?, chat?, ui?, icons?, ... } (undefined = file missing; `pack` required).
  * opts.assetExists(sub, rel) tells whether images/<rel> or audio/<rel> exists (default: assume yes).
  * opts.baseUrl is the URL prefix for assets (default '/pack/'). opts.dir is stored as pack.dir.
  * Returns { pack, warnings }. Throws PackError on structural problems.
@@ -421,7 +562,7 @@ export function normalizePack(raw, opts = {}) {
   const quips = loadQuips(io, raw.quips, warnings, meta.voices);
   const quipsById = new Map(quips.map((q) => [q.id, q]));
   const achievements = loadAchievements(raw.achievements, quipsById, warnings);
-  const items = loadItems(io, raw.items, warnings);
+  const items = loadItems(io, raw.items, warnings, loadIcons(raw.icons, warnings));
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const loot = loadLoot(raw.loot, meta.lootTiers, itemsById, warnings);
   const chat = loadChat(raw.chat, warnings);
@@ -429,7 +570,8 @@ export function normalizePack(raw, opts = {}) {
   const ruleset = normalizeRuleset(rawRuleset, { stats: meta.stats, resources: meta.resources }, warnings);
   const library = loadLibrary(raw, ruleset, warnings, io);
   const sfx = loadSfx(io, raw.sfx, warnings);
-  const pack = finish({ ...meta, sfx, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
+  const ui = loadUi(io, raw.ui, warnings);
+  const pack = finish({ ...meta, sfx, ui, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
   return { pack, warnings };
 }
 
@@ -439,7 +581,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'ui'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -473,6 +615,7 @@ export function deserializePack(data) {
   pack.library = lib;
   pack.theme = THEMES.includes(d.theme) ? d.theme : null;
   pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
+  pack.ui = isObj(d.ui) ? structuredClone(d.ui) : null; // already normalized URLs (built by normalizePack)
   pack.items = pack.items.map((it) => ({ tags: [], slot: null, stackable: false, effects: [], attack: null, use: null, source: 'pack', ...it }));
   pack.dir = null;
   return finish(pack);
@@ -488,6 +631,7 @@ export function fallbackPack() {
     systemName: 'The System',
     notifyPrefix: '',
     theme: null,
+    ui: null,
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },
     autoBudget: 6,

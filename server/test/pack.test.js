@@ -118,3 +118,81 @@ test('serializePack/deserializePack round trip is JSON-safe and complete', async
   const fb = deserializePack(serializePack(fallbackPack()));
   assert.equal(fb.id, 'fallback');
 });
+
+test('ui.json: assets, animations, auto stills, shorthand, bad entries skipped', async () => {
+  const { normalizePack, serializePack, deserializePack } = await import('../pack-core.js');
+  const files = new Set(['ui/system_smug.webp', 'anim/system_talk.webp', 'anim/system_talk_0.webp', 'anim/system_talk_strip.webp',
+    'ui/loot_gold_closed.webp', 'ui/cond_bleeding.webp', 'bg_arena_f1.webp', 'bg_studio.webp', 'ui/logo.webp', 'ui/fin_victory.webp']);
+  const raw = {
+    pack: { id: 'x', name: 'X', lootTiers: [{ id: 'gold', name: 'Gold' }] },
+    ui: {
+      logo: 'ui/logo.webp',
+      mascot: {
+        smug: 'ui/system_smug.webp',
+        talking: { src: 'anim/system_talk.webp', strip: 'anim/system_talk_strip.webp', frames: 8, fps: 10, w: 384, h: 384, loop: true },
+        angry: 'ui/missing.webp',
+      },
+      lootBoxes: { gold: { closed: 'ui/loot_gold_closed.webp' } },
+      conditions: { bleeding: 'ui/cond_bleeding.webp', 'bad key!': 'x.webp' },
+      floors: { 1: { combat: 'bg_arena_f1.webp' }, default: 'bg_studio.webp' },
+      finale: { victory: 'ui/fin_victory.webp', defeat: '../escape.webp' },
+      bogus: {},
+    },
+  };
+  const { pack, warnings } = normalizePack(raw, { assetExists: (sub, rel) => sub === 'images' && files.has(rel) });
+  const ui = pack.ui;
+  assert.deepEqual(ui.logo, { src: '/pack/images/ui/logo.webp', still: null });
+  assert.equal(ui.mascot.smug.src, '/pack/images/ui/system_smug.webp');
+  assert.equal(ui.mascot.talking.still, '/pack/images/anim/system_talk_0.webp', 'auto still from <name>_0.webp');
+  assert.deepEqual(ui.mascot.talking.strip, { src: '/pack/images/anim/system_talk_strip.webp', frames: 8, w: 384, h: 384, fps: 10, loop: true });
+  assert.equal(ui.mascot.angry, undefined, 'missing file → no entry (CSS fallback)');
+  assert.equal(ui.lootBoxes.gold.closed.src, '/pack/images/ui/loot_gold_closed.webp');
+  assert.equal(ui.floors['1'].combat.src, '/pack/images/bg_arena_f1.webp');
+  assert.equal(ui.floors.default.default.src, '/pack/images/bg_studio.webp', 'string shorthand → { default }');
+  assert.equal(ui.finale.defeat, undefined);
+  assert.equal(ui.conditions['bad key!'], undefined);
+  assert.ok(warnings.some((w) => w.includes('unknown section "bogus"')));
+  assert.ok(warnings.some((w) => w.includes('ui/missing.webp')));
+  assert.ok(warnings.some((w) => w.includes('unsafe')));
+  const back = deserializePack(JSON.parse(JSON.stringify(serializePack(pack))));
+  assert.deepEqual(back.ui, ui);
+  assert.equal(normalizePack({ pack: raw.pack }).pack.ui, null, 'no ui.json → null');
+});
+
+test('items fall back to icon library art (icon, then category base, then fallback)', async () => {
+  const { normalizePack } = await import('../pack-core.js');
+  const files = new Set(['own.webp', 'icon_boots_winged.webp', 'icon_food.webp', 'icon_trinket.webp']);
+  const raw = {
+    pack: { id: 'x', name: 'X' },
+    icons: { fallback: 'icon_trinket', categories: [{ id: 'boots', base: 'icon_boots' }, { id: 'food', base: 'icon_food' }] },
+    items: [
+      { id: 'a', name: 'A', image: 'own.webp', icon: 'icon_boots_winged' },
+      { id: 'b', name: 'B', image: 'b.webp', icon: 'icon_boots_winged', iconCategory: 'boots' },
+      { id: 'c', name: 'C', image: 'c.webp', icon: 'icon_food_can', iconCategory: 'food' },
+      { id: 'd', name: 'D', icon: 'icon_nope', iconCategory: 'boots' },
+      { id: 'e', name: 'E' },
+    ],
+  };
+  const { pack, warnings } = normalizePack(raw, { assetExists: (sub, rel) => files.has(rel) });
+  const img = (id) => pack.itemsById.get(id).image;
+  assert.equal(img('a'), '/pack/images/own.webp');
+  assert.equal(img('b'), '/pack/images/icon_boots_winged.webp');
+  assert.equal(img('c'), '/pack/images/icon_food.webp');
+  assert.equal(img('d'), '/pack/images/icon_trinket.webp');
+  assert.equal(img('e'), '/pack/images/icon_trinket.webp');
+  assert.deepEqual(warnings.filter((w) => w.startsWith('item ')), [], 'a fallback that exists is not a warning');
+  const none = normalizePack({ ...raw, icons: undefined }, { assetExists: () => false });
+  assert.equal(none.pack.itemsById.get('e').image, null);
+  assert.ok(none.warnings.some((w) => w.includes('item b: images/b.webp')));
+});
+
+test('boss imageSquare / imageKo: library keeps them, combat uses the square crop', async () => {
+  const { normalizePack } = await import('../pack-core.js');
+  const raw = { pack: { id: 'x', name: 'X' }, bosses: [{ id: 'grim', name: 'Grim', image: 'grim.webp', imageSquare: 'grim_sq.webp', imageKo: 'grim_ko.webp' }, { id: 'plain', name: 'Plain', image: 'p.webp' }] };
+  const { pack } = normalizePack(raw);
+  const grim = pack.library.boss.find((b) => b.id === 'grim');
+  assert.equal(grim.imageSquare, '/pack/images/grim_sq.webp');
+  assert.equal(grim.imageKo, '/pack/images/grim_ko.webp');
+  const plain = pack.library.boss.find((b) => b.id === 'plain');
+  assert.ok(!('imageSquare' in plain) && !('imageKo' in plain), 'shape unchanged without the new fields');
+});

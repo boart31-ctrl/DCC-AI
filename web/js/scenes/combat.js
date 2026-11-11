@@ -11,6 +11,7 @@
 // opacity animations only.
 import { h, hash, threatColor, rgb, replay, bossSvg, portraitTile } from './common.js';
 import { portraitSrc } from '../client.js';
+import { uiOf, uiAsset, artEl, floorLayer } from '../ui-art.js';
 
 const MAX_PIPS = 20;
 const FALLEN_MAX = 10;
@@ -26,8 +27,9 @@ export default function combat(root, sc, env) {
   const fallen = h('div.ar-fallen', { 'aria-label': 'Fallen' });
   const foesEmpty = h('div.ar-empty', h('i.ar-scan'), h('p', 'Scanning for hostiles'));
   const fx = h('div.ar-fx', { 'aria-hidden': 'true' });
+  const floorBg = floorLayer('combat'); // ui.json floor art under the CSS grid; none → today's look
   root.append(
-    h('div.ar-bg', h('i.ar-grid'), h('i.ar-glow-l'), h('i.ar-glow-r')),
+    h('div.ar-bg', floorBg.el, h('i.ar-grid'), h('i.ar-glow-l'), h('i.ar-glow-r')),
     h('header.ar-head', h('div.ar-banner', title, round, h('div.ar-phasebox', phases, status))),
     h('div.ar-board',
       h('section.ar-side.ar-side-l', h('h2.ar-label', h('span', 'Crawlers')), party),
@@ -55,7 +57,24 @@ export default function combat(root, sc, env) {
   }
 
   function conds(list) {
-    return list?.length ? h('div.ar-conds', list.slice(0, 4).map((k) => h('span', k.name)), list.length > 4 ? h('span', `+${list.length - 4}`) : null) : null;
+    if (!list?.length) return null;
+    const ui = uiOf(view);
+    // Condition icon by buff id (ui.json conditions; custom conditions use "default"), else the text chip.
+    const chip = (k) => {
+      const art = artEl(uiAsset(ui, 'conditions', k.id ? [k.id, 'default'] : ['default']), { cls: 'ar-cond-ic', still: true });
+      return h('span', { class: art ? 'has-ic' : '' }, art, k.name);
+    };
+    return h('div.ar-conds', list.slice(0, 4).map(chip), list.length > 4 ? h('span', `+${list.length - 4}`) : null);
+  }
+
+  /** Comic decal (ui.json fx) slammed over a card: impact / crit / heal. CSS scale + fade, then removed. */
+  function decal(card, names) {
+    const a = uiAsset(uiOf(view), 'fx', names);
+    if (!a || env.reduced) return;
+    const d = artEl(a, { cls: 'ar-decal', once: true });
+    if (!d) return;
+    card.append(d);
+    T.after(700, () => d.remove());
   }
 
   const playerOf = (id) => (view?.players || []).find((y) => y.id === id);
@@ -151,6 +170,7 @@ export default function combat(root, sc, env) {
 
   function update(s, v) {
     view = v;
+    floorBg.update(v);
     const c = v?.combat || { active: false, round: 1, phases: [], combatants: [] };
     title.textContent = s.data?.title || '';
     title.hidden = !s.data?.title;
@@ -271,8 +291,12 @@ export default function combat(root, sc, env) {
     const tgt = cardOf(st.targetUid);
     const p = tgt && m ? { x: (center(m).x + center(tgt).x) / 2, y: (center(m).y + center(tgt).y) / 2 } : { x: innerWidth / 2, y: innerHeight / 2 };
     const face = h('b.ar-d20-n', '?');
+    // Die body art (ui.json dice.d20.body; nat20 / nat1 skins swap in on landing), numbers stay text.
+    const dice = (k) => uiAsset(uiOf(view), 'dice', ['d20'], [k]);
+    const body = dice('body');
+    const shape = body ? h('i.ar-d20-shape.art', artEl(body, { still: true })) : h('i.ar-d20-shape');
     const die = h('div.ar-d20', { style: { left: `${p.x}px`, top: `${p.y}px` } },
-      h('div.ar-d20-spin', h('i.ar-d20-shape'), face),
+      h('div.ar-d20-spin', shape, face),
       h('p.ar-d20-math'));
     fx.append(die);
     // Numbers flicker while it tumbles (text only), then land on the real face.
@@ -283,6 +307,8 @@ export default function combat(root, sc, env) {
       T.stop(flick);
       face.textContent = String(st.d20);
       die.classList.add('land', st.nat20 ? 'n20' : st.nat1 ? 'n1' : st.hit ? 'ok' : 'no');
+      const skin = body && (st.nat20 ? dice('nat20') : st.nat1 ? dice('nat1') : null);
+      if (skin) shape.replaceChildren(artEl(skin, { still: true }));
       die.querySelector('.ar-d20-math').textContent = `${st.d20}${st.toHit ? ` ${st.toHit > 0 ? '+' : '−'} ${Math.abs(st.toHit)}` : ''} = ${st.total}  vs  Evade ${st.evade}`;
     }));
   }
@@ -296,6 +322,7 @@ export default function combat(root, sc, env) {
       const el = cardOf(st.targetUid);
       if (el) {
         fxMark(st.targetUid, st.crit ? 'crit' : 'hit');
+        decal(cardOf(st.targetUid) || el, st.crit ? ['crit', 'impact'] : ['impact']);
         pop(el, st.damage ? `−${st.damage}` : 'HIT', st.crit ? 'dmg crit' : 'dmg');
         if (st.buffs?.length) T.after(350, () => pop(el, st.buffs[0], 'cond'));
       }
@@ -331,6 +358,7 @@ export default function combat(root, sc, env) {
       entry.fxAt = Date.now();
       const heal = e.kind === 'combat.heal';
       replay(card, heal ? 'healed' : 'hit');
+      decal(card, heal ? ['heal'] : ['impact']);
       const exactMob = e.type !== 'mob' || view?.combat?.showMobHp;
       pop(card, exactMob ? `${heal ? '+' : '−'}${e.amount}` : heal ? 'HEAL' : 'HIT', heal ? 'heal' : 'dmg');
       if (!heal && e.down && e.type === 'mob') {

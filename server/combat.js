@@ -448,7 +448,7 @@ export const COMBAT_GM = {
     const uids = names.map((name) => {
       const m = {
         uid: ctx.genId('cb'), type: 'mob', sourceKind: kind, sourceId: e.id, sourceKey, name,
-        image: e.image ?? null, hp: e.hpSlots ?? 5, hpMax: e.hpSlots ?? 5,
+        image: (kind === 'boss' && e.imageSquare) || e.image || null, hp: e.hpSlots ?? 5, hpMax: e.hpSlots ?? 5,
         evade: Number.isInteger(e.evade) ? e.evade : 0, dr: Number.isInteger(e.dr) ? e.dr : 0,
         attacks: cleanAttacks(e.attacks), conditions: [], notes: '', hidden, ...MOB_TARGETING,
       };

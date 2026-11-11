@@ -703,6 +703,7 @@ function common(state, pack, opts) {
       voices: pack.voices,
       ruleset: pack.ruleset,
       theme: pack.theme ?? null,
+      ui: pack.ui ?? null, // ui.json art (URLs only); the UI falls back to its CSS look per missing asset
     },
     audience: { viewers: a.viewers, hype: Math.round(hypeOf(a, opts.now) * 100) / 100 },
     feed: state.feed,

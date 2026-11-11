@@ -6,6 +6,7 @@ import { levelBadge } from './scenes/common.js';
 import { createVoicePlayer, createSubtitleOnly, createCueGate } from './voice.js';
 import { createShowAudio } from './show-audio.js';
 import { createTicker } from './ticker.js';
+import { uiOf, uiAsset, artEl, assetSrc, cornerFrame, mascotEl, setSpeaking, slug, preloadFor } from './ui-art.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const client = new TransportHub();
@@ -74,6 +75,20 @@ function render() {
   $('.hype').classList.toggle('hot', hype >= 0.8 || !!view.audience?.sponsorReady);
   renderStrip();
   renderFeed();
+  renderLogo();
+  preloadFor(view);
+}
+
+/** Pack emblem (ui.json logo) in the bug's corner; the ◢ glyph stays when there is none. */
+let logoSrc = null;
+function renderLogo() {
+  const a = uiAsset(uiOf(view), 'logo');
+  const src = assetSrc(a, { still: true }) || '';
+  if (src === logoSrc) return;
+  logoSrc = src;
+  const mark = $('.logo-mark');
+  mark.replaceChildren(src ? h('img', { src, alt: '', decoding: 'async', onerror: () => { mark.textContent = '◢'; mark.classList.remove('has-art'); } }) : '◢');
+  mark.classList.toggle('has-art', !!src);
 }
 
 let shown = null;
@@ -248,7 +263,7 @@ function nextMoment() {
         h('p.ann-from', view?.pack?.systemName || 'The System'),
         scroll,
       ),
-    ));
+    ), mascotEl(uiOf(view), 'recap', 'ua-mascot m-mascot'));
     const typeMs = reduced ? 0 : Math.min(8000, e.text.split(/\s+/).length * 40);
     hold = Math.min(45000, 900 + typeMs + readTime(e.text, 8000, 40000));
     typewrite(desc, e.text, reduced ? 0 : 700, typeMs, null, () => {
@@ -263,7 +278,7 @@ function nextMoment() {
         h('p.ann-from', e.from || view?.pack?.systemName || 'The System'),
         h('div.m-scroll', h('p.sys-desc', text)),
       ),
-    ));
+    ), mascotEl(uiOf(view), e.mood || 'announcement', 'ua-mascot m-mascot'));
     hold = readTime(text, 8000);
     autoScroll(el.querySelector('.m-scroll'), hold);
   } else if (e.kind === 'achievement') {
@@ -272,16 +287,18 @@ function nextMoment() {
     const reward = e.reward ? h('p.m-reward', h('b', 'Reward: '), e.reward) : null;
     if (reward) reward.style.visibility = 'hidden';
     const scroll = h('div.m-scroll', desc);
+    const medal = artEl(uiAsset(uiOf(view), 'medals', [slug(e.group), 'default']), { cls: 'm-medal', still: true });
     el.replaceChildren(h('div.m-inner',
       h('p.m-prefix', view?.pack?.notifyPrefix || 'New achievement!'),
       nameTag,
-      h('div.sys.m-ach', { 'data-head': `${sys} // ACHIEVEMENT UNLOCKED` },
+      h('div.sys.m-ach', { 'data-head': `${sys} // ACHIEVEMENT UNLOCKED`, class: medal ? 'sys m-ach has-medal' : 'sys m-ach' },
+        medal,
         h('p.sys-title', e.title),
         e.desc ? scroll : null,
         reward,
       ),
       reduced ? null : h('div.m-shock'),
-    ));
+    ), mascotEl(uiOf(view), 'achievement', 'ua-mascot m-mascot'));
     if (!reduced) el.classList.add('shake');
     // Reading time (4 s + 60 ms/word) starts once the text is fully typed; total capped at 20 s.
     const words = `${e.title} ${e.desc || ''} ${e.reward || ''}`.trim().split(/\s+/).length;
@@ -296,16 +313,40 @@ function nextMoment() {
   } else {
     const r = rarityOf(e.item?.rarity);
     const tier = view?.pack?.lootTiers?.find((t) => t.id === e.tier);
+    const ui = uiOf(view);
     el.style.setProperty('--glow', `var(--r-${r})`);
-    const box = h('div.box', { style: { '--t': tier?.color || 'var(--acid)' } }, h('div.body'), h('div.lid'));
+    // Crate art per tier (ui.json lootBoxes): closed (or its idle rattle) → opening → open. Without art
+    // the CSS box below plays as before.
+    const tierKeys = [e.tier, e.kind === 'sponsor' ? 'sponsor' : null, 'default'].filter(Boolean);
+    const crate = (st) => uiAsset(ui, 'lootBoxes', tierKeys, st);
+    const closedArt = crate(['idle', 'closed']);
+    let box = h('div.box', { style: { '--t': tier?.color || 'var(--acid)' } }, h('div.body'), h('div.lid'));
+    let openCrate = null;
+    if (closedArt) {
+      const cssBox = box;
+      const art = artEl(closedArt, { cls: 'box-img', onError: () => artBox.replaceWith(cssBox) });
+      const artBox = h('div.box.box-art', { style: { '--t': tier?.color || 'var(--acid)' } }, art);
+      box = artBox;
+      openCrate = () => {
+        const next = crate(['opening']) || crate(['open']);
+        if (!next) return;
+        const img = artEl(next, { cls: 'box-img', once: true, onEnd: () => {
+          const fin = crate(['open']);
+          if (fin && fin !== next) img.replaceWith(artEl(fin, { cls: 'box-img', still: true }) || img);
+        } });
+        artBox.replaceChildren(img);
+      };
+    }
+    const sponsorLogo = e.kind === 'sponsor' ? sponsorArt(ui, e.sponsor) : null;
     const top = e.kind === 'sponsor'
-      ? [h('div.sponsor-banner', `${e.sponsor || 'A sponsor'} presents`), h('p.sponsor-sub', `a gift for ${p?.name || 'a crawler'}`)]
+      ? [h('div.sponsor-banner', { class: sponsorLogo ? 'sponsor-banner has-logo' : 'sponsor-banner' }, sponsorLogo, `${e.sponsor || 'A sponsor'} presents`), h('p.sponsor-sub', `a gift for ${p?.name || 'a crawler'}`)]
       : [nameTag, h('p.sponsor-sub', { style: { color: tier?.color || 'var(--acid)' } }, `opens a ${tier?.name || 'loot box'}`)];
     const inner = h('div.m-inner', ...top, box);
     el.replaceChildren(inner);
     const reveal = () => {
       const len = `${e.item?.desc || ''}${e.item?.flavor || ''}`.length;
-      const card = h('div.card', { class: `card r-${r}${len > 380 ? ' xlong' : len > 200 ? ' long' : ''}` },
+      const frame = cornerFrame(uiAsset(ui, 'rarityFrames', e.kind === 'sponsor' ? ['sponsor', r] : [r]), 'ua-frame card-frame');
+      const card = h('div.card', { class: `card r-${r}${len > 380 ? ' xlong' : len > 200 ? ' long' : ''}${frame ? ' has-frame' : ''}` },
         itemArt(e.item || {}),
         h('div.card-meta',
           h('span.rarity-tag', r),
@@ -313,12 +354,13 @@ function nextMoment() {
           e.item?.desc ? h('p.card-desc', e.item.desc) : null,
           e.item?.flavor ? h('p.card-flavor', e.item.flavor) : null,
         ),
+        frame,
       );
       inner.replaceChildren(...top.slice(0, 1), card);
     };
     if (reduced) { reveal(); hold = 6000; } else {
       requestAnimationFrame(() => box.classList.add('shake'));
-      setTimeout(() => { box.classList.remove('shake'); box.classList.add('open'); }, 1500);
+      setTimeout(() => { box.classList.remove('shake'); box.classList.add('open'); openCrate?.(); }, 1500);
       setTimeout(reveal, 1950);
       hold = 2000 + readTime(`${e.item?.name || ''} ${e.item?.desc || ''} ${e.item?.flavor || ''}`, 6500);
     }
@@ -328,6 +370,15 @@ function nextMoment() {
     el.classList.add('out');
     setTimeout(nextMoment, 500);
   }, hold);
+}
+
+/** Sponsor emblem from ui.json sponsors: key = slug of the sponsor name, or an entry whose name matches. */
+function sponsorArt(ui, name) {
+  const map = ui?.sponsors;
+  if (!map || !name) return null;
+  const k = slug(name);
+  const a = map[k] || map[k.replace(/^sponsor_/, '')] || Object.values(map).find((x) => x.name && slug(x.name) === k);
+  return artEl(a, { cls: 'sponsor-logo', still: true });
 }
 
 /* "Previously on…" recap: shown when the view's recap text changes to something new. */
@@ -403,6 +454,7 @@ const subtitle = $('#subtitle');
 function showSub(text) {
   $('#sub-text').textContent = text || '';
   subtitle.hidden = !text;
+  setSpeaking(!!text); // mascots on screen switch to their talking art while the System speaks
 }
 const voicePlayer = createVoicePlayer({ ack: (id) => client.raw({ t: 'audio.done', id }), onSub: showSub, onDuck: (on) => duck(on) });
 const subOnly = createSubtitleOnly(showSub);

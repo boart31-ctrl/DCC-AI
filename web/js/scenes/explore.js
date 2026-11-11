@@ -1,5 +1,6 @@
 // Exploration: where the party is. Location card, optional backdrop, the running feed, party HP.
 import { h, partyStrip } from './common.js';
+import { uiOf, floorBg, assetSrc } from '../ui-art.js';
 
 const GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', stat: '±', 'boss.intro': '☠', 'boss.defeat': '✸', 'boss.phase': '▲' };
 
@@ -28,8 +29,9 @@ export default function explore(root, sc, env) {
     textBox.classList.toggle('long', (d.text || '').length > 220 && (d.text || '').length <= 420);
     textBox.classList.toggle('xlong', (d.text || '').length > 420);
     loc.classList.toggle('long', loc.textContent.length > 18 || (d.text || '').length > 220);
-    if ((d.image || '') !== img) {
-      img = d.image || '';
+    const want = d.image || assetSrc(floorBg(uiOf(view), 'explore', String(d.floor || '').match(/-?\d+/)?.[0])) || '';
+    if (want !== img) {
+      img = want;
       bg.replaceChildren();
       bg.classList.remove('on');
       if (img) {

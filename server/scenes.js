@@ -129,6 +129,7 @@ export function normalizeBoss(raw, ctx) {
     name: reqTxt(raw.name, 'boss.name', 80),
     title: raw.title == null ? '' : txt(raw.title, 'boss.title', 120),
     image: imageUrl(raw.image, 'boss.image'),
+    ...(raw.imageKo ? { imageKo: imageUrl(raw.imageKo, 'boss.imageKo') } : {}),
     hpSlots: raw.hpSlots == null ? 10 : intIn(raw.hpSlots, 'boss.hpSlots', 1, MAX_BOSS_HP),
     phases,
     flavor: raw.flavor == null ? '' : txt(raw.flavor, 'boss.flavor', 600),
@@ -147,7 +148,7 @@ function bossFromLibrary(st, ctx, id) {
   if (!e) throw notFound(`unknown boss ${id}`);
   // Library entries are already normalized; normalizeBoss again keeps one shape for both paths.
   return normalizeBoss({
-    name: e.name, title: e.title, image: e.image, hpSlots: e.hpSlots,
+    name: e.name, title: e.title, image: e.image, imageKo: e.imageKo, hpSlots: e.hpSlots,
     // Library phase `text` is GM mechanics (spoilers); only an optional TV-safe `tv` line reaches the scene.
     phases: Array.isArray(e.phases) ? e.phases.map((p) => ({ name: p?.name, atHp: p?.atHp, image: p?.image, text: p?.tv ?? '' })) : e.phases, flavor: e.flavor || e.desc, color: e.color,
     lootTier: e.lootTier && ctx.pack.tiersById.has(e.lootTier) ? e.lootTier : null,

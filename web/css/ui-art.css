@@ -1,0 +1,84 @@
+/* Pack UI art (ui.json, web/js/ui-art.js). Every rule here only applies when an asset is present;
+   without art the scenes keep their CSS look. TV budget: transform + opacity animations only, images
+   sized by their boxes (no layout reads), decoding async. */
+
+/* ---------- sprite strips (animations) ---------- */
+.ua-sprite { position: relative; overflow: hidden; display: block; }
+.ua-strip { position: absolute; top: 0; left: 0; height: 100%; max-width: none; display: block; will-change: transform; }
+@keyframes ua-strip { from { transform: translateX(0); } to { transform: translateX(-100%); } }
+.ua-img { display: block; max-width: 100%; max-height: 100%; object-fit: contain; }
+
+/* ---------- rarity frame: one top-left corner ornament mirrored to four corners ---------- */
+.ua-frame { position: absolute; top: -0.6rem; left: -0.6rem; right: -0.6rem; bottom: -0.6rem; pointer-events: none; z-index: 2; }
+.ua-frame img { position: absolute; width: 22%; max-width: 7rem; min-width: 2rem; height: auto; aspect-ratio: 1; object-fit: contain; }
+.ua-frame .tl { top: 0; left: 0; }
+.ua-frame .tr { top: 0; right: 0; transform: scaleX(-1); }
+.ua-frame .bl { bottom: 0; left: 0; transform: scaleY(-1); }
+.ua-frame .br { bottom: 0; right: 0; transform: scale(-1, -1); }
+.card { position: relative; }
+.card.has-frame { overflow: visible; }
+
+/* ---------- System mascot on takeovers ---------- */
+.ua-mascot { position: relative; width: 16rem; height: 16rem; pointer-events: none; }
+.ua-mascot > * { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.ua-mascot .m-talk { opacity: 0; }
+.ua-mascot.can-talk.talking .m-talk { opacity: 1; }
+.ua-mascot.can-talk.talking .m-mood { opacity: 0; }
+.m-mascot { position: absolute; left: 3vw; bottom: 3vh; z-index: 2; width: min(22vh, 15rem); height: min(22vh, 15rem); animation: ua-pop 0.5s var(--ease-slam, ease-out) both; }
+@keyframes ua-pop { from { transform: translateY(40%) scale(0.6); opacity: 0; } }
+body.preview .m-mascot { display: none; }
+
+/* achievement medal (ui.json medals by achievement group) */
+.m-ach.has-medal { position: relative; padding-left: 10.5rem; min-height: 10rem; }
+.m-medal { position: absolute; left: 1.2rem; top: 50%; width: 8.5rem; height: 8.5rem; margin-top: -4.25rem; object-fit: contain; animation: ua-pop 0.6s 0.6s var(--ease-slam, ease-out) both; }
+
+/* ---------- loot crates ---------- */
+.box.box-art { display: grid; place-items: end center; width: 22rem; height: 22rem; }
+.box-art .box-img, .box-art .ua-sprite { width: 100%; height: 100%; object-fit: contain; }
+.lt-box.lt-box-art { width: 22rem; height: 22rem; display: grid; place-items: end center; }
+.lt-box-art .box-img { width: 100%; height: 100%; object-fit: contain; }
+.sponsor-banner.has-logo { display: inline-flex; align-items: center; gap: 1rem; }
+.sponsor-logo { width: 4.5rem; height: 4.5rem; object-fit: contain; }
+.lt-art { position: relative; }
+.lt-frame img { width: 40%; min-width: 1.2rem; }
+
+/* ---------- floor backgrounds (dimmed under the scene) ---------- */
+.scene { isolation: isolate; } /* the backdrop below sits at z-index -1 inside its own scene */
+.ua-floorbg { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: -1; overflow: hidden; pointer-events: none; opacity: 0; transition: opacity 0.6s; }
+.ua-floorbg.on { opacity: 1; }
+.ua-floorbg > img, .ua-floorbg > .ua-sprite { width: 100%; height: 100%; object-fit: cover; max-width: none; max-height: none; }
+.ua-floorbg::after { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: linear-gradient(180deg, rgba(7, 3, 15, 0.55), rgba(7, 3, 15, 0.72) 60%, rgba(7, 3, 15, 0.9)); }
+
+/* lobby: emblem + idle mascot */
+.lb-logo { width: 9rem; height: 9rem; margin-bottom: 0.6rem; }
+.lb-logo img { width: 100%; height: 100%; object-fit: contain; }
+.lb-mascot { position: absolute; right: 3vw; bottom: 16vh; }
+.lb-mascot .ua-mascot { width: min(24vh, 16rem); height: min(24vh, 16rem); }
+
+/* ---------- bug logo ---------- */
+.logo-mark.has-art { display: inline-block; width: 2.8rem; height: 2.8rem; text-shadow: none; }
+.logo-mark.has-art img { width: 100%; height: 100%; object-fit: contain; }
+
+/* ---------- combat ---------- */
+.ar-conds .has-ic { display: inline-flex; align-items: center; gap: 0.3rem; padding-left: 0.15rem; }
+.ar-cond-ic { width: 1.5rem; height: 1.5rem; object-fit: contain; transform: skewX(10deg); }
+.ar-decal { position: absolute; left: 50%; top: 45%; width: 9rem; height: 9rem; margin: -4.5rem 0 0 -4.5rem; z-index: 4; pointer-events: none; object-fit: contain; animation: ua-decal 0.7s var(--ease-slam, ease-out) both; }
+@keyframes ua-decal { 0% { transform: scale(0.3) rotate(-12deg); opacity: 0; } 25% { transform: scale(1.15) rotate(4deg); opacity: 1; } 100% { transform: scale(1.3) rotate(8deg); opacity: 0; } }
+.ar-d20-shape.art { background: none; clip-path: none; box-shadow: none; }
+.ar-d20-shape.art::after { display: none; }
+.ar-d20-shape.art img { width: 100%; height: 100%; object-fit: contain; }
+.ar-d20-shape.art ~ .ar-d20-n { color: #fff; text-shadow: 0 0 0.3rem #000, 0 0 0.6rem #000; }
+
+/* roll scene die body */
+.rl-die-art { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
+.rl-die.has-art .rl-face { color: #fff; text-shadow: 0 0 0.4rem #000, 0 0 0.8rem #000; position: relative; }
+
+/* ---------- finale ---------- */
+.fn-spot { width: min(34vh, 22rem); height: min(34vh, 22rem); object-fit: contain; animation: ua-pop 0.7s 0.2s var(--ease-slam, ease-out) both; }
+.has-spot .fn-head { font-size: min(13vh, 9rem); }
+.fn-mvp-badge { width: 4.5rem; height: 4.5rem; object-fit: contain; }
+
+@media (prefers-reduced-motion: reduce) {
+  .ua-strip { animation: none !important; }
+  .m-mascot, .m-medal, .fn-spot, .ar-decal { animation: none; }
+}

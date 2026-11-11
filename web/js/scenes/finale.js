@@ -6,6 +6,7 @@
 // After the headline a summary strip: rounds, damage dealt / taken, mobs defeated, downs, MVP.
 // TV budget: transform + opacity animations only; the confetti / rain is a fixed set of DOM bits.
 import { h, hash, typeText, portraitTile } from './common.js';
+import { uiOf, uiAsset, artEl } from '../ui-art.js';
 
 const LOOKS = {
   victory: { kicker: 'Encounter cleared', head: 'Victory', sub: 'The crowd goes wild' },
@@ -71,6 +72,7 @@ export default function finale(root, sc, env) {
       s.mobsTotal ? stat(`${s.mobsDefeated}/${s.mobsTotal}`, 'mobs defeated') : null,
       stat(s.downs, s.downs === 1 ? 'crawler down' : 'crawlers down', s.downs ? 'bad' : ''),
       s.mvp ? h('div.fn-mvp', { style: { '--pc': s.mvp.color || mvpP?.color || '#ffd23f' } },
+        artEl(uiAsset(uiOf(v), 'finale', ['mvp']), { cls: 'fn-mvp-badge', still: true }),
         portraitTile('fn-mvp-face', mvpP || { name: s.mvp.name }, { name: s.mvp.name }),
         h('div', h('span.fn-mvp-k', 'MVP'), h('b', s.mvp.name), h('span.fn-mvp-n', `${s.mvp.dealt} damage${s.mvp.kills ? ` · ${s.mvp.kills} KO` : ''}`))) : null);
   }
@@ -85,9 +87,12 @@ export default function finale(root, sc, env) {
     root.classList.add(`fn-${o}`);
     document.body.dataset.finale = o; // light backgrounds: the bug on top gets a backdrop
     const sum = summary(d, v);
+    // Outcome illustration (ui.json finale.<outcome>) above the headline; none → the CSS backdrop alone.
+    const spot = artEl(uiAsset(uiOf(v), 'finale', [o]), { cls: 'fn-spot' });
+    root.classList.toggle('has-spot', !!spot);
     root.replaceChildren(
       h('div.fn-bg', backdrop(o)),
-      h('div.fn-center', headline(o, d)),
+      h('div.fn-center', spot, headline(o, d)),
       sum ? h('div.fn-sum-wrap', sum) : null,
     );
   }

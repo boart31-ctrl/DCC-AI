@@ -1,6 +1,7 @@
 // Big dice roll on the TV: a d20 tumbles with flickering faces, lands, then the total slams in.
 // Nat 20: light rays + gold slam. Nat 1: the die cracks and the banner droops.
 import { h, replay } from './common.js';
+import { uiOf, uiAsset, artEl } from '../ui-art.js';
 
 const D20 = `<svg viewBox="0 0 200 200" aria-hidden="true">
   <polygon class="f0" points="100,6 182,53 182,147 100,194 18,147 18,53"/>
@@ -25,7 +26,24 @@ export default function roll(root, sc, env) {
   function sidesOf(d) { const x = d.dice?.[0]?.die; return x ? Number(String(x).replace('d', '')) || 20 : 20; }
   function mainDie(d) { return d.dice?.find((x) => x.die === 'd20') || d.dice?.[0] || null; }
 
+  // Die body art (ui.json dice.<dN>.body, nat20 / nat1 skins on landing) replaces the SVG; numbers stay text.
+  let dieSig = null;
+  function dieArt(d, skin) {
+    const n = `d${sidesOf(d)}`;
+    const ui = uiOf(env.view);
+    const a = (skin && uiAsset(ui, 'dice', [n], [skin])) || uiAsset(ui, 'dice', [n], ['body']);
+    const sig = a?.src || '';
+    if (sig === dieSig) return;
+    dieSig = sig;
+    const svg = die.querySelector('svg');
+    die.querySelector('.rl-die-art')?.remove();
+    die.classList.toggle('has-art', !!a);
+    if (svg) svg.style.display = a ? 'none' : '';
+    if (a) die.prepend(artEl(a, { cls: 'rl-die-art', still: true, onError: () => { die.classList.remove('has-art'); if (svg) svg.style.display = ''; } }));
+  }
+
   function finalState(d) {
+    dieArt(d, d.nat20 ? 'nat20' : d.nat1 ? 'nat1' : null);
     const md = mainDie(d);
     face.textContent = md ? String(md.value) : String(d.total ?? '?');
     total.textContent = String(d.total);
@@ -39,6 +57,7 @@ export default function roll(root, sc, env) {
   }
 
   function play(d) {
+    dieArt(d, null);
     root.classList.remove('landed', 'nat20', 'nat1');
     root.classList.add('tumbling');
     banner.hidden = true;

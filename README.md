@@ -62,8 +62,10 @@ Copy `packs/demo`, edit the JSON, start with `PACK_DIR=path/to/your-pack npm sta
 The format is documented in [docs/CONTENT_PACKS.md](docs/CONTENT_PACKS.md).
 Packs made from books you own belong in a **private** repo — never publish commercial text or art.
 
-Item art: generate square images, drop them in `<pack>/images/raw/`, then
-`python3 tools/process_art.py <pack>` crops, resizes and converts them (2×2 grids supported).
+Art: generate bulk sheets (grids of icons or portraits, boss splashes, GIFs), then
+`python3 tools/art_ingest.py <image> --sheet <id> --pack <pack>` slices, crops, keys and converts them and
+wires them into the pack JSON and `ui.json` (see [docs/ART_PIPELINE.md](docs/ART_PIPELINE.md)). The older
+`tools/process_art.py <pack>` (single images and 2×2 grids from `<pack>/images/raw/`) still works.
 
 ## Optional AI
 
@@ -80,6 +82,7 @@ listening to the table (local speech-to-text, transcript only, never stored audi
 - [SPEC.md](SPEC.md) — design and principles
 - [docs/PROTOCOL.md](docs/PROTOCOL.md) — WebSocket protocol
 - [docs/CONTENT_PACKS.md](docs/CONTENT_PACKS.md) — content pack format
+- [docs/ART_PIPELINE.md](docs/ART_PIPELINE.md) — bulk art sheets → pack (slicing, cut-outs, animations, ui.json)
 
 ## License
 

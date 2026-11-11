@@ -18,7 +18,7 @@ export function entryArt(entry, { cls = 'art', lit = true } = {}) {
     wrap.classList.add('gen');
     wrap.innerHTML = bossSvg({ name: entry?.name || '?', color: entry?.color || null }, { lit });
   };
-  const src = imageRef(entry?.image);
+  const src = imageRef(entry?.imageSquare || entry?.image); // bosses: the square crop fits the card
   if (src) {
     const img = h('img', { alt: '', decoding: 'async', loading: 'lazy' });
     img.onerror = () => { img.remove(); fallback(); };

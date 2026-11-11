@@ -10,3 +10,4 @@ packs/*
 dist-cloud/
 .wrangler/
 .dev.vars
+__pycache__/

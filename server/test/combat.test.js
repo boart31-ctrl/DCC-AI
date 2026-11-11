@@ -325,3 +325,20 @@ test('persistence: old saves get an idle tracker; a running fight survives norma
   assert.deepEqual(junk.phases, ['Crawlers', 'Mobs']);
   assert.equal(junk.round, 1);
 });
+
+test('a boss added to the fight uses its square crop (imageSquare); the boss scene keeps imageKo', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const d2 = writePack(tmpDir(), { 'bosses.json': [{ id: 'grim', name: 'Grim', image: 'grim.webp', imageSquare: 'grim_sq.webp', imageKo: 'grim_ko.webp', hpSlots: 8 }] });
+  fs.mkdirSync(path.join(d2, 'images'), { recursive: true });
+  for (const f of ['grim.webp', 'grim_sq.webp', 'grim_ko.webp']) fs.writeFileSync(path.join(d2, 'images', f), 'x');
+  const p2 = loadPack(d2).pack;
+  const c2 = { now: 1_000_000, rng: seq(0.5), genId: (p) => `${p}_${++n}`, pack: p2 };
+  let s = createState(p2, 0);
+  s = reduce(s, { role: 'gm', t: 'combat.addMob', sourceId: 'grim', hidden: false }, c2).state;
+  assert.equal(s.combat.combatants.find((x) => x.type === 'mob').image, '/pack/images/grim_sq.webp');
+  s = reduce(s, { role: 'gm', t: 'scene.set', kind: 'boss', data: { bossId: 'grim' } }, c2).state;
+  const boss = viewFor(s, p2, 'stage').scene.data.boss;
+  assert.equal(boss.image, '/pack/images/grim.webp');
+  assert.equal(boss.imageKo, '/pack/images/grim_ko.webp');
+});

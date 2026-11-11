@@ -305,7 +305,9 @@ Every view carries `scene` and `show` (all roles):
 ```
 `now` = server time when the view was built (clients correct their clock with it). `party` = up to two
 tracks per crawler (HP first) for the TV strip. `pack.theme` (`"dark"|"light"|"neon"|null`) is the pack's
-default look for the GM desk and phones (a device's own choice wins).
+default look for the GM desk and phones (a device's own choice wins). `pack.ui` is the pack's normalized `ui.json`
+(asset URLs only: `{ src, still, strip? }` per slot, see CONTENT_PACKS.md) or `null`; clients fall back to their CSS
+look for every missing slot.
 
 `scene.kind` and `data` (defaults in brackets):
 

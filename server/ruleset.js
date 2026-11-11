@@ -237,9 +237,14 @@ function normalizeBossEntry(raw, ctx, opts) {
     if (typeof raw.color === 'string' && /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(raw.color)) color = raw.color;
     else problem(ctx, `${ctx.where}: color must be #rrggbb`);
   }
+  // Optional extra art (bosses.json): a square crop for cards / the combat tracker, and a defeated pose.
+  const imageSquare = raw.imageSquare != null && raw.imageSquare !== '' ? img(raw.imageSquare) : null;
+  const imageKo = raw.imageKo != null && raw.imageKo !== '' ? img(raw.imageKo) : null;
   return {
     title: text(raw.title, 120),
     image: img(raw.image),
+    ...(imageSquare ? { imageSquare } : {}),
+    ...(imageKo ? { imageKo } : {}),
     hpSlots,
     phases,
     flavor: text(raw.flavor, 600),

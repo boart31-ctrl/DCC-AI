@@ -2,6 +2,7 @@
 // fight (segmented HP bar, art, phase), phase change, defeat (shatter → BOSS DEFEATED → loot hint).
 // Everything animates with transform/opacity; the only per-frame work is CSS.
 import { h, bossArt, partyStrip, threatColor, rgb, replay, typeText } from './common.js';
+import { floorLayer } from '../ui-art.js';
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
@@ -29,7 +30,11 @@ export default function boss(root, sc, env) {
   const dmg = h('div.bs-dmg');
   const stamp = h('div.bs-stamp', h('span', 'Defeated'));
   const loot = h('div.bs-loot');
-  let art = bossArt(b, { onUrl: (u) => { artUrl = u; } });
+  // The art on screen follows the fight: the current phase's portrait (bosses.json phases[].image), the
+  // defeated pose (imageKo) once it is down, else the splash.
+  const shown = () => ({ ...b, image: (d.defeated && b.imageKo) || b.phases?.[d.phase]?.image || b.image });
+  let artKey = shown().image;
+  let art = bossArt(shown(), { onUrl: (u) => { artUrl = u; } });
   const frame = h('div.bs-frame', art, flash, h('i.c1'), h('i.c2'), h('i.c3'), h('i.c4'), stamp);
   const party = partyStrip();
   // Fighting-game layout: name, HP and the System's phase report on the left, a tall portrait
@@ -51,6 +56,9 @@ export default function boss(root, sc, env) {
     h('p.bs-pre-name', '? ? ? ? ?'),
   );
 
+  const floorBg = floorLayer('boss');
+  root.prepend(floorBg.el);
+  floorBg.update(env.view, b.floor);
   root.append(pre, fight);
 
   function setColors() {
@@ -114,7 +122,8 @@ export default function boss(root, sc, env) {
   }
 
   function swapArt() {
-    const na = bossArt(b, { onUrl: (u) => { artUrl = u; } });
+    artKey = shown().image;
+    const na = bossArt(shown(), { onUrl: (u) => { artUrl = u; } });
     art.replaceWith(na);
     art = na;
     const np = bossArt(b, { lit: false });
@@ -166,6 +175,7 @@ export default function boss(root, sc, env) {
   function onPhase(e) {
     d = { ...d, phase: e.index };
     drawPhase();
+    if (shown().image !== artKey) swapArt();
     if (env.reduced) return;
     const fx = h('div.bp',
       h('div.bp-flash'),
@@ -266,7 +276,7 @@ export default function boss(root, sc, env) {
       h('div.bd-loot', h('span.bs-loot-k', 'Loot'), h('span', e?.lootHint || lootText())),
     );
     root.append(fx);
-    T.after(1300, () => { root.classList.remove('dying'); root.classList.add('dead'); shards.remove(); });
+    T.after(1300, () => { root.classList.remove('dying'); root.classList.add('dead'); shards.remove(); if (shown().image !== artKey) swapArt(); });
     T.after(7600, () => fx.classList.add('out'));
     T.after(8200, () => { fx.remove(); busy = false; root.classList.remove('defeating'); drawStatic(); });
   }
@@ -278,7 +288,8 @@ export default function boss(root, sc, env) {
     const swapped = JSON.stringify(nd.boss) !== JSON.stringify(b);
     d = nd;
     b = nd.boss || b;
-    if (swapped) swapArt();
+    floorBg.update(env.view, b.floor);
+    if (swapped || (!busy && shown().image !== artKey)) swapArt();
     if (busy) {
       // A sequence is running: keep text fresh, let the sequence finish the visual state.
       name.textContent = b.name;
