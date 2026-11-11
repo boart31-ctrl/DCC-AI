@@ -13,6 +13,7 @@ import { loadPack, fallbackPack } from './pack.js';
 import { createState, normalizeState } from './state.js';
 import { createHost, LIMITS } from './host.js';
 import { createAI } from './ai.js';
+import { fileTtsStore } from './tts-node.js';
 import { pageFor, isSecretPath, securityHeaders } from './routes.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -185,6 +186,16 @@ export async function startServer(opts = {}) {
     edition: 'node',
     chat: opts.chat !== false,
     gmKey: env.GM_KEY?.trim() || '',
+    // System voice: ElevenLabs key stays in .env; audio cached in data/tts/ (LRU, TTS_CACHE_MB, default 200).
+    tts: {
+      apiKey: env.ELEVENLABS_API_KEY?.trim() || '',
+      voiceId: env.ELEVENLABS_VOICE_ID?.trim() || null,
+      modelId: env.ELEVENLABS_MODEL_ID?.trim() || null,
+      baseUrl: env.ELEVENLABS_BASE_URL?.trim() || undefined,
+      fetch: opts.ttsFetch ?? opts.fetch,
+      store: fileTtsStore(path.join(dataDir, 'tts')),
+      capBytes: (Number(env.TTS_CACHE_MB) || 200) * 1024 * 1024,
+    },
     send: (ws, text) => {
       if (ws.readyState === 1) ws.send(text);
     },
@@ -262,6 +273,16 @@ export async function startServer(opts = {}) {
         return res.end('ok');
       }
       if (p === '/api/info') return sendJson(res, 200, { edition: 'node', legacy: true, keyLogin: !!env.GM_KEY?.trim() });
+      const ttsPath = /^\/api\/tts\/([0-9a-f]{64})\.mp3$/.exec(p);
+      if (ttsPath || p.startsWith('/api/tts')) {
+        // GM only: X-GM-Key (or the legacy X-GM-Token). Same failure rate limit as the GM login.
+        const r = host.checkGm({ key: req.headers['x-gm-key'], token: req.headers['x-gm-token'] }, req.socket.remoteAddress ?? '?');
+        if (r !== 'ok') return sendJson(res, r === 'rate_limited' ? 429 : 401, { error: r });
+        const bytes = ttsPath && host.tts.audio(ttsPath[1]);
+        if (!bytes) return sendJson(res, 404, { error: 'not_found' });
+        res.writeHead(200, { ...baseHeaders(), 'content-type': 'audio/mpeg', 'content-length': bytes.length, 'cache-control': 'no-store' });
+        return res.end(req.method === 'HEAD' ? undefined : Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+      }
       if (p === '/api/export') {
         const ip = req.socket.remoteAddress ?? '?';
         const r = host.checkGm({ key: req.headers['x-gm-key'], token: req.headers['x-gm-token'] }, ip);

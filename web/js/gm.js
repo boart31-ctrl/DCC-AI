@@ -13,6 +13,8 @@ import {
 import { createLibrary } from './library.js';
 import { createCombat } from './combat.js';
 import { createScenes } from './gm-scenes.js';
+import { createSound } from './gm-sound.js';
+import { createNpcs } from './gm-npcs.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -113,7 +115,9 @@ function render() {
   drawTheme();
   library.update(view);
   combat.update(view);
+  npcs.update(view);
   scenes.update(view);
+  sound.update(view);
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -813,7 +817,7 @@ $('#new-session').addEventListener('click', async () => {
 
 /* ---------- views, settings, dice log ---------- */
 
-const VIEWS = ['party', 'combat', 'library', 'show', 'campaign', 'settings'];
+const VIEWS = ['party', 'combat', 'npcs', 'library', 'show', 'campaign', 'settings'];
 let currentView = 'party';
 function showView(v) {
   if (!VIEWS.includes(v)) v = 'party';
@@ -914,8 +918,14 @@ $('#view-library').append(library.el);
 const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a) });
 // Show → Scenes (TV director + this desk as the audio device). Hoisted use in render() is safe: views arrive after boot.
 const scenes = createScenes({ client, act, getView: () => view });
-scenes.mountInto($('#view-show'));
+// Show → Sound (SFX pads, announcements, voice pre-render) + Settings → Voice. The audio fetches use the desk's login.
+scenes.audio.credential = () => ext.credential;
+const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
+scenes.mountInto($('#view-show'), [{ id: 'sound', label: 'Sound', icon: 'bolt', el: sound.el }]);
+$('#view-settings .settings-grid').append(sound.settingsEl);
 $('#view-combat').append(combat.el);
+const npcs = createNpcs({ act, getView: () => view, openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
+$('#view-npcs').append(npcs.el);
 
 /* ---------- keyboard ---------- */
 
@@ -933,9 +943,11 @@ document.addEventListener('keydown', (e) => {
   if (currentView !== 'show') return;
   if (e.key === 'a' || e.key === 'A') { e.preventDefault(); toggleAuto(); return; }
   if (e.key === 'm' || e.key === 'M') { e.preventDefault(); openComms(); return; }
-  if (/^[1-9]$/.test(e.key)) {
+  // Physical keys (e.code) so the number row works on Czech/other layouts; Shift+digits belong to the SFX pads.
+  const qDigit = !e.shiftKey && /^(Digit|Numpad)[1-9]$/.test(e.code) ? Number(e.code.slice(-1)) : 0;
+  if (qDigit) {
     const cats = view?.gm?.quipCategories || [];
-    const c = cats[Number(e.key) - 1];
+    const c = cats[qDigit - 1];
     if (c && c.total !== 0) {
       e.preventDefault();
       playQuip(c, document.querySelectorAll('#quips .quip')[Number(e.key) - 1]);

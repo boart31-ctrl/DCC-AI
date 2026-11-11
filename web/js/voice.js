@@ -4,8 +4,15 @@
 //
 //   const vp = createVoicePlayer({ ack: (id) => client.raw({ t: 'audio.done', id }), onSub, onDuck });
 //   vp.unlock() inside a user gesture; vp.play(msg); vp.stop();
+//
+// Optional (GM desk with ElevenLabs): resolveAudio(m) -> Promise<url|null> for lines whose `tts` hint asks
+// for server audio (falls back to browser speech on null / error / RENDER_WAIT_MS); onStart(m) when sound
+// actually starts (the desk then sends `audio.started` so the TV shows the subtitle in sync);
+// onRender(bool) while a line is being rendered.
 
-export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {} } = {}) {
+const RENDER_WAIT_MS = 7000;
+
+export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {}, resolveAudio = null, onStart = () => {}, onRender = () => {} } = {}) {
   let current = null; // { id, cancel() }
   let unlocked = false;
   let voicesCache = [];
@@ -36,7 +43,7 @@ export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {} } =
 
   function speak(m, done, isFinished) {
     if (isFinished()) return;
-    if (typeof speechSynthesis === 'undefined' || !m.text) { setTimeout(done, Math.min(8000, 1500 + (m.text || '').length * 55)); return; }
+    if (typeof speechSynthesis === 'undefined' || !m.text) { onStart(m); setTimeout(done, Math.min(8000, 1500 + (m.text || '').length * 55)); return; }
     try {
       const v = typeof m.voice === 'object' && m.voice ? m.voice : {};
       const u = new SpeechSynthesisUtterance(m.text);
@@ -55,6 +62,9 @@ export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {} } =
       };
       u.onend = finish;
       u.onerror = finish;
+      let started = false;
+      u.onstart = () => { if (!started) { started = true; onStart(m); } };
+      setTimeout(() => { if (!started && !isFinished()) { started = true; onStart(m); } }, 400); // some engines never fire onstart
       speechSynthesis.cancel();
       speechSynthesis.speak(u);
     } catch {
@@ -89,16 +99,38 @@ export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {} } =
     };
     current = { id: m.id, cancel };
     // 12 s per protocol for normal lines; long read-alouds (recaps) get time proportional to length.
-    safety = setTimeout(() => { cancel(); finished = false; done(); }, Math.max(12000, (m.text || '').length * 85));
+    const arm = () => {
+      clearTimeout(safety);
+      safety = setTimeout(() => { cancel(); finished = false; done(); }, Math.max(12000, (m.text || '').length * 85));
+    };
+    arm();
     onSub(m.text || '');
     onDuck(true);
     // Before the first user gesture audio is locked: show the subtitle for reading time, then release.
-    if (!unlocked) { setTimeout(done, Math.min(8000, 1500 + (m.text || '').length * 50)); return; }
-    if (m.audio) {
-      audio = new Audio(m.audio);
+    if (!unlocked) { onStart(m); setTimeout(done, Math.min(8000, 1500 + (m.text || '').length * 50)); return; }
+    const fallback = () => { if (!finished) speak(m, done, () => finished); };
+    const playUrl = (url) => {
+      if (finished) return;
+      audio = new Audio(url);
       audio.onended = done;
-      audio.onerror = () => speak(m, done, () => finished); // fall back to TTS if the file is missing
-      audio.play().catch(() => speak(m, done, () => finished));
+      audio.onplaying = () => { arm(); onStart(m); };
+      audio.onerror = fallback; // fall back to browser speech if the file is missing
+      audio.play().catch(fallback);
+    };
+    if (m.audio) playUrl(m.audio);
+    else if (m.tts && resolveAudio) {
+      // ElevenLabs: cached → instant; otherwise the server renders it now (1–2 s).
+      let settled = false;
+      const settle = (url) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(wait);
+        onRender(false);
+        if (url) playUrl(url); else fallback();
+      };
+      const wait = setTimeout(() => settle(null), RENDER_WAIT_MS);
+      if (!m.tts.cached) onRender(true);
+      Promise.resolve().then(() => resolveAudio(m)).then(settle, () => settle(null));
     } else {
       speak(m, done, () => finished);
     }
@@ -138,19 +170,57 @@ export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {} } =
   return { play, stop, unlock, holdFor(ms) { holdUntil = Date.now() + ms; }, get unlocked() { return unlocked; }, get playing() { return current?.id ?? null; } };
 }
 
-/** Reading-time subtitle only (the page that is NOT the audio device): no audio, no ack. */
+/** How long the TV waits for the GM desk's `audio.started` before showing a line anyway. */
+export const SYNC_WAIT_MS = 3000;
+
+/**
+ * Reading-time subtitle only (the page that is NOT the audio device): no audio, no ack.
+ * A `play` with `sync: true` waits until the audio device reports `audio.started` (or SYNC_WAIT_MS).
+ */
 export function createSubtitleOnly(onSub) {
   let t = null;
   let holdUntil = 0;
-  return {
+  let waiting = null; // { id, show }
+  const api = {
     holdFor(ms) { holdUntil = Date.now() + ms; },
     play(m) {
       clearTimeout(t);
       const wait = holdUntil - Date.now();
-      if (wait > 0) { t = setTimeout(() => this.play(m), wait); return; }
-      onSub(m.text || '');
-      t = setTimeout(() => onSub(''), Math.min(12000, 1800 + (m.text || '').length * 60));
+      if (wait > 0) { t = setTimeout(() => api.play(m), wait); return; }
+      const show = () => {
+        waiting = null;
+        clearTimeout(t);
+        onSub(m.text || '');
+        t = setTimeout(() => onSub(''), Math.min(12000, 1800 + (m.text || '').length * 60));
+      };
+      if (m.sync) {
+        onSub('');
+        waiting = { id: m.id, show };
+        t = setTimeout(show, SYNC_WAIT_MS);
+        return;
+      }
+      show();
     },
-    stop() { clearTimeout(t); onSub(''); },
+    /** The audio device started line `id`. */
+    started(id) { if (waiting && waiting.id === id) waiting.show(); },
+    stop() { clearTimeout(t); waiting = null; onSub(''); },
+  };
+  return api;
+}
+
+/** Holds TV moments (achievement / announcement takeovers) until their voice line starts. */
+export function createCueGate({ wait = SYNC_WAIT_MS } = {}) {
+  const pending = new Map();
+  return {
+    /** Runs fn now, or (for an event with voiceCue) once `release(eventId)` arrives or after `wait` ms. */
+    hold(e, fn, enabled = true) {
+      if (!enabled || !e?.voiceCue || !e.id) { fn(); return; }
+      let done = false;
+      const go = () => { if (done) return; done = true; clearTimeout(timer); pending.delete(e.id); fn(); };
+      const timer = setTimeout(go, wait);
+      pending.set(e.id, go);
+    },
+    release(cue) { if (cue) pending.get(cue)?.(); },
+    get size() { return pending.size; },
   };
 }

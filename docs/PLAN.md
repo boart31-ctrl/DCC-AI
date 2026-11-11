@@ -48,6 +48,9 @@ lands in the repo — the site needs no API key.
    regenerate an edited achievement in 1–2 s, free-text announcements. Music stays in the
    Spotify app on the notebook (optional playlist buttons later). Live table listening is
    dropped (latency, mixed CZ/EN, cost).
+   *Built:* Show → Sound (16 original procedural pads + pack `sfx.json`, Shift hotkeys, per-pad/master
+   volume, ducking while the System speaks), announcement box, Settings → Voice, pre-render with a
+   character estimate, LRU voice cache (Node files / Durable Object SQLite). Protocol: PROTOCOL.md §3c.
 5. **Art pipeline** — icon library: base icon per item category + variants; any item/boss/
    mob/NPC picks an image; prompts in one comic-colour dark-fantasy style; images sent in
    chat are cropped, converted and committed; missing art falls back to the category icon.

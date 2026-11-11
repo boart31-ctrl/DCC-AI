@@ -10,6 +10,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import net from 'node:net';
+import http from 'node:http';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -40,10 +41,38 @@ const freePort = () => new Promise((r) => {
 
 let proc = null;
 let output = '';
+// Mock ElevenLabs (local HTTP, no network): the worker reaches it through ELEVENLABS_BASE_URL.
+let mockBase = '';
+const mockCalls = [];
+const BIG = 2_500_000; // > 2 chunks: exercises the 1 MB chunking in Durable Object SQLite
+function startMockEleven() {
+  const srv = http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (d) => (body += d));
+    req.on('end', () => {
+      mockCalls.push(`${req.method} ${req.url.split('?')[0]}`);
+      if (req.headers['xi-api-key'] !== 'sk-e2e') { res.writeHead(401, { 'content-type': 'application/json' }); return res.end('{"detail":{"status":"invalid_api_key","message":"bad key"}}'); }
+      if (req.url === '/v1/voices') {
+        res.writeHead(200, { 'content-type': 'application/json' });
+        return res.end(JSON.stringify({ voices: [{ voice_id: 'premadeE2E1', name: 'Brian', category: 'premade' }, { voice_id: 'clonedE2E2', name: 'Clone', category: 'cloned' }] }));
+      }
+      if (req.url.startsWith('/v1/text-to-speech/premadeE2E1')) {
+        const text = JSON.parse(body).text;
+        const out = text === 'BIG LINE' ? Buffer.alloc(BIG, 7) : Buffer.from(`MP3:${text}`);
+        res.writeHead(200, { 'content-type': 'audio/mpeg' });
+        return res.end(out);
+      }
+      res.writeHead(404);
+      res.end();
+    });
+  });
+  return new Promise((r) => srv.listen(0, '127.0.0.1', () => { mockBase = `http://127.0.0.1:${srv.address().port}`; srv.unref(); r(srv); }));
+}
 async function startWrangler(port) {
   output = '';
   proc = spawn(WRANGLER, ['dev', '--config', path.join(dist, 'wrangler.jsonc'), '--port', String(port), '--ip', '127.0.0.1',
-    '--persist-to', persist, '--var', `GM_KEY:${KEY}`, '--show-interactive-dev-session=false', '--log-level', 'info'], {
+    '--persist-to', persist, '--var', `GM_KEY:${KEY}`,
+    '--var', 'ELEVENLABS_API_KEY:sk-e2e', '--var', `ELEVENLABS_BASE_URL:${mockBase}`, '--show-interactive-dev-session=false', '--log-level', 'info'], {
     cwd: work, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, CI: '1', WRANGLER_SEND_METRICS: 'false' },
   });
   proc.stdout.on('data', (d) => (output += d));
@@ -113,6 +142,7 @@ async function main() {
   build(path.join(ROOT, 'packs', 'demo'), dist, { name: 'the-system-e2e', log: { log() {}, warn() {} } });
   const port = await freePort();
   const base = `http://127.0.0.1:${port}`;
+  await startMockEleven();
   await startWrangler(port);
   step(`wrangler dev up on ${base}`);
 
@@ -193,6 +223,30 @@ async function main() {
   await gm.call({ t: 'player.update', playerId: carl, gold: 99 });
   step('achievement → phone + TV + voice line, notes, announcement, restore point, gold 99');
 
+  // ---- System voice (mock ElevenLabs): GM-only, cached in DO SQLite, big audio chunked ----
+  const say = await gm.call({ t: 'tts.say', text: 'Hello crawlers.' });
+  assert.match(say.url, /^\/api\/tts\/[0-9a-f]{64}\.mp3$/);
+  const big = await gm.call({ t: 'tts.say', text: 'BIG LINE' });
+  r = await fetch(base + say.url);
+  assert.equal(r.status, 401, 'tts audio without the GM key');
+  r = await fetch(base + say.url, { headers: { 'X-GM-Key': carlToken } });
+  assert.equal(r.status, 401, 'a player link is not a GM key');
+  r = await fetch(base + say.url, { headers: { 'X-GM-Key': KEY } });
+  assert.equal(r.status, 200);
+  assert.equal(await r.text(), 'MP3:Hello crawlers.');
+  r = await fetch(base + big.url, { headers: { 'X-GM-Key': KEY } });
+  assert.equal((await r.arrayBuffer()).byteLength, BIG, '2.5 MB audio through 1 MB SQLite chunks');
+  ph.send({ t: 'tts.say', text: 'x', rid: 'ptts' });
+  assert.equal((await ph.next((m) => m.rid === 'ptts')).ok, false, 'players cannot use tts');
+  tv.send({ t: 'tts.line', id: 'q_x', rid: 'ttts' });
+  assert.equal((await tv.next((m) => m.rid === 'ttts')).ok, false, 'the TV cannot use tts');
+  const bad2 = await gm.call({ t: 'tts.voices' });
+  assert.deepEqual(bad2.voices.map((v) => v.id), ['premadeE2E1'], 'cloned voices hidden');
+  const ttsCalls = mockCalls.filter((c) => c.startsWith('POST')).length;
+  await gm.call({ t: 'tts.say', text: 'Hello crawlers.' });
+  assert.equal(mockCalls.filter((c) => c.startsWith('POST')).length, ttsCalls, 'second say served from cache');
+  step(`System voice: ${ttsCalls} ElevenLabs renders (mocked), GM-only audio route, 2.5 MB line chunked, cache hit`);
+
   // ---- crash: kill -9 immediately after the last ack ----
   killWrangler('SIGKILL');
   await Promise.race([gm.closed, new Promise((r) => setTimeout(r, 3000))]);
@@ -215,7 +269,11 @@ async function main() {
   assert.equal((await dn2.next((m) => m.t === 'welcome')).playerId, donut);
   const tv2 = await hello(base, { role: 'stage', tvToken });
   assert.equal((await tv2.next((m) => m.t === 'welcome')).role, 'stage', 'TV reconnects without pairing again');
-  step('state, links and TV token survived; everyone reconnected');
+  r = await fetch(base + big.url, { headers: { 'X-GM-Key': KEY } });
+  assert.equal((await r.arrayBuffer()).byteLength, BIG, 'voice cache survived the crash');
+  assert.ok(w2.view.gm.tts.configured && w2.view.gm.tts.usage.chars >= 'Hello crawlers.BIG LINE'.length);
+  assert.equal(JSON.stringify(w2.view).includes('sk-e2e'), false, 'ElevenLabs key never in a view');
+  step('state, links, TV token and voice cache survived; everyone reconnected');
 
   // ---- export + log ----
   r = await fetch(`${base}/api/export?kind=campaign`, { headers: { 'X-GM-Key': KEY } });

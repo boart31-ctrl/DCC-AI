@@ -20,8 +20,11 @@ my-pack/
   backgrounds.json
   bosses.json         optional: bosses for the TV boss scene
   locations.json      optional: locations for the Explore scene
+  monsters.json       optional: mob stat blocks for the combat tracker
+  npcs.json           optional: NPC cards (GM desk + TV name card)
   images/             item art (webp/png, 512x512 recommended)
   audio/              pre-rendered voice lines (mp3/ogg)
+  audio/sfx/          your own sound-effect pads (see sfx.json)
 ```
 
 ## pack.json
@@ -147,8 +150,33 @@ Optional arrays, library kinds `boss` and `location` (GM library + the Scenes pa
 - `image` is relative to `images/`; missing art → a generated silhouette in the boss's `color`.
 - Unknown keys (`attacks`, `evade`, `cues`, ...) are ignored by the scene system.
 
-Locations: `{ id, name, floor, image, readAloud, features[] }` — picking one fills the Explore scene
-(name, "Floor N", backdrop image, `readAloud` as the on-screen text). `features` are GM-only notes.
+Locations: `{ id, name, floor, image, readAloud, features[], npcs[], monsters[], bosses[] }` — picking one fills
+the Explore scene (name, "Floor N", backdrop image, `readAloud` as the on-screen text). `features` are GM-only
+notes; `npcs` / `monsters` / `bosses` are library ids (the GM desk lists them; the combat builder can add a
+location's monsters in one go).
+
+Bosses may also carry a stat block (`evade`, `dr`, `attacks` as for monsters) so they can join the combat tracker.
+
+## monsters.json and npcs.json (bestiary)
+
+Optional arrays, library kinds `monster` and `npc` (GM library only; never sent to phones or the TV library).
+```json
+[{ "id": "luggage_snapper", "name": "Luggage Snapper", "title": "…", "floor": 1, "group": "construct",
+   "image": "luggage_snapper.webp", "hpSlots": 4, "evade": 1, "dr": 1,
+   "attacks": [ { "name": "Zipper Bite", "toHit": 3, "damage": "1d4", "effects": "…", "buffs": ["prone"] } ],
+   "desc": "…", "flavor": "…", "defeatLine": "…", "lootItems": ["ten_coins"],
+   "notes": "GM only", "tactics": "GM only", "lootHint": "GM only" }]
+```
+`hpSlots` 1..100 (default 5), `evade`/`dr` integers −99..99, ≤ 12 attacks (`toHit` integer, `damage` dice
+formula or `"0"`, `buffs` = buff ids the attack can apply). The TV only ever shows a revealed mob's name, art,
+HP bar and conditions.
+
+```json
+[{ "id": "fennimore_quill", "name": "Fennimore Quill", "role": "Guest Relations Liaison", "floor": 0,
+   "image": "fennimore_quill.webp", "personality": "…", "voice": "GM only", "hooks": ["GM only"], "secrets": ["GM only"] }]
+```
+The TV's NPC card shows `name`, `role`, `floor` and the portrait; `voice`, `hooks` and `secrets` stay on the
+GM desk (`personality` too). Missing art → a generated silhouette. Unknown keys (`art`, …) are ignored.
 
 ## loot.json
 ```json
@@ -172,6 +200,25 @@ Standard categories the GM panel shows as buttons: `nat1`, `nat20`, `death`, `le
 ```json
 [ { "user": "xX_GoblinFan_Xx", "text": "this crawler is so dead lol" } ]
 ```
+
+## sfx.json (sound pads on the GM desk)
+
+Optional. The desk ships 16 original pads (`web/sfx/`, made by `tools/gen_sfx.mjs`: boss sting, phase change,
+victory fanfare, death, loot box open, achievement chime, crowd cheer / boo / gasp, hype horn, drumroll, fail
+trombone, alarm / floor collapse, door creak, magic zap, explosion). A pack adds pads, or replaces a built-in pad by
+using its `id`:
+
+```json
+[
+  { "id": "hype_horn", "label": "Our horn", "file": "horn.mp3", "hotkey": "Shift+KeyH", "volume": 0.8 },
+  { "id": "gary_laugh", "label": "Gary laughs", "file": "gary.mp3" }
+]
+```
+
+`file` is relative to `audio/sfx/` (mp3 plays everywhere). `hotkey` is optional: `Shift+Digit0`–`Shift+Digit9` or
+`Shift+KeyA`–`Shift+KeyZ` (physical key, so it works on a Czech keyboard too; avoid `Shift+KeyA` / `Shift+KeyM`,
+which the desk also uses). Built-in pads use Shift+1…0 and Shift+Q W E R T U. `volume` 0–2 is the starting level
+(the GM can change it per pad). Only use sounds you made or have the right to use.
 
 ## ruleset.json
 

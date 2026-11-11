@@ -1,3 +1,4 @@
+@import url("scenes-combat.css");
 /* TV scenes (lobby, explore, boss, loot, countdown, roll, recap, blank) — neon game-show broadcast.
    Budget for weak TV browsers: animate transform + opacity only; no filters, no blur, no
    color-mix(); glows are static shadows; at most a handful of looping animations per scene. */

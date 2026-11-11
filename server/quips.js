@@ -76,9 +76,13 @@ export class VoiceQueue {
     this.seq = 0;
   }
 
-  _item({ priority, text, quipId = null, crit = false }) {
+  _item({ priority, text, quipId = null, crit = false, cue = null, ttsVoice = null }) {
     const at = this.now();
-    return { id: this.genId('q'), priority, text, quipId, crit: !!crit, createdAt: at, seq: this.seq++ };
+    const item = { id: this.genId('q'), priority, text, quipId, crit: !!crit, createdAt: at, seq: this.seq++ };
+    // Voice extras (tts-host.js): the event a line belongs to, and an ElevenLabs voice override.
+    if (cue) item.cue = cue;
+    if (ttsVoice) item.ttsVoice = ttsVoice;
+    return item;
   }
 
   _allowed(item) {

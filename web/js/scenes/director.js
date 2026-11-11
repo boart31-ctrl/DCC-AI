@@ -11,8 +11,10 @@ import countdown from './countdown.js';
 import roll from './roll.js';
 import recap from './recap.js';
 import blank from './blank.js';
+import combat from './combat.js';
+import npc from './npc.js';
 
-const KINDS = { lobby, explore, boss, loot, countdown, roll, recap, blank };
+const KINDS = { lobby, explore, boss, loot, countdown, roll, recap, blank, combat, npc };
 const WIPE_MS = 760;
 
 export function createDirector(layer, opts = {}) {

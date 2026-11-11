@@ -9,6 +9,7 @@ import { MODES, pickQuip, markQuipUsed, quipsLeft } from './quips.js';
 import { STANDARD_CATEGORIES } from './constants.js';
 import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView, showView } from './scenes.js';
+import { COMBAT_GM, initCombat, normalizeCombat, combatView } from './combat.js';
 import {
   SHEET, SHEET_GM, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS,
@@ -67,6 +68,7 @@ export function createState(pack, now = Date.now()) {
     library: emptyHomebrew(),
     rolls: [],
     scene: initScene(now), // scenes.js
+    combat: initCombat(), // combat.js
     show: initShow(),
   };
 }
@@ -94,6 +96,7 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.rolls = Array.isArray(raw.rolls) ? raw.rolls.filter((r) => r && typeof r === 'object').slice(-MAX_ROLLS) : [];
   s.scene = normalizeScene(raw.scene, now);
   s.show = normalizeShow(raw.show);
+  s.combat = normalizeCombat(raw.combat);
   s.players = (Array.isArray(raw.players) ? raw.players : []).map((p, i) => {
     // Pre-messaging saves stored private messages on the player; move them into state.messages.
     // Pre-v2 saves keep flat `stats` numbers and `resources`; they move into `sheet` (RULESET §5).
@@ -564,7 +567,7 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM, SCENE_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
@@ -713,6 +716,7 @@ export function viewFor(state, pack, role, opts = {}) {
   const q = opts.queue ?? { queue: [], pendingAuto: [], playing: null };
   const library = libraryOf(state, pack);
   v.rolls = rollsFor(state, role, opts.playerId);
+  v.combat = combatView(state, pack, role);
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;

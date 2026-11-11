@@ -13,7 +13,7 @@ test('engine.js import graph has no Node-only imports', () => {
   const { files, problems } = checkIsomorphic(path.join(here, '..', 'engine.js'));
   assert.deepEqual(problems, []);
   const names = files.map((f) => path.basename(f)).sort();
-  assert.deepEqual(names, ['character.js', 'constants.js', 'engine.js', 'errors.js', 'formula.js', 'pack-core.js', 'quips.js', 'random.js', 'ruleset.js', 'scenes.js', 'state.js']);
+  assert.deepEqual(names, ['character.js', 'combat.js', 'constants.js', 'engine.js', 'errors.js', 'formula.js', 'pack-core.js', 'quips.js', 'random.js', 'ruleset.js', 'scenes.js', 'state.js']);
 });
 
 test('checker catches forbidden imports', () => {

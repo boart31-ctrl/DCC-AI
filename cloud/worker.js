@@ -12,6 +12,7 @@ import { createHost } from '../server/host.js';
 import { createState, normalizeState } from '../server/state.js';
 import { deserializePack } from '../server/pack-core.js';
 import { createAI } from '../server/ai.js';
+import { sqlTtsStore, HASH_RE } from '../server/tts.js';
 import { pageFor, isSecretPath, securityHeaders } from '../server/routes.js';
 import { qrSvg } from '../web/js/qr.js';
 import packData from './pack.json';
@@ -55,6 +56,7 @@ export default {
       if (request.method !== 'GET') return json(405, { error: 'method not allowed' }, url);
       if (p === '/api/info') return json(200, { edition: 'cloud', legacy: false, keyLogin: true }, url);
       if (p === '/api/health') return json(200, { ok: true }, url);
+      if (p.startsWith('/api/tts/')) return withHeaders(await campaignStub(env).fetch(request), url, { 'cache-control': 'no-store' });
       if (p === '/api/export') return withHeaders(await campaignStub(env).fetch(request), url, { 'cache-control': 'no-store' });
       return json(404, { error: 'not found' }, url);
     }
@@ -96,6 +98,17 @@ export class Campaign extends DurableObject {
       legacy: false,
       edition: 'cloud',
       gmKey: env.GM_KEY || '',
+      // System voice: ELEVENLABS_API_KEY is a Worker secret; audio cached in this object's SQLite
+      // (tts_meta + tts_chunk, 1 MB chunks, LRU, TTS_CACHE_MB, default 50).
+      tts: {
+        apiKey: env.ELEVENLABS_API_KEY || '',
+        voiceId: env.ELEVENLABS_VOICE_ID || null,
+        modelId: env.ELEVENLABS_MODEL_ID || null,
+        baseUrl: env.ELEVENLABS_BASE_URL || undefined,
+        fetch: (...a) => fetch(...a),
+        store: sqlTtsStore(this.sql, (fn) => ctx.storage.transactionSync(fn)),
+        capBytes: (Number(env.TTS_CACHE_MB) || 50) * 1024 * 1024,
+      },
       ai: createAI({ ANTHROPIC_API_KEY: env.ANTHROPIC_API_KEY, AI_MODEL: env.AI_MODEL, AI_MAX_CALLS: env.AI_MAX_CALLS }, (...a) => fetch(...a)),
       log: console,
       send: (ws, msg) => ws.send(msg),
@@ -178,7 +191,19 @@ export class Campaign extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === '/api/export') return this.exportResponse(request, url);
+    if (url.pathname.startsWith('/api/tts/')) return this.ttsResponse(request, url);
     return new Response('not found', { status: 404 });
+  }
+
+  /** GET /api/tts/<hash>.mp3 — cached System voice audio, GM only (X-GM-Key). */
+  ttsResponse(request, url) {
+    const r = this.host.checkGm({ key: request.headers.get('X-GM-Key') ?? '' }, ipOf(request));
+    const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+    if (r !== 'ok') return new Response(JSON.stringify({ error: r }), { status: r === 'rate_limited' ? 429 : 401, headers });
+    const m = /^\/api\/tts\/([0-9a-f]{64})\.mp3$/.exec(url.pathname);
+    const bytes = m && HASH_RE.test(m[1]) ? this.host.tts.audio(m[1]) : null;
+    if (!bytes) return new Response(JSON.stringify({ error: 'not_found' }), { status: 404, headers });
+    return new Response(bytes, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' } });
   }
 
   exportResponse(request, url) {

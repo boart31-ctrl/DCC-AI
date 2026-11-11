@@ -16,6 +16,8 @@ const SCENES = [
   { kind: 'roll', label: 'Big roll', key: 'F6', hint: 'Dice on the TV' },
   { kind: 'recap', label: 'Recap', key: 'F7', hint: 'Previously on…' },
   { kind: 'blank', label: 'Blank', key: 'F8', hint: 'Logo, stand by' },
+  { kind: 'combat', label: 'Arena', key: '', hint: 'Party vs revealed mobs' },
+  { kind: 'npc', label: 'NPC', key: '', hint: 'Portrait + name card' },
 ];
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
@@ -125,7 +127,7 @@ export function createScenes({ client, act, getView }) {
     },
     h('span.sc-tab-l', s.label),
     sc?.kind === s.kind ? h('span.sc-onair', 'On TV') : h('span.sc-tab-h', s.hint),
-    h('kbd', s.key))));
+    s.key ? h('kbd', s.key) : null)));
   }
 
   /* ---------- putting a scene on the TV ---------- */
@@ -154,12 +156,17 @@ export function createScenes({ client, act, getView }) {
     if (kind === 'lobby') return { title: d.title || '', subtitle: d.subtitle || '', showQr: d.showQr !== false };
     if (kind === 'recap') return { title: d.title || '', text: d.text ?? (v.recap || '') };
     if (kind === 'blank') return { text: d.text || '' };
+    if (kind === 'combat') return { title: d.title || '' };
+    if (kind === 'npc') {
+      const id = d.npcId || v.library?.npc?.[0]?.id;
+      return id ? { npcId: id } : null;
+    }
     return {};
   }
 
   async function showOnTv(kind) {
     const data = dataFor(kind);
-    if (data === null) { toast('Pick a boss first (or build one ad hoc).', { error: true }); return false; }
+    if (data === null) { toast(kind === 'npc' ? 'No NPCs in the library yet.' : 'Pick a boss first (or build one ad hoc).', { error: true }); return false; }
     // explore: a picked location fills the fields; typed fields override it.
     if (kind === 'explore' && data.locationId) {
       const ok = await act({ t: 'scene.set', kind, data: { locationId: data.locationId, showFeed: data.showFeed } }, null);
@@ -185,6 +192,11 @@ export function createScenes({ client, act, getView }) {
     else if (sc.kind === 'loot') live.replaceChildren(head, lootControls(sc));
     else if (sc.kind === 'roll') live.replaceChildren(head, h('p.sc-line', sc.data.total == null ? `Waiting: ${sc.data.name || 'someone'} is up.` : `${sc.data.name} rolled ${sc.data.total}${sc.data.nat20 ? ' (natural 20)' : sc.data.nat1 ? ' (natural 1)' : ''}.`));
     else if (sc.kind === 'explore') live.replaceChildren(head, h('p.sc-line', [sc.data.floor, sc.data.location].filter(Boolean).join(', ') || 'Exploring'));
+    else if (sc.kind === 'combat') {
+      const c = view().combat || {};
+      const shown = (c.combatants || []).filter((x) => x.type === 'mob' && !x.hidden).length;
+      live.replaceChildren(head, h('p.sc-line', c.active ? `Round ${c.round}, ${c.phase}. ${shown} mob${shown === 1 ? '' : 's'} on screen. Run the fight from Combat.` : 'Combat has not started. The arena shows the party only.'));
+    } else if (sc.kind === 'npc') live.replaceChildren(head, h('p.sc-line', `${sc.data.npc?.name || 'NPC'}${sc.data.line ? `: “${sc.data.line}”` : ''}`));
     else live.replaceChildren(head);
   }
 
@@ -326,6 +338,11 @@ export function createScenes({ client, act, getView }) {
         },
       }), { cls: 'span-all' }),
       loc?.features?.length ? h('div.sc-gm-only.span-all', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only: features'), h('ul', loc.features.map((f) => h('li', f)))) : null,
+      loc && (loc.monsters?.length || loc.npcs?.length || loc.bosses?.length) ? h('div.sc-gm-only.span-all', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only: who is here'),
+        h('ul',
+          loc.npcs?.length ? h('li', h('b', 'NPCs: '), loc.npcs.map((id) => view().library?.npc?.find((n) => n.id === id)?.name || id).join(', ')) : null,
+          loc.monsters?.length ? h('li', h('b', 'Monsters: '), loc.monsters.map((id) => view().library?.monster?.find((n) => n.id === id)?.name || id).join(', ')) : null,
+          loc.bosses?.length ? h('li', h('b', 'Bosses: '), loc.bosses.map((id) => view().library?.boss?.find((n) => n.id === id)?.name || id).join(', ')) : null)) : null,
     ];
   }
 
@@ -349,10 +366,17 @@ export function createScenes({ client, act, getView }) {
       extra = h('button.btn.btn-primary', { type: 'button', onclick: rollOnTv }, icon('dice', { size: 15 }), 'Roll on TV');
     } else if (kind === 'recap') body = [txt('recap', 'text', 'Recap text', { rows: 6, max: 4000, cls: 'span-all', dflt: v.recap || '', placeholder: 'Last time, our crawlers…' }), txt('recap', 'title', 'Show title', { placeholder: v.pack?.systemName || 'The System', max: 80 })];
     else if (kind === 'blank') body = [txt('blank', 'text', 'Line under the logo', { placeholder: 'Stand by', max: 160, cls: 'span-2' })];
+    else if (kind === 'combat') body = [txt('combat', 'title', 'Banner title (optional)', { placeholder: 'Lobby brawl', max: 80, cls: 'span-2' }), h('p.hint.span-all', 'Round, phase, party and revealed mobs come from the Combat section.')];
+    else if (kind === 'npc') {
+      const list = v.library?.npc || [];
+      body = list.length
+        ? [labeled('NPC', select(list.map((n) => ({ value: n.id, label: `${n.name}${n.role ? `, ${n.role}` : ''}` })), D('npc').npcId || list[0].id, { onChange: (x) => { D('npc').npcId = x; saveDraft(); } }), { cls: 'span-2' }), h('p.hint.span-all', 'Name, role and portrait only. Speak as the NPC from the NPCs section.')]
+        : [h('p.dim.span-all', 'No NPCs yet. Add npcs.json or create one in the Library.')];
+    }
     const actions = h('div.row-end',
       extra,
-      isLive && !['boss', 'roll', 'countdown', 'loot'].includes(kind) ? h('button.btn', { type: 'button', onclick: () => act({ t: 'scene.update', data: (() => { const x = dataFor(kind); delete x.locationId; return x; })() }, 'TV updated.') }, 'Update TV') : null,
-      kind === 'roll' ? null : h('button.btn.btn-primary', { type: 'button', onclick: () => showOnTv(kind) }, icon('tv', { size: 15 }), showLabel(kind, isLive, meta), h('kbd', meta.key)));
+      isLive && !['boss', 'roll', 'countdown', 'loot', 'npc'].includes(kind) ? h('button.btn', { type: 'button', onclick: () => act({ t: 'scene.update', data: (() => { const x = dataFor(kind); delete x.locationId; return x; })() }, 'TV updated.') }, 'Update TV') : null,
+      kind === 'roll' ? null : h('button.btn.btn-primary', { type: 'button', onclick: () => showOnTv(kind) }, icon('tv', { size: 15 }), showLabel(kind, isLive, meta), meta.key ? h('kbd', meta.key) : null));
     form.replaceChildren(h('div.sc-form-head', h('h2', meta.label), h('span.dim', meta.hint)), h('div.form-grid', body.flat().filter(Boolean)), actions);
   }
 
@@ -387,7 +411,7 @@ export function createScenes({ client, act, getView }) {
   function update(v) {
     audio.update(v);
     drawAudio();
-    const s = JSON.stringify([v.scene && { ...v.scene, now: 0 }, v.players, v.library?.boss?.length, v.library?.location?.length, v.pack?.lootTiers, v.show]);
+    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, v.players, v.library?.boss?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show, v.scene?.kind === 'combat' ? [v.combat?.round, v.combat?.phase, v.combat?.active, v.combat?.combatants?.filter((x) => !x.hidden).length] : null]);
     if (s !== sig) {
       const focusIn = form.contains(document.activeElement);
       sig = s;
@@ -399,21 +423,27 @@ export function createScenes({ client, act, getView }) {
   }
 
   /** Puts Scenes next to the existing show desk inside the Show view, with a two-way switch. */
-  function mountInto(section) {
+  /** Puts Scenes next to the existing show desk inside the Show view, with a sub-tab switch.
+   *  `extras` = [{ id, label, el, icon? }] adds more sub-tabs (Sound). */
+  function mountInto(section, extras = []) {
     const desk = h('div.show-desk');
     desk.append(...section.childNodes);
     const seg = h('div.seg.show-sub', { role: 'tablist', 'aria-label': 'Show' });
+    const ids = ['scenes', 'desk', ...extras.map((x) => x.id)];
     const pick = (which) => {
+      if (!ids.includes(which)) which = 'scenes';
       store.set('sub', which);
       el.hidden = which !== 'scenes';
       desk.hidden = which !== 'desk';
+      for (const x of extras) x.el.hidden = which !== x.id;
       for (const b of seg.children) b.setAttribute('aria-selected', String(b.dataset.sub === which));
       if (which === 'scenes') { sig = ''; update(view()); }
     };
     seg.append(
       h('button', { type: 'button', role: 'tab', 'data-sub': 'scenes', onclick: () => pick('scenes') }, icon('tv', { size: 14 }), 'Scenes'),
+      ...extras.map((x) => h('button', { type: 'button', role: 'tab', 'data-sub': x.id, onclick: () => pick(x.id) }, x.icon ? icon(x.icon, { size: 14 }) : null, x.label)),
       h('button', { type: 'button', role: 'tab', 'data-sub': 'desk', onclick: () => pick('desk') }, 'Voice, comms, audience'));
-    section.replaceChildren(h('div.show-subbar', seg), el, desk);
+    section.replaceChildren(h('div.show-subbar', seg), el, ...extras.map((x) => x.el), desk);
     pick(store.get('sub', 'scenes'));
     // Load / drop the preview when the Show view is opened or left.
     new MutationObserver(() => drawPreview()).observe(section, { attributes: true, attributeFilter: ['hidden'] });

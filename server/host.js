@@ -26,6 +26,7 @@ import { VoiceQueue } from './quips.js';
 import { voiceFor, quipAudio } from './pack-core.js';
 import { makeToken } from './random.js';
 import { safeEqual, RateLimiter, TokenBucket, authenticate, makePairCode } from './access.js';
+import { createTtsHost } from './tts-host.js';
 
 export const LIMITS = {
   maxMessage: 16 * 1024,
@@ -107,6 +108,21 @@ export function createHost(opts) {
   let base = opts.base ?? '';
   let state = ensureAccess(opts.state, L.tokenBytes);
   if (state !== opts.state) persist(state, { at: now(), by: 'system', action: null, system: true, prev: opts.state });
+  // System voice (ElevenLabs, server side). opts.tts = { apiKey, voiceId, modelId, store, capBytes, fetch, baseUrl }.
+  const tts = createTtsHost({
+    config: opts.tts ?? {}, pack, now, log,
+    getState: () => state,
+    getTts: () => state.host?.tts ?? {},
+    saveTts: (fn) => {
+      try {
+        commit({ ...state, host: { ...state.host, tts: fn(state.host?.tts ?? {}) } }, { at: now(), by: 'system', action: null, system: true });
+      } catch (e) {
+        log.warn?.(`[tts] could not save: ${e.message}`);
+      }
+      scheduleViews();
+    },
+  });
+  const recentPlays = new Map(); // play id -> { text, ttsVoice, cue } (tts.line, audio.started)
 
   const conns = new Map(); // conn -> meta
   const authLimiter = new RateLimiter({ max: L.authFailures, windowMs: L.authWindowMs, now });
@@ -177,6 +193,8 @@ export function createHost(opts) {
     }));
     g.tvWaiting = waiting.filter((m) => m.role === 'pairing').length;
     g.access = { edition, legacy, keyLogin: !!gmKey, backups: !!snapshots, maxTvs: L.maxTvs };
+    g.tts = tts.gmView();
+    g.sfx = pack.sfx ?? [];
     if (!legacy) {
       g.pins = {};
       g.stageUrl = currentUrls().stage;
@@ -241,13 +259,19 @@ export function createHost(opts) {
     onPlay: (item) => {
       const quip = item.quipId ? pack.quipsById.get(item.quipId) : null;
       logEvent({ at: now(), kind: 'play', id: item.id, priority: item.priority, text: item.text, quipId: item.quipId });
+      const audio = quip ? quipAudio(quip, state.session.voice) : null;
+      recentPlays.set(item.id, { text: item.text, ttsVoice: item.ttsVoice ?? null, cue: item.cue ?? null });
+      while (recentPlays.size > 50) recentPlays.delete(recentPlays.keys().next().value);
       toStage({
         t: 'play',
         id: item.id,
         priority: item.priority,
         text: item.text,
-        audio: quip ? quipAudio(quip, state.session.voice) : null,
+        audio,
         voice: voiceFor(pack, state.session.voice),
+        cue: item.cue ?? null, // id of the event (achievement / announcement) this line belongs to
+        sync: (state.show?.audioDevice ?? 'gm') === 'gm', // the TV waits for `audio.started` (max 3 s)
+        tts: tts.playInfo(item, audio),
       });
     },
     onStop: () => toStage({ t: 'stop' }),
@@ -352,6 +376,7 @@ export function createHost(opts) {
     if (!system) next = withActivity(next, state, t, action.t);
     commit(next, { at: t, by, action: system ? null : sanitizeAction(action), system });
     if (!system) logEvent({ at: t, kind: 'action', action: sanitizeAction(action) });
+    const lines = cueLines(r.events, tts.rewriteLines(r.events, r.lines));
     for (const { event, to } of r.events) {
       logEvent({ ...event, log: 'event' });
       deliver(event, to);
@@ -368,10 +393,23 @@ export function createHost(opts) {
       } else if (fx.type === 'clearPending') voice.clearPending();
       else if (fx.type === 'queueClear') voice.clear();
     }
-    for (const line of r.lines) voice.push(line);
+    for (const line of lines) voice.push(line);
     if (action.t === 'player.remove') closePlayer(action.playerId, CLOSE.removed, 'removed');
     scheduleViews();
     return r;
+  }
+
+  /** Achievement + its voice line: the TV holds the takeover until the GM desk starts the audio. */
+  function cueLines(events, lines) {
+    const gmDevice = (state.show?.audioDevice ?? 'gm') === 'gm';
+    if (!gmDevice || !lines.length) return lines;
+    return lines.map((l) => {
+      if (l.category !== 'achievement' && !/^New achievement/.test(l.text)) return l;
+      const ev = events.map((x) => x.event).find((e) => e?.kind === 'achievement' && !e.voiceCue);
+      if (!ev) return l;
+      ev.voiceCue = true;
+      return { ...l, cue: ev.id };
+    });
   }
 
   function closePlayer(playerId, code, reason) {
@@ -531,7 +569,29 @@ export function createHost(opts) {
   const bad = (msg) => new ActionError('bad_request', msg);
   const notFound = (msg) => new ActionError('not_found', msg);
 
+  function audioStarted(msg) {
+    if (typeof msg.id !== 'string') throw bad('id required');
+    const p = recentPlays.get(msg.id);
+    for (const [c, m] of conns) if (m.role === 'stage') send(c, { t: 'audio.started', id: msg.id, cue: p?.cue ?? null });
+  }
+
+  const ttsCtx = { pushLine: (line) => voice.push(line), lineOf: (id) => recentPlays.get(id) ?? null };
+
   const HOST_GM = {
+    ...Object.fromEntries(Object.entries(tts.handlers).map(([k, fn]) => [k, (msg) => fn(msg, ttsCtx)])),
+    'audio.started': audioStarted,
+    /** Free-text announcement: TV takeover + System voice (P0), in sync via `audio.started`. */
+    announce(msg) {
+      const text = typeof msg.text === 'string' ? msg.text.replace(/\s+/g, ' ').trim() : '';
+      if (!text) throw bad('text required');
+      if (text.length > 1000) throw bad('text too long (max 1000 characters)');
+      const gmDevice = (state.show?.audioDevice ?? 'gm') === 'gm';
+      const event = { id: genId('e'), at: now(), kind: 'announcement', from: pack.systemName || 'The System', text, voiceCue: gmDevice };
+      logEvent({ ...event, log: 'event' });
+      deliver(event, { roles: ['stage', 'gm'] });
+      if (msg.voice !== false) voice.push({ priority: 0, text, quipId: null, crit: false, cue: event.id });
+      return { eventId: event.id };
+    },
     'audio.done'(msg) {
       // The GM desk is the audio device by default (show.audio).
       if (typeof msg.id !== 'string') throw bad('id required');
@@ -639,6 +699,8 @@ export function createHost(opts) {
         if (msg.t === 'audio.done') {
           if (typeof msg.id !== 'string') throw bad('id required');
           voice.done(msg.id);
+        } else if (msg.t === 'audio.started') {
+          audioStarted(msg);
         } else if (msg.t === 'audio.pause') {
           if (typeof msg.silent !== 'boolean') throw bad('silent must be a boolean');
           // Phase 1 treats the table as always silent; phase-3 hook: voice.setSilent(msg.silent)
@@ -647,7 +709,7 @@ export function createHost(opts) {
         }
       } else if (role === 'gm') {
         if (Object.hasOwn(HOST_GM, msg.t)) {
-          result = HOST_GM[msg.t](msg);
+          result = await HOST_GM[msg.t](msg);
         } else {
           let action = { ...msg, role: 'gm' };
           // Custom achievement without desc: let AI write one if available.
@@ -804,6 +866,7 @@ export function createHost(opts) {
     },
     pack,
     voice,
+    tts,
     limits: L,
   };
 }

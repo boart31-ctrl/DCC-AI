@@ -3,6 +3,7 @@
 @import url("neon.css");
 @import url("sheet.css");
 @import url("gm-scenes.css");
+@import url("gm-combat.css");
 
 body.gm { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 .tool kbd { font-family: var(--f-ui); font-size: 11px; font-weight: 600; padding: 0 4px; border: 1px solid var(--c-line-2); border-bottom-width: 2px; border-radius: 3px; color: var(--c-ink-3); background: transparent; }
@@ -271,50 +272,7 @@ body.hosted .links, body.hosted #node-campaign { display: none; }
 @media (max-width: 1280px) { .ed-cols { grid-template-columns: minmax(0, 1fr); } .ed-side { position: static; } }
 @media (max-width: 900px) { .lib-cols { grid-template-columns: minmax(0, 1fr); } .lib-side { position: static; max-height: 360px; } }
 
-/* ---------- combat ---------- */
-
-.combat-head { gap: 14px; }
-.round { display: inline-flex; align-items: center; gap: 8px; font-family: var(--f-ui); font-weight: 600; }
-.phases { list-style: none; margin: 0; padding: 0; display: flex; gap: 0; border: 1px solid var(--c-line-2); border-radius: var(--r-1); overflow: hidden; }
-.phases li + li button { border-left: 1px solid var(--c-line-2); }
-.phases button { height: 30px; padding: 0 12px; background: none; border: 0; font-family: var(--f-ui); font-weight: 600; font-size: 14px; color: var(--c-ink-3); }
-.phases button[aria-current="step"] { background: var(--c-accent); color: var(--c-accent-ink); }
-.verify { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--c-ink-3); }
-.phase-edit { display: grid; gap: 8px; max-width: 520px; margin-bottom: 14px; padding: 12px; background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-2); }
-.combat-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.15fr); gap: 16px; align-items: start; }
-@media (max-width: 1200px) { .combat-cols { grid-template-columns: minmax(0, 1fr); } }
-.cb-list, .mob-list { list-style: none; margin: 0; padding: 0; display: grid; }
-.cb-row { display: grid; grid-template-columns: minmax(120px, 1fr) minmax(170px, 1.4fr) 52px 44px; grid-template-areas: "who hp ev dr" "buffs buffs buffs buffs"; gap: 4px 12px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--c-line); }
-.cb-row:last-child { border-bottom: 0; }
-.cb-who { grid-area: who; display: flex; align-items: center; gap: 8px; font-family: var(--f-ui); font-size: 15px; min-width: 0; }
-.cb-who b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.cb-hp { grid-area: hp; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 6px; align-items: center; }
-.slots-sm .slot { height: 18px; }
-.cb-dmg { display: flex; gap: 2px; }
-.cb-dmg .btn { min-width: 34px; padding: 0 6px; }
-.cb-num { display: grid; justify-items: center; gap: 2px; }
-.cb-row .cb-num:nth-of-type(3) { grid-area: ev; }
-.cb-row .cb-num:nth-of-type(4) { grid-area: dr; }
-.cb-num .num { font-size: 18px; font-weight: 700; }
-.cb-buffs { grid-area: buffs; display: flex; flex-wrap: wrap; gap: 4px; }
-.cb-buffs:empty { display: none; }
-.mob-add { display: grid; grid-template-columns: minmax(140px, 2fr) repeat(4, minmax(56px, 0.6fr)) auto; gap: 6px; align-items: end; padding-bottom: 12px; margin-bottom: 4px; border-bottom: 1px solid var(--c-line); }
-.mob { display: grid; gap: 6px; padding: 8px 0; border-bottom: 1px solid var(--c-line); }
-.mob:last-child { border-bottom: 0; }
-.mob.down { opacity: 0.5; }
-.mob.down .mob-name { text-decoration: line-through; }
-.mob-top { display: grid; grid-template-columns: minmax(140px, 1.4fr) minmax(90px, 1fr) auto 52px 52px auto; gap: 8px; align-items: center; }
-.mob-name { font-family: var(--f-ui); font-weight: 700; font-size: 15px; background: transparent; border-color: transparent; }
-.mob-name:hover { border-color: var(--c-line); }
-.mob-hp { display: grid; gap: 3px; }
-.mob-hp .pool-bar { height: 8px; }
-.mob-hp .pool-fill { background: var(--c-hp); }
-.mob-hp b { font-family: var(--f-ui); font-size: 13px; }
-.mob-dmg { display: flex; gap: 4px; align-items: center; }
-.mob-dmg .inp { width: 64px; }
-.num-in { text-align: center; font-family: var(--f-ui); font-weight: 600; }
-.mob-act { display: flex; gap: 0; }
-.mob-notes { font-size: 13px; }
+/* ---------- combat: see gm-combat.css ---------- */
 
 /* ---------- gate ---------- */
 

@@ -35,6 +35,9 @@ const PATHS = {
   bolt: 'M13 3L4 14h7l-1 7 9-11h-7z',
   heart: 'M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z',
   copyPlus: 'M8 8h11v11H8zM5 16V5h11M13.5 11v5M11 13.5h5',
+  eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+  skull: 'M12 3a8 8 0 0 0-5 14.2V20h10v-2.8A8 8 0 0 0 12 3zM9 12h.01M15 12h.01M10 20v-2M14 20v-2',
+  chat: 'M4 5h16v11H9l-5 4z',
 };
 
 export function icon(name, { size = 16, label } = {}) {

@@ -2,7 +2,7 @@
 // Contract: docs/RULESET.md (v2).
 import { evaluate, diceText, validateFormula } from './formula.js';
 
-export const LIB_KINDS = ['item', 'spell', 'skill', 'buff', 'feature', 'race', 'class', 'background', 'boss', 'location'];
+export const LIB_KINDS = ['item', 'spell', 'skill', 'buff', 'feature', 'race', 'class', 'background', 'boss', 'location', 'monster', 'npc'];
 export const EFFECT_WHENS = ['equipped', 'carried', 'active', 'always'];
 export const RANKUP_RULES = ['gt', 'gte', 'lt', 'lte'];
 export const FIELD_TYPES = ['number', 'text', 'longtext'];
@@ -191,7 +191,22 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
       floor: floorText(raw.floor),
       image: opts.image ? opts.image(raw.image) : homebrewImage(raw.image, ctx),
       readAloud: text(raw.readAloud, 1200),
-      features: Array.isArray(raw.features) ? raw.features.filter(isStr).slice(0, 30).map((f) => text(f, 300)) : [],
+      features: textList(raw.features, 30, 300), // GM only
+      npcs: idList(raw.npcs, 30),
+      monsters: idList(raw.monsters, 30),
+      bosses: idList(raw.bosses, 10),
+    });
+  } else if (kind === 'monster') {
+    Object.assign(e, normalizeMonsterEntry(raw, ctx, opts));
+  } else if (kind === 'npc') {
+    Object.assign(e, {
+      role: text(raw.role, 120),
+      floor: floorText(raw.floor),
+      image: opts.image ? opts.image(raw.image) : homebrewImage(raw.image, ctx),
+      personality: text(raw.personality, 1200),
+      voice: text(raw.voice, 600), // GM only: how to play them
+      hooks: textList(raw.hooks, 20, 400), // GM only
+      secrets: textList(raw.secrets, 20, 400), // GM only
     });
   } else {
     Object.assign(e, { features: idList(raw.features), statBonuses: normalizeEffects(raw.statBonuses, ctx), skills: idList(raw.skills) });
@@ -235,6 +250,65 @@ function normalizeBossEntry(raw, ctx, opts) {
     defeatLine: text(raw.defeatLine, 300), // TV + voice on defeat
     lootHint: text(raw.lootHint, 300), // GM desk only (never copied into the scene)
     tactics: text(raw.tactics, 3000), // GM desk only
+    // Stat block for running the boss as a combatant (optional; the boss scene ignores these).
+    evade: intOr(raw, 'evade', -99, 99, 0, ctx),
+    dr: intOr(raw, 'dr', -99, 99, 0, ctx),
+    attacks: normalizeStatAttacks(raw.attacks, ctx),
+  };
+}
+
+function textList(raw, max, len) {
+  return Array.isArray(raw) ? raw.filter(isStr).slice(0, max).map((f) => text(f, len)) : [];
+}
+
+function intOr(raw, key, lo, hi, dflt, ctx) {
+  const v = raw[key];
+  if (v === undefined || v === null || v === '') return dflt;
+  if (Number.isInteger(v) && v >= lo && v <= hi) return v;
+  problem(ctx, `${ctx.where}: ${key} must be an integer ${lo}..${hi}, using ${dflt}`);
+  return dflt;
+}
+
+/** Stat-block attacks (monsters, bosses): [{name, toHit, damage, effects, buffs[]}]. */
+function normalizeStatAttacks(raw, ctx) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw)) {
+    problem(ctx, `${ctx.where}: attacks must be an array`);
+    return [];
+  }
+  const out = [];
+  raw.slice(0, 12).forEach((a, i) => {
+    const w = `${ctx.where} attacks[${i}]`;
+    if (!isObj(a) || !isStr(a.name)) return problem(ctx, `${w}: needs a name`);
+    let toHit = 0;
+    if (a.toHit != null && a.toHit !== '') {
+      if (Number.isInteger(a.toHit) && Math.abs(a.toHit) <= 99) toHit = a.toHit;
+      else problem(ctx, `${w}: toHit must be an integer -99..99`);
+    }
+    let damage = typeof a.damage === 'number' && Number.isInteger(a.damage) ? String(a.damage) : text(a.damage, 60);
+    if (damage && !formulaOk(damage, ctx, `${w} damage`, { dice: true })) damage = '';
+    out.push({ name: text(a.name, 60), toHit, damage, effects: text(a.effects, 400), buffs: idList(a.buffs, 10) });
+  });
+  return out;
+}
+
+/** Monster library entry (monsters.json / homebrew): a mob stat block. See docs/CONTENT_PACKS.md. */
+function normalizeMonsterEntry(raw, ctx, opts) {
+  return {
+    title: text(raw.title, 120),
+    floor: floorText(raw.floor),
+    group: text(raw.group, 40),
+    image: opts.image ? opts.image(raw.image) : homebrewImage(raw.image, ctx),
+    hpSlots: intOr(raw, 'hpSlots', 1, 100, 5, ctx),
+    evade: intOr(raw, 'evade', -99, 99, 0, ctx),
+    dr: intOr(raw, 'dr', -99, 99, 0, ctx),
+    attacks: normalizeStatAttacks(raw.attacks, ctx),
+    flavor: text(raw.flavor, 1200),
+    defeatLine: text(raw.defeatLine, 300),
+    lootItems: idList(raw.lootItems, 20),
+    notes: text(raw.notes, 3000), // GM only
+    tactics: text(raw.tactics, 3000), // GM only
+    lootHint: text(raw.lootHint, 300), // GM only
   };
 }
 

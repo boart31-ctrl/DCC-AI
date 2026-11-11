@@ -10,7 +10,7 @@
 import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
 
-export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank'];
+export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc'];
 export const AUDIO_DEVICES = ['gm', 'stage'];
 export const MAX_BOSS_HP = 100;
 export const MAX_BOSS_PHASES = 10;
@@ -76,6 +76,8 @@ const PLAIN = {
   explore: { location: T.location, floor: T.floor, image: T.image, text: T.text1200, showFeed: T.showFeed, locationId: (v) => v },
   recap: { title: T.title, text: T.text4000 },
   blank: { text: T.text160 },
+  // The arena board: party vs revealed mobs. Its content is view.combat (already role-filtered).
+  combat: { title: T.title, showParty: (v) => flag(v, 'showParty') },
 };
 
 const DEFAULTS = {
@@ -83,6 +85,8 @@ const DEFAULTS = {
   explore: () => ({ locationId: null, location: '', floor: '', image: null, text: '', showFeed: true }),
   recap: () => ({ title: '', text: '' }),
   blank: () => ({ text: '' }),
+  combat: () => ({ title: '', showParty: true }),
+  npc: () => ({ npcId: null, npc: null, line: '', lineAt: null }),
   loot: () => ({ playerId: null, tier: null }),
   roll: () => ({ playerId: null, name: '', color: null, label: '', formula: '', rollId: null, dice: [], total: null, nat1: false, nat20: false, at: null }),
   countdown: () => ({ label: '', totalMs: 300_000, remainingMs: 300_000, startedAt: null }),
@@ -257,6 +261,40 @@ function exploreMerge(st, ctx, prev, patch) {
   return plainMerge('explore', base, rest);
 }
 
+// ---------- npc ----------
+
+/** TV-safe NPC card: name, role, portrait, floor. personality / voice / hooks / secrets stay on the GM desk. */
+function npcCard(raw) {
+  if (!isObj(raw)) throw bad('npc must be an object');
+  return {
+    name: reqTxt(raw.name, 'npc.name', 80),
+    role: raw.role == null ? '' : txt(raw.role, 'npc.role', 120),
+    image: imageUrl(raw.image, 'npc.image'),
+    floor: raw.floor == null || raw.floor === '' ? '' : txt(String(raw.floor), 'npc.floor', 20),
+  };
+}
+
+function npcFromLibrary(st, ctx, id) {
+  if (typeof id !== 'string' || !ID_RE.test(id)) throw bad('npcId must be an id');
+  const e = libraryOf(st, ctx.pack).get('npc', id);
+  if (!e) throw notFound(`unknown npc ${id}`);
+  return npcCard({ name: e.name, role: e.role, image: e.image, floor: e.floor });
+}
+
+function npcMerge(st, ctx, prev, patch) {
+  const out = { ...prev };
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'npcId') {
+      if (v === null) out.npcId = null;
+      else { out.npc = npcFromLibrary(st, ctx, v); out.npcId = v; out.line = ''; out.lineAt = null; }
+    } else if (k === 'npc') { out.npc = npcCard(v); out.npcId = null; }
+    else if (k === 'line') { out.line = txt(v, 'line', 300); out.lineAt = out.line ? ctx.now : null; }
+    else throw bad(`unknown field ${k} for scene npc`);
+  }
+  if (!out.npc) throw bad('npc scene needs npcId (from the library) or an ad-hoc npc {name, role?, image?}');
+  return out;
+}
+
 function mergeData(st, ctx, kind, prev, patch, fresh) {
   if (!isObj(patch)) throw bad('data must be an object');
   if (JSON.stringify(patch).length > 220_000) throw bad('data too large');
@@ -271,6 +309,7 @@ function mergeData(st, ctx, kind, prev, patch, fresh) {
   }
   if (kind === 'loot') return lootMerge(st, ctx, prev, patch);
   if (kind === 'roll') return rollMerge(st, prev, patch);
+  if (kind === 'npc') return npcMerge(st, ctx, prev, patch);
   throw bad(`unknown scene kind ${kind}`);
 }
 
@@ -289,6 +328,7 @@ export function normalizeScene(raw, now = 0) {
   if (!isObj(raw) || !SCENE_KINDS.includes(raw.kind) || !isObj(raw.data)) return initScene(now);
   const data = { ...DEFAULTS[raw.kind](), ...raw.data };
   if (raw.kind === 'boss' && !isObj(data.boss)) return initScene(now);
+  if (raw.kind === 'npc' && !isObj(data.npc)) return initScene(now);
   return { id: typeof raw.id === 'string' ? raw.id : 'sc_0', kind: raw.kind, data, since: Number.isFinite(raw.since) ? raw.since : now };
 }
 
@@ -445,6 +485,23 @@ export const SCENE_GM = {
     ctx.h.feedPush(st, ev, `${d.boss.name} was defeated`);
     if (d.boss.defeatLine && a.line !== false) out.lines.push({ priority: 1, text: d.boss.defeatLine, quipId: null, crit: false, category: 'boss' });
     if (ctx.h.bumpPct) out.emit(ctx.h.bumpPct(st, ctx, 0.2));
+  },
+
+  /**
+   * "Speak as NPC": a TV subtitle in the NPC's name (no voice). npcId (library), else the NPC on the
+   * TV, else an ad-hoc `name`. On the npc scene of that NPC the line also stays on screen (data.line).
+   */
+  'npc.say'(st, a, ctx, out) {
+    const text = reqTxt(a.text, 'text', 300);
+    const onTv = st.scene?.kind === 'npc' ? st.scene.data : null;
+    let npc;
+    let npcId = null;
+    if (a.npcId !== undefined && a.npcId !== null) { npc = npcFromLibrary(st, ctx, a.npcId); npcId = a.npcId; }
+    else if (a.name !== undefined) npc = { name: reqTxt(a.name, 'name', 80), role: '', image: null };
+    else if (onTv?.npc) { npc = onTv.npc; npcId = onTv.npcId; }
+    else throw bad('npcId or name required (no NPC on the TV)');
+    if (onTv && (onTv.npcId === npcId || (!npcId && onTv.npc?.name === npc.name))) { onTv.line = text; onTv.lineAt = ctx.now; }
+    out.emit({ kind: 'npc.say', npcId, name: npc.name, image: npc.image ?? null, text }, STAGE_GM);
   },
 
   'countdown.start'(st, a, ctx) {

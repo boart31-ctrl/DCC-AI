@@ -101,7 +101,7 @@ Each role gets its own projection.
 Every view also has:
 - `rolls`: last 50 dice-log entries visible to that role (see [Rolls](#rolls)). GM: all. Player:
   non-secret + their own secret rolls. Stage: non-secret only.
-- `library`: `{ item:[], spell:[], skill:[], buff:[], feature:[], race:[], class:[], background:[] }`.
+- `library`: `{ item:[], spell:[], skill:[], buff:[], feature:[], race:[], class:[], background:[], boss:[], location:[], monster:[], npc:[] }`.
   Every entry has `source: "pack" | "homebrew"`. GM: everything (pack + homebrew). Player: every entry their
   own sheet references (inventory items, known spells, buffs on them, buffs their items/spells apply),
   plus the full `skill`, `race`, `class`, `background` lists and the `feature`s those reference
@@ -329,6 +329,110 @@ Location `features` are GM-only too.
 later phase whose `atHp ≥ hp`. The GM confirms with `boss.phase`.
 All scene/boss/countdown actions are GM-only (players and the stage get `bad_request: unknown action`).
 
+### 3b. Combat (synced tracker) and NPCs
+
+Every view carries `combat` (server/combat.js). GM:
+```json
+"combat": { "active": true, "round": 2, "phaseIndex": 1, "phase": "Mobs", "phases": ["Crawlers", "Mobs"],
+  "phasesVerified": false, "showMobHp": false,
+  "combatants": [
+    { "uid": "cb_..", "type": "crawler", "playerId": "p_x7", "name": "Carl", "color": "#ff7a00", "hp": 6, "hpMax": 10, "down": false,
+      "conditions": [ { "uid": "b_..", "id": "bleeding", "name": "Bleeding" } ] },
+    { "uid": "cb_..", "type": "mob", "sourceKind": "monster" | "boss" | null, "sourceId": "gnashrat", "name": "Gnashrat 2", "image": null,
+      "hp": 1, "hpMax": 2, "evade": 2, "dr": 0, "attacks": [ { "name": "Bite", "toHit": 2, "damage": "1d3", "effects": "", "buffs": [] } ],
+      "conditions": [ { "id": "prone", "name": "Prone" } ], "notes": "", "hidden": true, "down": false, "linked": false } ] }
+```
+Players and the stage get the same header, crawlers (without buff `uid`s) and **revealed mobs only** as
+`{ uid, type, name, image, boss, hpPct, down, conditions:[{id,name}] }`; `hpPct` is HP/max rounded **up** to
+5 % (0 only when down). `hp`/`hpMax` are added only while `showMobHp` is on. Mob `notes`, `attacks`,
+`sourceId` and every library GM field (tactics, notes, lootHint, voice, hooks, secrets, features) never
+reach phones or the TV. Crawler HP is read from the sheet (track `hp`, else the first track).
+`phases` default to `["Crawlers","Mobs"]` with `phasesVerified: false` (no initiative; unverified).
+
+| `t` | Fields | Effect |
+|-----|--------|--------|
+| `combat.start` | `phases?` | `active`, round 1, phase 0; adds every player as a crawler combatant. Event `combat.start`, feed line |
+| `combat.end` | — | Clears combatants, round 1 (keeps phases, `showMobHp`). Event `combat.end` |
+| `combat.next` | — | Next phase; after the last one round + 1. Event `combat.phase {round, phaseIndex, phase}` |
+| `combat.set` | `phases?` (1..8 names ≤ 40), `phasesVerified?`, `round?`, `phaseIndex?`, `showMobHp?` | Tracker settings |
+| `combat.addMob` | `sourceId`, `kind?` (`monster`/`boss`, default: monster, then boss), `count?` [1] (1..20), `hidden?` [true] | Copies from the library; auto-numbered per source ("Goblin 2"; a lone "Goblin" becomes "Goblin 1"). Ack `result.uids` |
+| `combat.addAdhoc` | `name`, `hp` (1..999), `evade?`, `dr?`, `count?`, `hidden?` [true], `notes?`, `attacks?` | Ad-hoc mob(s). Ack `result.uids` |
+| `combat.addCrawler` | `playerId` | Adds a player that joined late |
+| `combat.update` | `uid` (mob), `name?`, `hp?`, `hpMax?`, `evade?`, `dr?`, `notes?`, `hidden?` | Crawlers → `bad_request` (edit the sheet) |
+| `combat.damage` / `combat.heal` | `uid`, `amount?` [1] (1..999) | Crawler: `track.set` delta on the sheet (`stat` event as usual). Mob: clamp 0..hpMax; a boss combatant whose boss is on the TV (`scene.kind boss`, same `bossId`) also runs `boss.damage`/`boss.heal`. Event `combat.hit` / `combat.heal` `{uid, type, name, playerId?, amount, hp, max, down}` — to the GM only for a hidden mob, else to all. Ack `result {hp, max}` |
+| `combat.condition` | `uid`, `buffId` **or** `name` (≤ 40), `on` | Mob: condition chip (no duplicates, max 12). Crawler: `buff.add` / `buff.remove` on the sheet |
+| `combat.remove` | `uid` | |
+| `combat.reveal` | `uid` **or** `all: true`, `on?` [true] | Shows (or hides) mobs on the TV and phones. Event `combat.reveal {uids, names}` |
+| `combat.mobRoll` | `uid`, `attackIndex?` [0], `public?` [false] | Rolls `d20+toHit` and then the attack's damage dice (skipped for empty / `0`) through `roll` → dice log, secret (GM only) unless `public`. Labels `"<mob>: <attack>"`. Ack `result {rollId, total, nat1, nat20, damageRollId, damage, effects, buffs, public}` |
+| `npc.say` | `text` (≤ 300), `npcId?` **or** `name?` (default: the NPC on the TV) | TV subtitle in the NPC's name (no voice). Event `npc.say {npcId, name, image, text}` to stage + GM; on that NPC's `npc` scene also sets `data.line` / `lineAt` |
+
+Scene kinds added to §3a: `combat` — `title` [""], `showParty` [true]; the TV draws `view.combat`.
+`npc` — `npcId` (library) **or** ad-hoc `npc {name, role?, image?}` → `data.npc {name, role, image, floor}`,
+`line` [""] (≤ 300), `lineAt`. Personality, voice tips, hooks and secrets are never copied into the scene.
+All of these are GM-only actions (players and the stage get `bad_request: unknown action`).
+
+### 3c. Sound desk and System voice (ElevenLabs)
+
+The GM's notebook is the audio device (`show.audioDevice: "gm"`, wired to the soundbar); the TV is picture only.
+Music stays in the Spotify app on the notebook (not integrated). SFX pads are client-side (`web/js/sfx.js`):
+core pads from `/sfx/manifest.json` (original sounds generated by `tools/gen_sfx.mjs`) plus pack pads
+(`gm.sfx`, see docs/CONTENT_PACKS.md). Nothing about pads goes over the socket.
+
+The System voice uses ElevenLabs **on the server only**: `ELEVENLABS_API_KEY` (Cloudflare secret / Node `.env`),
+optional `ELEVENLABS_VOICE_ID`, `ELEVENLABS_MODEL_ID` (default `eleven_multilingual_v2`), `TTS_CACHE_MB`
+(Node 200, Cloudflare 50). The key is never sent to any client and never appears in a view. Requests:
+`POST https://api.elevenlabs.io/v1/text-to-speech/{voice_id}?output_format=mp3_44100_96`, header `xi-api-key`,
+body `{ text, model_id, voice_settings: { stability, similarity_boost } }`; `GET /v1/voices`, `GET /v1/models`,
+`GET /v1/user/subscription`. At most 2 requests in flight (live lines before pre-renders); `429` busy is retried.
+
+Only **premade** and **generated** (designed from a text prompt) voices of the account are listed or accepted;
+`cloned`, `professional`, `famous` and any other category are refused (`tts.no_voice`). There is no voice cloning.
+
+**Cache**: key = SHA-256 of `voiceId + modelId + output format + whitespace-normalised text` (voice sliders are not
+part of the key: clear the cache to re-render with new settings). LRU by last use, capped by size. Node:
+`data/tts/<hash>.mp3` + `data/tts/index.json`. Cloudflare: Durable Object SQLite tables
+`tts_meta(hash, size, at, chars, parts, voice, model, text)` and `tts_chunk(hash, part, data BLOB)`, audio split
+into 1 MB rows (far below the per-row limit). Audio: `GET /api/tts/<hash>.mp3`, GM only (§7).
+
+GM view adds `gm.tts` and `gm.sfx`:
+```json
+"tts": { "configured": true, "voiceId": "…", "voiceName": "Brian", "voiceFromEnv": false, "modelId": "eleven_multilingual_v2",
+         "format": "mp3_44100_96", "stability": 0.5, "similarity": 0.75,
+         "achievementLine": "auto", "achievementMode": "announce", "achievementDesc": true, "achievementReward": true,
+         "cache": { "bytes": 0, "count": 0, "cap": 52428800 }, "usage": { "chars": 0, "lines": 0, "lastAt": 0 },
+         "busy": 0, "lastError": null | { "at": 0, "code": "bad_key", "msg": "…" } },
+"sfx": [ { "id": "hype_horn", "label": "Our horn", "url": "/pack/audio/sfx/horn.mp3", "hotkey": "Shift+KeyH", "volume": 0.8 } ]
+```
+`usage.chars` = ElevenLabs characters this campaign spent (cache hits are free); stored in `state.host.tts`
+with the settings (kept across restores).
+
+All actions below are **GM only**; players and the stage get an error. Failures answer
+`{ ok:false, error:"tts.<code>" }` with `<code>` = `no_key` (no API key: browser voice only), `no_voice`,
+`bad_key`, `quota`, `busy`, `offline`, `bad_request`, `upstream`.
+
+| `t` | Fields | Effect |
+|-----|--------|--------|
+| `tts.say` | `text` (≤ 1000), `voiceId?` | Synthesizes (or finds cached) audio, then plays it as a P0 line whose `play.tts` is cached. Ack `result: {hash, url, cached, chars}` |
+| `tts.line` | `id` (a recent `play` id) | The desk got a `play` without cached audio: render it now (1–2 s). Ack `result: {id, hash, url, cached, chars}` |
+| `announce` | `text` (≤ 1000), `voice?` [true] | Free-text announcement: event `announcement` (`from` = pack `systemName`, `voiceCue`) to stage + gm, and a P0 voice line with `cue` = that event id. Works without ElevenLabs (browser voice). Ack `result.eventId` |
+| `tts.voices` | `refresh?` | Ack `result: {voices: [{id, name, category, labels, description, hasPreview}], hidden}` (premade / generated only; `hidden` = refused voices) |
+| `tts.models` | — | Ack `result.models: [{id, name, maxChars, costFactor, languages, description}]` (text-to-speech models) |
+| `tts.preview` | `voiceId?` | Downloads the voice's own preview sample (no characters spent) into the cache. Ack `result: {hash, url, chars: 0}` |
+| `tts.config` | any of `voiceId` (allowed voice or null), `modelId`, `stability` 0..1, `similarity` 0..1, `achievementLine` (`auto`/`announce`/`quip`), `achievementDesc`, `achievementReward` (bool) | Saves the campaign's voice settings. Ack `result.settings` |
+| `tts.estimate` | — | Ack `result: {total, cached, remaining, chars, byKind, voiceId, modelId}` for every known line: pack quips without recorded audio, achievement announcements (in announce mode), boss `intro` / `defeatLine` (pack + homebrew) |
+| `tts.prerender.step` | `confirm: true`, `exclude?: [hash]` | Renders up to 2 uncached known lines (2 in parallel). Stateless and resumable: the desk loops until `remaining` is 0, passing failed hashes in `exclude`. Ack `result: {total, cached, remaining, chars, done: [{hash, kind, chars}], failed: [{hash, kind, text, error, msg}], fatal}` (`fatal` = a key / quota / voice / network error: stop) |
+| `tts.cache.clear` | — | Deletes every cached line. Ack `result: {cleared, bytes}` |
+| `tts.account` | — | ElevenLabs quota. Ack `result: {tier, used, limit, resetsAt}` |
+| `audio.started` | `id` | (also from the stage) the audio device started line `id`; the host sends `{ "t": "audio.started", "id", "cue" }` to every stage |
+
+**Achievement announcements.** `achievementLine: "announce"` (or `auto` with a key configured) replaces the
+achievement's voice line with `"<notifyPrefix> <title>. <desc> Reward: <reward>."` (desc/reward switchable).
+A custom or edited achievement is rendered on the fly (the desk shows "Rendering voice…").
+
+**TV sync.** With the GM desk as audio device every `play` carries `sync: true`, and an achievement / announcement
+event whose line follows carries `voiceCue: true` (the line's `play.cue` = the event id). The TV holds the subtitle
+and the takeover until `audio.started` (matching `id` / `cue`) or 3 s, so picture and voice start together.
+
 ## 4. Player actions
 
 | `t` | Fields | Effect |
@@ -396,6 +500,7 @@ the dice RNG (tests); default Web Crypto.
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `audio.done` | `id` | Stage finished playing a queued line → server releases the next one |
+| `audio.started` | `id` | The stage (when it is the audio device) started a line; relayed to other stages |
 | `audio.pause` | `silent`: bool | (phase 3) table-silence detector; server only releases P1/P2 while `silent` is true. In phase 1 the server treats the table as silent |
 
 ## 6. Events (server → clients)
@@ -422,16 +527,21 @@ the dice RNG (tests); default Web Crypto.
 | `boss.heal` | `sceneId`, `amount`, `from`, `hp`, `max` | stage, gm |
 | `boss.phase` | `sceneId`, `index`, `name`, `text`, `of` | stage, gm |
 | `boss.defeat` | `sceneId`, `name`, `lootHint`, `lootTier`, `defeatLine` | stage, gm |
+| `combat.start` / `combat.end` / `combat.phase` / `combat.reveal` | see §3b | all |
+| `combat.hit` / `combat.heal` | `uid`, `type`, `name`, `playerId?`, `amount`, `hp`, `max`, `down` | all (gm only for hidden mobs) |
+| `npc.say` | `npcId`, `name`, `image`, `text` | stage, gm |
 
 Scene changes arrive as views; `boss.*` events carry `sceneId` and may arrive before the view of their
 scene (views are debounced) — the stage holds them up to 4 s. Countdown ticks are computed on the client.
 
 Audio (sent to the stage **and** the GM desk; only `view.show.audioDevice` plays it and acks):
 ```json
-{ "t": "play", "id": "q_...", "priority": 0, "text": "line text", "audio": "/pack/audio/nat1_03.mp3" | null, "voice": { "id": "host", "lang": "en-US", "rate": 1.05, "pitch": 0.8, "prefer": ["Daniel", "Google UK English Male"] } }
+{ "t": "play", "id": "q_...", "priority": 0, "text": "line text", "audio": "/pack/audio/nat1_03.mp3" | null, "voice": { "id": "host", "lang": "en-US", "rate": 1.05, "pitch": 0.8, "prefer": ["Daniel", "Google UK English Male"] },
+  "cue": "e_..." | null, "sync": true, "tts": { "hash": "<64 hex>" | null, "cached": false, "url": "/api/tts/<hash>.mp3" | null } | null }
 { "t": "stop" }
+{ "t": "audio.started", "id": "q_...", "cue": "e_..." | null }
 ```
-If `audio` is null the stage speaks `text` with the browser's `speechSynthesis` (English voice).
+`tts` (only with ElevenLabs configured and no recorded `audio`): the GM desk plays the cached file, or sends `tts.line` when `cached` is false / `hash` is null (§3c), and falls back to the browser voice on any error or after 7 s. If `audio` is null the stage speaks `text` with the browser's `speechSynthesis` (English voice).
 The audio device (stage, or GM desk via `audio.done` from the GM socket) must send `audio.done` when
 finished or after a 12 s safety timeout. The other page shows the text as a subtitle only. Stingers
 (boss intro, hit, heal, phase, defeat, dice tumble, nat 20/1, countdown ticks + klaxon) are generated with
@@ -450,6 +560,8 @@ WebAudio on the audio device; the voice line after a boss intro / defeat waits f
 | `/join` | player page (join request when there is no personal link) |
 | `/p/<token>` | player page for a personal link (`Cache-Control: no-store`) |
 | `/api/info` | `{ edition, legacy, keyLogin }` — tells the player page whether room + PIN login exists |
+| `/api/tts/<hash>.mp3` | GM only, header `X-GM-Key` (Node also `X-GM-Token`), same failure rate limit as the GM login; `401` / `429` / `404`. Cached System voice audio (`audio/mpeg`, `no-store`). The desk fetches it into a blob URL, so no credential ever sits in a URL |
+| `/sfx/manifest.json`, `/sfx/*.mp3` | Core SFX pads (static, generated by `tools/gen_sfx.mjs`) |
 | `/api/export?kind=session\|campaign` | GM only, header `X-GM-Key: <GM_KEY>` (Node also `X-GM-Token: <gmToken>`); same rate limit as the GM login. JSON download `{ format: "the-system-export/1", kind, edition, exportedAt, pack, session, state, log, snapshots }`. `session` = log since the current session started, `campaign` = everything. `state` contains the secrets (links, legacy tokens): treat the file like a password |
 
 Every response carries `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`,

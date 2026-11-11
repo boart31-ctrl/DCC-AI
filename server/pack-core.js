@@ -44,6 +44,39 @@ function assetUrl(io, sub, rel, warnings, label) {
   return `${io.baseUrl}${sub}/` + rel.split('/').map(encodeURIComponent).join('/');
 }
 
+const HOTKEY_RE = /^Shift\+(Digit[0-9]|Key[A-Z])$/;
+
+/** sfx.json: [{ id, label, file, hotkey?, volume? }] — files under audio/sfx/. Adds/overrides GM desk pads. */
+export function loadSfx(io, raw, warnings) {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) {
+    warnings.push('sfx.json must be an array, ignoring');
+    return [];
+  }
+  const out = [];
+  const seen = new Set();
+  raw.slice(0, 64).forEach((e, i) => {
+    if (!isObj(e) || !isStr(e.id) || !ID_RE.test(e.id) || seen.has(e.id)) {
+      warnings.push(`sfx.json [${i}]: missing, invalid or duplicate id, skipping`);
+      return;
+    }
+    const url = assetUrl(io, 'audio', isStr(e.file) ? `sfx/${e.file}` : null, warnings, `sfx ${e.id}`);
+    if (!url) {
+      if (!isStr(e.file)) warnings.push(`sfx.json ${e.id}: file required, skipping`);
+      return;
+    }
+    seen.add(e.id);
+    out.push({
+      id: e.id,
+      label: (isStr(e.label) ? e.label : e.id).slice(0, 40),
+      url,
+      hotkey: isStr(e.hotkey) && HOTKEY_RE.test(e.hotkey) ? e.hotkey : null,
+      volume: typeof e.volume === 'number' && e.volume >= 0 && e.volume <= 2 ? e.volume : 1,
+    });
+  });
+  return out;
+}
+
 function loadMeta(raw, warnings) {
   const F = 'pack.json';
   need(isObj(raw), F, '', 'must be an object');
@@ -252,7 +285,7 @@ function loadItems(io, raw, warnings) {
 }
 
 // Optional library files (spells.json, skills.json, ...): arrays; bad entries are skipped with a warning.
-const LIB_FILES = { spell: 'spells', skill: 'skills', buff: 'buffs', feature: 'features', race: 'races', class: 'classes', background: 'backgrounds', boss: 'bosses', location: 'locations' };
+const LIB_FILES = { spell: 'spells', skill: 'skills', buff: 'buffs', feature: 'features', race: 'races', class: 'classes', background: 'backgrounds', boss: 'bosses', location: 'locations', monster: 'monsters', npc: 'npcs' };
 export const LIBRARY_FILES = Object.values(LIB_FILES);
 
 function loadLibrary(raw, ruleset, warnings, io) {
@@ -277,7 +310,7 @@ function loadLibrary(raw, ruleset, warnings, io) {
         data.forEach((x, i) => {
           const where = `${F} [${i}]`;
           // Boss art (and per-phase art) are pack-relative image paths, like item images.
-          const image = kind === 'boss' || kind === 'location' ? (rel) => assetUrl(io, 'images', rel, warnings, `${kind} ${x?.id ?? i}`) : undefined;
+          const image = ['boss', 'location', 'monster', 'npc'].includes(kind) ? (rel) => assetUrl(io, 'images', rel, warnings, `${kind} ${x?.id ?? i}`) : undefined;
           pushEntry(normalizeLibEntry(kind, x, { warnings, where, source: 'pack', image }));
         });
       }
@@ -401,7 +434,8 @@ export function normalizePack(raw, opts = {}) {
   const rawRuleset = raw.ruleset !== undefined ? raw.ruleset : raw.pack.ruleset;
   const ruleset = normalizeRuleset(rawRuleset, { stats: meta.stats, resources: meta.resources }, warnings);
   const library = loadLibrary(raw, ruleset, warnings, io);
-  const pack = finish({ ...meta, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
+  const sfx = loadSfx(io, raw.sfx, warnings);
+  const pack = finish({ ...meta, sfx, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
   return { pack, warnings };
 }
 
@@ -411,7 +445,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -444,6 +478,7 @@ export function deserializePack(data) {
   }
   pack.library = lib;
   pack.theme = THEMES.includes(d.theme) ? d.theme : null;
+  pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
   pack.items = pack.items.map((it) => ({ tags: [], slot: null, stackable: false, effects: [], attack: null, use: null, source: 'pack', ...it }));
   pack.dir = null;
   return finish(pack);

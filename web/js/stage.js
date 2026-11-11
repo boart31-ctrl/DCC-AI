@@ -2,7 +2,7 @@ import {
   SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted,
 } from './client.js';
 import { createDirector } from './scenes/director.js';
-import { createVoicePlayer, createSubtitleOnly } from './voice.js';
+import { createVoicePlayer, createSubtitleOnly, createCueGate } from './voice.js';
 import { createShowAudio } from './show-audio.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -38,6 +38,13 @@ const director = createDirector($('#scenes'), { reduced });
 client.on('view', (v) => { view = v; render(); });
 client.on('event', onEvent);
 client.on('play', (m) => enqueueLine(m));
+// GM desk = audio device: achievement / announcement takeovers and subtitles wait for its audio to start.
+const cueGate = createCueGate();
+client.on('message', (m) => {
+  if (m?.t !== 'audio.started') return;
+  cueGate.release(m.cue);
+  subOnly.started(m.id);
+});
 client.on('stop', () => stopAll());
 
 /* ---------- render ---------- */
@@ -179,10 +186,14 @@ function onEvent(e) {
     return;
   }
   if (e.kind === 'loot' || e.kind === 'sponsor') director.event(e);
+  if (String(e.kind).startsWith('combat.')) { director.event(e); if (e.kind === 'combat.hit' && e.playerId) flashPlayer(e.playerId); return; }
+  if (e.kind === 'npc.say') { if (director.kind === 'npc') director.event(e); else npcSub(e); return; }
   switch (e.kind) {
     case 'chat': addChat(e.user || 'anon', e.text || ''); break;
     case 'viewers': setViewers(e.viewers, e.delta); break;
     case 'achievement':
+      cueGate.hold(e, () => { momentQ.push(e); if (!momentBusy) nextMoment(); }, !audioHere());
+      break;
     case 'loot':
     case 'sponsor':
       momentQ.push(e);
@@ -190,11 +201,22 @@ function onEvent(e) {
       break;
     case 'stat': flashPlayer(e.playerId); break;
     case 'announcement':
-      momentQ.push({ ...e, kind: 'announcement' });
-      if (!momentBusy) nextMoment();
+      cueGate.hold(e, () => { momentQ.push({ ...e, kind: 'announcement' }); if (!momentBusy) nextMoment(); }, !audioHere());
       break;
     default: break;
   }
+}
+
+// "Speak as NPC" over any scene other than the NPC card: a subtitle bar in the NPC's name.
+let npcSubEl = null;
+let npcSubTimer = 0;
+function npcSub(e) {
+  if (!npcSubEl) { npcSubEl = h('div.npc-sub', { 'aria-live': 'polite' }, h('span.npc-sub-who'), h('p.npc-sub-text')); document.body.append(npcSubEl); }
+  npcSubEl.querySelector('.npc-sub-who').textContent = e.name || '';
+  npcSubEl.querySelector('.npc-sub-text').textContent = e.text || '';
+  npcSubEl.classList.remove('on'); void npcSubEl.offsetWidth; npcSubEl.classList.add('on');
+  clearTimeout(npcSubTimer);
+  npcSubTimer = setTimeout(() => npcSubEl.classList.remove('on'), Math.max(4500, Math.min(14000, 70 * (e.text || '').length)));
 }
 
 function flashPlayer(id) {
