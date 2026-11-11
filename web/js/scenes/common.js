@@ -13,6 +13,20 @@ export function levelBadge(cls, p, level) {
   return el;
 }
 
+/**
+ * Big crawler portrait tile (arena, finale): the uploaded picture, else the initials on the crawler's
+ * colour. The level sits on it as a small chip. A picture that arrives later re-renders the scene.
+ */
+export function portraitTile(cls, p, { name, level } = {}) {
+  const url = portraitSrc(p?.portrait);
+  const nm = name || p?.name || '?';
+  const parts = String(nm).trim().split(/\s+/).filter(Boolean);
+  const ini = ((parts[0]?.[0] || '?') + (parts.length > 1 ? parts.at(-1)[0] : '')).toUpperCase();
+  return h(`div.${cls}`, { class: url ? `${cls} has-pic` : `${cls} no-pic` },
+    url ? h('img', { src: url, alt: '', decoding: 'async' }) : h('span.pt-ini', ini),
+    level != null ? h('span.pt-lv', h('small', 'Lv'), String(level)) : null);
+}
+
 /** Timers that die with the scene (no stray callbacks after a transition). */
 export function timers() {
   const ids = new Set();
@@ -159,7 +173,7 @@ export function partyStrip() {
   function update(view) {
     const ps = view?.players || [];
     const party = new Map((view?.scene?.party || []).map((p) => [p.id, p]));
-    const s = JSON.stringify([ps, view?.scene?.party]);
+    const s = JSON.stringify([ps, view?.scene?.party, ps.map((p) => !!portraitSrc(p.portrait))]);
     if (s === sig) return;
     const prev = new Map([...el.children].map((c) => [c.dataset.id, c.dataset.hp]));
     sig = s;

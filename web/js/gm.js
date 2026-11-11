@@ -14,6 +14,7 @@ import { createLibrary } from './library.js';
 import { createCombat } from './combat.js';
 import { createScenes } from './gm-scenes.js';
 import { createSound } from './gm-sound.js';
+import { createCombatSfx } from './combat-sfx.js';
 import { createNpcs } from './gm-npcs.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -60,8 +61,10 @@ client.on('status', (s) => {
 client.on('view', (v) => { view = v; render(); });
 
 client.on('event', (e) => {
+  if (String(e.kind).startsWith('combat.')) combatSfx?.event(e);
   if (e.kind === 'roll') {
     const r = e.roll || e;
+    if (r.auto) return; // auto-mode mob rolls: the Combat log shows them
     if (!r.playerId || r.nat20 || r.nat1) showRollCard(r, { nameOf: (id) => fullPlayer(id)?.name || 'Someone' });
     return;
   }
@@ -114,6 +117,7 @@ function render() {
   applyPackTheme(view.pack?.theme);
   drawTheme();
   library.update(view);
+  combatSfx?.view(view);
   combat.update(view);
   npcs.update(view);
   scenes.update(view);
@@ -938,13 +942,21 @@ const library = createLibrary({
   hasAi: () => !!ext.libraryDraft,
 });
 $('#view-library').append(library.el);
-const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a) });
 // Show → Scenes (TV director + this desk as the audio device). Hoisted use in render() is safe: views arrive after boot.
 const scenes = createScenes({ client, act, getView: () => view });
 // Show → Sound (SFX pads, announcements, voice pre-render) + Settings → Voice. The audio fetches use the desk's login.
 scenes.audio.credential = () => ext.credential;
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 scenes.mountInto($('#view-show'), [{ id: 'sound', label: 'Sound', icon: 'bolt', el: sound.el }]);
+// Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
+const combatSfx = createCombatSfx({ board: sound.board, getView: () => view, onChange: () => combat?.update(view) });
+sound.el.append(combatSfx.panel());
+const openSound = () => {
+  showView('show');
+  scenes.openSub?.('sound');
+  requestAnimationFrame(() => document.getElementById('combat-sounds')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+};
+const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound });
 $('#view-settings .settings-grid').append(sound.settingsEl);
 $('#view-combat').append(combat.el);
 const npcs = createNpcs({ act, getView: () => view, openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });

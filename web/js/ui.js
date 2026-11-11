@@ -44,6 +44,14 @@ const PATHS = {
   back: 'M15 6l-6 6 6 6',
   check: 'M5 12l5 5 9-10',
   share: 'M12 4v11M8 8l4-4 4 4M5 14v6h14v-6',
+  speaker: 'M4 9h4l5-4v14l-5-4H4zM16 9.5a3.5 3.5 0 0 1 0 5M18.5 7a7 7 0 0 1 0 10',
+  mute: 'M4 9h4l5-4v14l-5-4H4zM17 10l4 4M21 10l-4 4',
+  undo: 'M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3',
+  play: 'M7 5l12 7-12 7z',
+  skip: 'M5 5l10 7-10 7zM19 5v14',
+  target: 'M12 3v4M12 17v4M3 12h4M17 12h4M12 7a5 5 0 1 0 0 10 5 5 0 0 0 0-10',
+  flag: 'M5 21V4M5 4h11l-2 4 2 4H5',
+  up: 'M6 15l6-6 6 6',
 };
 
 export function icon(name, { size = 16, label } = {}) {

@@ -10,6 +10,7 @@ import { STANDARD_CATEGORIES } from './constants.js';
 import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView, showView } from './scenes.js';
 import { COMBAT_GM, initCombat, normalizeCombat, combatView } from './combat.js';
+import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import {
   SHEET, SHEET_GM, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS,
@@ -69,6 +70,7 @@ export function createState(pack, now = Date.now()) {
     rolls: [],
     scene: initScene(now), // scenes.js
     combat: initCombat(), // combat.js
+    combatLog: [], // combat-auto.js: one summary per finished fight (this session), for the recap
     show: initShow(),
   };
 }
@@ -97,6 +99,7 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.scene = normalizeScene(raw.scene, now);
   s.show = normalizeShow(raw.show);
   s.combat = normalizeCombat(raw.combat);
+  s.combatLog = Array.isArray(raw.combatLog) ? raw.combatLog.filter((x) => x && typeof x === 'object').slice(-MAX_COMBAT_LOG) : [];
   s.players = (Array.isArray(raw.players) ? raw.players : []).map((p, i) => {
     // Pre-messaging saves stored private messages on the player; move them into state.messages.
     // Pre-v2 saves keep flat `stats` numbers and `resources`; they move into `sheet` (RULESET §5).
@@ -532,6 +535,7 @@ const GM = {
     st.usedQuips = {};
     st.feed = [];
     st.rolls = [];
+    st.combatLog = [];
     st.audience.bumps = [];
     touch(st, ctx);
     out.effects.push({ type: 'queueClear' });
@@ -567,7 +571,7 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, AUTO_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
@@ -760,6 +764,7 @@ export function viewFor(state, pack, role, opts = {}) {
       aiAvailable: !!opts.aiAvailable,
       aiCallsLeft: opts.aiCallsLeft ?? 0,
       sponsorReady: hypeOf(state.audience, now) >= pack.audience.sponsorHypeThreshold,
+      combatLog: (state.combatLog ?? []).slice(-10),
     };
     v.library = gmLibrary(library);
   }

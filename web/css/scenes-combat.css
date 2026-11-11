@@ -3,22 +3,23 @@
 
 /* ---------- ARENA ---------- */
 
-.sc-combat { padding: 6.4rem 2.2rem 4.6rem; }
+.scene.sc-combat { padding: 6.4rem 2.2rem 4.8rem; }
 .ar-bg { position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none; }
+/* Flat floor grid (no 3D transform: weak TV browsers mis-stack 3D layers over the chat ticker). */
 .ar-grid {
-  position: absolute; left: -10%; right: -10%; bottom: -8%; height: 62%;
+  position: absolute; left: 0; right: 0; bottom: 0; height: 46%;
   background:
-    repeating-linear-gradient(90deg, rgba(46, 242, 255, 0.16) 0 2px, transparent 2px 6rem),
-    repeating-linear-gradient(0deg, rgba(255, 47, 185, 0.14) 0 2px, transparent 2px 4.2rem);
-  transform: perspective(40rem) rotateX(58deg);
-  transform-origin: 50% 100%;
-  opacity: 0.55;
+    repeating-linear-gradient(90deg, rgba(46, 242, 255, 0.10) 0 2px, transparent 2px 6rem),
+    repeating-linear-gradient(0deg, rgba(255, 47, 185, 0.10) 0 2px, transparent 2px 3.2rem);
+  -webkit-mask-image: linear-gradient(to top, #000, transparent);
+  mask-image: linear-gradient(to top, #000, transparent);
+  opacity: 0.7;
 }
 .ar-glow-l, .ar-glow-r { position: absolute; top: 10%; width: 55%; height: 80%; opacity: 0.5; }
 .ar-glow-l { left: -12%; background: radial-gradient(closest-side, rgba(46, 242, 255, 0.35), transparent); }
 .ar-glow-r { right: -12%; background: radial-gradient(closest-side, rgba(255, 36, 72, 0.38), transparent); }
 
-.ar-head { position: relative; z-index: 2; display: flex; justify-content: center; margin-bottom: 1.4rem; }
+.ar-head { position: relative; z-index: 2; display: flex; justify-content: center; margin-bottom: 1.2rem; }
 .ar-banner {
   position: relative; display: flex; align-items: center; gap: 1.6rem;
   padding: 0.6rem 2.4rem 0.7rem;
@@ -42,9 +43,9 @@
 .pulse { animation: arpulse 0.7s var(--ease-slam); }
 @keyframes arpulse { 0% { transform: scale(1.35); opacity: 0.4; } 100% { transform: none; opacity: 1; } }
 
-.ar-board { position: relative; z-index: 2; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 0.8fr) 5rem minmax(0, 1.2fr); gap: 1.2rem; }
+.ar-board { position: relative; z-index: 2; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 0.85fr) 5rem minmax(0, 1.15fr); gap: 1.2rem; }
 .sc-combat.idle .ar-board { opacity: 0.75; }
-.ar-side { min-height: 0; display: flex; flex-direction: column; gap: 0.8rem; }
+.ar-side { min-height: 0; display: flex; flex-direction: column; gap: 0.7rem; }
 .ar-label { margin: 0; font-family: var(--f-mono); font-size: 1.1rem; font-weight: 700; letter-spacing: 0.3em; text-transform: uppercase; }
 .ar-side-l .ar-label { color: var(--cyan); }
 .ar-side-r .ar-label { color: var(--alarm); text-align: right; }
@@ -52,9 +53,10 @@
 .ar-vs i { width: 0.3rem; height: 100%; background: linear-gradient(180deg, transparent, var(--magenta), transparent); transform: skewX(-10deg); }
 .ar-vs b { font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 4.6rem; color: #fff; text-shadow: -0.25rem 0 var(--cyan), 0.25rem 0 var(--alarm); padding: 0.6rem 0; }
 
-.ar-party { display: flex; flex-direction: column; gap: 0.7rem; min-height: 0; }
-.ar-foes { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 0.8rem; align-content: start; }
+.ar-party { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0.6rem; }
+.ar-foes { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 0.8rem; align-content: stretch; }
 .ar-foes[data-n="0"] { display: none; }
+.ar-foes[data-n="1"], .ar-foes[data-n="2"] { grid-auto-rows: minmax(0, 22rem); align-content: start; }
 .ar-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 1rem; color: var(--ink-dim); font-family: var(--f-mono); font-size: 1.4rem; letter-spacing: 0.25em; text-transform: uppercase; }
 .ar-empty[hidden] { display: none; }
 .ar-empty p { margin: 0; }
@@ -62,30 +64,40 @@
 @keyframes arscan { from { transform: translateX(-4rem) scaleX(0.3); } to { transform: translateX(4rem) scaleX(1); } }
 
 .ar-card {
-  position: relative; overflow: hidden; min-width: 0;
+  position: relative; min-width: 0;
   display: grid; align-items: center; gap: 1rem;
   background: rgba(10, 6, 20, 0.92);
+  transition: transform 0.32s var(--ease-out), opacity 0.4s;
 }
+.ar-card > .ar-main { overflow: hidden; }
+
+/* crawler: big portrait tile + name + HP slots */
 .ar-crawler {
   --pc: var(--cyan);
+  flex: 1 1 0; min-height: 0; max-height: 9.5rem;
   grid-template-columns: auto minmax(0, 1fr);
-  padding: 0.8rem 1.4rem 0.8rem 1rem;
+  padding: 0.5rem 1.4rem 0.5rem 0.5rem;
   border-left: 0.4rem solid var(--pc);
   clip-path: polygon(0 0, 100% 0, calc(100% - 1.2rem) 100%, 0 100%);
 }
-.ar-crawler::before { content: ""; position: absolute; top: 0; left: 0; bottom: 0; width: 60%; background: linear-gradient(100deg, var(--pc), transparent); opacity: 0.22; }
-.ar-party[data-n="1"] .ar-crawler, .ar-party[data-n="2"] .ar-crawler { padding-top: 1.2rem; padding-bottom: 1.2rem; }
-.ar-lvl { position: relative; width: 3.6rem; height: 3.6rem; display: grid; place-content: center; text-align: center; line-height: 1; background: var(--pc); color: var(--void); clip-path: polygon(50% 0, 100% 25%, 100% 75%, 50% 100%, 0 75%, 0 25%); }
-.ar-lvl small { font-family: var(--f-mono); font-size: 0.65rem; font-weight: 700; }
-.ar-lvl b { font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 1.8rem; }
-.ar-main { position: relative; min-width: 0; display: grid; gap: 0.45rem; }
+.ar-crawler::before { content: ""; position: absolute; top: 0; left: 0; bottom: 0; width: 60%; background: linear-gradient(100deg, var(--pc), transparent); opacity: 0.2; pointer-events: none; }
+.ar-face { position: relative; height: 100%; max-height: 8.5rem; min-height: 3.6rem; aspect-ratio: 1; overflow: hidden; background: var(--pc); box-shadow: inset 0 0 0 0.2rem rgba(255, 255, 255, 0.18); }
+.ar-face img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+.ar-face .pt-ini { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: grid; place-items: center; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 3rem; color: var(--void); }
+.ar-face .pt-lv { position: absolute; left: 0; bottom: 0; padding: 0.05rem 0.45rem 0.1rem 0.35rem; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 1.15rem; line-height: 1; color: var(--void); background: var(--pc); }
+.ar-face .pt-lv small { font-family: var(--f-mono); font-style: normal; font-size: 0.6rem; margin-right: 0.15rem; }
+.ar-main { position: relative; min-width: 0; display: grid; gap: 0.4rem; }
 .ar-name { font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 2.2rem; line-height: 0.95; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ar-party[data-n="5"] .ar-name, .ar-party[data-n="6"] .ar-name { font-size: 1.8rem; }
 .ar-hp { display: flex; align-items: center; gap: 0.7rem; }
 .ar-num { font-family: var(--f-mono); font-size: 1.3rem; color: #fff; min-width: 2.2ch; text-align: right; }
 .ar-pips { flex: 1; display: flex; gap: 0.2rem; }
 .ar-pips i { flex: 1; height: 1.1rem; background: rgba(255, 255, 255, 0.09); transform: skewX(-14deg); transition: background 0.3s; }
 .ar-pips.crawl i.on { background: #ff3355; box-shadow: 0 0 0.5rem rgba(255, 51, 85, 0.5); }
 .ar-pips.foe i.on { background: var(--th, var(--alarm)); }
+/* HP slots that just broke: a white flash that drops out */
+.ar-pips i.brk { animation: arbrk 0.7s var(--d, 0ms) var(--ease-out) both; }
+@keyframes arbrk { 0% { background: #fff; transform: skewX(-14deg) scaleY(1.8); opacity: 1; } 60% { background: #ff3355; transform: skewX(-14deg) translateY(0.6rem) scaleY(0.6); opacity: 0.8; } 100% { transform: skewX(-14deg); opacity: 1; } }
 .ar-bar { flex: 1; height: 1.1rem; background: rgba(255, 255, 255, 0.09); transform: skewX(-14deg); overflow: hidden; }
 .ar-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--th, var(--alarm)), #fff 160%); transform-origin: 0 50%; transition: transform 0.6s var(--ease-out); }
 .ar-card.low .ar-pips i.on, .ar-card.low .ar-bar i { animation: lowpip 1.1s ease-in-out infinite; }
@@ -94,8 +106,8 @@
 
 .ar-foe {
   --th: var(--alarm);
-  grid-template-columns: minmax(4rem, 30%) minmax(0, 1fr);
-  padding: 0.6rem 1rem 0.6rem 0.6rem;
+  grid-template-columns: minmax(4rem, 34%) minmax(0, 1fr);
+  padding: 0.5rem 1rem 0.5rem 0.5rem;
   border-right: 0.4rem solid var(--th);
   box-shadow: inset 0 0 0 1px rgba(var(--th-rgb, 255, 36, 72), 0.35);
   clip-path: polygon(1.2rem 0, 100% 0, 100% 100%, 0 100%);
@@ -109,9 +121,9 @@
 .ar-art { position: relative; height: 100%; min-height: 4rem; overflow: hidden; background: #07030f; }
 .ar-art img, .ar-art svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
 .ar-card.down { opacity: 0.55; }
-.ar-foe .ar-down { right: auto; left: 17%; transform: translate(-50%, -50%) rotate(-8deg); }
-.ar-crawler .ar-down { top: 0.6rem; transform: rotate(-6deg); font-size: 1.4rem; }
+.ar-crawler .ar-down { top: 0.6rem; right: 2rem; transform: rotate(-6deg); font-size: 1.4rem; }
 .ar-card.down .ar-name { text-decoration: line-through; text-decoration-thickness: 0.12em; color: var(--ink-dim); }
+.ar-crawler.down .ar-face img { opacity: 0.45; }
 .ar-down {
   position: absolute; top: 50%; right: 1.2rem; transform: translateY(-50%) rotate(-8deg); z-index: 2; background: rgba(10, 6, 20, 0.85);
   padding: 0.1rem 0.8rem; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 1.8rem; text-transform: uppercase;
@@ -120,19 +132,39 @@
 .ar-flash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #fff; opacity: 0; pointer-events: none; }
 .ar-card.hit { animation: arhit 0.5s; }
 .ar-card.hit .ar-flash { animation: arflash 0.6s; }
+.ar-card.crit { animation: arcrit 0.7s; }
+.ar-card.crit .ar-flash { background: #ffd23f; animation: arflash 0.8s; }
 .ar-card.healed .ar-flash { background: var(--ok); animation: arflash 0.9s; }
 .ar-card.ko { animation: arko 0.8s var(--ease-slam); }
-.ar-card.enter { animation: arenter 0.7s var(--ease-slam) both; }
+.ar-card.enter { animation: arenter 0.7s var(--ease-slam) backwards; }
 @keyframes arhit { 15% { transform: translateX(-0.8rem); } 35% { transform: translateX(0.7rem); } 55% { transform: translateX(-0.4rem); } 75% { transform: none; } }
+@keyframes arcrit { 10% { transform: translate(-1.4rem, 0.4rem) rotate(-1.5deg); } 25% { transform: translate(1.2rem, -0.3rem) rotate(1deg); } 45% { transform: translate(-0.8rem, 0.2rem); } 65% { transform: translate(0.4rem, 0); } 100% { transform: none; } }
 @keyframes arflash { 0% { opacity: 0.85; } 100% { opacity: 0; } }
 @keyframes arko { 0% { transform: scale(1.06); } 100% { transform: none; } }
 @keyframes arenter { 0% { opacity: 0; transform: translateX(6rem) skewX(-10deg); } 100% { opacity: 1; transform: none; } }
+
+/* auto mode: lunge (mob → target), aim marker, dodge, fumble, shatter */
+.ar-card.lunge { z-index: 6; transform: translate(var(--lx, 0), var(--ly, 0)) scale(1.08); transition: transform 0.26s cubic-bezier(0.5, 0, 0.2, 1.4); box-shadow: 0 0 0 0.25rem var(--th, var(--alarm)), 0 1.6rem 3rem rgba(0, 0, 0, 0.6); }
+.ar-card.aim { z-index: 4; box-shadow: 0 0 0 0.25rem var(--alarm), 0 0 2.4rem rgba(255, 36, 72, 0.55); }
+.ar-card.dodge { animation: ardodge 0.6s var(--ease-out); }
+@keyframes ardodge { 30% { transform: translate(-2.2rem, -0.4rem) skewX(8deg); } 60% { transform: translate(-1.6rem, 0); } 100% { transform: none; } }
+.ar-card.fumble { animation: arfumble 0.9s var(--ease-out); }
+@keyframes arfumble { 30% { transform: rotate(-9deg) translateY(0.8rem); } 55% { transform: rotate(6deg); } 100% { transform: none; } }
+.ar-card.shatter { animation: arshatter 1.1s var(--ease-out) forwards; }
+@keyframes arshatter { 0% { transform: scale(1.06); opacity: 1; } 18% { transform: scale(1.1) rotate(-2deg); opacity: 1; } 100% { transform: scale(0.6) rotate(6deg) translateY(2rem); opacity: 0; } }
+.ar-shards { position: fixed; z-index: 7; pointer-events: none; }
+.ar-shards i { position: absolute; width: 22%; height: 26%; background: rgba(255, 255, 255, 0.85); clip-path: polygon(0 0, 100% 30%, 40% 100%); animation: arshard 1.1s var(--ease-out) forwards; }
+@keyframes arshard { 0% { transform: none; opacity: 1; } 100% { transform: translate(var(--sx), var(--sy)) rotate(var(--sr)) scale(0.4); opacity: 0; } }
+
 .ar-pop {
-  position: absolute; top: 20%; z-index: 3; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 3.6rem; line-height: 1;
+  position: absolute; top: 18%; z-index: 3; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 3.6rem; line-height: 1;
   color: #fff; text-shadow: 0 0.2rem 0 var(--alarm), 0 0 1rem var(--alarm);
-  animation: arpop 1.2s var(--ease-out) forwards; pointer-events: none;
+  animation: arpop 1.3s var(--ease-out) forwards; pointer-events: none;
 }
 .ar-pop.heal { text-shadow: 0 0.2rem 0 var(--ok), 0 0 1rem var(--ok); }
+.ar-pop.crit { font-size: 5rem; color: #ffd23f; text-shadow: 0 0.25rem 0 #8a2b00, 0 0 1.4rem #ff8a1c; }
+.ar-pop.miss { color: var(--cyan); text-shadow: 0 0.2rem 0 #082a3a, 0 0 1rem var(--cyan); font-size: 3rem; }
+.ar-pop.cond { top: 58%; font-size: 1.6rem; color: var(--void); background: var(--acid); padding: 0.1rem 0.6rem; text-shadow: none; }
 @keyframes arpop { 0% { opacity: 0; transform: scale(2); } 15% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: translateY(-3rem); } }
 .ar-big {
   position: absolute; left: 0; right: 0; top: 40%; z-index: 5; text-align: center; opacity: 0; pointer-events: none;
@@ -142,6 +174,190 @@
 .ar-big.go { animation: arbig 1.5s var(--ease-out); }
 @keyframes arbig { 0% { opacity: 0; transform: scale(2.2); } 20% { opacity: 1; transform: scale(1); } 75% { opacity: 1; } 100% { opacity: 0; transform: scale(0.94); } }
 .sc-combat.cleared .ar-side-r .ar-label span::after { content: " // cleared"; color: var(--acid); }
+
+/* The System's subtitle sits over the hostiles' side in the arena, so no crawler card (the one that just went
+   down, usually) is hidden while it talks. */
+body.stage[data-scene="combat"] #subtitle.subtitle { left: auto; right: 2.2rem; transform: none; width: min(56vw, 64rem); animation-name: arsubin; }
+@keyframes arsubin { from { opacity: 0; transform: translateY(1rem); } }
+
+/* Fallen: defeated mobs as small crossed-out icons above the HOSTILES label */
+.ar-fallen { display: flex; justify-content: flex-end; align-items: flex-end; gap: 0.5rem; min-height: 4.6rem; }
+.ar-fallen[hidden] { display: none; }
+.ar-fallen-k, .ar-fallen-more { align-self: center; font-family: var(--f-mono); font-size: 0.95rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; color: var(--ink-dim); margin-right: 0.3rem; }
+.ar-fallen-more { order: 99; margin: 0 0 0 0.2rem; }
+.ar-fl { position: relative; margin: 0; width: 4.2rem; display: grid; gap: 0.15rem; justify-items: center; opacity: 0.8; animation: arfl 0.6s var(--ease-slam) both; }
+.ar-fl-art { position: relative; width: 3.4rem; height: 3.4rem; overflow: hidden; background: #07030f; box-shadow: inset 0 0 0 0.12rem rgba(var(--th-rgb, 255, 36, 72), 0.5); }
+.ar-fl-art img, .ar-fl-art svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; opacity: 0.55; }
+.ar-fl-x { position: absolute; top: 0; left: 50%; margin-left: -1.7rem; width: 3.4rem; height: 3.4rem; pointer-events: none; }
+.ar-fl-x::before, .ar-fl-x::after { content: ""; position: absolute; left: -0.2rem; right: -0.2rem; top: 50%; height: 0.24rem; background: var(--alarm); box-shadow: 0 0 0.5rem rgba(255, 36, 72, 0.8); }
+.ar-fl-x::before { transform: rotate(45deg); }
+.ar-fl-x::after { transform: rotate(-45deg); }
+.ar-fl figcaption { max-width: 4.4rem; font-family: var(--f-mono); font-size: 0.72rem; line-height: 1; color: var(--ink-dim); text-decoration: line-through; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+@keyframes arfl { from { opacity: 0; transform: translateY(-1.2rem) scale(1.4); } }
+
+/* auto mode overlay: callout banner, d20, crit flash, DOWN stamp */
+.ar-fx { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 8; pointer-events: none; }
+.ar-callout {
+  position: absolute; left: 50%; top: 13.2rem; transform: translateX(-50%);
+  padding: 0.5rem 2.2rem 0.6rem; white-space: nowrap;
+  font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 2.6rem; text-transform: uppercase; line-height: 1;
+  color: #fff; background: var(--alarm); clip-path: polygon(1.2rem 0, 100% 0, calc(100% - 1.2rem) 100%, 0 100%);
+  animation: arcall 0.35s var(--ease-slam) both;
+}
+.ar-callout span { color: rgba(10, 6, 20, 0.75); font-size: 2rem; }
+.ar-callout .ar-atk { color: var(--acid); }
+.ar-callout.boss { background: var(--magenta); }
+.ar-callout.out, .ar-d20.out, .ar-crit.out { opacity: 0; transition: opacity 0.25s; }
+@keyframes arcall { from { opacity: 0; transform: translateX(-50%) scaleX(0.2); } }
+.ar-d20 { position: absolute; width: 9rem; margin: -4.5rem 0 0 -4.5rem; display: grid; justify-items: center; gap: 0.4rem; }
+.ar-d20-spin { position: relative; width: 9rem; height: 9rem; display: grid; place-items: center; animation: ard20 0.6s linear infinite; }
+.ar-d20-shape { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #fff; clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); box-shadow: inset 0 0 0 0.3rem var(--void); }
+.ar-d20-shape::after { content: ""; position: absolute; top: 18%; left: 18%; right: 18%; bottom: 18%; background: var(--void); clip-path: polygon(50% 0, 100% 86%, 0 86%); opacity: 0.12; }
+.ar-d20-n { position: relative; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 4rem; line-height: 1; color: var(--void); }
+.ar-d20-math { margin: 0; padding: 0.15rem 0.8rem; font-family: var(--f-mono); font-size: 1.25rem; font-weight: 700; white-space: nowrap; color: #fff; background: rgba(10, 6, 20, 0.92); border: 1px solid var(--line); opacity: 0; }
+.ar-d20.land .ar-d20-spin { animation: ard20land 0.4s var(--ease-slam); }
+.ar-d20.land .ar-d20-math { opacity: 1; transition: opacity 0.2s; }
+.ar-d20.ok .ar-d20-shape { background: #ff3355; }
+.ar-d20.no .ar-d20-shape { background: var(--cyan); }
+.ar-d20.n20 .ar-d20-shape { background: #ffd23f; box-shadow: inset 0 0 0 0.3rem var(--void), 0 0 0 0.4rem #ffd23f; }
+.ar-d20.n1 .ar-d20-shape { background: #6b6280; }
+.ar-d20.n1 .ar-d20-n { color: #fff; }
+@keyframes ard20 { 0% { transform: rotate(0) translateY(-0.6rem); } 50% { transform: rotate(180deg) translateY(0.6rem); } 100% { transform: rotate(360deg) translateY(-0.6rem); } }
+@keyframes ard20land { 0% { transform: scale(1.5) rotate(-30deg); } 100% { transform: none; } }
+.ar-crit {
+  position: absolute; left: 0; right: 0; top: 42%; text-align: center;
+  font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 8rem; line-height: 1; text-transform: uppercase;
+  color: #ffd23f; text-shadow: 0 0.35rem 0 #8a2b00, 0 0 2rem rgba(255, 138, 28, 0.8);
+  animation: arbig 1.2s var(--ease-out) both;
+}
+.ar-stamp {
+  position: absolute; left: 50%; top: 50%; display: grid; justify-items: center; padding: 1rem 3.2rem 1.2rem;
+  transform: translate(-50%, -50%) rotate(-6deg);
+  background: rgba(10, 6, 20, 0.88); border: 0.5rem solid var(--alarm); box-shadow: 0 0 0 0.25rem rgba(10, 6, 20, 0.9), 0 0 4rem rgba(255, 36, 72, 0.6);
+  font-family: var(--f-show); font-style: italic; font-weight: 900; text-transform: uppercase; line-height: 0.88; color: var(--alarm);
+  animation: arstamp 2.4s var(--ease-slam) both;
+}
+.ar-stamp b { font-size: 8.5rem; color: #fff; }
+.ar-stamp span { font-size: 5.6rem; }
+@keyframes arstamp { 0% { opacity: 0; transform: translate(-50%, -50%) rotate(-6deg) scale(2.6); } 12% { opacity: 1; transform: translate(-50%, -50%) rotate(-6deg) scale(1); } 16% { transform: translate(-50%, -50%) rotate(-6deg) scale(1.05); } 22% { transform: translate(-50%, -50%) rotate(-6deg) scale(1); } 85% { opacity: 1; } 100% { opacity: 0; transform: translate(-50%, -50%) rotate(-6deg) scale(0.98); } }
+
+/* ---------- FINALE (combat.end outcome) ---------- */
+
+.scene.sc-finale { --fc: #ffd23f; padding: 6.4rem 3rem 11.4rem; justify-content: center; overflow: hidden; }
+.fn-bg { position: absolute; top: 0; left: 0; right: 0; bottom: 0; overflow: hidden; pointer-events: none; }
+.fn-center { position: relative; z-index: 2; flex: 1; min-height: 0; display: grid; align-content: center; justify-items: center; gap: 0.6rem; text-align: center; }
+.fn-kicker { margin: 0; padding: 0.25rem 1.4rem; font-family: var(--f-mono); font-size: 1.5rem; font-weight: 700; letter-spacing: 0.32em; text-transform: uppercase; color: var(--void); background: var(--fc); transform: skewX(-12deg); animation: fnkick 0.5s 0.1s var(--ease-slam) both; }
+.fn-head { margin: 0; max-width: 90vw; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 15rem; line-height: 0.82; text-transform: uppercase; color: #fff; text-wrap: balance; animation: fnslam 0.9s 0.25s var(--ease-slam) both; }
+.fn-head.long { font-size: 8.6rem; line-height: 0.9; }
+.fn-sub { margin: 0.6rem 0 0; max-width: 60rem; font-family: var(--f-show); font-style: italic; font-weight: 800; font-size: 2.6rem; text-transform: uppercase; color: var(--fc); animation: fnkick 0.6s 1s both; }
+@keyframes fnslam { 0% { opacity: 0; transform: scale(2.6) rotate(-4deg); } 60% { opacity: 1; transform: scale(0.96) rotate(-1deg); } 100% { opacity: 1; transform: rotate(-2deg); } }
+@keyframes fnkick { from { opacity: 0; transform: translateY(1.4rem) skewX(-12deg); } }
+
+/* summary strip */
+.fn-sum-wrap { position: relative; z-index: 3; display: flex; justify-content: center; animation: fnsum 0.7s 1.6s var(--ease-out) both; }
+@keyframes fnsum { from { opacity: 0; transform: translateY(3rem); } }
+.fn-sum { display: flex; align-items: stretch; gap: 0.3rem; background: rgba(10, 6, 20, 0.88); border-top: 0.25rem solid var(--fc); clip-path: polygon(1.4rem 0, 100% 0, calc(100% - 1.4rem) 100%, 0 100%); padding: 0 1.4rem; }
+.fn-stat { display: grid; justify-items: center; align-content: center; padding: 0.8rem 1.6rem 0.9rem; min-width: 9rem; }
+.fn-stat b { font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 3.8rem; line-height: 0.9; color: #fff; }
+.fn-stat span { font-family: var(--f-mono); font-size: 1rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; color: var(--ink-dim); }
+.fn-stat.bad b { color: var(--alarm); }
+.fn-mvp { --pc: #ffd23f; display: flex; align-items: center; gap: 1rem; padding: 0.6rem 1.6rem 0.6rem 0.6rem; margin-left: 0.6rem; background: linear-gradient(100deg, rgba(255, 210, 63, 0.22), transparent); border-left: 0.3rem solid var(--pc); }
+.fn-mvp > div { display: grid; text-align: left; }
+.fn-mvp-face { position: relative; width: 5.6rem; height: 5.6rem; overflow: hidden; background: var(--pc); }
+.fn-mvp-face img { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+.fn-mvp-face .pt-ini { position: absolute; top: 0; left: 0; right: 0; bottom: 0; display: grid; place-items: center; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 2.4rem; color: var(--void); }
+.fn-mvp-k { font-family: var(--f-mono); font-size: 1rem; font-weight: 700; letter-spacing: 0.3em; color: #ffd23f; }
+.fn-mvp b { font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 2.6rem; line-height: 0.95; text-transform: uppercase; }
+.fn-mvp-n { font-family: var(--f-mono); font-size: 1.1rem; color: var(--ink-dim); }
+
+body.stage[data-scene="finale"][data-finale="truce"] .bug,
+body.stage[data-scene="finale"][data-finale="runaway"] .bug { padding: 0.3rem 1rem; margin: -0.3rem -1rem; background: rgba(10, 6, 20, 0.82); clip-path: polygon(0 0, 100% 0, calc(100% - 1rem) 100%, 0 100%); }
+
+/* victory: gold, rays, confetti */
+.fn-victory { --fc: #ffd23f; background: radial-gradient(60% 60% at 50% 45%, rgba(255, 210, 63, 0.28), transparent 70%); }
+.fn-victory .fn-head { color: #ffd23f; text-shadow: 0 0.5rem 0 #8a4b00, 0 0 3rem rgba(255, 170, 0, 0.6); }
+.fn-rays { position: absolute; left: 50%; top: 45%; width: 220vmax; height: 220vmax; margin: -110vmax 0 0 -110vmax; background: repeating-linear-gradient(90deg, rgba(255, 210, 63, 0.10) 0 4vmax, transparent 4vmax 9vmax); animation: fnspin 40s linear infinite; }
+.fn-rays.green { background: repeating-linear-gradient(90deg, rgba(61, 220, 95, 0.12) 0 4vmax, transparent 4vmax 9vmax); }
+@keyframes fnspin { to { transform: rotate(360deg); } }
+.fn-confetti i, .fn-money i { position: absolute; top: -6%; width: 0.9rem; height: 1.6rem; animation: fnfall var(--t, 3s) var(--d, 0ms) linear infinite; }
+@keyframes fnfall { 0% { transform: translate(0, 0) rotate(0); opacity: 1; } 100% { transform: translate(var(--x, 0), 115vh) rotate(var(--r, 360deg)); opacity: 1; } }
+
+/* defeat: red static, SIGNAL LOST */
+.fn-defeat { --fc: var(--alarm); background: #12030a; }
+.fn-defeat .fn-head { font-family: var(--f-mono); font-style: normal; font-size: 10rem; letter-spacing: 0.06em; color: #fff; text-shadow: -0.5rem 0 rgba(255, 36, 72, 0.9), 0.5rem 0 rgba(46, 242, 255, 0.5); animation: fnglitch 2.2s steps(1) infinite, fnslam 0.6s var(--ease-slam) both; }
+.fn-defeat .fn-kicker { background: var(--alarm); color: #fff; }
+.fn-static { position: absolute; top: -50%; left: 0; right: 0; height: 200%; opacity: 0.4; background:
+  repeating-linear-gradient(0deg, rgba(255, 36, 72, 0.5) 0 2px, transparent 2px 5px),
+  repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 9px);
+  animation: fnstatic 0.35s steps(4) infinite; }
+@keyframes fnstatic { to { transform: translateY(-9%); } }
+.fn-bars { position: absolute; top: 0; left: 0; right: 0; height: 1.2rem; display: flex; opacity: 0.6; }
+.fn-bars i { flex: 1; }
+@keyframes fnglitch { 0% { transform: rotate(-2deg); } 7% { transform: translateX(-1.2rem) rotate(-2deg); opacity: 0.7; } 9% { transform: rotate(-2deg); opacity: 1; } 52% { transform: translateX(0.8rem) skewX(-6deg) rotate(-2deg); } 54% { transform: rotate(-2deg); } }
+
+/* runaway: comic speed lines */
+.fn-runaway { --fc: #ffe600; background: #ffe600; }
+.fn-runaway .fn-head { color: #0a0614; font-size: 9.5rem; text-shadow: 0.35rem 0.35rem 0 #fff, 0.7rem 0.7rem 0 #ff2fb9; }
+.fn-runaway .fn-kicker { background: #0a0614; color: #ffe600; }
+.fn-runaway .fn-sub { color: #0a0614; }
+.fn-speed i { position: absolute; right: -60%; width: var(--w, 30%); height: 0.9rem; background: #fff; box-shadow: 0 0 0 0.2rem #0a0614; animation: fnzip 0.55s var(--d, 0ms) linear infinite; }
+@keyframes fnzip { from { transform: translateX(0); } to { transform: translateX(-260vw); } }
+.fn-dust i { position: absolute; bottom: 8%; width: 14rem; height: 9rem; border-radius: 50%; background: rgba(255, 255, 255, 0.85); box-shadow: 0 0 0 0.3rem #0a0614; animation: fnpuff 1.6s var(--ease-out) both; }
+.fn-dust i:nth-child(1) { left: 6%; }
+.fn-dust i:nth-child(2) { left: 14%; bottom: 14%; width: 10rem; height: 7rem; animation-delay: 0.15s; }
+.fn-dust i:nth-child(3) { left: 2%; bottom: 20%; width: 8rem; height: 6rem; animation-delay: 0.3s; }
+@keyframes fnpuff { 0% { opacity: 0; transform: scale(0.2); } 30% { opacity: 1; transform: scale(1.1); } 100% { opacity: 0; transform: scale(1.5) translateX(-4rem); } }
+
+/* truce: warm pastel */
+.fn-truce { --fc: #ff9fb2; background: linear-gradient(160deg, #ffd9c7, #f3c6ff 60%, #c9d8ff); }
+.fn-truce .fn-head { color: #d94a7a; text-transform: none; font-style: normal; font-weight: 800; font-size: 16rem; text-shadow: 0 0.4rem 0 #fff, 0 0 3rem rgba(255, 255, 255, 0.9); }
+.fn-truce .fn-kicker { background: #fff; color: #c2507a; }
+.fn-truce .fn-sub { color: #8a3a62; }
+.fn-truce .fn-sum { background: rgba(255, 255, 255, 0.85); }
+.fn-truce .fn-stat b { color: #5b2440; }
+.fn-truce .fn-stat span, .fn-truce .fn-mvp-n { color: #8a5a72; }
+.fn-truce .fn-mvp b { color: #5b2440; }
+.fn-bloom { position: absolute; left: 50%; top: 45%; width: 70rem; height: 70rem; margin: -35rem 0 0 -35rem; border-radius: 50%; background: radial-gradient(closest-side, rgba(255, 255, 255, 0.9), transparent); animation: fnbloom 4s ease-in-out infinite alternate; }
+@keyframes fnbloom { from { transform: scale(0.85); opacity: 0.7; } to { transform: scale(1.1); opacity: 1; } }
+.fn-hearts i { position: absolute; bottom: -10%; font-style: normal; font-size: 4rem; color: #ff7fa0; transform: scale(var(--s, 1)); animation: fnrise 5s var(--d, 0ms) ease-in infinite; }
+@keyframes fnrise { 0% { transform: translateY(0) scale(var(--s, 1)); opacity: 0; } 15% { opacity: 0.9; } 100% { transform: translateY(-120vh) scale(var(--s, 1)); opacity: 0; } }
+
+/* special: the GM's ending in a System box */
+.fn-special { --fc: var(--cyan); }
+.fn-sysglow { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: radial-gradient(50% 50% at 50% 45%, rgba(46, 242, 255, 0.18), transparent); }
+.fn-sys { width: min(80vw, 80rem); text-align: left; animation: fnkick 0.6s 0.3s var(--ease-slam) both; }
+.fn-sys .sys-title { font-size: 4.2rem; }
+.fn-sys-text { font-size: 2.2rem; line-height: 1.4; min-height: 3em; }
+
+/* sponsor: money rain, green-gold */
+.fn-sponsor { --fc: #3ddc5f; background: radial-gradient(60% 60% at 50% 45%, rgba(61, 220, 95, 0.22), transparent 70%); }
+.fn-sponsor .fn-head { color: #3ddc5f; text-shadow: 0 0.5rem 0 #0b4a1b, 0 0 3rem rgba(61, 220, 95, 0.5); }
+.fn-money i { width: auto; height: auto; font-style: normal; font-family: var(--f-show); font-weight: 900; font-size: 3.4rem; color: #3ddc5f; text-shadow: 0 0 1rem rgba(61, 220, 95, 0.6); }
+
+/* timeout: hazard tape, 00:00 */
+.fn-timeout { --fc: #ff8a1c; background: radial-gradient(70% 70% at 50% 50%, rgba(255, 138, 28, 0.18), #12060a); }
+.fn-timeout .fn-head { color: #ff8a1c; font-size: 12rem; text-shadow: 0 0.5rem 0 #5a1d00; }
+.fn-clock { display: inline-block; font-family: var(--f-mono); font-style: normal; font-size: 6rem; letter-spacing: 0.08em; color: #fff; animation: fnblink 0.8s steps(2, start) infinite; }
+@keyframes fnblink { to { visibility: hidden; } }
+.fn-tape { position: absolute; left: -10%; right: -10%; height: 4rem; background: repeating-linear-gradient(-45deg, #ffe600 0 2.4rem, #0a0614 2.4rem 4.8rem); box-shadow: 0 0 0 0.25rem #0a0614; }
+.fn-tape.t1 { top: 9%; transform: rotate(-3deg); animation: fntape 1.2s linear infinite; }
+.fn-tape.t2 { bottom: 11%; transform: rotate(2deg); animation: fntape2 1.2s linear infinite; }
+@keyframes fntape { from { transform: rotate(-3deg) translateX(0); } to { transform: rotate(-3deg) translateX(6.8rem); } }
+@keyframes fntape2 { from { transform: rotate(2deg) translateX(0); } to { transform: rotate(2deg) translateX(-6.8rem); } }
+.fn-chunks i { position: absolute; top: -8%; width: 3rem; height: 2.2rem; background: #4a3a52; clip-path: polygon(10% 0, 100% 20%, 80% 100%, 0 70%); animation: fnfall 2.6s var(--d, 0ms) ease-in infinite; }
+
+/* stalemate: grey split */
+.fn-stalemate { --fc: #b8b2c8; background: #1a1724; }
+.fn-stalemate .fn-head { color: #e8e4f2; text-shadow: -0.4rem 0 rgba(46, 242, 255, 0.6), 0.4rem 0 rgba(255, 36, 72, 0.6); }
+.fn-split i { position: absolute; top: 0; bottom: 0; width: 50%; }
+.fn-split .l { left: 0; background: linear-gradient(90deg, rgba(46, 242, 255, 0.18), transparent); animation: fnsl 1s var(--ease-slam) both; }
+.fn-split .r { right: 0; background: linear-gradient(-90deg, rgba(255, 36, 72, 0.18), transparent); animation: fnsr 1s var(--ease-slam) both; }
+@keyframes fnsl { from { transform: translateX(-100%); } }
+@keyframes fnsr { from { transform: translateX(100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .fn-rays, .fn-confetti i, .fn-money i, .fn-static, .fn-speed i, .fn-hearts i, .fn-tape, .fn-chunks i, .fn-bloom, .fn-defeat .fn-head { animation: none; }
+}
 
 /* ---------- NPC CARD ---------- */
 
@@ -183,5 +399,6 @@
 .npc-sub-text { margin: 0; font-size: 2rem; line-height: 1.3; color: #fff; text-wrap: balance; }
 
 @media (prefers-reduced-motion: reduce) {
-  .ar-card.enter, .ar-card.hit, .ar-card.ko, .np-frame, .np-text, .np-box.go, .ar-scan { animation: none; }
+  .ar-card.enter, .ar-card.hit, .ar-card.ko, .ar-card.crit, .ar-card.dodge, .ar-card.fumble, .ar-pips i.brk, .ar-d20-spin, .np-frame, .np-text, .np-box.go, .ar-scan { animation: none; }
+  .ar-card.lunge { transition: none; }
 }

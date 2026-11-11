@@ -440,6 +440,79 @@ export const PADS = [
     drive(o, 1.8);
     reverb(o, { wet: 0.3, size: 0.85 });
   } },
+  // ---- combat (auto mode cues on the GM desk) ----
+  { id: 'swing', label: 'Swing / whoosh', seed: 31, sec: 0.7, build(o, r) {
+    noise(o, r, { dur: 0.45, color: 'pink', gain: 0.9, amp: (t) => Math.sin(Math.PI * clamp(t / 0.42, 0, 1)) ** 2, filters: [{ type: 'bp', f: (t) => expo(380, 2600, t / 0.4), q: 1.6 }] });
+    noise(o, r, { at: 0.05, dur: 0.3, gain: 0.25, amp: (t) => Math.sin(Math.PI * clamp(t / 0.3, 0, 1)), filters: [{ type: 'hp', f: 3000 }] });
+  } },
+  { id: 'whiff', label: 'Miss / whiff', seed: 32, sec: 1.1, build(o, r) {
+    noise(o, r, { dur: 0.32, color: 'pink', gain: 0.7, amp: (t) => Math.sin(Math.PI * clamp(t / 0.3, 0, 1)) ** 2, filters: [{ type: 'bp', f: (t) => expo(2400, 500, t / 0.3), q: 2 }] });
+    osc(o, { at: 0.28, dur: 0.5, type: 'tri', f: (t) => expo(NOTE(76), NOTE(64), t / 0.45), gain: 0.18, amp: env({ a: 0.01, d: 0.5, curve: 3 }) });
+    osc(o, { at: 0.3, dur: 0.4, type: 'sine', f: (t) => expo(NOTE(88), NOTE(79), t / 0.4), gain: 0.07, amp: env({ a: 0.01, d: 0.4 }) });
+    reverb(o, { wet: 0.2 });
+  } },
+  { id: 'impact', label: 'Hit / impact', seed: 33, sec: 0.9, build(o, r) {
+    noise(o, r, { dur: 0.06, gain: 0.9, amp: env({ a: 0.0005, d: 0.06, curve: 5 }), filters: [{ type: 'lp', f: 4500 }] });
+    osc(o, { dur: 0.35, f: (t) => expo(140, 48, t / 0.25), gain: 1.1, amp: env({ a: 0.001, d: 0.35, curve: 4 }) });
+    noise(o, r, { at: 0.005, dur: 0.25, color: 'brown', gain: 0.8, amp: env({ a: 0.001, d: 0.25, curve: 5 }), filters: [{ type: 'lp', f: 900 }] });
+    drive(o, 2.2);
+  } },
+  { id: 'crit_hit', label: 'Critical hit', seed: 34, sec: 1.8, build(o, r) {
+    impact(o, r, 0, 0.8);
+    noise(o, r, { dur: 0.05, gain: 0.8, amp: env({ a: 0.0005, d: 0.05 }), filters: [{ type: 'hp', f: 2000 }] });
+    for (const [n, k] of [[84, 0], [91, 0.04], [96, 0.08]]) bell(o, { at: 0.03 + k, f: NOTE(n), ratio: 2.01, index: 1.5, decay: 3, dur: 1.4, gain: 0.12 });
+    drive(o, 1.6);
+    reverb(o, { wet: 0.3 });
+  } },
+  { id: 'ko', label: 'Crawler down (KO)', seed: 35, sec: 2.6, build(o, r) {
+    impact(o, r, 0, 1.1);
+    [76, 72, 67, 60].forEach((n, i) => osc(o, { at: 0.12 + i * 0.16, dur: 0.3, type: 'square', pw: 0.3, f: NOTE(n), gain: 0.09, amp: env({ a: 0.005, h: 0.08, d: 0.2 }) }));
+    osc(o, { at: 0.8, dur: 1.4, type: 'tri', f: (t) => expo(NOTE(48), NOTE(36), t / 1.3), gain: 0.22, amp: env({ a: 0.01, h: 0.3, d: 1.1, curve: 3 }) });
+    bell(o, { at: 0.75, f: 110, ratio: 1.41, index: 3, decay: 1.6, dur: 1.8, gain: 0.18 });
+    reverb(o, { wet: 0.35, size: 0.85 });
+  } },
+  { id: 'shatter', label: 'Mob killed (shatter)', seed: 36, sec: 1.8, build(o, r) {
+    osc(o, { dur: 0.3, f: (t) => expo(110, 40, t / 0.3), gain: 0.7, amp: env({ a: 0.001, d: 0.3, curve: 4 }) });
+    noise(o, r, { dur: 0.5, gain: 0.5, amp: env({ a: 0.001, d: 0.5, curve: 4 }), filters: [{ type: 'hp', f: 2500 }] });
+    for (let i = 0; i < 45; i++) {
+      const at = 0.01 + (r() ** 1.6) * 0.9;
+      bell(o, { at, f: 1800 + r() * 5200, ratio: 2.4 + r(), index: 1.2, decay: 14 + r() * 10, dur: 0.25, gain: 0.07 * (1 - at) });
+    }
+    reverb(o, { wet: 0.25 });
+  } },
+  { id: 'round_bell', label: 'Round start (bell)', seed: 37, sec: 2.6, build(o) {
+    for (const at of [0, 0.32]) {
+      bell(o, { at, f: 1180, ratio: 2.76, index: 2.2, decay: 1.6, dur: 2.2, gain: 0.3 });
+      bell(o, { at, f: 1180 * 2.02, ratio: 1.5, index: 0.8, decay: 2.4, dur: 1.6, gain: 0.08 });
+    }
+    reverb(o, { wet: 0.3, size: 0.8 });
+  } },
+  { id: 'signal_lost', label: 'Signal lost (defeat)', seed: 38, sec: 3.4, build(o, r) {
+    osc(o, { dur: 0.9, type: 'saw', f: (t) => expo(NOTE(57), NOTE(33), t / 0.9), gain: 0.25, amp: env({ a: 0.01, h: 0.3, d: 0.6 }) });
+    noise(o, r, { at: 0.5, dur: 2.6, gain: 0.55, amp: (t) => (t < 0.05 ? t / 0.05 : 1) * (t > 2.1 ? Math.max(0, 1 - (t - 2.1) / 0.5) : 1) * (0.7 + 0.3 * Math.sin(2 * Math.PI * 13 * t)), filters: [{ type: 'bp', f: 2600, q: 0.6 }] });
+    osc(o, { at: 0.55, dur: 2.5, type: 'sine', f: 1000, gain: 0.12, amp: (t) => (t > 2.0 ? Math.max(0, 1 - (t - 2.0) / 0.5) : 1) });
+    for (let i = 0; i < 12; i++) noise(o, r, { at: 0.6 + r() * 2, dur: 0.02, gain: 0.5, amp: env({ a: 0.001, d: 0.02 }) });
+  } },
+  { id: 'crowd_aww', label: 'Crowd aww (truce)', seed: 39, sec: 3, build(o, r) {
+    for (let i = 0; i < 26; i++) {
+      const f0 = 150 + r() * 220;
+      voice(o, { at: r() * 0.25, dur: 2.2 + r() * 0.4, f0, f1: 700 + r() * 150, f2: 1100 + r() * 200, gain: 0.05, attack: 0.25, glide: 0.82 + r() * 0.05, vib: 3, rng: r });
+    }
+    reverb(o, { wet: 0.4, size: 0.86 });
+  } },
+  { id: 'sponsor_chime', label: 'Sponsor chime', seed: 40, sec: 2.8, build(o) {
+    [72, 76, 79, 84].forEach((n, i) => bell(o, { at: i * 0.11, f: NOTE(n), ratio: 3.01, index: 1.8, decay: 2.2, dur: 2.2, gain: 0.16 }));
+    osc(o, { at: 0.45, dur: 1.8, type: 'tri', f: NOTE(60), gain: 0.12, amp: env({ a: 0.05, h: 0.6, d: 1.1 }) });
+    osc(o, { at: 0.45, dur: 1.8, type: 'tri', f: NOTE(67), gain: 0.08, amp: env({ a: 0.05, h: 0.6, d: 1.1 }) });
+    reverb(o, { wet: 0.4 });
+  } },
+  { id: 'getaway', label: 'Getaway (they ran)', seed: 41, sec: 2.2, build(o, r) {
+    for (let i = 0; i < 9; i++) osc(o, { at: i * 0.07, dur: 0.06, type: 'square', pw: 0.25, f: NOTE(72 + (i % 3) * 2), gain: 0.08, amp: env({ a: 0.002, d: 0.06 }) });
+    osc(o, { at: 0.62, dur: 0.6, type: 'sine', f: (t) => expo(NOTE(60), NOTE(96), t / 0.55), gain: 0.25, amp: env({ a: 0.01, h: 0.4, d: 0.2 }) });
+    noise(o, r, { at: 0.62, dur: 0.9, color: 'pink', gain: 0.7, amp: (t) => Math.sin(Math.PI * clamp(t / 0.9, 0, 1)) ** 2, filters: [{ type: 'bp', f: (t) => expo(400, 5000, t / 0.9), q: 1.4 }] });
+    bell(o, { at: 1.35, f: NOTE(91), ratio: 2, index: 1, decay: 6, dur: 0.6, gain: 0.12 });
+    reverb(o, { wet: 0.25 });
+  } },
 ];
 
 /** Stick-slip friction: an irregular impulse train exciting wood-like resonances. */
@@ -486,8 +559,8 @@ export function wav(samples) {
   return Buffer.concat([h, data]);
 }
 
-/** Default hotkeys: Shift + number row 1..0, then Shift + Q W E R T U (physical keys, any layout). */
-export const HOTKEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyU'].map((c) => `Shift+${c}`);
+/** Default hotkeys: Shift + number row 1..0, then Shift + Q W E R T U I O P A S D F G H J K (physical keys, any layout). */
+export const HOTKEYS = ['Digit1', 'Digit2', 'Digit3', 'Digit4', 'Digit5', 'Digit6', 'Digit7', 'Digit8', 'Digit9', 'Digit0', 'KeyQ', 'KeyW', 'KeyE', 'KeyR', 'KeyT', 'KeyU', 'KeyI', 'KeyO', 'KeyP', 'KeyA', 'KeyS', 'KeyD', 'KeyF', 'KeyG', 'KeyH', 'KeyJ', 'KeyK'].map((c) => `Shift+${c}`);
 
 function hasFfmpeg() {
   try { return spawnSync('ffmpeg', ['-version'], { stdio: 'ignore' }).status === 0; } catch { return false; }

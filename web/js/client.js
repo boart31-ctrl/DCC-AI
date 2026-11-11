@@ -111,6 +111,7 @@ export class SystemClient extends Emitter {
         this.role = msg.role;
         this.playerId = msg.playerId || null;
         this.view = msg.view || this.view;
+        wantSender = (m) => this.raw(m);
         this._setStatus('open');
         this.emit('welcome', msg);
         if (msg.view) this.emit('view', msg.view);
@@ -151,7 +152,7 @@ export class SystemClient extends Emitter {
         break;
       case 'portraits':
         // Sent before the view that references them; views carry "portrait:<hash>" refs.
-        for (const [ref, url] of Object.entries(msg.portraits || {})) PORTRAITS.set(ref, url);
+        portraitsArrived(msg.portraits);
         break;
       default:
         this.emit('message', msg);
@@ -376,11 +377,44 @@ export function statusText(s) {
 /* ---------- portraits (host sends each picture once per connection) ---------- */
 
 const PORTRAITS = new Map();
-/** Image URL for a sheet / player portrait value: data/http URL as is, "portrait:<hash>" from the cache. */
+const MISSING = new Set();
+const portraitListeners = new Set();
+let wantTimer = 0;
+let wantSender = null; // (msg) => bool — the live socket of this page (SystemClient.raw)
+/** Image URL for a sheet / player portrait value: data/http URL as is, "portrait:<hash>" from the cache.
+ * A ref we never received (a lost frame) is asked for again (`portraits.want`); the page re-renders on
+ * arrival through onPortraits(). */
 export function portraitSrc(v) {
   if (typeof v !== 'string' || !v) return null;
-  return v.startsWith('portrait:') ? PORTRAITS.get(v) || null : v;
+  if (!v.startsWith('portrait:')) return v;
+  const url = PORTRAITS.get(v);
+  if (url) return url;
+  if (!MISSING.has(v)) {
+    MISSING.add(v);
+    clearTimeout(wantTimer);
+    wantTimer = setTimeout(() => {
+      const refs = [...MISSING].filter((r) => !PORTRAITS.has(r)).slice(0, 12);
+      if (refs.length && wantSender) wantSender({ t: 'portraits.want', refs });
+      // Ask again later if it still has not come (socket reconnecting, …).
+      setTimeout(() => { for (const r of refs) if (!PORTRAITS.has(r)) MISSING.delete(r); }, 4000);
+    }, 120);
+  }
+  return null;
 }
+function portraitsArrived(map) {
+  let any = false;
+  for (const [ref, url] of Object.entries(map || {})) {
+    if (typeof url !== 'string') continue;
+    if (PORTRAITS.get(ref) !== url) any = true;
+    PORTRAITS.set(ref, url);
+    MISSING.delete(ref);
+  }
+  if (any) for (const fn of portraitListeners) { try { fn(); } catch {} }
+}
+/** Called when pictures arrive that were missing or changed (re-render whatever shows faces). */
+export function onPortraits(fn) { portraitListeners.add(fn); return () => portraitListeners.delete(fn); }
+/** Test hook: true when a ref resolves. */
+export const hasPortrait = (ref) => PORTRAITS.has(ref);
 
 /* ---------- transport hub ---------- */
 

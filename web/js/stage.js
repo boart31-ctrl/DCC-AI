@@ -1,5 +1,5 @@
 import {
-  SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted, portraitSrc,
+  SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted, portraitSrc, onPortraits,
 } from './client.js';
 import { createDirector } from './scenes/director.js';
 import { levelBadge } from './scenes/common.js';
@@ -38,6 +38,8 @@ client.on('status', (s) => {
 
 const director = createDirector($('#scenes'), { reduced });
 client.on('view', (v) => { view = v; render(); });
+// A picture that arrived late (or was asked for again): redraw everything that shows faces.
+onPortraits(() => { if (!view) return; stripSig = ''; director.render({ ...view }); renderStrip(); });
 client.on('event', onEvent);
 client.on('play', (m) => enqueueLine(m));
 // GM desk = audio device: achievement / announcement takeovers and subtitles wait for its audio to start.
@@ -120,7 +122,7 @@ setTimeout(wobble, 3000);
 let stripSig = '';
 function renderStrip() {
   const ps = view.players || [];
-  const sig = JSON.stringify(ps);
+  const sig = JSON.stringify([ps, ps.map((p) => !!portraitSrc(p.portrait))]);
   if (sig === stripSig) return;
   stripSig = sig;
   const strip = $('#strip');

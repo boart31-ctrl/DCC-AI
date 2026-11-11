@@ -365,7 +365,6 @@ reach phones or the TV. Crawler HP is read from the sheet (track `hp`, else the 
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `combat.start` | `phases?` | `active`, round 1, phase 0; adds every player as a crawler combatant. Event `combat.start`, feed line |
-| `combat.end` | — | Clears combatants, round 1 (keeps phases, `showMobHp`). Event `combat.end` |
 | `combat.next` | — | Next phase; after the last one round + 1. Event `combat.phase {round, phaseIndex, phase}` |
 | `combat.set` | `phases?` (1..8 names ≤ 40), `phasesVerified?`, `round?`, `phaseIndex?`, `showMobHp?` | Tracker settings |
 | `combat.addMob` | `sourceId`, `kind?` (`monster`/`boss`, default: monster, then boss), `count?` [1] (1..20), `hidden?` [true] | Copies from the library; auto-numbered per source ("Goblin 2"; a lone "Goblin" becomes "Goblin 1"). Ack `result.uids` |
@@ -378,6 +377,45 @@ reach phones or the TV. Crawler HP is read from the sheet (track `hp`, else the 
 | `combat.reveal` | `uid` **or** `all: true`, `on?` [true] | Shows (or hides) mobs on the TV and phones. Event `combat.reveal {uids, names}` |
 | `combat.mobRoll` | `uid`, `attackIndex?` [0], `public?` [false] | Rolls `d20+toHit` and then the attack's damage dice (skipped for empty / `0`) through `roll` → dice log, secret (GM only) unless `public`. Labels `"<mob>: <attack>"`. Ack `result {rollId, total, nat1, nat20, damageRollId, damage, effects, buffs, public}` |
 | `npc.say` | `text` (≤ 300), `npcId?` **or** `name?` (default: the NPC on the TV) | TV subtitle in the NPC's name (no voice). Event `npc.say {npcId, name, image, text}` to stage + GM; on that NPC's `npc` scene also sets `data.line` / `lineAt` |
+
+| `combat.target` | `uid`; crawler: `aggro?` (1..9, default 3), `noTarget?`; mob: `targetMode?` (`auto`/`focus`/`spread`), `focus?` (crawler uid or null; sets `focus` mode), `attackMode?` (`first`/`random`) | Auto-mode targeting. `auto` = weighted random by `aggro` among valid crawlers; `focus` = that crawler while valid, else auto; `spread` = round-robin (one pointer per fight). Valid = in the fight, not `noTarget`, HP > 0 (or `settings.finishDowned`) |
+| `combat.set` `settings` | `{ hitRule?: ">="\|">", drMin? (0..5), crit?: "double"\|"none", evadeBase? (0..30), public?, includeHidden?, finishDowned?, stepMs? (1200..4000), autoEnd? }` | Auto-mode rules; `hitRule`, `drMin`, `crit`, `evadeBase` are **unverified** (GM view `combat.unverified`) |
+| `combat.auto` | `includeHidden?`, `public?`, `dryRun?` | Mob phase: every living mob with an attack that may act (revealed; hidden with `includeHidden`) picks a target and an attack, rolls `d20 + toHit` (dice log, public by default, `roll.auto: true`, no generic nat 1/20 line) vs the target's computed Evade (+ `evadeBase`; natural 20 always hits, natural 1 always misses), on a hit rolls damage (×2 on a crit with `crit: "double"`), subtracts the target's DR (at least `drMin`), applies it with `track.set` on the sheet and the attack's `buffs` with `buff.add`. Continues a stepped queue if one is open. Ack `result: {autoId, sequence: [Step], startAt, stepMs, suggestEnd}`; `dryRun` returns the sequence and changes nothing. Event `combat.auto` (see below) |
+| `combat.autoStep` | `includeHidden?`, `public?` | One mob of the mob phase (queue built on the first call). Ack adds `left` |
+| `combat.autoUndo` | — | Restores the HP, conditions, spread pointer and stats the last auto run (all its steps) changed. Event `combat.autoUndo {autoId}` |
+| `combat.autoSkip` | — | Event `combat.autoSkip {autoId}`: the TV jumps to the end of the cinematic, the desk drops queued SFX, delayed voice lines play now |
+| `combat.end` | `outcome?` (`victory`/`defeat`/`runaway`/`truce`/`special`/`sponsor`/`timeout`/`stalemate`), `title?` (≤ 60), `text?` (≤ 400; `special` needs one of them), `line?` [true], `scene?` [true] | Clears the board (keeps phases + settings). With an outcome: scene `finale`, P1 line from quip category `combat_<outcome>` (delayed ~1.6 s), chat burst `combat_<outcome>`, feed line, summary archived in `state.combatLog` (last 30, cleared by `session.new`; GM view `gm.combatLog`, last 10). Ack `result: {outcome, summary, sceneId}`. Event `combat.end {outcome, title, text, summary, sceneId}` |
+
+`combat.damage` / `combat.heal` also take `by?` (playerId): damage to a mob counts for that crawler in the summary
+(without `by`: the crawler with the newest dice-log roll in this fight within 90 s, a heuristic). A crawler reaching 0
+queues a `crawler_down` line, a revealed mob reaching 0 a `mob_killed` line (P1, `crit`, i.e. also in combat mode).
+
+`Step` = `{ i, slot, mobUid, mob, image, hidden, boss, attack, attackIndex, targetUid, playerId, target, color, evade,
+drValue, hpBefore, hpAfter, max, d20, toHit, total, rule, margin, hit, nat20, nat1, crit, damageRoll?, damageRaw?, damage,
+down?, buffs: [names], rollId, damageRollId? }` or `{ i, mobUid, mob, attack?, skipped: "no valid target" | "no attacks" }`.
+`slot` = position in this cinematic. TV / phone copies drop `rollId`, `damageRollId`, `mode`; a hidden attacker becomes
+`mob: "Something unseen", mobUid: null, image: null`.
+
+Event `combat.auto` = `{ autoId, startAt (server ms), stepMs, beats: {lunge, swing, roll, result, down} (fractions of
+stepMs), round, steps }` to the GM and (public copy) to stage + players. Step k starts at `startAt + slot × stepMs`.
+The TV plays it as a cinematic (lunge, d20, hit / miss / crit / natural 1, DOWN stamp) and shows each crawler's HP
+from before the run until their step; the GM desk plays SFX pads on the same beats (Show → Sound → Combat sounds).
+Voice lines and chat bursts carry a delay so they land on their step (host: `line.delayMs`, `chat.cue` events that
+reach no client: `{cue, fill, delayMs}`).
+
+GM `view.combat` adds `id`, `startedAt`, `settings`, `unverified`, `stats {dealt, taken, downs, kills, mobDamage,
+unattributed}`, `lastAuto {id, at, steps, canUndo, undone, startAt, stepMs}`, `autoQueue {id, uids, done}`,
+`suggestEnd` (`"victory"` when every revealed mob is down, `"defeat"` when every crawler in the fight is; null with
+`settings.autoEnd` off) and `defense {evade, dr}` (the ruleset labels used); crawler rows add `aggro`, `noTarget`,
+`evade`, `dr`. The desk offers the suggested ending with a 3 s toast (Cancel) after the cinematic.
+
+Scene kind `finale` — `outcome`, `title`, `text`, `summary {rounds, dealt, taken, mobsDefeated, mobsTotal, downs, standing,
+crawlers: [{playerId, name, color, dealt, taken, downs, kills, down}], mvp: {playerId, name, color, dealt, kills} | null,
+tracked}`, `at`. Set by `combat.end`; `scene.set` with `outcome` / `title` / `text` replays one (no summary).
+
+`portraits.want` `{ refs: ["portrait:<hash>"] }` (any authenticated view role): the host sends those pictures again,
+one `portraits` frame each (pictures always travel one per frame; a frame that failed to send is not counted as
+delivered). Clients ask when a ref in a view has no picture in their cache.
 
 Scene kinds added to §3a: `combat` — `title` [""], `showParty` [true]; the TV draws `view.combat`.
 `npc` — `npcId` (library) **or** ad-hoc `npc {name, role?, image?}` → `data.npc {name, role, image, floor}`,
@@ -547,7 +585,7 @@ the dice RNG (tests); default Web Crypto.
 | `boss.heal` | `sceneId`, `amount`, `from`, `hp`, `max` | stage, gm |
 | `boss.phase` | `sceneId`, `index`, `name`, `text`, `of` | stage, gm |
 | `boss.defeat` | `sceneId`, `name`, `lootHint`, `lootTier`, `defeatLine` | stage, gm |
-| `combat.start` / `combat.end` / `combat.phase` / `combat.reveal` | see §3b | all |
+| `combat.start` / `combat.end` / `combat.phase` / `combat.reveal` / `combat.auto` / `combat.autoUndo` / `combat.autoSkip` | see §3b | all (`combat.auto`: GM full, others the public copy) |
 | `combat.hit` / `combat.heal` | `uid`, `type`, `name`, `playerId?`, `amount`, `hp`, `max`, `down` | all (gm only for hidden mobs) |
 | `npc.say` | `npcId`, `name`, `image`, `text` | stage, gm |
 

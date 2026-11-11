@@ -564,5 +564,292 @@
   "tags": [
    "recap"
   ]
+ },
+ {
+  "user": "SirLurksAlot",
+  "text": "{mob} just bonked {player}. clean",
+  "tags": [
+   "mob_hit"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "{player} took that one personally",
+  "tags": [
+   "mob_hit"
+  ]
+ },
+ {
+  "user": "pixel_pal",
+  "text": "ouch. {player}'s HP bar flinched",
+  "tags": [
+   "mob_hit"
+  ]
+ },
+ {
+  "user": "CouchCritic",
+  "text": "{mob} is cooking today",
+  "tags": [
+   "mob_hit"
+  ]
+ },
+ {
+  "user": "dicegoblin",
+  "text": "{mob} hit the air. the air is fine",
+  "tags": [
+   "mob_miss"
+  ]
+ },
+ {
+  "user": "MossyMike",
+  "text": "{player} dodged like a cat",
+  "tags": [
+   "mob_miss"
+  ]
+ },
+ {
+  "user": "OwlbearFan",
+  "text": "whiff! {mob} needs practice",
+  "tags": [
+   "mob_miss"
+  ]
+ },
+ {
+  "user": "SirLurksAlot",
+  "text": "CRIT on {player}. oh no",
+  "tags": [
+   "mob_crit"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "{mob} rolled big. everyone duck",
+  "tags": [
+   "mob_crit"
+  ]
+ },
+ {
+  "user": "pixel_pal",
+  "text": "that crit had sound effects",
+  "tags": [
+   "mob_crit"
+  ]
+ },
+ {
+  "user": "CouchCritic",
+  "text": "{player} is down. F",
+  "tags": [
+   "crawler_down"
+  ]
+ },
+ {
+  "user": "dicegoblin",
+  "text": "F",
+  "tags": [
+   "crawler_down"
+  ]
+ },
+ {
+  "user": "MossyMike",
+  "text": "noooo {player}",
+  "tags": [
+   "crawler_down"
+  ]
+ },
+ {
+  "user": "OwlbearFan",
+  "text": "somebody help {player}",
+  "tags": [
+   "crawler_down"
+  ]
+ },
+ {
+  "user": "SirLurksAlot",
+  "text": "bye {mob}",
+  "tags": [
+   "mob_killed"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "{mob} deleted",
+  "tags": [
+   "mob_killed"
+  ]
+ },
+ {
+  "user": "pixel_pal",
+  "text": "{player} with the finish",
+  "tags": [
+   "mob_killed"
+  ]
+ },
+ {
+  "user": "CouchCritic",
+  "text": "GG",
+  "tags": [
+   "combat_victory"
+  ]
+ },
+ {
+  "user": "dicegoblin",
+  "text": "they won!!",
+  "tags": [
+   "combat_victory"
+  ]
+ },
+ {
+  "user": "MossyMike",
+  "text": "victory dance go",
+  "tags": [
+   "combat_victory"
+  ]
+ },
+ {
+  "user": "OwlbearFan",
+  "text": "signal lost?",
+  "tags": [
+   "combat_defeat"
+  ]
+ },
+ {
+  "user": "SirLurksAlot",
+  "text": "wipe. oof",
+  "tags": [
+   "combat_defeat"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "F for everyone",
+  "tags": [
+   "combat_defeat"
+  ]
+ },
+ {
+  "user": "pixel_pal",
+  "text": "they RAN",
+  "tags": [
+   "combat_runaway"
+  ]
+ },
+ {
+  "user": "CouchCritic",
+  "text": "the crawlers have left the chat",
+  "tags": [
+   "combat_runaway"
+  ]
+ },
+ {
+  "user": "dicegoblin",
+  "text": "cardio wins",
+  "tags": [
+   "combat_runaway"
+  ]
+ },
+ {
+  "user": "MossyMike",
+  "text": "aww",
+  "tags": [
+   "combat_truce"
+  ]
+ },
+ {
+  "user": "OwlbearFan",
+  "text": "peace! weird. nice",
+  "tags": [
+   "combat_truce"
+  ]
+ },
+ {
+  "user": "SirLurksAlot",
+  "text": "everyone hug",
+  "tags": [
+   "combat_truce"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "what just happened",
+  "tags": [
+   "combat_special"
+  ]
+ },
+ {
+  "user": "pixel_pal",
+  "text": "plot twist!",
+  "tags": [
+   "combat_special"
+  ]
+ },
+ {
+  "user": "CouchCritic",
+  "text": "didn't see that coming",
+  "tags": [
+   "combat_special"
+  ]
+ },
+ {
+  "user": "dicegoblin",
+  "text": "sponsor drop!",
+  "tags": [
+   "combat_sponsor"
+  ]
+ },
+ {
+  "user": "MossyMike",
+  "text": "money ends fights",
+  "tags": [
+   "combat_sponsor"
+  ]
+ },
+ {
+  "user": "OwlbearFan",
+  "text": "brought to you by a sponsor",
+  "tags": [
+   "combat_sponsor"
+  ]
+ },
+ {
+  "user": "SirLurksAlot",
+  "text": "time's up!",
+  "tags": [
+   "combat_timeout"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "the clock wins",
+  "tags": [
+   "combat_timeout"
+  ]
+ },
+ {
+  "user": "pixel_pal",
+  "text": "buzzer!",
+  "tags": [
+   "combat_timeout"
+  ]
+ },
+ {
+  "user": "CouchCritic",
+  "text": "a draw?",
+  "tags": [
+   "combat_stalemate"
+  ]
+ },
+ {
+  "user": "dicegoblin",
+  "text": "nobody won",
+  "tags": [
+   "combat_stalemate"
+  ]
+ },
+ {
+  "user": "MossyMike",
+  "text": "rematch!!",
+  "tags": [
+   "combat_stalemate"
+  ]
  }
 ]

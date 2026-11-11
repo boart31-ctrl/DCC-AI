@@ -10,7 +10,9 @@
 import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
 
-export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc'];
+export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale'];
+// combat-auto.js OUTCOMES (kept here too: scenes.js must not import combat-auto.js, which imports combat.js → scenes.js).
+export const FINALE_OUTCOMES = ['victory', 'defeat', 'runaway', 'truce', 'special', 'sponsor', 'timeout', 'stalemate'];
 export const AUDIO_DEVICES = ['gm', 'stage'];
 export const MAX_BOSS_HP = 100;
 export const MAX_BOSS_PHASES = 10;
@@ -87,6 +89,7 @@ const DEFAULTS = {
   blank: () => ({ text: '' }),
   combat: () => ({ title: '', showParty: true }),
   npc: () => ({ npcId: null, npc: null, line: '', lineAt: null }),
+  finale: () => ({ outcome: 'victory', title: '', text: '', summary: null, at: null }),
   loot: () => ({ playerId: null, tier: null }),
   roll: () => ({ playerId: null, name: '', color: null, label: '', formula: '', rollId: null, dice: [], total: null, nat1: false, nat20: false, at: null }),
   countdown: () => ({ label: '', totalMs: 300_000, remainingMs: 300_000, startedAt: null }),
@@ -295,6 +298,21 @@ function npcMerge(st, ctx, prev, patch) {
   return out;
 }
 
+/** Combat finale (normally set by combat.end with a summary; the GM may also replay one by hand). */
+function finaleMerge(prev, patch, ctx) {
+  const out = { ...prev };
+  for (const [k, v] of Object.entries(patch)) {
+    if (k === 'outcome') {
+      if (!FINALE_OUTCOMES.includes(v)) throw bad(`outcome must be one of ${FINALE_OUTCOMES.join(', ')}`);
+      out.outcome = v;
+    } else if (k === 'title') out.title = txt(v, 'title', 60);
+    else if (k === 'text') out.text = txt(v, 'text', 400);
+    else throw bad(`unknown field ${k} for scene finale`);
+  }
+  out.at = ctx.now;
+  return out;
+}
+
 function mergeData(st, ctx, kind, prev, patch, fresh) {
   if (!isObj(patch)) throw bad('data must be an object');
   if (JSON.stringify(patch).length > 220_000) throw bad('data too large');
@@ -310,6 +328,7 @@ function mergeData(st, ctx, kind, prev, patch, fresh) {
   if (kind === 'loot') return lootMerge(st, ctx, prev, patch);
   if (kind === 'roll') return rollMerge(st, prev, patch);
   if (kind === 'npc') return npcMerge(st, ctx, prev, patch);
+  if (kind === 'finale') return finaleMerge(prev, patch, ctx);
   throw bad(`unknown scene kind ${kind}`);
 }
 

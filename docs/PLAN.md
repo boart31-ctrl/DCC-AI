@@ -43,6 +43,10 @@ lands in the repo — the site needs no API key.
    Recap, Floor countdown, big dice rolls, announcements. Neon theme switch for GM/phones.
 3. **Bestiary + combat** — bosses, mobs, NPCs as library kinds (art, stats, HP slots, notes),
    synced combat tracker (replaces the local one), reveal-to-TV button.
+   *Built (v2):* phone-first combat cards, per-mob targeting (auto / focus / spread, crawler aggro, don't target),
+   auto mode "Mobs act" (d20 vs Evade, damage − DR onto the sheets, undo, step) played on the TV as a cinematic with
+   SFX cued on the GM desk, Fallen row, televised combat endings (8 outcomes, summary + MVP, auto victory / defeat
+   offer). Hit rule, DR minimum, crit and Evade base are configurable and unverified. Protocol: PROTOCOL.md §3b.
 4. **Sound desk (on the notebook)** — SFX pads from repo files, System voice via ElevenLabs
    (key stored as a server secret, never in the browser): pre-render known lines once and cache,
    regenerate an edited achievement in 1–2 s, free-text announcements. Music stays in the

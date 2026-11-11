@@ -49,7 +49,8 @@ test('normalizeChatLines: old untagged lines still load; tags/weight validated',
   const w2 = [];
   assert.deepEqual(normalizeChatLines({}, w2), []);
   assert.match(w2[0], /must be an array/);
-  assert.equal(CHAT_TAGS.length, 15);
+  assert.equal(CHAT_TAGS.length, 29);
+  for (const t of ['mob_hit', 'mob_miss', 'mob_crit', 'crawler_down', 'mob_killed', 'combat_victory', 'combat_defeat', 'combat_runaway', 'combat_truce', 'combat_special', 'combat_sponsor', 'combat_timeout', 'combat_stalemate']) assert.ok(CHAT_TAGS.includes(t), t);
 });
 
 test('chatContext follows the TV scene; combat wins over explore', () => {
@@ -73,7 +74,7 @@ test('ambient: only lines of the current context or generic lines, generic weigh
   const seen = new Map();
   for (let i = 0; i < 400; i++) {
     const { line, delayMs } = chat.ambient(st);
-    assert.ok(delayMs >= 4000 && delayMs <= 8000, `combat gap ${delayMs}`);
+    assert.ok(delayMs >= 2600 && delayMs <= 5200, `combat gap ${delayMs}`); // busier than any calm scene
     seen.set(line.text, (seen.get(line.text) ?? 0) + 1);
   }
   assert.ok(!seen.has('boss only') && !seen.has('explore only'), 'no other contexts');
@@ -151,7 +152,12 @@ test('reactionFor: big moments map to bursts; secret rolls and quiet events do n
   assert.equal(reactionFor({ kind: 'roll', roll: { nat20: true, playerId: 'p1' } }).fill.playerId, 'p1');
   assert.equal(reactionFor({ kind: 'roll' }), null);
   assert.equal(reactionFor({ kind: 'boss.defeat', name: 'Grimble' }).fill.boss, 'Grimble');
-  assert.equal(reactionFor({ kind: 'combat.hit', type: 'crawler', playerId: 'p1', down: true }).key, 'death');
+  assert.equal(reactionFor({ kind: 'combat.hit', type: 'crawler', playerId: 'p1', down: true }).key, 'crawler_down');
+  assert.equal(reactionFor({ kind: 'combat.hit', type: 'mob', name: 'Rat', down: true }).key, 'mob_killed');
+  assert.equal(reactionFor({ kind: 'roll', nat20: true, by: 'gm', playerId: null }), null, 'mob / GM rolls: no crawler nat 20 burst');
+  const cue = reactionFor({ kind: 'chat.cue', cue: 'mob_crit', fill: { playerId: 'p1', mob: 'Rat' }, delayMs: 1500 });
+  assert.deepEqual([cue.key, cue.fill.mob, cue.delayMs], ['mob_crit', 'Rat', 1500]);
+  assert.equal(reactionFor({ kind: 'chat.cue', cue: 'nonsense' }), null);
   assert.equal(reactionFor({ kind: 'combat.hit', type: 'mob', name: 'Rat' }).fill.mob, 'Rat');
   assert.equal(reactionFor({ kind: 'scene', scene: 'countdown' }).key, 'countdown');
   assert.equal(reactionFor({ kind: 'scene', scene: 'explore' }), null);

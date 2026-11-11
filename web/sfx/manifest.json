@@ -129,6 +129,94 @@
    "hotkey": "Shift+KeyU",
    "volume": 1,
    "duration": 2.93
+  },
+  {
+   "id": "swing",
+   "label": "Swing / whoosh",
+   "file": "swing.mp3",
+   "hotkey": "Shift+KeyI",
+   "volume": 1,
+   "duration": 0.46
+  },
+  {
+   "id": "whiff",
+   "label": "Miss / whiff",
+   "file": "whiff.mp3",
+   "hotkey": "Shift+KeyO",
+   "volume": 1,
+   "duration": 1.1
+  },
+  {
+   "id": "impact",
+   "label": "Hit / impact",
+   "file": "impact.mp3",
+   "hotkey": "Shift+KeyP",
+   "volume": 1,
+   "duration": 0.39
+  },
+  {
+   "id": "crit_hit",
+   "label": "Critical hit",
+   "file": "crit_hit.mp3",
+   "hotkey": "Shift+KeyA",
+   "volume": 1,
+   "duration": 1.69
+  },
+  {
+   "id": "ko",
+   "label": "Crawler down (KO)",
+   "file": "ko.mp3",
+   "hotkey": "Shift+KeyS",
+   "volume": 1,
+   "duration": 2.6
+  },
+  {
+   "id": "shatter",
+   "label": "Mob killed (shatter)",
+   "file": "shatter.mp3",
+   "hotkey": "Shift+KeyD",
+   "volume": 1,
+   "duration": 1.17
+  },
+  {
+   "id": "round_bell",
+   "label": "Round start (bell)",
+   "file": "round_bell.mp3",
+   "hotkey": "Shift+KeyF",
+   "volume": 1,
+   "duration": 2.6
+  },
+  {
+   "id": "signal_lost",
+   "label": "Signal lost (defeat)",
+   "file": "signal_lost.mp3",
+   "hotkey": "Shift+KeyG",
+   "volume": 1,
+   "duration": 3.14
+  },
+  {
+   "id": "crowd_aww",
+   "label": "Crowd aww (truce)",
+   "file": "crowd_aww.mp3",
+   "hotkey": "Shift+KeyH",
+   "volume": 1,
+   "duration": 3
+  },
+  {
+   "id": "sponsor_chime",
+   "label": "Sponsor chime",
+   "file": "sponsor_chime.mp3",
+   "hotkey": "Shift+KeyJ",
+   "volume": 1,
+   "duration": 2.62
+  },
+  {
+   "id": "getaway",
+   "label": "Getaway (they ran)",
+   "file": "getaway.mp3",
+   "hotkey": "Shift+KeyK",
+   "volume": 1,
+   "duration": 2.2
   }
  ]
 }

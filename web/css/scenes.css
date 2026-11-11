@@ -23,11 +23,10 @@ body.stage::after { mix-blend-mode: normal; opacity: 0.6; }
 body.stage[data-scene] .arena,
 body.stage[data-scene] .join,
 body.stage[data-scene] .strip { visibility: hidden; }
-body.stage[data-scene] .bug,
-body.stage[data-scene] .chat { position: relative; z-index: 15; transition: opacity 0.4s; }
+body.stage[data-scene] .bug { position: relative; z-index: 15; transition: opacity 0.4s; }
+body.stage[data-scene] .chat { transition: opacity 0.4s; }
 body.stage[data-scene="blank"] .bug,
 body.stage[data-scene="blank"] .chat,
-body.stage[data-scene="recap"] .chat,
 body.stage.cine .bug,
 body.stage.cine .chat { opacity: 0; }
 body.stage[data-scene]::before { opacity: 0.55; }
@@ -502,7 +501,7 @@ body.preview { cursor: default; }
 
 /* ---------- RECAP ---------- */
 
-.sc-recap { padding-bottom: 0; }
+.sc-recap { padding-bottom: 3.8rem; } /* the chat ticker stays on air under the recap */
 .rc-head { position: relative; z-index: 2; text-align: center; }
 .rc-kicker { margin: 0; font-family: var(--f-mono); font-weight: 700; font-size: 1.8rem; letter-spacing: 0.45em; text-transform: uppercase; color: var(--cyan); }
 .rc-title { margin: 0.2rem 0 0; font-family: var(--f-show); font-style: italic; font-weight: 900; text-transform: uppercase; font-size: 7rem; line-height: 0.9; color: #fff; text-shadow: 0.05em 0.05em 0 var(--magenta); }

@@ -196,6 +196,11 @@ Standard categories the GM panel shows as buttons: `nat1`, `nat20`, `death`, `le
 `fail`, `success`, `idle`, `achievement`, `loot`, `sponsor`, `welcome`, `goodbye`. Packs may add more.
 `audio` is optional; without it the stage uses text-to-speech.
 
+Combat categories the engine plays by itself (P1, also in combat mode): `crawler_down` (a crawler hits 0 HP),
+`mob_killed` (a revealed mob dies), `mob_crit` / `mob_miss` (auto mode: a mob's natural 20 / natural 1), and one per
+combat ending: `combat_victory`, `combat_defeat`, `combat_runaway`, `combat_truce`, `combat_special`,
+`combat_sponsor`, `combat_timeout`, `combat_stalemate`. Keep them short (≤ 20 words): they land on a TV beat.
+
 ## chat.json
 
 Fake audience chat for the TV ticker. Each line: `user` (≤ 40 chars), `text` (≤ 200), optional `tags` and `weight`.
@@ -210,7 +215,10 @@ Fake audience chat for the TV ticker. Each line: `user` (≤ 40 chars), `text` (
 
 - **`tags`** (array, or one string): the moments a line fits. Known tags:
   `idle`, `lobby`, `explore`, `combat`, `boss`, `boss_phase`, `boss_defeat`, `loot`, `achievement`, `death`,
-  `nat1`, `nat20`, `countdown`, `npc`, `recap`. Unknown tags are ignored (with a pack warning).
+  `nat1`, `nat20`, `countdown`, `npc`, `recap`; combat auto mode `mob_hit`, `mob_miss`, `mob_crit`, `crawler_down`
+  (falls back to `death`), `mob_killed`; combat endings `combat_victory`, `combat_defeat`, `combat_runaway`,
+  `combat_truce`, `combat_special`, `combat_sponsor`, `combat_timeout`, `combat_stalemate`; `finale` (calm chat
+  while a finale is on the TV). Unknown tags are ignored (with a pack warning).
 - **`weight`** (positive number, default 1): how often the line is picked relative to its neighbours.
 - **Untagged lines** (the old format) are *generic*: they can appear in any calm moment, like `idle`. A pack with
   only untagged lines behaves as before, just without reaction bursts.
@@ -222,8 +230,8 @@ How the server picks (server/chat.js):
 
 | When | What |
 |------|------|
-| Calm chat, while a TV is on | One line every few seconds for the TV scene: `lobby` 7–14 s, `idle`/blank 9–18 s, `explore` 11–21 s, `combat` 4–8 s, `boss` 3–5.5 s (`countdown`, `npc`, `loot`, `recap` in between). Lines tagged for the scene are preferred; generic / `idle` lines mix in (about a quarter of the time). Combat on the tracker counts as `combat` in any scene; a defeated boss scene as `boss_defeat`. |
-| Right after a big moment | A burst of quick lines (first within a second, then every 0.6–1.7 s) from that tag only: nat 20 (3–5), nat 1 (3–4), boss intro (`boss`, 3–5), boss phase (2–4), boss defeat (4–6), a crawler going down in the arena (`death`, 3–5), loot / sponsor box (2–3), achievement (2–4), the TV switching to a countdown or recap (1–2), combat start (2–3). Secret rolls never trigger anything. |
+| Calm chat, while a TV is on | One line every few seconds for the TV scene: `lobby` 7–14 s, `idle`/blank 9–18 s, `explore` 11–21 s, `combat` 2.6–5.2 s, `boss` 3–5.5 s (`countdown`, `npc`, `loot`, `recap` in between). Lines tagged for the scene are preferred; generic / `idle` lines mix in (about a quarter of the time). Combat on the tracker counts as `combat` in any scene; a defeated boss scene as `boss_defeat`. |
+| Right after a big moment | A burst of quick lines (first within a second, then every 0.6–1.7 s) from that tag only: nat 20 (3–5), nat 1 (3–4), boss intro (`boss`, 3–5), boss phase (2–4), boss defeat (4–6), a crawler going down in the arena (`crawler_down`, else `death`, 3–5), a mob killed (`mob_killed`, 1–3), auto-mode beats timed to the TV cinematic (`mob_hit` 1–2, `mob_miss` 1–3 on a natural 1 or a miss by 5+, `mob_crit` 2–4), a combat ending (`combat_<outcome>`, 4–6), loot / sponsor box (2–3), achievement (2–4), the TV switching to a countdown or recap (1–2), combat start (2–3). Secret rolls never trigger anything. |
 | After the burst | For ~45 s calm chat sometimes keeps talking about that moment (fading out). |
 | Always | No repeats inside a recent-history window (60% of the pool, max 80 lines; small pools only block the last few). |
 

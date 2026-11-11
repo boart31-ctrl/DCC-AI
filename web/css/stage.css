@@ -3,9 +3,11 @@
 html { font-size: clamp(12px, 1.05vw, 22px); }
 @media (min-aspect-ratio: 16/9) { html { font-size: clamp(12px, 1.86vh, 22px); } }
 
+html { height: 100%; } /* stage.css is only loaded by the TV page */
 body.stage {
   overflow: hidden;
   height: 100vh;
+  height: 100%;
   cursor: none;
   background:
     radial-gradient(70vw 50vh at 50% 120%, rgba(255, 47, 185, 0.22), transparent 70%),
@@ -33,7 +35,6 @@ body.stage::before {
 
 .frame {
   position: relative;
-  height: 100vh;
   display: grid;
   grid-template-columns: 1fr auto;
   grid-template-rows: auto 1fr auto auto;
@@ -43,7 +44,8 @@ body.stage::before {
     "strip strip"
     "chat  chat";
   gap: 1.4rem 2rem;
-  padding: 1.6rem 2.2rem 0;
+  padding: 1.6rem 2.2rem 3.6rem; /* bottom: room for the fixed chat ticker */
+  height: 100%;
 }
 
 /* ---------- Bug (top) ---------- */
@@ -230,12 +232,17 @@ body.stage::before {
 
 /* ---------- Chat ticker ---------- */
 
+/* Pinned to the bottom of the visible screen on its own layer, above every scene: a TV browser whose
+   100vh is taller than what it shows (toolbar) or that mis-stacks 3D layers can no longer hide it. */
 .chat {
   grid-area: chat;
+  position: fixed;
+  left: 0; right: 0; bottom: 0;
+  z-index: 26;
+  transform: translateZ(0);
   display: flex;
   align-items: stretch;
   height: 3.6rem;
-  margin: 0 -2.2rem;
   background: rgba(5, 2, 12, 0.92);
   border-top: 2px solid var(--magenta);
 }

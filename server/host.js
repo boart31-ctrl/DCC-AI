@@ -225,6 +225,20 @@ export function createHost(opts) {
     if (refMemo.size > 64) refMemo.delete(refMemo.keys().next().value);
     return ref;
   };
+  /** Sends pictures one per frame; a ref counts as delivered only when its frame went out. */
+  function sendPortraits(conn, refs, found) {
+    let sent = portraitSent.get(conn);
+    if (!sent) portraitSent.set(conn, (sent = new Set()));
+    for (const r of refs) {
+      if (!found[r]) continue;
+      try {
+        rawSend(conn, JSON.stringify({ t: 'portraits', portraits: { [r]: found[r] } }));
+        sent.add(r);
+      } catch (e) {
+        log.warn?.(`[host] portrait send failed: ${e.message}`);
+      }
+    }
+  }
   function withPortraits(conn, v) {
     const found = {};
     const swap = (url) => {
@@ -236,14 +250,21 @@ export function createHost(opts) {
     for (const p of v.players ?? []) p.portrait = swap(p.portrait);
     if (v.me?.sheet) v.me.sheet = { ...v.me.sheet, portrait: swap(v.me.sheet.portrait) };
     if (v.gm?.playersFull) v.gm.playersFull = v.gm.playersFull.map((p) => (p.sheet ? { ...p, sheet: { ...p.sheet, portrait: swap(p.sheet.portrait) } } : p));
-    let sent = portraitSent.get(conn);
-    if (!sent) portraitSent.set(conn, (sent = new Set()));
-    const fresh = Object.keys(found).filter((r) => !sent.has(r));
-    if (fresh.length) {
-      send(conn, { t: 'portraits', portraits: Object.fromEntries(fresh.map((r) => [r, found[r]])) });
-      for (const r of fresh) sent.add(r);
-    }
+    const sent = portraitSent.get(conn);
+    sendPortraits(conn, Object.keys(found).filter((r) => !sent?.has(r)), found);
     return v;
+  }
+  /** A client is missing pictures (lost frame, cache cleared): send the ones the current state has. */
+  function resendPortraits(conn, refs) {
+    if (!Array.isArray(refs)) throw bad('refs must be an array');
+    const found = {};
+    for (const p of state.players) {
+      const url = p.sheet?.portrait;
+      if (typeof url === 'string' && url.startsWith('data:')) found[portraitRef(url)] = url;
+    }
+    const want = refs.filter((r) => typeof r === 'string' && Object.hasOwn(found, r)).slice(0, 12);
+    sendPortraits(conn, want, found);
+    return { sent: want.length };
   }
   const viewFrame = (conn, meta, o) => withPortraits(conn, viewOf(meta, o));
 
@@ -386,7 +407,8 @@ export function createHost(opts) {
   /** Big moments: a quick burst of chat lines and a viewer bump. Called after the events went out. */
   function reactTo(events, sceneBefore) {
     if (!chat || closed) return;
-    const list = events.filter(({ to }) => stageSees(to)).map(({ event }) => event);
+    // `chat.cue` events (combat-auto.js) reach no client; they only time a burst to the TV cinematic.
+    const list = events.filter(({ event, to }) => event?.kind === 'chat.cue' || stageSees(to)).map(({ event }) => event);
     if (sceneBefore && state.scene && state.scene.kind !== sceneBefore.kind) list.push({ kind: 'scene', scene: state.scene.kind });
     let pct = 0;
     for (const e of list) {
@@ -394,14 +416,19 @@ export function createHost(opts) {
       if (!r) continue;
       if (r.viewers) pct += r.viewers;
       if (!stageOn() || !r.lines.length) continue;
-      let at = Math.max(now(), chatBurst.length ? chatBurst[chatBurst.length - 1].at : 0);
+      const delayed = r.delayMs > 0;
+      let at = delayed ? now() + r.delayMs : Math.max(now(), chatBurst.length ? chatBurst[chatBurst.length - 1].at : 0);
       r.lines.forEach((line, k) => {
         at += r.gapsMs[k];
         chatBurst.push({ line, at });
       });
+      if (delayed) chatBurst.sort((x, y) => x.at - y.at);
     }
     while (chatBurst.length > MAX_BURST_QUEUE) chatBurst.splice(MAX_BURST_QUEUE - 1, 1); // keep the newest moment's tail short
-    if (chatBurst.length && !chatBurstTimer) chatBurstTimer = T.setTimeout(pumpBurst, Math.max(0, chatBurst[0].at - now()));
+    if (chatBurst.length) {
+      if (chatBurstTimer) T.clearTimeout(chatBurstTimer);
+      chatBurstTimer = T.setTimeout(pumpBurst, Math.max(0, chatBurst[0].at - now()));
+    }
     if (pct) {
       try {
         apply({ role: 'system', t: 'audience.react', pct: Math.min(0.3, pct) });
@@ -409,6 +436,24 @@ export function createHost(opts) {
         log.warn?.(`[chat] viewer bump failed: ${e.message}`);
       }
     }
+  }
+
+  // Voice lines with `delayMs` (combat auto mode: "<name> is down" lands on its TV step).
+  const delayedLines = new Map(); // timer -> line
+  function pushLine(line) {
+    const { delayMs, ...l } = line;
+    if (!(delayMs > 0) || closed) { voice.push(l); return; }
+    const id = T.setTimeout(() => {
+      delayedLines.delete(id);
+      if (!closed) { voice.push(l); ensureVoiceTick(); }
+    }, Math.min(30_000, delayMs));
+    delayedLines.set(id, l);
+  }
+  /** GM skipped the cinematic: what was waiting for its moment plays now. */
+  function flushDelayed() {
+    for (const [id, l] of delayedLines) { T.clearTimeout(id); voice.push(l); }
+    delayedLines.clear();
+    ensureVoiceTick();
   }
 
   // ---------- state changes ----------
@@ -483,7 +528,8 @@ export function createHost(opts) {
       } else if (fx.type === 'clearPending') voice.clearPending();
       else if (fx.type === 'queueClear') voice.clear();
     }
-    for (const line of lines) voice.push(line);
+    for (const line of lines) pushLine(line);
+    if (r.events.some(({ event }) => event?.kind === 'combat.autoSkip')) flushDelayed();
     if (action.t === 'player.remove') closePlayer(action.playerId, CLOSE.removed, 'removed');
     if (!system) reactTo(r.events, sceneBefore);
     scheduleViews();
@@ -864,6 +910,15 @@ export function createHost(opts) {
       return send(conn, { t: 'ack', rid: ridOf(msg), ok: true });
     }
     if (meta.role === 'pairing') return send(conn, { t: 'error', code: 'bad_request', msg: 'waiting for the GM to pair this screen' });
+    if (msg.t === 'portraits.want' && VIEW_ROLES.has(meta.role)) {
+      try {
+        const result = resendPortraits(conn, msg.refs);
+        if (ridOf(msg) !== undefined) send(conn, { t: 'ack', rid: ridOf(msg), ok: true, result });
+      } catch (e) {
+        send(conn, { t: 'ack', rid: ridOf(msg), ok: false, error: 'bad_request', msg: e.message });
+      }
+      return;
+    }
     return handleAction(conn, meta, msg);
   }
 
@@ -921,7 +976,8 @@ export function createHost(opts) {
 
   function close() {
     closed = true;
-    for (const t of [viewTimer, voiceTimer, audienceTimer, chatTimer, chatBurstTimer]) if (t) T.clearTimeout(t);
+    for (const t of [viewTimer, voiceTimer, audienceTimer, chatTimer, chatBurstTimer, ...delayedLines.keys()]) if (t) T.clearTimeout(t);
+    delayedLines.clear();
     for (const m of conns.values()) if (m.timer) T.clearTimeout(m.timer);
     viewTimer = voiceTimer = audienceTimer = chatTimer = chatBurstTimer = null;
   }

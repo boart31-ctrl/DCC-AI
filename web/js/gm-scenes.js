@@ -445,9 +445,11 @@ export function createScenes({ client, act, getView }) {
       h('button', { type: 'button', role: 'tab', 'data-sub': 'desk', onclick: () => pick('desk') }, 'Quips, comms, audience'));
     section.replaceChildren(h('div.show-subbar', seg), el, ...extras.map((x) => x.el), desk);
     pick(store.get('sub', 'scenes'));
+    api.openSub = pick;
     // Load / drop the preview when the Show view is opened or left.
     new MutationObserver(() => drawPreview()).observe(section, { attributes: true, attributeFilter: ['hidden'] });
   }
 
-  return { el, update, audio, mountInto, refresh: () => { sig = ''; update(view()); } };
+  const api = { el, update, audio, mountInto, openSub: null, refresh: () => { sig = ''; update(view()); } };
+  return api;
 }

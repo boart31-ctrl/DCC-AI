@@ -11,6 +11,11 @@
 export const CHAT_TAGS = [
   'idle', 'lobby', 'explore', 'combat', 'boss', 'boss_phase', 'boss_defeat',
   'loot', 'achievement', 'death', 'nat1', 'nat20', 'countdown', 'npc', 'recap',
+  // combat auto mode (combat-auto.js) and the mob-killed moment
+  'mob_hit', 'mob_miss', 'mob_crit', 'crawler_down', 'mob_killed',
+  // combat endings (combat.end outcome)
+  'combat_victory', 'combat_defeat', 'combat_runaway', 'combat_truce', 'combat_special',
+  'combat_sponsor', 'combat_timeout', 'combat_stalemate', 'finale',
 ];
 const TAG_SET = new Set(CHAT_TAGS);
 const PLACEHOLDER_RE = /\{(player|boss|mob|item)\}/g;
@@ -55,13 +60,14 @@ export function normalizeChatLines(raw, warnings = []) {
 /** Seconds between calm lines, per context: [min, max]. Combat and bosses chatter faster. */
 export const AMBIENT_GAP_S = {
   lobby: [7, 14], idle: [9, 18], explore: [11, 21], recap: [14, 26], countdown: [5, 10],
-  npc: [10, 18], loot: [6, 12], combat: [4, 8], boss: [2.8, 5.5],
+  npc: [10, 18], loot: [6, 12], combat: [2.6, 5.2], boss: [2.8, 5.5], finale: [3, 6],
 };
 
 /** What the TV is showing right now, as a chat context. */
 export function chatContext(state) {
   const kind = state?.scene?.kind;
   if (kind === 'boss') return state.scene.data?.defeated ? 'boss_defeat' : 'boss';
+  if (kind === 'finale') return 'finale';
   if (state?.combat?.active || kind === 'combat') return 'combat';
   if (kind === 'explore' || kind === 'lobby' || kind === 'countdown' || kind === 'npc' || kind === 'recap' || kind === 'loot') return kind;
   return 'idle';
@@ -83,6 +89,15 @@ export const REACTIONS = {
   countdown: { tag: 'countdown', burst: [1, 2], viewers: [0.01, 0.03] },
   npc: { tag: 'npc', burst: [1, 2], viewers: null },
   recap: { tag: 'recap', burst: [1, 2], viewers: null },
+  // auto mode beats (host-made `chat.cue` events, timed to the TV cinematic)
+  mob_hit: { tag: 'mob_hit', alt: 'combat', burst: [1, 2], viewers: [0.002, 0.008] },
+  mob_miss: { tag: 'mob_miss', alt: 'combat', burst: [1, 3], viewers: [0.004, 0.012] },
+  mob_crit: { tag: 'mob_crit', alt: 'combat', burst: [2, 4], viewers: [0.01, 0.03] },
+  crawler_down: { tag: 'crawler_down', alt: 'death', burst: [3, 5], viewers: [0.05, 0.1] },
+  mob_killed: { tag: 'mob_killed', alt: 'combat', burst: [1, 3], viewers: [0.006, 0.02] },
+  ...Object.fromEntries(['victory', 'defeat', 'runaway', 'truce', 'special', 'sponsor', 'timeout', 'stalemate'].map((o) => [
+    `combat_${o}`, { tag: `combat_${o}`, alt: o === 'victory' ? 'boss_defeat' : 'combat', burst: [4, 6], viewers: o === 'victory' ? null : [0.03, 0.08] },
+  ])),
 };
 
 /**
@@ -98,6 +113,7 @@ export function reactionFor(e) {
     case 'roll': {
       const r = isObj(e.roll) ? e.roll : e;
       if (r.secret) return null;
+      if (!r.playerId && r.by === 'gm') return null; // GM / mob rolls: auto mode cues its own reactions
       if (r.playerId) fill.playerId = r.playerId;
       if (r.nat20) return { key: 'nat20', fill };
       if (r.nat1) return { key: 'nat1', fill };
@@ -109,13 +125,16 @@ export function reactionFor(e) {
     case 'boss.hit': return { key: 'boss_hit', fill };
     case 'combat.start': return { key: 'combat_start', fill };
     case 'combat.hit':
-      if (e.type === 'crawler' && e.down) return { key: 'death', fill: { ...fill, playerId: e.playerId } };
+      if (e.type === 'crawler' && e.down) return { key: 'crawler_down', fill: { ...fill, playerId: e.playerId } };
+      if (e.type === 'mob' && e.down) return { key: 'mob_killed', fill: { ...fill, mob: e.name } };
       if (e.type === 'mob') return { key: 'combat_hit', fill: { ...fill, mob: e.name } };
       return { key: 'combat_hit', fill };
     case 'loot':
     case 'sponsor': return { key: 'loot', fill };
     case 'achievement': return { key: 'achievement', fill };
     case 'npc.say': return { key: 'npc', fill };
+    // Host-made cue (combat-auto.js): never delivered to a client, carries its own delay.
+    case 'chat.cue': return REACTIONS[e.cue] ? { key: e.cue, fill: { ...fill, ...(isObj(e.fill) ? e.fill : {}) }, delayMs: Number(e.delayMs) || 0 } : null;
     // Host-made pseudo event: the TV switched to another scene.
     case 'scene':
       if (e.scene === 'countdown') return { key: 'countdown', fill };
@@ -269,14 +288,14 @@ export function createChat({ lines = [], rng = Math.random, now = Date.now, rece
       const n = lo + Math.floor(rng() * (hi - lo + 1));
       const out = [];
       for (let k = 0; k < n; k++) {
-        const line = pick(spec.tag, state, { fill: r.fill, strict: true });
+        const line = pick(spec.tag, state, { fill: r.fill, strict: true }) || (spec.alt ? pick(spec.alt, state, { fill: r.fill, strict: true }) : null);
         if (!line) break;
         out.push(line);
       }
       if (spec.burst[1] >= 2) afterglow = { tag: spec.tag, at: now(), fill: r.fill };
       const gapsMs = out.map((_, k) => Math.round(k === 0 ? 350 + rng() * 650 : 600 + rng() * 1100));
       const viewers = spec.viewers ? spec.viewers[0] + rng() * (spec.viewers[1] - spec.viewers[0]) : null;
-      return { key: r.key, lines: out, gapsMs, viewers };
+      return { key: r.key, lines: out, gapsMs, viewers, delayMs: r.delayMs ?? 0 };
     },
     history: () => [...history],
   };

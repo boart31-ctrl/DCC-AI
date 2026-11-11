@@ -403,5 +403,185 @@
     "id": "goodbye_06",
     "category": "goodbye",
     "text": "And we're off the air. You can scream now."
+  },
+  {
+    "id": "crawler_down_01",
+    "category": "crawler_down",
+    "text": "Crawler down. Please remain calm. Or don't, it's good television."
+  },
+  {
+    "id": "crawler_down_02",
+    "category": "crawler_down",
+    "text": "And they hit the floor. The floor approves."
+  },
+  {
+    "id": "crawler_down_03",
+    "category": "crawler_down",
+    "text": "Down they go. Somebody fetch a healer."
+  },
+  {
+    "id": "mob_killed_01",
+    "category": "mob_killed",
+    "text": "Monster deleted. Next."
+  },
+  {
+    "id": "mob_killed_02",
+    "category": "mob_killed",
+    "text": "Splat. Lovely."
+  },
+  {
+    "id": "mob_killed_03",
+    "category": "mob_killed",
+    "text": "That one won't be back. Probably."
+  },
+  {
+    "id": "mob_crit_01",
+    "category": "mob_crit",
+    "text": "Critical hit. Ouch, said the audience."
+  },
+  {
+    "id": "mob_crit_02",
+    "category": "mob_crit",
+    "text": "Natural twenty. The monster is thrilled."
+  },
+  {
+    "id": "mob_crit_03",
+    "category": "mob_crit",
+    "text": "A perfect strike. For the wrong team."
+  },
+  {
+    "id": "mob_miss_01",
+    "category": "mob_miss",
+    "text": "A natural one. The monster is embarrassed."
+  },
+  {
+    "id": "mob_miss_02",
+    "category": "mob_miss",
+    "text": "Missed by a mile. Two, maybe."
+  },
+  {
+    "id": "mob_miss_03",
+    "category": "mob_miss",
+    "text": "The monster swung at nothing. Nothing won."
+  },
+  {
+    "id": "combat_victory_01",
+    "category": "combat_victory",
+    "text": "Victory! The crowd goes wild."
+  },
+  {
+    "id": "combat_victory_02",
+    "category": "combat_victory",
+    "text": "Fight won. Loot pending."
+  },
+  {
+    "id": "combat_victory_03",
+    "category": "combat_victory",
+    "text": "All hostiles down. Nicely done."
+  },
+  {
+    "id": "combat_defeat_01",
+    "category": "combat_defeat",
+    "text": "Signal lost. We'll be right back. Some of you won't."
+  },
+  {
+    "id": "combat_defeat_02",
+    "category": "combat_defeat",
+    "text": "Party wiped. The dungeon says thanks."
+  },
+  {
+    "id": "combat_defeat_03",
+    "category": "combat_defeat",
+    "text": "Game over. Please insert more crawlers."
+  },
+  {
+    "id": "combat_runaway_01",
+    "category": "combat_runaway",
+    "text": "The crawlers have left the chat."
+  },
+  {
+    "id": "combat_runaway_02",
+    "category": "combat_runaway",
+    "text": "Strategic retreat. Also known as running."
+  },
+  {
+    "id": "combat_runaway_03",
+    "category": "combat_runaway",
+    "text": "Look at them go."
+  },
+  {
+    "id": "combat_truce_01",
+    "category": "combat_truce",
+    "text": "A truce. How touching."
+  },
+  {
+    "id": "combat_truce_02",
+    "category": "combat_truce",
+    "text": "Peace has broken out. Medics are confused."
+  },
+  {
+    "id": "combat_truce_03",
+    "category": "combat_truce",
+    "text": "Aww. Okay. That was nice."
+  },
+  {
+    "id": "combat_special_01",
+    "category": "combat_special",
+    "text": "Well, nobody saw that coming."
+  },
+  {
+    "id": "combat_special_02",
+    "category": "combat_special",
+    "text": "An unprecedented ending."
+  },
+  {
+    "id": "combat_special_03",
+    "category": "combat_special",
+    "text": "That's a new one for the archives."
+  },
+  {
+    "id": "combat_sponsor_01",
+    "category": "combat_sponsor",
+    "text": "A sponsor has ended this fight. Thank your benefactor."
+  },
+  {
+    "id": "combat_sponsor_02",
+    "category": "combat_sponsor",
+    "text": "Saved by advertising."
+  },
+  {
+    "id": "combat_sponsor_03",
+    "category": "combat_sponsor",
+    "text": "Money: the strongest spell."
+  },
+  {
+    "id": "combat_timeout_01",
+    "category": "combat_timeout",
+    "text": "Time's up."
+  },
+  {
+    "id": "combat_timeout_02",
+    "category": "combat_timeout",
+    "text": "The clock wins this round."
+  },
+  {
+    "id": "combat_timeout_03",
+    "category": "combat_timeout",
+    "text": "Buzzer. Everybody freeze."
+  },
+  {
+    "id": "combat_stalemate_01",
+    "category": "combat_stalemate",
+    "text": "A stalemate. Nobody wins."
+  },
+  {
+    "id": "combat_stalemate_02",
+    "category": "combat_stalemate",
+    "text": "It's a draw. Rematch, anyone?"
+  },
+  {
+    "id": "combat_stalemate_03",
+    "category": "combat_stalemate",
+    "text": "Both sides are too tired to go on."
   }
 ]
