@@ -152,7 +152,23 @@ export function normalizeHomebrew(raw) {
 }
 
 export function libraryOf(state, pack) {
-  return makeLibrary(pack, state.library);
+  return makeLibrary(pack, state.library, state.libArt);
+}
+
+/** GM art picks for read-only pack entries without art: { monster: { id: url }, boss, npc, location }. */
+export const ART_KINDS = ['monster', 'boss', 'npc', 'location'];
+const ART_URL = /^(https?:\/\/|\/pack\/)[^\s"'<>]{1,500}$/;
+const MAX_ART_PER_KIND = 500;
+export function normalizeLibArt(raw) {
+  const out = {};
+  for (const k of ART_KINDS) {
+    out[k] = {};
+    const src = isObj(raw) && isObj(raw[k]) ? raw[k] : {};
+    for (const [id, url] of Object.entries(src).slice(0, MAX_ART_PER_KIND)) {
+      if (ID_RE.test(id) && typeof url === 'string' && ART_URL.test(url)) out[k][id] = url;
+    }
+  }
+  return out;
 }
 
 // ---------- composed character (single source of truth: name/level/race/klass/notes live on the player) ----------
@@ -1017,6 +1033,31 @@ export const SHEET_GM = {
       list.push(e);
     }
     out.result = { id: e.id, created: i < 0 };
+  },
+
+  /** Art for a pack entry (read-only otherwise): a /pack/ image or URL, or null to go back to the pack's own. */
+  'lib.art'(st, a, ctx) {
+    if (!ART_KINDS.includes(a.kind)) throw bad(`kind must be one of ${ART_KINDS.join(', ')}`);
+    if (typeof a.id !== 'string' || !ID_RE.test(a.id)) throw bad('id must be an id');
+    if (!(ctx.pack.library?.[a.kind] ?? []).some((e) => e.id === a.id)) {
+      throw notFound(`no pack ${a.kind} ${a.id} (for homebrew entries set the image in the editor)`);
+    }
+    st.libArt = isObj(st.libArt) ? st.libArt : normalizeLibArt(null);
+    st.libArt[a.kind] ||= {};
+    const packEntry = ctx.pack.library[a.kind].find((e) => e.id === a.id);
+    const packArt = (a.kind === 'boss' && packEntry.imageSquare) || packEntry.image || null;
+    const before = st.libArt[a.kind][a.id] ?? packArt;
+    if (a.image == null || a.image === '') delete st.libArt[a.kind][a.id];
+    else {
+      if (typeof a.image !== 'string' || !ART_URL.test(a.image)) throw bad('image must be a /pack/ path or an http(s) URL');
+      if (!(a.id in st.libArt[a.kind]) && Object.keys(st.libArt[a.kind]).length >= MAX_ART_PER_KIND) throw bad('too many art picks');
+      st.libArt[a.kind][a.id] = a.image;
+    }
+    // combatants already in the fight from this entry follow, unless the GM gave one its own picture
+    const after = st.libArt[a.kind][a.id] ?? packArt;
+    for (const m of st.combat?.combatants ?? []) {
+      if (m.type === 'mob' && m.sourceKind === a.kind && m.sourceId === a.id && (m.image ?? null) === before) m.image = after;
+    }
   },
 
   'lib.remove'(st, a) {

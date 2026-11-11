@@ -570,12 +570,19 @@ export function tmpl(src, stat, dice) {
  * Merged library view over pack entries (`pack.library` + `pack.items`) and homebrew (`state.library`).
  * Homebrew shadows pack entries with the same id.
  */
-export function makeLibrary(pack, homebrew = {}) {
+export function makeLibrary(pack, homebrew = {}, art = {}) {
   const maps = {};
   for (const k of LIB_KINDS) {
     const m = new Map();
     const packList = k === 'item' ? pack?.items ?? [] : pack?.library?.[k] ?? [];
-    for (const e of packList) m.set(e.id, e.source ? e : { ...e, source: 'pack' });
+    const picks = art && typeof art === 'object' && art[k] && typeof art[k] === 'object' ? art[k] : null;
+    for (const e of packList) {
+      let x = e.source ? e : { ...e, source: 'pack' };
+      const pick = picks && Object.hasOwn(picks, e.id) ? picks[e.id] : null;
+      // GM art pick for a pack entry: replaces its image everywhere (a boss's square crop too)
+      if (pick) x = { ...x, image: pick, ...(k === 'boss' ? { imageSquare: pick } : {}), artPick: true, packImage: e.image ?? null };
+      m.set(e.id, x);
+    }
     for (const e of Array.isArray(homebrew?.[k]) ? homebrew[k] : []) m.set(e.id, e);
     maps[k] = m;
   }

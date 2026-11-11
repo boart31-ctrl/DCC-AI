@@ -343,6 +343,13 @@ function conditionOf(st, ctx, a) {
 
 const sameCond = (c, k) => (k.id ? c.id === k.id : c.name.toLowerCase() === k.name.toLowerCase());
 
+/** Mob art: a /pack/ image or an http(s) URL (the GM art gallery), or null for the generated silhouette. */
+function mobImage(v) {
+  if (v == null || v === '') return null;
+  if (typeof v !== 'string' || !/^(https?:\/\/|\/pack\/)[^\s"'<>]{1,500}$/.test(v)) throw bad('image must be a /pack/ path or an http(s) URL');
+  return v;
+}
+
 export const COMBAT_GM = {
   'combat.start'(st, a, ctx, out) {
     const c = C(st);
@@ -468,7 +475,7 @@ export const COMBAT_GM = {
     const sourceKey = `adhoc:${base.toLowerCase()}`;
     const uids = numberedNames(st, base, sourceKey, count).map((name) => {
       const m = {
-        uid: ctx.genId('cb'), type: 'mob', sourceKind: null, sourceId: null, sourceKey, name, image: null,
+        uid: ctx.genId('cb'), type: 'mob', sourceKind: null, sourceId: null, sourceKey, name, image: mobImage(a.image),
         hp, hpMax: hp,
         evade: a.evade === undefined ? 0 : intIn(a.evade, 'evade', -99, 99),
         dr: a.dr === undefined ? 0 : intIn(a.dr, 'dr', -99, 99),
@@ -495,6 +502,7 @@ export const COMBAT_GM = {
     if (a.dr !== undefined) m.dr = intIn(a.dr, 'dr', -99, 99);
     if (a.notes !== undefined) m.notes = txt(a.notes, 'notes', 500, { allowEmpty: true });
     if (a.hidden !== undefined) m.hidden = flag(a.hidden, 'hidden');
+    if (a.image !== undefined) m.image = mobImage(a.image);
   },
 
   'combat.damage'(st, a, ctx, out) { changeHp(st, a, ctx, out, -1); },

@@ -6,6 +6,7 @@ import {
 } from './rules.js';
 import { icon, field, select, labeled, openDrawer, closeDrawer, signed } from './ui.js';
 import { entryArt, imageRef } from './portrait.js';
+import { openArtGallery } from './art-gallery.js';
 
 const FIELDS = {
   item: ['rarity', 'slot', 'stackable', 'flavor', 'effects', 'attack'],
@@ -381,8 +382,27 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
       disabled: ro, cls: 'mono-in', attrs: { spellcheck: 'false' }, placeholder: `${kind === 'npc' ? 'quill' : 'goblin'}.webp, /pack/images/… or https://…`,
       onCommit: (v) => { d.image = imageRef(v); inp.value = d.image || ''; markDirty(); draw(); },
     });
+    // Gallery: homebrew entries take the picture into the draft (saved with the entry); read-only pack entries
+    // get a GM art pick on the server (lib.art), which replaces their picture everywhere until reset.
+    const artKinds = ['monster', 'boss', 'npc', 'location'];
+    const packPick = ro && artKinds.includes(kind) && st.sel?.id;
+    const galleryBtn = ro && !packPick ? null : h('button.btn.btn-sm', {
+      type: 'button',
+      onclick: () => openArtGallery(view, {
+        title: `Art for ${d.name || 'this entry'}`,
+        sub: packPick ? 'Pack entry: the pick replaces its picture everywhere (GM, TV, new combatants) until you reset it.' : 'Any picture the pack ships. Saved with the entry.',
+        current: d.image,
+        allowClear: packPick ? !!d.artPick : true,
+        clearLabel: packPick ? 'Back to the pack art' : 'No art (silhouette)',
+        onPick: async (u) => {
+          if (packPick) { await act({ t: 'lib.art', kind, id: st.sel.id, image: u }, u ? 'Art set.' : 'Pack art restored.'); return; }
+          d.image = u; inp.value = u || ''; markDirty(); draw();
+        },
+      }),
+    }, icon('sparkle', { size: 13 }), packPick ? (d.artPick ? 'Change art' : 'Choose art') : 'Gallery');
     draw();
-    return h('div.lbl.span-all.img-field', h('span.lbl-t', 'Image'), h('div.img-row', box, h('div.img-in', inp, msg)));
+    return h('div.lbl.span-all.img-field', h('span.lbl-t', 'Image'), h('div.img-row', box, h('div.img-in', h('div.img-inrow', inp, galleryBtn), msg,
+      packPick && d.artPick ? h('span.lbl-hint', 'GM art pick (the pack has none of its own here or you replaced it).') : null)));
   }
 
   /** Stat-block attacks (monsters, bosses): name, to hit, damage dice, effects, conditions it applies. */
@@ -536,6 +556,8 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     if (!d.id) d.id = slugId(d.name, (lib[kind] || []).map((x) => x.id));
     d.source = 'homebrew';
     d.kind = kind;
+    delete d.artPick; // view-only marks of a GM art pick on a pack entry
+    delete d.packImage;
     const r = await act({ t: 'lib.upsert', kind, entry: d }, `${d.name} saved.`);
     if (!r) return;
     st.sel = { kind, id: r?.result?.id || d.id };

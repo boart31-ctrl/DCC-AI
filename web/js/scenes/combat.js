@@ -200,14 +200,46 @@ export default function combat(root, sc, env) {
     drawFallen(dead);
     const n = living.length;
     foes.dataset.n = String(n);
-    const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4;
-    foes.style.setProperty('--cols', String(cols));
-    foes.dataset.cols = String(cols);
+    layoutFoes(n);
     party.dataset.n = String(crawlers.length);
     foesEmpty.hidden = n > 0 || dead.length > 0;
     root.classList.toggle('cleared', c.active && mobs.length > 0 && !living.length);
   }
   const redraw = () => update(sc, view);
+
+  // Hostile cards are portrait "trading cards" (art fills the card). Pick the column count that gives the
+  // biggest cards while keeping them close to the 3:4 portrait art (width/height 0.62-0.82), so the art is
+  // shown almost whole instead of squeezed into a strip or cropped to the middle.
+  function layoutFoes(n) {
+    const W = foes.clientWidth;
+    const H = foes.clientHeight;
+    if (!n || !W || !H) {
+      const cols = n <= 1 ? 1 : n <= 4 ? 2 : n <= 9 ? 3 : 4; // not laid out yet: a sane first guess
+      foes.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+      foes.style.gridAutoRows = '';
+      foes.dataset.cols = String(cols);
+      return;
+    }
+    const gap = parseFloat(getComputedStyle(foes).columnGap) || 0;
+    let best = null;
+    for (let cols = 1; cols <= Math.min(n, 8); cols++) {
+      const rows = Math.ceil(n / cols);
+      const cw = (W - gap * (cols - 1)) / cols;
+      const ch = (H - gap * (rows - 1)) / rows;
+      const w = Math.min(cw, ch * 0.82);
+      const hh = Math.min(ch, w / 0.62);
+      const fill = Math.min(1, (w * cols + gap * (cols - 1)) / W); // prefer layouts that use the width
+      const area = w * hh * (1 + 0.15 * fill);
+      if (!best || area > best.area + 1) best = { cols, w, h: hh, area };
+    }
+    const w = Math.floor(best.w);
+    foes.style.gridTemplateColumns = `repeat(${best.cols}, ${w}px)`;
+    foes.style.gridAutoRows = `${Math.floor(best.h)}px`;
+    foes.style.setProperty('--cw', `${w}px`);
+    foes.dataset.cols = String(best.cols);
+  }
+  const relayout = () => layoutFoes(Number(foes.dataset.n) || 0);
+  window.addEventListener('resize', relayout);
 
   const big = h('div.ar-big', { 'aria-hidden': 'true' });
   root.append(big);

@@ -11,6 +11,7 @@ import { h, toast, portraitSrc, onPortraits } from './client.js';
 import { sheetModel, libraryOf } from './rules.js';
 import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
 import { entryArt } from './portrait.js';
+import { openArtGallery } from './art-gallery.js';
 
 const PREF = 'system.combat.ui'; // UI preferences only (builder tab, roll visibility); no game state
 const loadPref = () => { try { return JSON.parse(localStorage.getItem(PREF) || '{}') || {}; } catch { return {}; } };
@@ -47,6 +48,35 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
   const lib = () => libraryOf(view);
   const libEntry = (m) => (m.sourceKind ? (lib()[m.sourceKind] || []).find((e) => e.id === m.sourceId) : null);
   const onTv = () => view?.scene?.kind === 'combat';
+  /** Art button: the picture opens the gallery. */
+  const artBtn = (art, label, onclick) => h('button.cbt-artbtn', { type: 'button', title: label, 'aria-label': label, onclick }, art, h('span.cbt-artbtn-k', { 'aria-hidden': 'true' }, icon('edit', { size: 11 })));
+  /** Library monster / boss: a pack entry gets a GM art pick (lib.art), a homebrew one is saved with the picture. */
+  function pickLibArt(kind, e) {
+    const isPack = (e.source || 'pack') === 'pack';
+    openArtGallery(view, {
+      title: `Art for ${e.name}`,
+      sub: isPack ? 'Replaces its picture on the GM desk, the TV and every new combatant until you reset it.' : 'Saved with this homebrew entry.',
+      current: e.image,
+      allowClear: isPack ? !!e.artPick : true,
+      clearLabel: isPack ? 'Back to the pack art' : 'No art (silhouette)',
+      onPick: (u) => {
+        if (isPack) return act({ t: 'lib.art', kind, id: e.id, image: u }, u ? `${e.name}: art set.` : `${e.name}: pack art restored.`);
+        const entry = structuredClone(e);
+        delete entry.artPick; delete entry.packImage;
+        entry.image = u;
+        return act({ t: 'lib.upsert', kind, entry }, `${e.name}: art saved.`);
+      },
+    });
+  }
+  /** A combatant already in the fight: this one only (combat.update). */
+  function pickMobArt(m) {
+    openArtGallery(view, {
+      title: `Art for ${m.name}`,
+      sub: 'This combatant only, for this fight. To change the monster for good, use its art button under Add to the fight.',
+      current: m.image,
+      onPick: (u) => act({ t: 'combat.update', uid: m.uid, image: u }, `${m.name}: art changed.`),
+    });
+  }
   const redraw = () => { sig = ''; draw(); };
   const serverNow = () => Date.now() + (Number.isFinite(view?.scene?.now) ? view.scene.now - (view._at || Date.now()) : 0);
 
@@ -418,7 +448,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
       h('div.row-end', h('button.btn.btn-sm.btn-quiet.danger', { type: 'button', onclick: () => act({ t: 'combat.remove', uid: m.uid }, `${m.name} removed.`) }, icon('trash', { size: 14 }), 'Remove'))) : null;
     return h('li.cc.cc-mob', { class: `cc cc-mob${m.down ? ' down' : ''}${m.hidden ? ' is-hidden' : ''}${m.sourceKind === 'boss' ? ' is-boss' : ''}`, 'data-uid': m.uid },
       h('div.cc-who',
-        entryArt({ name: m.name, image: m.image }, { cls: 'cbt-art' }),
+        artBtn(entryArt({ name: m.name, image: m.image }, { cls: 'cbt-art' }), `Change the art of ${m.name}`, () => pickMobArt(m)),
         h('div.cc-nm', h('b', m.name),
           h('span.dim', `${m.hp} / ${m.hpMax} HP`, m.sourceKind === 'boss' ? h('span.pill.pill-on', m.linked ? 'Boss · on TV' : 'Boss') : null, m.hidden ? h('span.pill', 'Hidden') : null)),
         h('button.icon-btn.cbt-eye', {
@@ -524,8 +554,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
   function monsterItem(kind, e) {
     const key = `${kind}:${e.id}`;
     const linkedHint = kind === 'boss' && view.scene?.kind === 'boss' && view.scene.data?.bossId === e.id ? ' · on TV' : '';
-    return h('li.cbt-pick',
-      entryArt(e, { cls: 'cbt-pick-art' }),
+    return h('li.cbt-pick', { class: e.image ? 'cbt-pick' : 'cbt-pick no-art' },
+      artBtn(entryArt(e, { cls: 'cbt-pick-art' }), e.image ? `Change the art of ${e.name}` : `${e.name} has no art yet: pick a picture`, () => pickLibArt(kind, e)),
       h('div.cbt-pick-t', h('b', e.name), h('span.dim', [kind === 'boss' ? 'Boss' : e.group, e.floor !== '' && e.floor != null ? `F${e.floor}` : '', `${e.hpSlots} HP`, `Ev ${e.evade ?? 0}`, `DR ${e.dr ?? 0}`].filter(Boolean).join(' · ') + linkedHint)),
       kind === 'boss' ? h('span') : countStepper(key),
       h('button.btn.btn-sm', { type: 'button', onclick: () => addMob(kind, e, kind === 'boss' ? 1 : countOf(key)), 'aria-label': `Add ${e.name}` }, icon('plus', { size: 13 }), 'Add'));
@@ -564,11 +594,15 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
       onsubmit: async (e) => {
         e.preventDefault();
         if (!a.name.trim()) { name.focus(); return; }
-        const ok = await act({ t: 'combat.addAdhoc', name: a.name.trim(), hp: Math.max(1, Math.min(999, Math.round(a.hp) || 1)), evade: Math.round(a.evade) || 0, dr: Math.round(a.dr) || 0, count: Math.max(1, Math.min(20, Math.round(a.count) || 1)) }, `${a.name.trim()} added (hidden).`);
-        if (ok) { a.name = ''; redraw(); }
+        const ok = await act({ t: 'combat.addAdhoc', name: a.name.trim(), hp: Math.max(1, Math.min(999, Math.round(a.hp) || 1)), evade: Math.round(a.evade) || 0, dr: Math.round(a.dr) || 0, count: Math.max(1, Math.min(20, Math.round(a.count) || 1)), ...(a.image ? { image: a.image } : {}) }, `${a.name.trim()} added (hidden).`);
+        if (ok) { a.name = ''; a.image = null; redraw(); }
       },
     },
-    h('label.lbl', h('span.lbl-t', 'Name'), name),
+    h('div.cbt-adhoc-top',
+      artBtn(entryArt({ name: a.name || '?', image: a.image || null }, { cls: 'cbt-pick-art' }), 'Pick a picture for this mob', () => openArtGallery(view, {
+        title: 'Art for the ad-hoc mob', current: a.image || null, onPick: (u) => { a.image = u; redraw(); },
+      })),
+      h('label.lbl', h('span.lbl-t', 'Name'), name)),
     h('div.cbt-info-row', num('hp', 'HP', 1, 999), num('evade', 'Evade', -99, 99), num('dr', 'DR', -99, 99), num('count', 'Count', 1, 20)),
     h('div.row-end', h('button.btn.btn-sm.btn-primary', { type: 'submit' }, icon('plus', { size: 13 }), 'Add')));
   }

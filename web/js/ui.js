@@ -247,7 +247,7 @@ export function openDrawer({ title, sub, body, actions, onClose, wide = false })
       h('button.icon-btn', { type: 'button', 'aria-label': 'Close', onclick: close }, icon('x', { size: 18 })),
     ),
     h('div.drawer-body', body),
-    actions ? h('footer.drawer-foot', actions) : null,
+    ...(actions ? [h('footer.drawer-foot', actions)] : []), // native append() would print "null"
   );
   dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
   dlg.addEventListener('click', (e) => { if (e.target === dlg) close(); });

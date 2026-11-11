@@ -12,7 +12,7 @@ import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView
 import { COMBAT_GM, initCombat, normalizeCombat, combatView } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import {
-  SHEET, SHEET_GM, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
+  SHEET, SHEET_GM, normalizeLibArt, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS,
 } from './character.js';
 
@@ -67,6 +67,7 @@ export function createState(pack, now = Date.now()) {
     messages: [],
     prepCards: [],
     library: emptyHomebrew(),
+    libArt: normalizeLibArt(null),
     rolls: [],
     scene: initScene(now), // scenes.js
     combat: initCombat(), // combat.js
@@ -95,6 +96,7 @@ export function normalizeState(raw, pack, now = Date.now()) {
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   if (!PLAYER_EDIT.includes(s.session.permissions?.playerEdit)) s.session.permissions = { playerEdit: 'sheet' };
   s.library = normalizeHomebrew(raw.library);
+  s.libArt = normalizeLibArt(raw.libArt);
   s.rolls = Array.isArray(raw.rolls) ? raw.rolls.filter((r) => r && typeof r === 'object').slice(-MAX_ROLLS) : [];
   s.scene = normalizeScene(raw.scene, now);
   s.show = normalizeShow(raw.show);

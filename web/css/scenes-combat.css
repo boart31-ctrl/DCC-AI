@@ -54,9 +54,8 @@
 .ar-vs b { font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 4.6rem; color: #fff; text-shadow: -0.25rem 0 var(--cyan), 0.25rem 0 var(--alarm); padding: 0.6rem 0; }
 
 .ar-party { flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 0.6rem; }
-.ar-foes { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(var(--cols, 2), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 0.8rem; align-content: stretch; }
+.ar-foes { flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 0.8rem; align-content: center; justify-content: end; }
 .ar-foes[data-n="0"] { display: none; }
-.ar-foes[data-n="1"], .ar-foes[data-n="2"] { grid-auto-rows: minmax(0, 22rem); align-content: start; }
 .ar-empty { flex: 1; display: grid; place-content: center; justify-items: center; gap: 1rem; color: var(--ink-dim); font-family: var(--f-mono); font-size: 1.4rem; letter-spacing: 0.25em; text-transform: uppercase; }
 .ar-empty[hidden] { display: none; }
 .ar-empty p { margin: 0; }
@@ -104,24 +103,37 @@
 .ar-conds { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .ar-conds span { padding: 0.05rem 0.55rem; font-family: var(--f-mono); font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--void); background: var(--acid); transform: skewX(-10deg); }
 
+/* hostile: portrait "trading card" - the art fills the card, name + HP sit on a dark fade at the bottom.
+   Column count / card size come from combat.js layoutFoes (sets --cw = card width). */
 .ar-foe {
   --th: var(--alarm);
-  grid-template-columns: minmax(4rem, 34%) minmax(0, 1fr);
-  padding: 0.5rem 1rem 0.5rem 0.5rem;
-  border-right: 0.4rem solid var(--th);
-  box-shadow: inset 0 0 0 1px rgba(var(--th-rgb, 255, 36, 72), 0.35);
-  clip-path: polygon(1.2rem 0, 100% 0, 100% 100%, 0 100%);
+  display: block; overflow: hidden; padding: 0;
+  background: #07030f;
+  box-shadow: inset 0 0 0 0.15rem rgba(var(--th-rgb, 255, 36, 72), 0.55), 0 0 1.6rem -0.6rem rgba(var(--th-rgb, 255, 36, 72), 0.7);
+  border-bottom: 0.4rem solid var(--th);
 }
-.ar-foe .ar-name { font-size: 1.9rem; white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 0.92; }
-.ar-foes[data-cols="3"] .ar-foe .ar-name { font-size: 1.7rem; }
-.ar-foes[data-cols="4"] .ar-foe .ar-name { font-size: 1.45rem; }
-.ar-foes[data-n="1"] .ar-foe .ar-name, .ar-foes[data-n="2"] .ar-foe .ar-name { font-size: 2.8rem; }
-.ar-foe.boss { border-right-width: 0.7rem; background: linear-gradient(120deg, rgba(10, 6, 20, 0.95) 40%, rgba(var(--th-rgb, 255, 36, 72), 0.25)); }
+.ar-foe .ar-art { position: absolute; top: 0; left: 0; right: 0; bottom: 0; height: auto; min-height: 0; }
+.ar-foe .ar-art img { object-fit: cover; object-position: 50% 28%; }
+.ar-foe > .ar-main {
+  position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; overflow: visible;
+  padding: calc(var(--cw, 20rem) * 0.16) calc(var(--cw, 20rem) * 0.05) calc(var(--cw, 20rem) * 0.045);
+  background: linear-gradient(180deg, transparent, rgba(7, 3, 15, 0.78) 38%, rgba(7, 3, 15, 0.96));
+}
+.ar-foe .ar-name {
+  font-size: clamp(1.1rem, calc(var(--cw, 20rem) * 0.105), 3rem); line-height: 0.92;
+  white-space: normal; overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  text-shadow: 0 0.15rem 0.4rem #000;
+}
+.ar-foe .ar-hp { gap: 0.5rem; }
+.ar-foe .ar-num { font-size: clamp(0.9rem, calc(var(--cw, 20rem) * 0.06), 1.4rem); }
+.ar-foe .ar-pips i, .ar-foe .ar-bar { height: clamp(0.6rem, calc(var(--cw, 20rem) * 0.045), 1.1rem); }
+.ar-foe .ar-conds { position: absolute; left: 0.5rem; right: 0.5rem; bottom: 100%; margin-bottom: -0.4rem; }
+.ar-foe .ar-down { top: 38%; right: auto; left: 50%; transform: translate(-50%, -50%) rotate(-8deg); font-size: clamp(1.2rem, calc(var(--cw, 20rem) * 0.1), 2.4rem); }
+.ar-foe.down .ar-art { opacity: 0.4; filter: grayscale(0.8); }
+.ar-foe.boss { border-bottom-width: 0.7rem; box-shadow: inset 0 0 0 0.25rem var(--th), 0 0 2.4rem -0.4rem rgba(var(--th-rgb, 255, 36, 72), 0.9); }
 .ar-foe.boss .ar-name { color: var(--th); }
 .ar-art { position: relative; height: 100%; min-height: 4rem; overflow: hidden; background: #07030f; }
 .ar-art img, .ar-art svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
-/* whole creature in frame (portraits are 3:4, the cells are often wide): no zoomed-in crop of horns/straps */
-.ar-art img { object-fit: contain; }
 .ar-card.down { opacity: 0.55; }
 .ar-crawler .ar-down { top: 0.6rem; right: 2rem; transform: rotate(-6deg); font-size: 1.4rem; }
 .ar-card.down .ar-name { text-decoration: line-through; text-decoration-thickness: 0.12em; color: var(--ink-dim); }

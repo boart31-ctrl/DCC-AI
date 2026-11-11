@@ -342,3 +342,38 @@ test('a boss added to the fight uses its square crop (imageSquare); the boss sce
   assert.equal(boss.image, '/pack/images/grim.webp');
   assert.equal(boss.imageKo, '/pack/images/grim_ko.webp');
 });
+
+test('lib.art: GM art pick for a read-only pack monster flows into the library and new combatants; null resets', () => {
+  let { s } = base();
+  s = gm(s, { t: 'lib.art', kind: 'monster', id: 'goblin', image: '/pack/images/ui/fx_crit.webp' }).state;
+  const v = viewFor(s, pack, 'gm');
+  const g = v.library.monster.find((x) => x.id === 'goblin');
+  assert.equal(g.image, '/pack/images/ui/fx_crit.webp');
+  assert.equal(g.artPick, true);
+  s = gm(s, { t: 'combat.addMob', sourceId: 'goblin', hidden: false }).state;
+  assert.equal(mobs(s)[0].image, '/pack/images/ui/fx_crit.webp');
+  // a goblin already fighting follows a new pick
+  s = gm(s, { t: 'lib.art', kind: 'monster', id: 'goblin', image: '/pack/images/b.webp' }).state;
+  assert.equal(mobs(s)[0].image, '/pack/images/b.webp');
+  s = gm(s, { t: 'lib.art', kind: 'monster', id: 'goblin', image: '/pack/images/ui/fx_crit.webp' }).state;
+  assert.throws(() => gm(s, { t: 'lib.art', kind: 'monster', id: 'goblin', image: 'javascript:alert(1)' }), /image must be/);
+  assert.throws(() => gm(s, { t: 'lib.art', kind: 'monster', id: 'nope', image: '/pack/images/x.webp' }), /no pack monster/);
+  assert.throws(() => gm(s, { t: 'lib.art', kind: 'item', id: 'goblin', image: '/pack/images/x.webp' }), /kind must be/);
+  s = gm(s, { t: 'lib.art', kind: 'monster', id: 'goblin', image: null }).state;
+  assert.equal(viewFor(s, pack, 'gm').library.monster.find((x) => x.id === 'goblin').image, null);
+  // survives a save/load round trip, junk dropped
+  const raw = JSON.parse(JSON.stringify({ ...s, libArt: { monster: { goblin: '/pack/images/a.webp', 'bad id!': '/pack/x.webp', rat: 'ftp://x' } } }));
+  const back = normalizeState(raw, pack, 0);
+  assert.deepEqual(back.libArt.monster, { goblin: '/pack/images/a.webp' });
+});
+
+test('ad-hoc mobs and combat.update take an image from the art gallery', () => {
+  let { s } = base();
+  let r = gm(s, { t: 'combat.addAdhoc', name: 'Pet Rock', hp: 3, image: '/pack/images/icon_thrown_pet_rock.webp' });
+  s = r.state;
+  const uid = r.result.uids[0];
+  assert.equal(mobs(s)[0].image, '/pack/images/icon_thrown_pet_rock.webp');
+  s = gm(s, { t: 'combat.update', uid, image: null }).state;
+  assert.equal(mobs(s)[0].image, null);
+  assert.throws(() => gm(s, { t: 'combat.update', uid, image: 'data:text/html,x' }), /image must be/);
+});
