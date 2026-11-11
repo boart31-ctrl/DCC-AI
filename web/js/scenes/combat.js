@@ -2,7 +2,7 @@
 // on the right, a neon VS slash between them. Content comes from view.combat (already filtered per
 // role by the engine: hidden mobs, notes and attacks never reach the TV; mob HP is a bar unless the
 // GM turned on exact numbers). Hits flash the card and pop the damage.
-import { h, hash, threatColor, rgb, replay, bossSvg } from './common.js';
+import { h, hash, threatColor, rgb, replay, bossSvg, levelBadge } from './common.js';
 
 const MAX_PIPS = 20;
 
@@ -43,7 +43,7 @@ export default function combat(root, sc, env) {
     const p = (view?.players || []).find((y) => y.id === x.playerId);
     const low = x.hpMax > 0 && x.hp / x.hpMax <= 0.3;
     return h('article.ar-card.ar-crawler', { class: `ar-card ar-crawler${x.down ? ' down' : ''}${low && !x.down ? ' low' : ''}`, style: { '--pc': x.color || p?.color || '#2ef2ff' } },
-      h('div.ar-lvl', h('small', 'Lv'), h('b', String(p?.level ?? 1))),
+      levelBadge('ar-lvl', p, p?.level),
       h('div.ar-main',
         h('div.ar-name', x.name),
         h('div.ar-hp', pips(x.hp, x.hpMax, 'crawl'), h('b.ar-num', `${x.hp}`)),
@@ -86,7 +86,7 @@ export default function combat(root, sc, env) {
     const want = list.map((x) => x.uid);
     for (const [uid, c] of cards) if (c.host === host && !want.includes(uid)) { c.el.remove(); cards.delete(uid); }
     list.forEach((x, i) => {
-      const s = JSON.stringify([x, x.type === 'crawler' ? (view?.players || []).find((y) => y.id === x.playerId)?.level : null]);
+      const s = JSON.stringify([x, x.type === 'crawler' ? ['level', 'portrait'].map((k) => (view?.players || []).find((y) => y.id === x.playerId)?.[k]) : null]);
       let c = cards.get(x.uid);
       if (!c || c.sig !== s) {
         const el = make(x);

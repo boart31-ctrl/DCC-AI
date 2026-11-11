@@ -442,7 +442,7 @@ export function createScenes({ client, act, getView }) {
     seg.append(
       h('button', { type: 'button', role: 'tab', 'data-sub': 'scenes', onclick: () => pick('scenes') }, icon('tv', { size: 14 }), 'Scenes'),
       ...extras.map((x) => h('button', { type: 'button', role: 'tab', 'data-sub': x.id, onclick: () => pick(x.id) }, x.icon ? icon(x.icon, { size: 14 }) : null, x.label)),
-      h('button', { type: 'button', role: 'tab', 'data-sub': 'desk', onclick: () => pick('desk') }, 'Voice, comms, audience'));
+      h('button', { type: 'button', role: 'tab', 'data-sub': 'desk', onclick: () => pick('desk') }, 'Quips, comms, audience'));
     section.replaceChildren(h('div.show-subbar', seg), el, ...extras.map((x) => x.el), desk);
     pick(store.get('sub', 'scenes'));
     // Load / drop the preview when the Show view is opened or left.

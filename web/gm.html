@@ -11,6 +11,7 @@
   <link rel="stylesheet" href="/css/gm.css">
   <link rel="stylesheet" href="/css/access.css">
   <link rel="stylesheet" href="/css/sound.css">
+  <link rel="stylesheet" href="/css/onboard.css">
 </head>
 <body class="gm tool">
   <header class="topbar">
@@ -20,6 +21,9 @@
       <span class="conn" id="conn"><span class="dot"></span><span class="conn-text">Connecting</span></span>
     </div>
     <span class="grow"></span>
+    <button class="tv-btn" id="tv-btn" type="button" hidden>
+      <span class="cdot" aria-hidden="true"></span><span class="tv-l">TV</span><span class="tv-state">Pair</span>
+    </button>
     <button class="auto-toggle" id="auto" type="button" role="switch" aria-checked="false" title="Toggle AUTO (A)">
       <span class="auto-label">Auto</span>
       <span class="auto-state">Off</span>
@@ -50,12 +54,8 @@
           <button type="button" class="btn btn-sm" id="rank-up" title="Roll the rank-up check for every skill marked used this session">End-of-session rank-up</button>
           <button type="button" class="btn btn-sm btn-primary" id="add-player-btn">Add crawler</button>
         </div>
-        <form id="add-player" class="add-player" autocomplete="off" hidden>
-          <input class="inp" name="name" placeholder="Crawler name" required maxlength="40" aria-label="Crawler name">
-          <input class="inp pin" name="pin" placeholder="PIN" inputmode="numeric" pattern="\d{4}" maxlength="4" title="Optional 4-digit PIN" aria-label="PIN (optional)">
-          <input class="swatch" type="color" name="color" value="#e3a33b" aria-label="Crawler color">
-          <button class="btn btn-primary btn-sm" type="submit">Add</button>
-        </form>
+        <section class="ob-reqbox" id="join-reqs" hidden aria-live="polite" aria-label="Join requests"></section>
+        <section class="ob-setup" id="setup" hidden aria-label="Setup"></section>
         <div class="party" id="party">
           <div class="party-list" id="players"></div>
           <div class="party-sheet" id="party-sheet" hidden></div>
@@ -186,6 +186,7 @@
               <button type="button" role="radio" data-perm="sheet">Whole sheet</button>
             </div>
             <p class="hint" id="perm-hint"></p>
+            <label class="chk perm-origins"><input type="checkbox" id="perm-origins"> <span>Players may choose race, class and background. You approve each choice; after that it is locked for them.</span></label>
           </section>
           <section class="panel">
             <h2>Look</h2>
@@ -256,6 +257,14 @@
     <aside class="gm-log" id="gm-log" aria-label="Dice log"></aside>
   </div>
 
+  <!-- phones: bottom navigation (the side nav is hidden below 760px) -->
+  <nav class="gm-bnav" id="gm-bnav" aria-label="Desk sections">
+    <button type="button" data-view="party"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6"/></svg><span>Party</span></button>
+    <button type="button" data-view="combat"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M9.5 17.5L21 6V3h-3L6.5 14.5M11 19l-6-6M8 16l-4 4M5 21l-2-2"/></svg><span>Combat</span></button>
+    <button type="button" data-view="show"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18v12H3zM8 21h8M12 18v3"/></svg><span>Show</span></button>
+    <button type="button" data-more aria-haspopup="dialog"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>More</span></button>
+  </nav>
+
   <dialog id="sheet" class="sheet-dlg tool">
     <form method="dialog" class="sheet-inner" id="sheet-form">
       <header class="sheet-head">
@@ -282,5 +291,6 @@
 
   <script type="module" src="/js/gm.js"></script>
   <script type="module" src="/js/devices.js"></script>
+  <script type="module" src="/js/onboard.js"></script>
 </body>
 </html>

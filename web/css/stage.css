@@ -252,15 +252,17 @@ body.stage::before {
   font-size: 1.6rem;
   clip-path: polygon(0 0, 100% 0, calc(100% - 1rem) 100%, 0 100%);
 }
-.chat-window { flex: 1; overflow: hidden; position: relative; display: flex; align-items: center; }
+.chat-window { flex: 1; overflow: hidden; position: relative; contain: strict; }
 .chat-track {
-  display: flex;
-  gap: 3rem;
+  column-gap: 3rem; /* read by ticker.js as the space between messages */
+  position: absolute;
+  inset: 0;
   white-space: nowrap;
   font-size: 1.4rem;
-  padding-left: 1.5rem;
   will-change: transform;
+  backface-visibility: hidden;
 }
+.chat-track .m { white-space: nowrap; }
 .chat-track .m b { color: var(--u, var(--cyan)); margin-right: 0.5rem; font-weight: 800; }
 
 /* ---------- Subtitle ---------- */

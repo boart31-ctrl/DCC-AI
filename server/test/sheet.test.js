@@ -741,7 +741,7 @@ test('views: me.sheet and gm.playersFull[].sheet = raw + computed; pack.ruleset;
   const pv = viewFor(state, pack, 'player', { playerId: id });
   const gv = viewFor(state, pack, 'gm', {});
   assert.deepEqual(gv.gm.playersFull[0].sheet, pv.me.sheet);
-  assert.deepEqual(Object.keys(pv.me.sheet).sort(), ['attacks', 'buffs', 'computed', 'fields', 'hotlist', 'identity', 'inventory', 'level', 'name', 'portrait', 'skills', 'spells', 'stats', 'story', 'tracks']);
+  assert.deepEqual(Object.keys(pv.me.sheet).sort(), ['attacks', 'buffs', 'computed', 'fields', 'hotlist', 'identity', 'inventory', 'level', 'name', 'originsLocked', 'pending', 'pools', 'portrait', 'skills', 'spells', 'stats', 'story', 'tracks']);
   assert.deepEqual(Object.keys(pv.me.sheet.computed).sort(), ['attacks', 'buffs', 'derived', 'effects', 'externalBuffs', 'fields', 'skills', 'spells', 'stats', 'tracks', 'warnings']);
   assert.equal(pv.pack.ruleset.id, 'test-rules');
   assert.deepEqual(pv.me.resources, { hp: { cur: 10, max: 10 }, mana: { cur: 6, max: 6 } });

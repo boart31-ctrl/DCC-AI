@@ -1,11 +1,12 @@
 import {
   SystemClient, TransportHub, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
-  prefersReducedMotion, registerSW, isHosted, ask,
+  prefersReducedMotion, registerSW, isHosted, ask, portraitSrc,
 } from './client.js';
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
 import { openBuilder } from './builder.js';
 import { createDiceLog, showRollCard } from './dicelog.js';
 import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme } from './ui.js';
+import { playerEditLevel } from './rules.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -255,8 +256,18 @@ const sheet = createSheet({
     { id: 'ach', label: 'Achievements', count: me.achievements?.length || '', sig: achSig(), render: renderAchievements },
     { id: 'msg', label: 'Messages', badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
   ] : []),
-  onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act }),
+  onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act, allowOrigins: !!view?.session?.permissions?.allowOrigins }),
+  // Phones: app layout (sticky crawler bar, section tabs); the app bar items move into the menu.
+  phone: () => phoneMq.matches,
+  top: () => h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
+  moreItems: () => [
+    { icon: 'dice', label: 'Dice log', sub: 'Every roll at the table', onClick: () => setLogOpen(true) },
+    { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
+    ext.hosted ? null : { icon: 'x', label: 'Leave on this phone', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
+  ].filter(Boolean),
 });
+const phoneMq = matchMedia('(max-width: 699px)');
+phoneMq.addEventListener?.('change', () => { if (me) sheet.redraw(); });
 $('#sheet-root').append(sheet.el);
 
 const diceLog = createDiceLog({
@@ -279,11 +290,12 @@ function renderLog() {
   $('#log-n').textContent = n ? String(n) : '';
 }
 
-$('#log-btn').addEventListener('click', () => {
-  const open = !document.body.classList.contains('log-open');
+function setLogOpen(open) {
   document.body.classList.toggle('log-open', open);
   $('#log-btn').setAttribute('aria-expanded', String(open));
-});
+}
+$('#log-btn').addEventListener('click', () => setLogOpen(!document.body.classList.contains('log-open')));
+$('#log-rail').prepend(h('button.btn.btn-quiet.log-close', { type: 'button', onclick: () => setLogOpen(false) }, icon('x', { size: 16 }), 'Close dice log'));
 const themeBtn = $('#theme-btn');
 const drawTheme = () => { const t = document.documentElement.dataset.theme; themeBtn.replaceChildren(icon(t === 'light' ? 'sparkle' : t === 'neon' ? 'moon' : 'sun', { size: 16 })); };
 themeBtn.addEventListener('click', () => { toggleTheme(); drawTheme(); });
@@ -299,8 +311,41 @@ function render() {
   applyPackTheme(view.pack?.theme);
   drawTheme();
   sheet.update(view, me);
+  renderStart();
   renderLog();
   renderTicker();
+}
+
+/* ---------- first visit: friendly start instead of an empty sheet ---------- */
+
+const startKey = () => `system.startSeen.${me?.id}`;
+function renderStart() {
+  const sh = me.sheet || {};
+  const empty = !!me.sheet && !sh.identity?.race && !sh.identity?.class && !(sh.skills || []).length && !(sh.inventory || []).length;
+  let seen = false;
+  try { seen = sessionStorage.getItem(startKey()) === '1'; } catch {}
+  const box = $('#start');
+  const show = empty && !seen;
+  box.hidden = !show;
+  $('#sheet-root').hidden = show;
+  if (!show) return;
+  const lvl = playerEditLevel(view);
+  const name = sh.identity?.name || me.name;
+  const sig = JSON.stringify([name, lvl, me.color]);
+  if (box.dataset.sig === sig) return;
+  box.dataset.sig = sig;
+  const look = () => { try { sessionStorage.setItem(startKey(), '1'); } catch {} renderStart(); };
+  box.replaceChildren(h('div.start-inner', { style: { '--me': me.color || 'var(--c-accent)' } },
+    h('p.start-k', sysName()),
+    h('h1.start-t', `Welcome, ${name}.`),
+    lvl === 'sheet'
+      ? [h('p.start-d', 'Build your crawler: who you are, your stats, your skills. It takes a few minutes and you can stop any time.'),
+        h('button.btn.btn-primary.start-go', { type: 'button', onclick: () => { look(); const M = sheet.model(); if (M) openBuilder({ model: M, player: me, gm: false, act: sheet.act, allowOrigins: !!view?.session?.permissions?.allowOrigins }); } }, 'Build your crawler'),
+        h('button.btn.btn-quiet.start-skip', { type: 'button', onclick: look }, 'Look at my sheet first')]
+      : [h('p.start-d', 'Your GM will set you up. Keep this page open: your sheet appears here, and loot, achievements and messages pop up on this phone.'),
+        h('button.btn.start-go', { type: 'button', onclick: look }, 'Look at my sheet')],
+    h('p.start-tip', 'Tip: add this page to your home screen, so one tap brings you back.'),
+  ));
 }
 
 const achSig = () => JSON.stringify(me?.achievements || []);
@@ -420,6 +465,7 @@ function nextTakeover() {
     buzz([60, 40, 60, 40, 200]);
     el.style.setProperty('--glow', 'var(--cyan)');
     el.replaceChildren(h('div.to-inner.to-ach',
+      myFace(),
       h('div.to-kicker', view.pack?.notifyPrefix || 'New achievement!'),
       h('div.sys.ach-box', { 'data-head': sysName().toUpperCase() },
         h('p.sys-title', e.title),
@@ -437,7 +483,7 @@ function nextTakeover() {
     el.style.setProperty('--glow', `var(--r-${r})`);
     const box = h('div.box', { style: { '--t': tier?.color || 'var(--acid)' } }, h('div.body'), h('div.lid'));
     const kicker = e.kind === 'sponsor' ? `${e.sponsor || 'A sponsor'} sent you a gift` : (tier?.name || 'Loot box');
-    const inner = h('div.to-inner', h('div.to-kicker', kicker), h('div.box-wrap', box));
+    const inner = h('div.to-inner', myFace(), h('div.to-kicker', kicker), h('div.box-wrap', box));
     el.replaceChildren(inner);
     const reveal = () => {
       inner.replaceChildren(
@@ -499,6 +545,12 @@ function nextTakeover() {
   } else {
     nextTakeover();
   }
+}
+
+/** The crawler's own picture on takeovers (if they uploaded one). */
+function myFace() {
+  const url = portraitSrc(me?.sheet?.portrait);
+  return url ? h('img.to-face', { src: url, alt: '' }) : null;
 }
 
 /* ---------- wake lock ---------- */

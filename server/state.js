@@ -575,6 +575,13 @@ const SYSTEM = {
   'budget.consume'(st) {
     st.session.budgetLeft = Math.max(0, st.session.budgetLeft - 1);
   },
+  /** The audience reacts to a big moment on the TV (host.js, chat.js REACTIONS): +pct viewers. */
+  'audience.react'(st, a, ctx, out) {
+    const pct = Number(a.pct);
+    if (!Number.isFinite(pct) || pct === 0) return;
+    out.emit(bumpPct(st, ctx, Math.max(-0.2, Math.min(0.3, pct))));
+    out.changed = true;
+  },
   /** Quiet decay: −1% per full minute without activity. */
   'audience.tick'(st, a, ctx, out) {
     const au = st.audience;
@@ -702,6 +709,7 @@ function common(state, pack, opts) {
       id: p.id, name: p.name, color: p.color, level: p.level,
       achievementCount: p.achievements.length,
       connected: opts.connected?.has(p.id) ?? false,
+      portrait: p.sheet?.portrait ?? null, // host.js swaps data: URLs for "portrait:<hash>" refs (see `portraits`)
     })),
   };
 }

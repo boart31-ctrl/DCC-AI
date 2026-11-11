@@ -382,7 +382,7 @@ test('userId on player.add/update: unique, ≤64, null unassigns; viewForUser', 
   assert.throws(() => gm(s, { t: 'player.update', playerId: b.result.playerId, userId: 'u1' }), /already assigned/);
   s = gm(s, { t: 'player.update', playerId: pa, userId: 'u1' }).state; // same player, same id: fine
   assert.equal(viewForUser(s, pack, 'u1').me.id, pa);
-  assert.deepEqual(viewForUser(s, pack, 'u1'), viewFor(s, pack, 'player', { playerId: pa }));
+  assert.deepEqual(viewForUser(s, pack, 'u1', { now: 5 }), viewFor(s, pack, 'player', { playerId: pa, now: 5 })); // fixed clock: no ms-boundary flake
   s = gm(s, { t: 'player.update', playerId: pa, userId: null }).state;
   assert.equal(viewForUser(s, pack, 'u1'), null);
   assert.equal(viewForUser(s, pack, null), null);

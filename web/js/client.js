@@ -149,6 +149,10 @@ export class SystemClient extends Emitter {
       case 'pong':
         this.emit('pong', msg);
         break;
+      case 'portraits':
+        // Sent before the view that references them; views carry "portrait:<hash>" refs.
+        for (const [ref, url] of Object.entries(msg.portraits || {})) PORTRAITS.set(ref, url);
+        break;
       default:
         this.emit('message', msg);
     }
@@ -367,6 +371,15 @@ export function statusText(s) {
     case 'open': return 'Live';
     default: return '';
   }
+}
+
+/* ---------- portraits (host sends each picture once per connection) ---------- */
+
+const PORTRAITS = new Map();
+/** Image URL for a sheet / player portrait value: data/http URL as is, "portrait:<hash>" from the cache. */
+export function portraitSrc(v) {
+  if (typeof v !== 'string' || !v) return null;
+  return v.startsWith('portrait:') ? PORTRAITS.get(v) || null : v;
 }
 
 /* ---------- transport hub ---------- */

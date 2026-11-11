@@ -309,7 +309,7 @@ export async function startServer(opts = {}) {
   }
 
   const server = http.createServer(onRequest);
-  const wss = new WebSocketServer({ noServer: true, maxPayload: LIMITS.maxMessage });
+  const wss = new WebSocketServer({ noServer: true, maxPayload: LIMITS.maxPortraitMessage }); // host.js enforces maxMessage for everything but portrait uploads
 
   server.on('upgrade', (req, socket, head) => {
     if (new URL(req.url, 'http://x').pathname !== '/ws') return socket.destroy();

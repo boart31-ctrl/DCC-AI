@@ -228,13 +228,14 @@ let partySig = '';
 function renderPlayers(force = false) {
   const wrap = $('#players');
   const list = view.players || [];
+  $('#rank-up').hidden = !list.length;
   $('#player-count').textContent = list.length ? `${list.filter((p) => p.connected).length} of ${list.length} online` : '';
   if (selectedId && !list.some((p) => p.id === selectedId)) selectedId = null;
   $('#party').classList.toggle('has-sheet', !!selectedId);
   const sheetHost = $('#party-sheet');
   sheetHost.hidden = !selectedId;
   if (selectedId) {
-    if (!sheetHost.contains(sheetCmp.el)) sheetHost.replaceChildren(sheetCmp.el, crawlerAdmin());
+    if (!sheetHost.contains(sheetCmp.el)) sheetHost.replaceChildren(h('button.btn.btn-quiet.sheet-back', { type: 'button', onclick: () => selectPlayer(selectedId) }, icon('back', { size: 16 }), 'All crawlers'), sheetCmp.el, crawlerAdmin());
     sheetCmp.update(view, fullPlayer(selectedId));
     const adm = sheetHost.querySelector('.crawler-admin');
     if (adm && adm.dataset.for !== selectedId + JSON.stringify(view.gm?.pins?.[selectedId]) && !adm.contains(document.activeElement)) adm.replaceWith(crawlerAdmin());
@@ -244,7 +245,8 @@ function renderPlayers(force = false) {
   if (wrap.contains(document.activeElement) && document.activeElement.matches('input, textarea, select')) return;
   partySig = sig;
   if (!list.length) {
-    wrap.replaceChildren(h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add the first one, then give them the join link and their PIN.'), h('button.btn.btn-primary', { type: 'button', onclick: showAddPlayer }, 'Add crawler')));
+    // With the access model the setup checklist (onboard.js) is the empty state.
+    wrap.replaceChildren(...(view.gm?.access ? [] : [h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add the first one, then give them the join link and their PIN.'), h('button.btn.btn-primary', { type: 'button', onclick: showAddPlayer }, 'Add crawler'))]));
     return;
   }
   const head = h('div.prow.prow-head', h('span', 'Crawler'), h('span', 'Health'), h('span', 'Mana'), h('span.c', 'Evade'), h('span.c', 'DR'), h('span', 'Buffs and conditions'), h('span.c', 'Used'), h('span', ''));
@@ -286,10 +288,10 @@ function partyRow(p, summary) {
   const pin = view.gm?.pins?.[p.id];
   return h('div.prow', { class: `prow${sel ? ' sel' : ''}${summary.connected ? '' : ' off'}`, 'data-id': p.id },
     h('button.prow-who', { type: 'button', 'aria-pressed': String(sel), onclick: () => selectPlayer(p.id), title: sel ? 'Close the sheet' : 'Open the sheet' },
-      avatar(id.name || p.name, { color: p.color, size: 32 }),
+      avatar(id.name || p.name, { color: p.color, src: M.sheet.portrait, size: 32 }),
       h('span.pw',
-        h('span.pn', h('span.cdot', { class: summary.connected ? 'cdot on' : 'cdot', title: summary.connected ? 'Connected' : 'Not connected' }), id.name || p.name || 'Unnamed'),
-        h('span.pl', [[id.race, id.class].filter(Boolean).join(' ') || '—', `Lv ${id.level ?? p.level ?? 1}`].join(', ')),
+        h('span.pn', h('span.cdot', { class: summary.connected ? 'cdot on' : 'cdot', 'aria-hidden': 'true' }), id.name || p.name || 'Unnamed'),
+        h('span.pl', h('span.pphone', { class: summary.connected ? 'pphone on' : 'pphone' }, summary.connected ? 'Phone on' : 'No phone'), [[id.race, id.class].filter(Boolean).join(' '), `Lv ${id.level ?? p.level ?? 1}`].filter(Boolean).join(', ')),
       ),
     ),
     h('div.pc-hp', track(hpDef, hp)),
@@ -299,6 +301,11 @@ function partyRow(p, summary) {
     h('div.pc-buffs', buffs.length ? buffs : h('span.dim', 'None')),
     h('div.c', used ? h('span.pill.pill-on', { title: 'Skills used this session' }, String(used)) : h('span.dim', '0')),
     h('div.pc-act',
+      p.joinUrl || view.gm?.access ? h('button.btn.btn-sm.invite-btn', {
+        type: 'button', class: summary.connected ? 'btn btn-sm invite-btn' : 'btn btn-sm invite-btn need',
+        title: summary.connected ? `${p.name}'s phone is connected. Show the QR again` : `Show ${p.name}'s QR code`,
+        onclick: (e) => { e.stopPropagation(); ext.openInvite?.(p.id); },
+      }, icon('qr', { size: 14 }), h('span', 'Invite')) : null,
       pin != null && !ext.hosted ? h('button.pin-btn', { type: 'button', title: 'Show or hide the PIN', onclick: () => { shownPins.has(p.id) ? shownPins.delete(p.id) : shownPins.add(p.id); renderPlayers(true); } }, shownPins.has(p.id) ? pin : 'PIN') : null,
       iconBtn('sparkle', 'Award achievement', () => achievementSheet(p)),
       iconBtn('gift', 'Loot box', () => lootSheet(p, false)),
@@ -338,10 +345,19 @@ function crawlerAdmin() {
 }
 
 function showAddPlayer() {
-  const f = $('#add-player');
-  f.hidden = !f.hidden;
-  if (!f.hidden) f.name.focus();
+  ext.openAddCrawler?.(); // onboard.js: name → Invite card (QR) → build now or on the phone
 }
+
+/** Opens a crawler's sheet on the Party view (and optionally the character builder). */
+ext.openBuilderFor = (id) => {
+  showView('party');
+  selectedId = id;
+  try { sessionStorage.setItem('system.gm.sel', id); } catch {}
+  renderPlayers(true);
+  const p = fullPlayer(id);
+  const M = sheetCmp.model();
+  if (p && M) openBuilder({ model: M, player: p, gm: true, act: sheetCmp.act });
+};
 
 /* GM sheet tools: apply buff, give from library */
 
@@ -770,27 +786,6 @@ document.querySelectorAll('[data-bump]').forEach((b) => b.addEventListener('clic
   act({ t: 'audience.bump', delta: Number(b.dataset.bump) });
 }));
 
-$('#add-player').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const f = e.currentTarget;
-  const a = { t: 'player.add', name: f.name.value.trim(), color: f.color.value };
-  if (!a.name) return;
-  if (f.pin.value.trim()) a.pin = f.pin.value.trim();
-  buzz(10);
-  let res;
-  try { res = await client.send(a); } catch (err) { toast(`Add player failed: ${err.message}`, { error: true, ms: 3500 }); return; }
-  {
-    const pin = res?.result?.pin;
-    toast(pin ? `Added ${a.name}. PIN ${pin}.` : `Added ${a.name}.`, { ms: 5000 });
-    if (res?.result?.playerId) { shownPins.add(res.result.playerId); selectedId = res.result.playerId; }
-    f.name.value = '';
-    f.pin.value = '';
-    f.color.value = randomNeon();
-    f.hidden = true;
-  }
-});
-const NEONS = ['#e3a33b', '#70a9e4', '#5db67f', '#c77dd8', '#e0594f', '#4fc1b5', '#d6c14a', '#9aa7ff'];
-const randomNeon = () => NEONS[Math.floor(Math.random() * NEONS.length)];
 
 const sayText = $('#say-text');
 $('#say').addEventListener('submit', async (e) => {
@@ -822,9 +817,11 @@ let currentView = 'party';
 function showView(v) {
   if (!VIEWS.includes(v)) v = 'party';
   currentView = v;
-  for (const b of document.querySelectorAll('#gm-nav [data-view]')) {
+  for (const b of document.querySelectorAll('#gm-nav [data-view], #gm-bnav [data-view]')) {
     if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
+  const more = $('#gm-bnav [data-more]');
+  if (more) { if (['npcs', 'library', 'campaign', 'settings'].includes(v)) more.setAttribute('aria-current', 'page'); else more.removeAttribute('aria-current'); }
   for (const id of VIEWS) $(`#view-${id}`).hidden = id !== v;
   document.body.dataset.view = v;
   try { sessionStorage.setItem('system.gmView', v); } catch {}
@@ -833,6 +830,28 @@ $('#gm-nav').addEventListener('click', (e) => {
   const b = e.target.closest('[data-view]');
   if (b) showView(b.dataset.view);
 });
+// Phones: bottom nav. "More" holds the rest of the desk plus the dice log and theme.
+$('#gm-bnav').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-view]');
+  if (b) { showView(b.dataset.view); $('.gm-main').scrollTop = 0; return; }
+  if (e.target.closest('[data-more]')) openMore();
+});
+function openMore() {
+  const go = (v) => () => { closeDrawer(); showView(v); $('.gm-main').scrollTop = 0; };
+  const row = (ic, label, sub, fn) => h('li', h('button.more-row', { type: 'button', onclick: fn }, icon(ic, { size: 20 }), h('span', h('b', label), sub ? h('small', sub) : null), icon('chevron', { size: 16 })));
+  openDrawer({
+    title: 'More',
+    body: h('ul.more-list',
+      row('users', 'NPCs', 'Speak as an NPC on the TV', go('npcs')),
+      row('book', 'Library', 'Items, spells, monsters, bosses', go('library')),
+      row('map', 'Campaign', '"Previously on…" recap', go('campaign')),
+      row('gear', 'Settings', 'Player editing, voice, backups', go('settings')),
+      row('tv', 'TV screen', 'Pair or check the TV', () => { closeDrawer(); ext.openTv?.(); }),
+      row('dice', 'Dice log', 'Every roll this session', () => { closeDrawer(); setLog(true); }),
+      row('sun', 'Theme', 'Dark, light or neon', () => { toggleTheme(); drawTheme(); }),
+    ),
+  });
+}
 export { showView };
 
 const diceLog = createDiceLog({
@@ -844,7 +863,7 @@ const diceLog = createDiceLog({
     } catch (err) { toast(err.message, { error: true }); throw err; }
   },
 });
-$('#gm-log').append(diceLog.el);
+$('#gm-log').append(h('button.btn.btn-quiet.log-close', { type: 'button', onclick: () => setLog(false) }, icon('x', { size: 16 }), 'Close dice log'), diceLog.el);
 onLocalRoll(() => renderLog());
 function renderLog() {
   if (!view) return;
@@ -852,13 +871,13 @@ function renderLog() {
   diceLog.update({ ...view, rolls }, null);
 }
 const logPref = () => { try { return localStorage.getItem('system.gm.log'); } catch { return null; } };
-function setLog(open) {
+function setLog(open, remember = window.innerWidth >= 760) {
   document.body.classList.toggle('log-closed', !open);
   $('#log-toggle').setAttribute('aria-expanded', String(open));
-  try { localStorage.setItem('system.gm.log', open ? '1' : '0'); } catch {}
+  if (remember) try { localStorage.setItem('system.gm.log', open ? '1' : '0'); } catch {}
 }
 $('#log-toggle').addEventListener('click', () => setLog(document.body.classList.contains('log-closed')));
-setLog(logPref() ? logPref() === '1' : window.innerWidth >= 1500);
+setLog(window.innerWidth < 760 ? false : logPref() ? logPref() === '1' : window.innerWidth >= 1500, false);
 
 const themeBtn = $('#theme-btn');
 const drawTheme = () => {
@@ -883,7 +902,11 @@ function renderSettings() {
   const lvl = playerEditLevel(view);
   for (const b of document.querySelectorAll('#perm-seg [data-perm]')) b.setAttribute('aria-checked', String(b.dataset.perm === lvl));
   $('#perm-hint').textContent = PERM_HINT[lvl];
+  $('#perm-origins').checked = !!view.session?.permissions?.allowOrigins;
 }
+$('#perm-origins').addEventListener('change', (e) => {
+  act({ t: 'session.permissions', allowOrigins: e.target.checked }, e.target.checked ? 'Players may now ask for race and class.' : 'Race and class are yours to set.');
+});
 $('#perm-seg').addEventListener('click', (e) => {
   const b = e.target.closest('[data-perm]');
   if (b) act({ t: 'session.permissions', playerEdit: b.dataset.perm }, `Player editing: ${b.textContent}.`);

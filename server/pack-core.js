@@ -1,5 +1,6 @@
 // Pure pack normalization + validation (browser-safe, no Node imports). See docs/CONTENT_PACKS.md.
 // pack.js does the file reading; the hosted edition calls normalizePack/deserializePack directly.
+import { normalizeChatLines } from './chat.js';
 import { STANDARD_CATEGORIES } from './constants.js';
 import { normalizeRuleset, normalizeLibEntry, LIB_KINDS } from './ruleset.js';
 
@@ -373,14 +374,7 @@ function loadLoot(raw, tiers, itemsById, warnings) {
 }
 
 function loadChat(raw, warnings) {
-  if (raw === undefined) return [];
-  if (!Array.isArray(raw)) {
-    warnings.push('chat.json must be an array, ignoring');
-    return [];
-  }
-  return raw
-    .filter((c) => isObj(c) && isStr(c.user) && isStr(c.text))
-    .map((c) => ({ user: c.user.slice(0, 40), text: c.text.slice(0, 200) }));
+  return normalizeChatLines(raw, warnings);
 }
 
 // Adds lookup maps (derived data, never serialized).

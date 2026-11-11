@@ -27,9 +27,11 @@ import { voiceFor, quipAudio } from './pack-core.js';
 import { makeToken } from './random.js';
 import { safeEqual, RateLimiter, TokenBucket, authenticate, makePairCode } from './access.js';
 import { createTtsHost } from './tts-host.js';
+import { createChat } from './chat.js';
 
 export const LIMITS = {
   maxMessage: 16 * 1024,
+  maxPortraitMessage: 256 * 1024, // GM / player sockets only: a sheet.set of a portrait (≤ 200 000-char data URL)
   maxSockets: 40,
   helloTimeoutMs: 10_000,
   pairTtlMs: 10 * 60_000,
@@ -192,6 +194,7 @@ export function createHost(opts) {
       connected: waiting.filter((m) => m.role === 'stage' && m.tvId === tv.id).length,
     }));
     g.tvWaiting = waiting.filter((m) => m.role === 'pairing').length;
+    g.stagesOn = waiting.filter((m) => m.role === 'stage').length; // any TV / stage page on air (paired or GM key)
     g.access = { edition, legacy, keyLogin: !!gmKey, backups: !!snapshots, maxTvs: L.maxTvs };
     g.tts = tts.gmView();
     g.sfx = pack.sfx ?? [];
@@ -207,11 +210,48 @@ export function createHost(opts) {
     return meta.role === 'gm' ? gmExtras(v) : v;
   };
 
+  // Portraits (data: URLs up to ~150 KB each) travel once per socket in a `portraits` frame; views carry
+  // short "portrait:<hash>" refs instead, so a view with six crawlers stays small on every change.
+  const portraitSent = new WeakMap(); // conn -> Set(ref)
+  const refMemo = new Map();
+  const portraitRef = (url) => {
+    let ref = refMemo.get(url);
+    if (ref) return ref;
+    let x = 5381;
+    let y = 0;
+    for (let i = 0; i < url.length; i++) { x = ((x * 33) ^ url.charCodeAt(i)) >>> 0; y = (y * 31 + url.charCodeAt(i)) >>> 0; }
+    ref = `portrait:${url.length.toString(36)}${x.toString(36)}${y.toString(36)}`;
+    refMemo.set(url, ref);
+    if (refMemo.size > 64) refMemo.delete(refMemo.keys().next().value);
+    return ref;
+  };
+  function withPortraits(conn, v) {
+    const found = {};
+    const swap = (url) => {
+      if (typeof url !== 'string' || !url.startsWith('data:')) return url;
+      const ref = portraitRef(url);
+      found[ref] = url;
+      return ref;
+    };
+    for (const p of v.players ?? []) p.portrait = swap(p.portrait);
+    if (v.me?.sheet) v.me.sheet = { ...v.me.sheet, portrait: swap(v.me.sheet.portrait) };
+    if (v.gm?.playersFull) v.gm.playersFull = v.gm.playersFull.map((p) => (p.sheet ? { ...p, sheet: { ...p.sheet, portrait: swap(p.sheet.portrait) } } : p));
+    let sent = portraitSent.get(conn);
+    if (!sent) portraitSent.set(conn, (sent = new Set()));
+    const fresh = Object.keys(found).filter((r) => !sent.has(r));
+    if (fresh.length) {
+      send(conn, { t: 'portraits', portraits: Object.fromEntries(fresh.map((r) => [r, found[r]])) });
+      for (const r of fresh) sent.add(r);
+    }
+    return v;
+  }
+  const viewFrame = (conn, meta, o) => withPortraits(conn, viewOf(meta, o));
+
   function broadcastViews() {
     viewTimer = null;
     maybeAudienceTick();
     const o = viewOpts();
-    for (const [c, m] of conns) if (VIEW_ROLES.has(m.role)) send(c, { t: 'view', view: viewOf(m, o) });
+    for (const [c, m] of conns) if (VIEW_ROLES.has(m.role)) send(c, { t: 'view', view: viewFrame(c, m, o) });
   }
   const scheduleViews = () => {
     if (!viewTimer && !closed) viewTimer = T.setTimeout(broadcastViews, L.viewDebounceMs);
@@ -310,15 +350,64 @@ export function createHost(opts) {
       };
       loop();
     }
-    if (!chatTimer && chat && pack.chat.length) {
-      const loop = () => {
+    if (!chatTimer && chat && chatDirector.size) {
+      const loop = (ms) => {
         chatTimer = T.setTimeout(() => {
-          const c = pack.chat[Math.floor(rng() * pack.chat.length)];
-          if (c) deliver({ id: genId('e'), at: now(), kind: 'chat', user: c.user, text: c.text }, { roles: ['stage'] });
-          loop();
-        }, 8_000 + rng() * 12_000);
+          chatTimer = null;
+          // A burst is running: calm chat waits for it to finish.
+          if (chatBurst.length) return loop(4_000);
+          const { line, delayMs } = chatDirector.ambient(state);
+          if (line) sendChat(line);
+          loop(delayMs);
+        }, ms);
       };
-      loop();
+      loop(2_000 + rng() * 4_000);
+    }
+  }
+
+  // ---------- audience chat (chat.js): calm lines per scene + bursts after big moments ----------
+
+  const chatDirector = createChat({ lines: pack.chat, rng, now });
+  const chatBurst = []; // pending { line, at } of the current burst
+  let chatBurstTimer = null;
+  const MAX_BURST_QUEUE = 8;
+  const stageOn = () => [...conns.values()].some((m) => m.role === 'stage');
+  const sendChat = (line) => deliver({ id: genId('e'), at: now(), kind: 'chat', user: line.user, text: line.text, tag: line.tag }, { roles: ['stage'] });
+  const stageSees = (to) => to === 'all' || !!to?.roles?.includes('stage');
+
+  function pumpBurst() {
+    chatBurstTimer = null;
+    if (closed) { chatBurst.length = 0; return; }
+    const t = now();
+    while (chatBurst.length && chatBurst[0].at <= t) sendChat(chatBurst.shift().line);
+    if (chatBurst.length) chatBurstTimer = T.setTimeout(pumpBurst, Math.max(0, chatBurst[0].at - t));
+  }
+
+  /** Big moments: a quick burst of chat lines and a viewer bump. Called after the events went out. */
+  function reactTo(events, sceneBefore) {
+    if (!chat || closed) return;
+    const list = events.filter(({ to }) => stageSees(to)).map(({ event }) => event);
+    if (sceneBefore && state.scene && state.scene.kind !== sceneBefore.kind) list.push({ kind: 'scene', scene: state.scene.kind });
+    let pct = 0;
+    for (const e of list) {
+      const r = chatDirector.react(e, state);
+      if (!r) continue;
+      if (r.viewers) pct += r.viewers;
+      if (!stageOn() || !r.lines.length) continue;
+      let at = Math.max(now(), chatBurst.length ? chatBurst[chatBurst.length - 1].at : 0);
+      r.lines.forEach((line, k) => {
+        at += r.gapsMs[k];
+        chatBurst.push({ line, at });
+      });
+    }
+    while (chatBurst.length > MAX_BURST_QUEUE) chatBurst.splice(MAX_BURST_QUEUE - 1, 1); // keep the newest moment's tail short
+    if (chatBurst.length && !chatBurstTimer) chatBurstTimer = T.setTimeout(pumpBurst, Math.max(0, chatBurst[0].at - now()));
+    if (pct) {
+      try {
+        apply({ role: 'system', t: 'audience.react', pct: Math.min(0.3, pct) });
+      } catch (e) {
+        log.warn?.(`[chat] viewer bump failed: ${e.message}`);
+      }
     }
   }
 
@@ -369,6 +458,7 @@ export function createHost(opts) {
   /** Runs one action through the reducer and performs all side effects. Throws ActionError. */
   function apply(action, reducer = (st, a, ctx) => reduce(st, a, ctx), by = action.role) {
     const t = now();
+    const sceneBefore = state.scene;
     const r = reducer(state, action, { now: t, rng, pack });
     if (!r.changed) return r;
     const system = action.role === 'system';
@@ -395,6 +485,7 @@ export function createHost(opts) {
     }
     for (const line of lines) voice.push(line);
     if (action.t === 'player.remove') closePlayer(action.playerId, CLOSE.removed, 'removed');
+    if (!system) reactTo(r.events, sceneBefore);
     scheduleViews();
     return r;
   }
@@ -442,7 +533,7 @@ export function createHost(opts) {
     Object.assign(meta, { role, playerId: null, tvId: null, ...extra });
     meta.bucket = bucketFor(role);
     saveMeta(conn, meta);
-    const welcome = { t: 'welcome', role, view: viewOf(meta) };
+    const welcome = { t: 'welcome', role, view: VIEW_ROLES.has(role) ? viewFrame(conn, meta) : viewOf(meta) };
     if (meta.playerId) welcome.playerId = meta.playerId;
     send(conn, welcome);
     ensureShowTimers();
@@ -737,7 +828,9 @@ export function createHost(opts) {
     const meta = conns.get(conn);
     if (!meta || closed) return;
     if (typeof data !== 'string') return send(conn, { t: 'error', code: 'bad_request', msg: 'invalid JSON' });
-    if (data.length > L.maxMessage) return dropConn(conn, CLOSE.tooBig, 'message too big');
+    // Authenticated GM / player sockets may send one bigger frame kind: the portrait upload.
+    const big = (meta.role === 'gm' || meta.role === 'player') && data.length <= L.maxPortraitMessage && /"t":"sheet\.set"/.test(data.slice(0, 300)) && /"path":"(identity\.)?portrait"/.test(data.slice(0, 300));
+    if (data.length > L.maxMessage && !big) return dropConn(conn, CLOSE.tooBig, 'message too big');
     if (!meta.bucket) meta.bucket = bucketFor(VIEW_ROLES.has(meta.role) ? meta.role : 'other');
     if (!meta.bucket.take()) {
       const t = now();
@@ -828,9 +921,9 @@ export function createHost(opts) {
 
   function close() {
     closed = true;
-    for (const t of [viewTimer, voiceTimer, audienceTimer, chatTimer]) if (t) T.clearTimeout(t);
+    for (const t of [viewTimer, voiceTimer, audienceTimer, chatTimer, chatBurstTimer]) if (t) T.clearTimeout(t);
     for (const m of conns.values()) if (m.timer) T.clearTimeout(m.timer);
-    viewTimer = voiceTimer = audienceTimer = chatTimer = null;
+    viewTimer = voiceTimer = audienceTimer = chatTimer = chatBurstTimer = null;
   }
 
   return {

@@ -9,7 +9,7 @@ my-pack/
   items.json          item catalog
   loot.json           loot tables per tier
   quips.json          voice lines by category
-  chat.json           optional fake-audience chat lines
+  chat.json           optional fake-audience chat lines (tagged by moment, see below)
   ruleset.json        optional: character-sheet rules (docs/RULESET.md)
   spells.json         optional library files (arrays, see "Library files" below)
   skills.json
@@ -197,9 +197,42 @@ Standard categories the GM panel shows as buttons: `nat1`, `nat20`, `death`, `le
 `audio` is optional; without it the stage uses text-to-speech.
 
 ## chat.json
+
+Fake audience chat for the TV ticker. Each line: `user` (≤ 40 chars), `text` (≤ 200), optional `tags` and `weight`.
+
 ```json
-[ { "user": "xX_GoblinFan_Xx", "text": "this crawler is so dead lol" } ]
+[
+  { "user": "xX_GoblinFan_Xx", "text": "this crawler is so dead lol" },
+  { "user": "OddsBot_3000", "text": "LIVE ODDS: CRAWLERS 2:1. {mob} 3:1", "tags": ["combat"] },
+  { "user": "{player}_stan_acct", "text": "{player} IS THE MAIN CHARACTER", "tags": ["nat20"], "weight": 2 }
+]
 ```
+
+- **`tags`** (array, or one string): the moments a line fits. Known tags:
+  `idle`, `lobby`, `explore`, `combat`, `boss`, `boss_phase`, `boss_defeat`, `loot`, `achievement`, `death`,
+  `nat1`, `nat20`, `countdown`, `npc`, `recap`. Unknown tags are ignored (with a pack warning).
+- **`weight`** (positive number, default 1): how often the line is picked relative to its neighbours.
+- **Untagged lines** (the old format) are *generic*: they can appear in any calm moment, like `idle`. A pack with
+  only untagged lines behaves as before, just without reaction bursts.
+- **Placeholders** in `user` or `text`: `{player}` (the crawler the moment is about, else a random crawler),
+  `{boss}` (boss on the TV / in the event), `{mob}` (a revealed, living mob in the fight), `{item}` (the loot
+  item, else something a crawler carries). A line whose placeholder has no value right now is skipped.
+
+How the server picks (server/chat.js):
+
+| When | What |
+|------|------|
+| Calm chat, while a TV is on | One line every few seconds for the TV scene: `lobby` 7–14 s, `idle`/blank 9–18 s, `explore` 11–21 s, `combat` 4–8 s, `boss` 3–5.5 s (`countdown`, `npc`, `loot`, `recap` in between). Lines tagged for the scene are preferred; generic / `idle` lines mix in (about a quarter of the time). Combat on the tracker counts as `combat` in any scene; a defeated boss scene as `boss_defeat`. |
+| Right after a big moment | A burst of quick lines (first within a second, then every 0.6–1.7 s) from that tag only: nat 20 (3–5), nat 1 (3–4), boss intro (`boss`, 3–5), boss phase (2–4), boss defeat (4–6), a crawler going down in the arena (`death`, 3–5), loot / sponsor box (2–3), achievement (2–4), the TV switching to a countdown or recap (1–2), combat start (2–3). Secret rolls never trigger anything. |
+| After the burst | For ~45 s calm chat sometimes keeps talking about that moment (fading out). |
+| Always | No repeats inside a recent-history window (60% of the pool, max 80 lines; small pools only block the last few). |
+
+The same moments make the audience react: boss intro +8–14% viewers, boss phase +4–8%, combat start +4–8%,
+a crawler down +5–10%, nat 20 +2–5%, nat 1 +1–3%, hits +0.2–2% (boss defeat, loot and achievements already bump
+the count). The TV adds a small live wobble to the number, bigger in combat and boss scenes.
+
+Write original lines (no quotes from books or shows). Bursts need at least 4–6 lines per tag to feel varied;
+aim for 20+ per tag in a full pack.
 
 ## sfx.json (sound pads on the GM desk)
 

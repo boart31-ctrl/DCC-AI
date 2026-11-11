@@ -124,13 +124,20 @@ can "duplicate & edit"). Homebrew is stored in state and survives sessions.
   "skills": [ { "uid": "s_..", "skillId": "sneak", "name": "Sneak", "rank": 3, "stat": "dex", "checkType": "Standard", "notes": "", "used": false } ],
   "attacks": [ { "uid": "k_..", "name": "Kick", "skillUid": "s_..", "stat": "str", "dice": "1d6", "effects": "" } ],
   "spells": [ { "uid": "sp_..", "spellId": "fireball_homebrew", "rank": 1, "active": false } ],
-  "inventory": [ { "uid": "i_..", "itemId": "...", "qty": 1, "notes": "", "equippedSlot": null } ],
+  "inventory": [ { "uid": "i_..", "itemId": "...", "qty": 1, "notes": "", "equippedSlot": null, "containerUid": null } ],
   "hotlist": [ "i_..", null ],
   "buffs": [ { "uid": "b_..", "buffId": "...", "name": "Haste", "external": true, "effects": [], "until": "" } ],
   "story": { "popularity": "", "pastTrauma": "", "looseEnds": "", "regrets": "", "notes": "" },
-  "portrait": null
+  "portrait": null,
+  "pools": [ { "uid": "pl_..", "name": "Lay on Hands", "cur": 3, "max": 5, "desc": "" } ],
+  "pending": { "race": "Gnome" },
+  "originsLocked": false
 }
 ```
+`pools` = limited-use counters (`pool.*` actions). `containerUid` = the container item (library item with
+`container: true` or tag `container`) this entry is inside (`item.move`). `pending` = race / class / background
+the player asked for while `session.permissions.allowOrigins` is on; `origins.approve` applies it and sets
+`originsLocked` (players can no longer change them). See PROTOCOL.md §3 / §4.
 Old players (with flat `stats` numbers and `resources`) are migrated: number → `{enhanced: n, unenhanced: n}`,
 `resources.hp` → `tracks.hp`.
 

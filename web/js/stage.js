@@ -1,9 +1,11 @@
 import {
-  SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted,
+  SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted, portraitSrc,
 } from './client.js';
 import { createDirector } from './scenes/director.js';
+import { levelBadge } from './scenes/common.js';
 import { createVoicePlayer, createSubtitleOnly, createCueGate } from './voice.js';
 import { createShowAudio } from './show-audio.js';
+import { createTicker } from './ticker.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const client = new TransportHub();
@@ -74,21 +76,26 @@ function render() {
 
 let shown = null;
 let raf = 0;
+let serverViewers = null;
+/** Server count changed: count up/down to it and flash the delta. */
 function setViewers(target, delta) {
   target = Number(target) || 0;
-  if (shown === null) { shown = target; $('#viewers').textContent = fmtNum(target); return; }
-  if (target === shown) return;
-  const d = delta ?? target - shown;
+  if (serverViewers === null) { serverViewers = target; shown = target; $('#viewers').textContent = fmtNum(target); return; }
+  if (target === serverViewers) return;
+  const d = delta ?? target - serverViewers;
+  serverViewers = target;
   if (d) {
     const el = $('#viewers-delta');
     el.textContent = d > 0 ? `+${fmtNum(d)}` : `−${fmtNum(-d)}`;
     el.classList.toggle('neg', d < 0);
     el.classList.remove('go'); void el.offsetWidth; el.classList.add('go');
   }
+  countTo(target, reduced ? 1 : 1400);
+}
+function countTo(target, dur) {
   cancelAnimationFrame(raf);
-  const from = shown;
+  const from = shown ?? target;
   const t0 = performance.now();
-  const dur = reduced ? 1 : 1400;
   const step = (t) => {
     const k = Math.min(1, (t - t0) / dur);
     shown = Math.round(from + (target - from) * (1 - (1 - k) ** 4));
@@ -97,6 +104,18 @@ function setViewers(target, delta) {
   };
   raf = requestAnimationFrame(step);
 }
+// Live wobble around the server count: people drop in and out. Busier scenes swing harder.
+const WOBBLE = { lobby: 0.002, blank: 0.001, recap: 0.002, explore: 0.004, npc: 0.004, loot: 0.008, countdown: 0.01, roll: 0.006, combat: 0.012, boss: 0.02 };
+function wobble() {
+  const kind = view?.combat?.active ? 'combat' : view?.scene?.kind;
+  const amp = WOBBLE[kind] ?? 0.003;
+  if (serverViewers && !reduced) {
+    const j = (Math.random() * 2 - 1) * amp + amp * 0.25; // a slight upward lean
+    countTo(Math.max(1, Math.round(serverViewers * (1 + j))), 900);
+  }
+  setTimeout(wobble, (kind === 'boss' || kind === 'combat' ? 1400 : 2600) + Math.random() * 1600);
+}
+setTimeout(wobble, 3000);
 
 let stripSig = '';
 function renderStrip() {
@@ -107,7 +126,7 @@ function renderStrip() {
   const strip = $('#strip');
   if (!ps.length) { strip.replaceChildren(h('p.strip-empty', 'Waiting for crawlers. Scan the code to join.')); return; }
   strip.replaceChildren(...ps.map((p) => h('div.pl', { class: p.connected ? 'pl' : 'pl off', 'data-id': p.id, style: { '--pc': p.color || 'var(--cyan)' } },
-    h('div.pl-lvl', h('small', 'Lv'), h('b', String(p.level ?? 1))),
+    levelBadge('pl-lvl', p, p.level),
     h('div.pl-name', p.name),
     h('div.pl-ach', h('b', String(p.achievementCount ?? 0)), h('span', 'ach')),
     h('div.pl-sub', [p.title, p.klass].filter(Boolean).join(' / ') || (p.connected ? 'On air' : 'Off air')),
@@ -132,44 +151,18 @@ function renderFeed() {
 
 /* ---------- chat ticker ---------- */
 
-const chatTrack = $('#chat');
-let chatX = 0;
-let chatLast = performance.now();
-const CHAT_SPEED = 90; // px/s at 1080p
 const USER_COLORS = ['#2ef2ff', '#e4ff2e', '#ff8a1c', '#3ddc5f', '#b44dff', '#ff2fb9', '#3b8cff'];
 function userColor(u) {
   let x = 0;
   for (const c of String(u)) x = (x * 31 + c.charCodeAt(0)) >>> 0;
   return USER_COLORS[x % USER_COLORS.length];
 }
+// One strip, one transform, positions decided once per message (ticker.js explains the old glitch).
+const ticker = createTicker($('#chat').parentElement, $('#chat'), { speed: 90, reduced });
 function addChat(user, text) {
-  const m = h('span.m', { style: { '--u': userColor(user) } }, h('b', user), text);
-  if (!chatTrack.children.length) chatX = chatTrack.parentElement.clientWidth;
-  chatTrack.append(m);
-  while (chatTrack.children.length > 40) {
-    const first = chatTrack.firstChild;
-    chatX += first.offsetWidth + gap();
-    first.remove();
-  }
+  ticker.add(h('span.m', { style: { '--u': userColor(user) } }, h('b', user), text));
 }
-const gap = () => parseFloat(getComputedStyle(chatTrack).columnGap) || 0;
-function chatLoop(t) {
-  const dt = Math.min(0.1, (t - chatLast) / 1000);
-  chatLast = t;
-  if (chatTrack.children.length) {
-    const scale = innerHeight / 1080;
-    chatX -= CHAT_SPEED * scale * dt * (reduced ? 0.5 : 1);
-    // drop items fully off screen to the left
-    const first = chatTrack.firstElementChild;
-    if (first && chatX + first.offsetWidth + gap() < 0) {
-      chatX += first.offsetWidth + gap();
-      first.remove();
-    }
-    chatTrack.style.transform = `translateX(${chatX}px)`;
-  }
-  requestAnimationFrame(chatLoop);
-}
-requestAnimationFrame(chatLoop);
+window.__ticker = { ...ticker, chat: addChat }; // headless checks (ticker recording)
 
 /* ---------- events → moments ---------- */
 
@@ -238,7 +231,8 @@ function nextMoment() {
   el.hidden = false;
   const p = playerOf(e.playerId);
   const pc = p?.color || 'var(--cyan)';
-  const nameTag = h('div.m-player', { style: { '--pc': pc } }, p?.name || 'Crawler');
+  const face = portraitSrc(p?.portrait);
+  const nameTag = h('div.m-player', { style: { '--pc': pc }, class: face ? 'm-player has-face' : 'm-player' }, face ? h('img.face', { src: face, alt: '' }) : null, p?.name || 'Crawler');
   let hold = 6500;
 
   const sys = (view?.pack?.systemName || 'The System').toUpperCase();

@@ -10,6 +10,7 @@ import {
   tabBar, field, select, labeled, lockHint, avatar,
 } from './ui.js';
 import { showRollCard } from './dicelog.js';
+import { pickPortrait } from './portrait.js';
 
 /* Rolls made locally (engines without the `roll` action). Pages merge these into the dice log. */
 export const localRolls = [];
@@ -25,10 +26,10 @@ const humanize = (id) => String(id || '').replace(/([a-z])([A-Z])/g, '$1 $2').re
  * @param {()=>Array} [o.extraTabs]  [{id,label,badge?,render:()=>Node}] appended after the sheet tabs
  * @param {(model)=>void} [o.onBuilder]  opens the character builder
  */
-export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools } = {}) {
+export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools, phone = () => false, moreItems = () => [], top = null } = {}) {
   const gm = mode === 'gm';
   const root = h('article.sheet', { class: `sheet sheet-${mode}` });
-  const ui = { tab: null, editing: false, openSkill: null, invQuery: '', drawer: null };
+  const ui = { tab: null, editing: false, openSkill: null, invQuery: '', drawer: null, ptab: 'skills', skillQuery: '', openBoxes: {} };
   let view = null;
   let player = null;
   let M = null; // model
@@ -166,7 +167,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       ? h('button.btn.btn-sm', { type: 'button', class: ui.editing ? 'btn btn-sm btn-primary' : 'btn btn-sm', 'aria-pressed': String(ui.editing), onclick: () => { ui.editing = !ui.editing; draw(true); } }, icon(ui.editing ? 'x' : 'edit', { size: 14 }), ui.editing ? 'Done' : 'Edit')
       : lockHint(lockText());
     return h('header.sh-head',
-      avatar(name, { color: player.color, src: M.sheet.portrait, size: 56 }),
+      portraitButton(name, 56),
       h('div.sh-id',
         h('h1.sh-name', name),
         h('p.sh-line', h('span', line), h('span.lv', `Level ${lvl}`)),
@@ -186,16 +187,21 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const ok = can('sheet');
     const set = (k) => (v) => act({ t: 'sheet.set', path: `identity.${k}`, value: v });
     const opt = (list, cur) => [{ value: '', label: '—' }, ...list.map((x) => ({ value: x.name, label: x.name })), ...(cur && !list.some((x) => x.name === cur) ? [{ value: cur, label: cur }] : [])];
+    // Race / class / background: the GM's call. Players may only request them (allowOrigins) until approved.
+    const oOk = gm || (ok && !!view.session?.permissions?.allowOrigins && !M.sheet.originsLocked);
+    const pend = M.sheet.pending || {};
+    const oHint = (k) => (pend[k] ? { hint: `Asked for ${pend[k]}. Waiting for the GM.` } : !gm && !oOk ? { hint: M.sheet.originsLocked ? 'Approved and locked by the GM' : 'Set by the GM' } : {});
+    const oSet = (k) => async (v) => { const r = await act({ t: 'sheet.set', path: `identity.${k}`, value: v }); if (r && !gm && r.result?.pending) toast('Sent to the GM for approval.'); };
     const fields = [
       labeled('Name', field(id.name ?? player.name, { onCommit: set('name'), disabled: !ok })),
-      labeled('Race', M.rs.races.length ? select(opt(M.rs.races, id.race), id.race || '', { onChange: set('race'), disabled: !ok }) : field(id.race, { onCommit: set('race'), disabled: !ok })),
-      labeled('Class', M.rs.classes.length ? select(opt(M.rs.classes, id.class), id.class || '', { onChange: set('class'), disabled: !ok }) : field(id.class, { onCommit: set('class'), disabled: !ok })),
+      labeled('Race', M.rs.races.length ? select(opt(M.rs.races, id.race), id.race || '', { onChange: oSet('race'), disabled: !oOk }) : field(id.race, { onCommit: oSet('race'), disabled: !oOk }), oHint('race')),
+      labeled('Class', M.rs.classes.length ? select(opt(M.rs.classes, id.class), id.class || '', { onChange: oSet('class'), disabled: !oOk }) : field(id.class, { onCommit: oSet('class'), disabled: !oOk }), oHint('class')),
       labeled('Level', field(id.level ?? player.level ?? 1, { type: 'number', onCommit: set('level'), disabled: !ok, attrs: { min: 0, max: 99, inputmode: 'numeric' } }), { cls: 'lbl-num' }),
       labeled('Floor', field(id.floor ?? '', { type: 'number', onCommit: set('floor'), disabled: !ok, attrs: { min: 0, inputmode: 'numeric' } }), { cls: 'lbl-num' }),
       labeled('Crawler #', field(id.crawlerNumber ?? '', { onCommit: set('crawlerNumber'), disabled: !ok })),
       labeled('Pronouns', field(id.pronouns ?? '', { onCommit: set('pronouns'), disabled: !ok })),
     ];
-    if (M.rs.backgrounds.length) fields.push(labeled('Background', select(opt(M.rs.backgrounds, id.background), id.background || '', { onChange: set('background'), disabled: !ok })));
+    if (M.rs.backgrounds.length) fields.push(labeled('Background', select(opt(M.rs.backgrounds, id.background), id.background || '', { onChange: oSet('background'), disabled: !oOk }), oHint('background')));
     return h('section.sh-block.sh-identity', h('h2.blk-t', 'Identity', !ok ? lockHint(lockText()) : null), h('div.form-grid', fields));
   }
 
@@ -297,7 +303,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       ));
     }
     const ok = can('sheet');
-    for (const f of M.rs.fields.filter((x) => x.group === 'defense')) {
+    const luck = phone() ? luckField() : null; // phones show it in the sticky bar
+    for (const f of M.rs.fields.filter((x) => x.group === 'defense' && x !== luck)) {
       const v = M.sheet.fields?.[f.id] ?? f.default ?? '';
       if (M.rs.derived.some((d) => d.formula.includes(`field.${f.id}`)) && !ui.editing) continue; // already inside a derived number
       cells.push(h('div.def', { 'data-field': f.id },
@@ -357,7 +364,9 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   /* ---------- skills ---------- */
 
   function skillsPanel() {
-    const list = M.sheet.skills || [];
+    const all = M.sheet.skills || [];
+    const sq = (ui.skillQuery || '').trim().toLowerCase();
+    const list = sq ? all.filter((s) => `${s.name} ${s.checkType || ''}`.toLowerCase().includes(sq)) : all;
     const okRank = can('sheet');
     const rs = M.rs;
     const rows = list.map((s) => {
@@ -391,8 +400,9 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     });
     const head = h('div.list-head.skill-head', rs.skills.usedTracking ? h('span', { title: 'Used this session' }, 'Used') : null, h('span', 'Skill'), h('span', 'Stat'), h('span', 'Rank'), h('span', 'Total'));
     return h('section.sh-block.sh-skills', { 'aria-label': 'Skills' },
-      h('h2.blk-t', 'Skills', h('span.blk-n', String(list.length)), (() => { const uv = sectionUnverified(/^skills/) || (rs.skills.rankUp?.note ? `Rank-up: ${rs.skills.rankUp.note}` : ''); return uv ? unverifiedBadge(uv) : null; })()),
-      list.length ? h('div.table', head, h('ul.skill-list', rows)) : h('p.empty-s', can('sheet') ? 'No skills yet. Add one from the catalog.' : 'No skills yet.'),
+      h('h2.blk-t', 'Skills', h('span.blk-n', String(all.length)), (() => { const uv = sectionUnverified(/^skills/) || (rs.skills.rankUp?.note ? `Rank-up: ${rs.skills.rankUp.note}` : ''); return uv ? unverifiedBadge(uv) : null; })()),
+      all.length > 6 || sq ? h('input.inp.inp-search.sk-search', { type: 'search', placeholder: `Search ${all.length} skills`, value: ui.skillQuery || '', 'aria-label': 'Search skills', oninput: (e) => { ui.skillQuery = e.target.value; const sel = e.target.selectionStart; draw(true); const n = root.querySelector('.sk-search'); n?.focus(); n?.setSelectionRange(sel, sel); } }) : null,
+      list.length ? h('div.table', head, h('ul.skill-list', rows)) : h('p.empty-s', sq ? 'No skill matches.' : can('sheet') ? 'No skills yet. Add one from the catalog.' : 'No skills yet.'),
       can('sheet') ? addSkillForm() : null,
     );
   }
@@ -560,9 +570,11 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const ok = can('sheet');
     const slots = M.rs.slots;
     if (!slots.length) return h('p.empty-s', 'This pack has no gear slots.');
+    const idle = [];
     const cards = slots.map((sl) => {
       const eq = inv.filter((i) => i.equippedSlot === sl.id);
       const cands = inv.filter((i) => !i.equippedSlot && itemOf(M.lib, i).slot === sl.id);
+      if (phone() && !eq.length && !(ok && cands.length)) { idle.push(sl.label); return null; } // phones: one line for empty slots
       const full = eq.length >= (sl.max ?? 1);
       return h('div.gslot', { class: `gslot${sl.max > 1 ? ' multi' : ''}`, 'data-slot': sl.id },
         h('div.gslot-h', h('span', sl.label), h('span.cap', { class: full && sl.max > 1 ? 'cap full' : 'cap' }, `${eq.length} / ${sl.max ?? 1}`)),
@@ -576,7 +588,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     });
     const effs = M.computed.effects || activeEffects(M.rs, M.sheet, M.lib);
     return h('section.panel-gear',
-      h('div.gslots', cards),
+      h('div.gslots', cards.filter(Boolean)),
+      idle.length ? h('p.gslot-idle', h('span', 'Empty: '), idle.join(', ')) : null,
       h('h3.sub-t', 'Active effects'),
       effs.length ? h('ul.eff-list.eff-table', effs.map((e) => h('li', { class: e.debuff ? 'neg' : null }, h('span.eff-v', effectText(M.rs, e)), h('span.eff-src', e.source?.name || e.from || e.label || '')))) : h('p.empty-s', 'Nothing is changing your numbers right now.'),
     );
@@ -651,6 +664,14 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       it.use ? h('div', h('h3.sub-t', 'When used'), h('p.desc', useText(it.use))) : null,
       it.effects?.length ? h('div', h('h3.sub-t', 'Effects'), h('ul.eff-list', it.effects.map((e) => h('li', effectText(M.rs, e), h('span.eff-when', ` ${(e.when || 'equipped')}`))))) : null,
       atkLine,
+      (() => {
+        // Containers (bag of holding): put this item in one, or take it out.
+        const boxes = (M.sheet.inventory || []).filter((x) => x.container && x.uid !== uid && !x.containerUid);
+        if (!ok || inv.container || (!boxes.length && !inv.containerUid)) return null;
+        return labeled('Carried in', select([{ value: '', label: 'Backpack (loose)' }, ...boxes.map((b) => ({ value: b.uid, label: itemOf(M.lib, b).name }))], inv.containerUid || '', {
+          label: 'Carried in', onChange: (v) => act({ t: 'item.move', uid, into: v || null }, v ? `Put in ${itemOf(M.lib, boxes.find((b) => b.uid === v)).name}.` : 'Taken out.'),
+        }));
+      })(),
       h('div.form-grid',
         labeled('Quantity', stepper(inv.qty ?? 1, { min: 0, label: 'Quantity', disabled: !ok, onChange: (v) => act({ t: 'item.qty', uid, qty: v }) })),
         inv.notes ? labeled('Notes', h('p.desc', inv.notes), { cls: 'span-2' }) : null,
@@ -728,20 +749,20 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   function tabs() {
     const s = M.sheet;
     const t = [
-      { id: 'attacks', label: 'Attacks', count: s.attacks?.length || '' },
+      { id: 'attacks', label: 'Actions', count: s.attacks?.length || '' },
       { id: 'skills', label: 'Skills', count: s.skills?.length || '', cls: 'tab-skills' },
       { id: 'spells', label: 'Spells', count: s.spells?.length || '' },
       { id: 'gear', label: 'Gear' },
       { id: 'inventory', label: 'Inventory', count: s.inventory?.length || '' },
       { id: 'hotlist', label: 'Hotlist' },
       { id: 'story', label: 'Story' },
-    ].filter((x) => !(x.id === 'hotlist' && !M.rs.hotlist?.size) && !(x.id === 'gear' && !M.rs.slots.length) && !(x.id === 'spells' && !M.lib.spell.length && !s.spells?.length) && !(x.id === 'attacks' && M.rs.legacy));
+    ].filter((x) => !(x.id === 'hotlist' && !M.rs.hotlist?.size) && !(x.id === 'gear' && !M.rs.slots.length) && !(x.id === 'spells' && !M.lib.spell.length && !s.spells?.length));
     const extra = extraTabs() || [];
     const all = [...t, ...extra];
     if (!ui.tab || !all.some((x) => x.id === ui.tab)) ui.tab = all[0]?.id;
     const panel = (() => {
       switch (ui.tab) {
-        case 'attacks': return attacksPanel();
+        case 'attacks': return actionsPanel();
         case 'skills': return skillsPanel();
         case 'spells': return spellsPanel();
         case 'gear': return gearPanel();
@@ -757,12 +778,313 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     );
   }
 
+  /* ---------- portrait ---------- */
+
+  function portraitButton(name, size) {
+    const av = avatar(name, { color: player.color, src: M.sheet.portrait, size });
+    if (!(gm || can('sheet'))) return av;
+    return h('button.av-btn', { type: 'button', title: M.sheet.portrait ? 'Change the picture' : 'Add a picture', 'aria-label': M.sheet.portrait ? `Change ${name}'s picture` : `Add a picture of ${name}`, onclick: () => portraitMenu() },
+      av, h('span.av-edit', { 'aria-hidden': 'true' }, icon(M.sheet.portrait ? 'edit' : 'plus', { size: 12 })));
+  }
+  async function uploadPortrait() {
+    let url;
+    try { url = await pickPortrait(); } catch (err) { toast(err.message, { error: true, ms: 4000 }); return; }
+    if (!url) return;
+    toast('Uploading the picture…');
+    if (await act({ t: 'sheet.set', path: 'portrait', value: url })) toast('Picture saved. It shows on the TV too.');
+  }
+  function portraitMenu() {
+    if (!M.sheet.portrait) { uploadPortrait(); return; }
+    openDrawer({
+      title: 'Character picture',
+      body: [h('div.pt-preview', avatar(player.name, { src: M.sheet.portrait, size: 160 })), h('p.dim', 'Shown on the TV party strip, in fights and on loot and achievement moments.')],
+      actions: [
+        h('button.btn.danger', { type: 'button', onclick: async () => { if (await act({ t: 'sheet.set', path: 'portrait', value: null }, 'Picture removed.')) closeDrawer(); } }, 'Remove'),
+        h('button.btn.btn-primary', { type: 'button', onclick: () => { closeDrawer(); uploadPortrait(); } }, 'Choose another picture'),
+      ],
+    });
+  }
+
+  /* ---------- actions: attacks, limited-use pools, usable items ---------- */
+
+  function poolsBlock() {
+    const pools = M.sheet.pools || [];
+    const ok = can('sheet');
+    if (!pools.length && !ok) return null;
+    const rows = pools.map((pl) => h('li.pool-row',
+      h('div.pool-main', h('b.pool-n', pl.name), pl.desc ? h('p.pool-d', pl.desc) : null),
+      h('div.pool-ctl',
+        h('button.icon-btn', { type: 'button', disabled: pl.cur <= 0, 'aria-label': `${pl.name} minus 1`, onclick: () => act({ t: 'pool.set', uid: pl.uid, delta: -1 }) }, icon('minus', { size: 16 })),
+        h('span.pool-v', h('b', String(pl.cur)), `/${pl.max}`),
+        h('button.icon-btn', { type: 'button', disabled: pl.cur >= pl.max, 'aria-label': `${pl.name} plus 1`, onclick: () => act({ t: 'pool.set', uid: pl.uid, delta: 1 }) }, icon('plus', { size: 16 })),
+        ok && ui.editing ? h('button.icon-btn', { type: 'button', 'aria-label': `Remove ${pl.name}`, onclick: () => act({ t: 'pool.remove', uid: pl.uid }, `Removed ${pl.name}.`) }, icon('trash', { size: 14 })) : null,
+      )));
+    const add = () => {
+      const name = field('', { placeholder: 'e.g. Lay on Hands' });
+      const max = field(3, { type: 'number', attrs: { min: 0, inputmode: 'numeric' } });
+      const desc = field('', { multiline: true, rows: 2, placeholder: 'What it does (optional)' });
+      openDrawer({
+        title: 'Add a counter',
+        sub: 'Uses per day, charges, a pool of healing: anything you tick down and refill.',
+        body: h('div.form-grid', labeled('Name', name, { cls: 'span-2' }), labeled('Max', max), labeled('What it does', desc, { cls: 'span-all' })),
+        actions: [h('button.btn.btn-primary', { type: 'button', onclick: async () => { if (!name.value.trim()) { name.focus(); return; } if (await act({ t: 'pool.add', name: name.value.trim(), max: Math.max(0, Number(max.value) || 0), desc: desc.value.trim() }, 'Counter added.')) closeDrawer(); } }, 'Add counter')],
+      });
+    };
+    return h('section.sh-block.sh-pools',
+      h('h2.blk-t', 'Limited uses'),
+      pools.length ? h('ul.pool-list', rows) : h('p.empty-s', 'No counters yet.'),
+      ok ? h('div.add-row', h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: add }, icon('plus', { size: 14 }), 'Add a counter')) : null,
+    );
+  }
+  function usableItems() {
+    const list = (M.sheet.inventory || []).filter((i) => itemOf(M.lib, i).use || itemOf(M.lib, i).attack);
+    if (!list.length) return null;
+    return h('section.sh-block.sh-usable', h('h2.blk-t', 'Items you can use'),
+      h('ul.inv-list', list.map((i) => {
+        const it = itemOf(M.lib, i);
+        return h('li.inv', { class: `inv r-${rarityOf(it.rarity)}` }, h('span.rar'),
+          h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), h('span.inv-note', it.attack ? 'Attack' : useLabel(it.use))),
+          h('span.inv-q', `×${i.qty ?? 1}`));
+      })));
+  }
+  function actionsPanel() {
+    return h('div.panel-actions',
+      M.rs.legacy ? null : h('section.sh-block.sh-attacks', h('h2.blk-t', 'Attacks'), attacksPanel()),
+      poolsBlock(),
+      usableItems(),
+    );
+  }
+
+  /* ---------- backpack with containers ---------- */
+
+  function invRow(i, hot) {
+    const it = itemOf(M.lib, i);
+    const r = rarityOf(it.rarity);
+    return h('li.inv', { class: `inv r-${r}` },
+      h('span.rar', { title: r, 'aria-label': r }),
+      h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), i.notes ? h('span.inv-note', i.notes) : null),
+      hot.has(i.uid) ? h('span.hot-mark', { title: 'On the hotlist', 'aria-label': 'On the hotlist' }, icon('star', { size: 13 })) : null,
+      h('span.inv-q', { title: 'Quantity' }, `×${i.qty ?? 1}`),
+    );
+  }
+  function backpack() {
+    const inv = (M.sheet.inventory || []).filter((i) => !i.equippedSlot);
+    const hot = new Set((M.sheet.hotlist || []).filter(Boolean));
+    const q = ui.invQuery.trim().toLowerCase();
+    const match = (i) => !q || `${itemOf(M.lib, i).name} ${i.notes || ''}`.toLowerCase().includes(q);
+    const boxes = inv.filter((i) => i.container);
+    const loose = inv.filter((i) => !i.container && !(i.containerUid && boxes.some((b) => b.uid === i.containerUid)));
+    const search = (M.sheet.inventory || []).length > 8 ? h('input.inp.inp-search', { type: 'search', placeholder: 'Search your gear', value: ui.invQuery, 'aria-label': 'Search inventory', oninput: (e) => { ui.invQuery = e.target.value; const sel = e.target.selectionStart; draw(true); const n = root.querySelector('.inp-search'); n?.focus(); n?.setSelectionRange(sel, sel); } }) : null;
+    ui.openBoxes ??= {};
+    return h('section.sh-block.sh-backpack',
+      h('h2.blk-t', 'Backpack', h('span.blk-n', String(inv.length))),
+      search,
+      boxes.map((b) => {
+        const inside = inv.filter((i) => i.containerUid === b.uid && match(i));
+        const open = ui.openBoxes[b.uid] ?? true;
+        return h('details.bag', { open: open || !!q, ontoggle: (e) => { ui.openBoxes[b.uid] = e.target.open; } },
+          h('summary', icon('down', { size: 14 }), h('b', itemOf(M.lib, b).name), h('span.dim', `${inv.filter((i) => i.containerUid === b.uid).length} inside`),
+            h('button.icon-btn.bag-i', { type: 'button', 'aria-label': `About ${itemOf(M.lib, b).name}`, onclick: (e) => { e.preventDefault(); itemDrawer(b.uid); } }, icon('info', { size: 14 }))),
+          inside.length ? h('ul.inv-list', inside.map((i) => invRow(i, hot))) : h('p.empty-s', q ? 'Nothing matches in here.' : 'Empty. Open an item and choose "Put in…".'));
+      }),
+      loose.filter(match).length ? h('ul.inv-list', loose.filter(match).map((i) => invRow(i, hot))) : (inv.length ? null : h('p.empty-s', gm ? 'Empty. Give something from the library.' : 'Empty. The audience has not paid for anything yet.')),
+      gm ? h('div.add-row', h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: () => gmTools?.give?.(player, M) }, icon('gift', { size: 14 }), 'Give from library')) : null,
+    );
+  }
+
+  /* ---------- features, proficiencies, background ---------- */
+
+  function originEntries() {
+    const id = M.sheet.identity || {};
+    const out = [];
+    for (const [kind, val, label] of [['race', id.race, 'Race'], ['class', id.class, 'Class'], ['background', id.background, 'Background']]) {
+      if (!val) continue;
+      const def = (M.lib[kind] || []).find((x) => x.name === val || x.id === val) || (kind === 'race' ? M.rs.races : kind === 'class' ? M.rs.classes : M.rs.backgrounds).find?.((x) => x.name === val || x.id === val) || null;
+      out.push({ kind, label, name: val, def });
+    }
+    return out;
+  }
+  function featuresPanel() {
+    const cards = [];
+    for (const o of originEntries()) {
+      if (o.def?.desc) cards.push(h('article.trait', h('h3', o.name, h('span.trait-k', o.label)), h('p', o.def.desc)));
+      for (const fid of o.def?.features || []) {
+        const f = (M.lib.feature || []).find((x) => x.id === fid || x.name === fid);
+        cards.push(h('article.trait', h('h3', f?.name || humanize(fid), h('span.trait-k', `${o.label}: ${o.name}`)), f?.desc ? h('p', f.desc) : null));
+      }
+    }
+    for (const b of M.sheet.buffs || []) cards.push(h('article.trait', { class: buffNet(b) < 0 ? 'trait neg' : 'trait' }, h('h3', b.name, h('span.trait-k', buffNet(b) < 0 ? 'Debuff' : 'Buff')), b.desc ? h('p', b.desc) : null, b.until ? h('p.dim', `Lasts: ${b.until}`) : null));
+    return h('section.ph-traits', cards.length ? cards : h('p.empty-s', 'No features or traits yet. They come with race, class and buffs.'));
+  }
+  function proficienciesPanel() {
+    const rs = M.rs;
+    const skip = new Set(['identity', 'story', 'defense']);
+    const fields = rs.fields.filter((f) => !skip.has(f.group) && !rs.storyFields.includes(f.id) && !rs.identity.includes(f.id) && f.type !== 'longtext');
+    const ok = can('sheet');
+    const groups = [...new Set(fields.map((f) => f.group || 'other'))];
+    const skills = (M.sheet.skills || []).slice().sort((a, b) => (b.rank ?? 0) - (a.rank ?? 0) || a.name.localeCompare(b.name));
+    return h('section.ph-prof',
+      groups.map((g) => h('div.sh-block', h('h2.blk-t', humanize(g)),
+        h('dl.kv', fields.filter((f) => (f.group || 'other') === g).map((f) => h('div', h('dt', f.label),
+          h('dd', ui.editing && ok ? field(M.sheet.fields?.[f.id] ?? f.default ?? '', { type: f.type === 'number' ? 'number' : 'text', attrs: { 'aria-label': f.label }, onCommit: (x) => act({ t: 'sheet.set', path: `fields.${f.id}`, value: x }) }) : String(M.sheet.fields?.[f.id] ?? f.default ?? '—'))))))),
+      h('div.sh-block', h('h2.blk-t', 'Training'),
+        skills.length ? h('ul.prof-chips', skills.map((s) => h('li', h('b', s.name), h('span', `Rank ${s.rank ?? 0}`)))) : h('p.empty-s', 'No trained skills yet.')),
+    );
+  }
+  function backgroundPanel() {
+    const id = M.sheet.identity || {};
+    const ok = can('story');
+    const story = (M.rs.storyFields.length ? M.rs.storyFields : []).filter((x) => x !== 'notes');
+    const facts = [['Background', id.background], ['Pronouns', id.pronouns], ['Crawler', id.crawlerNumber ? `#${id.crawlerNumber}` : ''], ['Floor', id.floor]].filter(([, v]) => v != null && v !== '');
+    return h('section.ph-bg',
+      facts.length ? h('dl.kv', facts.map(([k, v]) => h('div', h('dt', k), h('dd', String(v))))) : null,
+      story.length ? story.map((sid) => {
+        const f = M.rs.fields.find((x) => x.id === sid);
+        return labeled(f?.label || humanize(sid), field(M.sheet.story?.[sid] ?? '', { multiline: true, rows: 3, disabled: !ok, onCommit: (x) => act({ t: 'sheet.set', path: `story.${sid}`, value: x }) }));
+      }) : h('p.empty-s', 'This pack has no background fields.'),
+      !ok ? lockHint(lockText()) : null,
+    );
+  }
+  function notesPanel() {
+    const ok = can('notes');
+    return h('section.ph-notes',
+      !ok ? lockHint(lockText()) : null,
+      field(M.sheet.story?.notes ?? player.notes ?? '', { multiline: true, rows: 12, disabled: !ok, placeholder: 'Names, clues, loot you promised to share, grudges…', attrs: { 'aria-label': 'Notes' }, onCommit: (x) => act({ t: 'sheet.set', path: 'story.notes', value: x }) }),
+    );
+  }
+
+  /* ---------- phone layout (D&D Beyond-style): sticky crawler bar, stats, section tabs ---------- */
+
+  const PSECTIONS = [
+    { id: 'skills', label: 'Skills' },
+    { id: 'actions', label: 'Actions' },
+    { id: 'inventory', label: 'Inventory' },
+    { id: 'spells', label: 'Spells' },
+    { id: 'features', label: 'Features & Traits' },
+    { id: 'prof', label: 'Proficiencies & Training' },
+    { id: 'background', label: 'Background' },
+    { id: 'notes', label: 'Notes' },
+  ];
+  function phoneSections() {
+    return PSECTIONS.filter((t) => t.id !== 'spells' || (M.sheet.spells || []).length)
+      .map((t) => ({ ...t, count: t.id === 'skills' ? M.sheet.skills?.length || '' : t.id === 'inventory' ? M.sheet.inventory?.length || '' : t.id === 'spells' ? M.sheet.spells?.length : '' }));
+  }
+  /** The "inspiration" slot: a number field the pack names favor / inspiration / luck / hero. */
+  function luckField() {
+    return M.rs.fields.find((f) => f.type === 'number' && /favou?r|inspir|luck|hero|fate/i.test(`${f.id} ${f.label}`)) || null;
+  }
+  function phoneTop() {
+    const id = M.sheet.identity || {};
+    const name = id.name || player.name || 'Crawler';
+    const okT = can('tracks');
+    const bars = M.rs.tracks.slice(0, 2).map((t, k) => {
+      const c = M.computed.tracks?.[t.id] || M.sheet.tracks?.[t.id] || { cur: 0, max: 0 };
+      const max = t.kind === 'slots' ? (t.slots || c.max || 10) : Number(c.max) || 0;
+      const cur = Math.max(0, Number(c.cur) || 0);
+      const pct = max > 0 ? Math.min(100, (cur / max) * 100) : 0;
+      const step = (d) => h('button.ph-step', { type: 'button', disabled: !okT || (d < 0 ? cur <= 0 : cur >= max), 'aria-label': `${t.label} ${d < 0 ? 'minus' : 'plus'} 1`, onclick: () => act({ t: 'track.set', track: t.id, delta: d }) }, icon(d < 0 ? 'minus' : 'plus', { size: 16 }));
+      return h('div.ph-track', { 'data-track': t.id, class: `ph-track${pct <= 30 ? ' low' : ''}${k === 0 ? ' main' : ''}` },
+        k === 0 ? step(-1) : null,
+        h('div.ph-bar', { role: 'meter', 'aria-valuenow': cur, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-label': t.label },
+          h('i.ph-fill', { style: { width: `${pct}%` } }), h('span.ph-bl', t.label), h('b.ph-bv', `${cur}`, h('small', `/${max}`))),
+        k === 0 ? step(1) : null);
+    });
+    const lf = luckField();
+    const lv = lf ? Number(M.sheet.fields?.[lf.id] ?? lf.default ?? 0) : null;
+    const extra = extraTabs() || [];
+    const unread = extra.reduce((n, x) => n + (Number(x.badge) || 0), 0);
+    return h('header.ph-top',
+      h('div.ph-row',
+        portraitButton(name, 44),
+        h('div.ph-id', h('b.ph-name', name), h('span.ph-lv', `Level ${id.level ?? player.level ?? 1}`, top ? top() : null)),
+        lf ? h('div.ph-luck', { title: lf.label },
+          h('span.ph-luck-l', lf.label),
+          h('div.ph-luck-v',
+            can('sheet') ? h('button.ph-mini', { type: 'button', disabled: lv <= 0, 'aria-label': `${lf.label} minus 1`, onclick: () => act({ t: 'sheet.set', path: `fields.${lf.id}`, value: lv - 1 }) }, icon('minus', { size: 12 })) : null,
+            h('b', String(lv)),
+            can('sheet') ? h('button.ph-mini', { type: 'button', 'aria-label': `${lf.label} plus 1`, onclick: () => act({ t: 'sheet.set', path: `fields.${lf.id}`, value: lv + 1 }) }, icon('plus', { size: 12 })) : null)) : null,
+        h('button.ph-menu', { type: 'button', 'aria-label': unread ? `Menu, ${unread} unread` : 'Menu', onclick: () => phoneMenu() }, icon('more', { size: 22 }), unread ? h('span.ph-badge', String(unread)) : null),
+      ),
+      h('div.ph-tracks', bars),
+    );
+  }
+  function phoneMenu() {
+    const extra = extraTabs() || [];
+    const row = (ic, label, sub, badge, fn) => h('li', h('button.more-row', { type: 'button', onclick: fn }, icon(ic, { size: 20 }), h('span', h('b', label), sub ? h('small', sub) : null), badge ? h('span.ph-badge.inline', String(badge)) : icon('chevron', { size: 16 })));
+    const canEdit = gm || can('story');
+    openDrawer({
+      title: player.name || 'Menu',
+      body: h('ul.more-list',
+        extra.map((x) => row(x.id === 'msg' ? 'chat' : 'star', x.label, null, x.badge, () => { closeDrawer(); openDrawer({ title: x.label, body: x.render(), onClose: () => draw(true) }); })),
+        canEdit ? row('edit', ui.editing ? 'Stop editing' : 'Edit sheet', 'Identity, stats, counters', null, () => { closeDrawer(); ui.editing = !ui.editing; draw(true); }) : null,
+        (gm || can('sheet')) && onBuilder ? row('sparkle', 'Character builder', 'Step by step', null, () => { closeDrawer(); onBuilder(M, player); }) : null,
+        (gm || can('sheet')) ? row('users', 'Character picture', 'Shown on the TV', null, () => { closeDrawer(); portraitMenu(); }) : null,
+        (moreItems() || []).map((x) => row(x.icon || 'chevron', x.label, x.sub, x.badge, () => { closeDrawer(); x.onClick(); })),
+      ),
+    });
+  }
+  function phoneInfo() {
+    const id = M.sheet.identity || {};
+    const line = [id.race, id.class].filter(Boolean).join(' ');
+    const pend = M.sheet.pending && Object.keys(M.sheet.pending).length ? M.sheet.pending : null;
+    const empty = !M.legacy && !id.race && !id.class && !(M.sheet.skills || []).length;
+    return h('section.ph-info',
+      h('p.ph-line', line || (gm ? 'No race or class yet' : 'Race and class: ask your GM'), id.floor != null && id.floor !== '' ? h('span', `Floor ${id.floor}`) : null,
+        pend ? h('span.pill.pill-on', `Asked: ${Object.values(pend).filter(Boolean).join(' ')}`) : null),
+      empty && onBuilder && (gm || can('sheet')) ? h('div.callout', h('p', h('b', 'This sheet is empty.'), ' The builder takes you through it.'), h('button.btn.btn-primary', { type: 'button', onclick: () => onBuilder(M, player) }, 'Open the builder')) : null,
+      ui.editing ? identityEditor() : null,
+      stats(),
+      defense(),
+      M.rs.legacy ? null : buffs(),
+    );
+  }
+  function phoneSection(id) {
+    switch (id) {
+      case 'actions': return actionsPanel();
+      case 'inventory': return h('div.panel-invsplit',
+        M.rs.slots.length ? h('section.sh-block.sh-equipped', h('h2.blk-t', 'Equipped'), gearPanel()) : null,
+        backpack(),
+        M.rs.hotlist?.size ? h('section.sh-block.ph-hot', h('h2.blk-t', 'Hotlist'), hotlistPanel()) : null);
+      case 'spells': return spellsPanel();
+      case 'features': return featuresPanel();
+      case 'prof': return proficienciesPanel();
+      case 'background': return backgroundPanel();
+      case 'notes': return notesPanel();
+      default: return skillsPanel();
+    }
+  }
+  function phoneBody() {
+    const list = phoneSections();
+    if (!list.some((t) => t.id === ui.ptab)) ui.ptab = 'skills';
+    const nav = h('nav.ph-secs', { 'aria-label': 'Sheet sections' }, list.map((t) => h('button', {
+      type: 'button', 'aria-current': ui.ptab === t.id ? 'page' : null, 'data-sec': t.id,
+      onclick: () => {
+        ui.ptab = t.id;
+        try { sessionStorage.setItem(`system.sheetPhoneTab.${mode}`, t.id); } catch {}
+        // Keep the tab bar where it is; when scrolled into a long section, jump to the new section's top.
+        const info = root.querySelector('.ph-info');
+        const topH = root.querySelector('.ph-top')?.offsetHeight || 0;
+        const y = info ? info.getBoundingClientRect().bottom + window.scrollY - topH : 0;
+        draw(true);
+        if (window.scrollY > y) window.scrollTo({ top: y });
+      },
+    }, t.label, t.count ? h('span.tab-n', String(t.count)) : null)));
+    requestAnimationFrame(() => {
+      const top = root.querySelector('.ph-top');
+      if (top) root.style.setProperty('--ph-top-h', `${top.offsetHeight}px`); // section tabs stick under it
+      const cur = root.querySelector('.ph-secs [aria-current]');
+      const bar = cur?.parentElement;
+      if (cur && bar) bar.scrollLeft = Math.max(0, cur.offsetLeft - (bar.clientWidth - cur.offsetWidth) / 2);
+    });
+    return [phoneTop(), phoneInfo(), nav, h('div.ph-panel.tab-panel', { class: `ph-panel tab-panel tp-${ui.ptab}` }, phoneSection(ui.ptab))];
+  }
+
   /* ---------- assemble ---------- */
 
   function draw(force = false) {
     if (!view || !player) return;
     M = sheetModel(view, player);
-    const s = JSON.stringify([player, view.library ? 1 : 0, view.session?.permissions, ui, view.pack?.ruleset?.id, M.lib.item.length, M.lib.spell.length, extraTabs().map((x) => [x.id, x.badge, x.sig])]);
+    const s = JSON.stringify([player, view.library ? 1 : 0, view.session?.permissions, ui, view.pack?.ruleset?.id, M.lib.item.length, M.lib.spell.length, extraTabs().map((x) => [x.id, x.badge, x.sig]), !!phone(), top ? view.audience?.viewers : 0]);
     if (!force && s === sig) return;
     const ae = document.activeElement;
     if (!force && ae?.matches?.('input, textarea, select') && (root.contains(ae) || ae.closest('.drawer'))) { pending = true; return; }
@@ -771,6 +1093,13 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const empty = !M.legacy && !M.sheet.identity?.race && !M.sheet.identity?.class && !(M.sheet.skills || []).length;
     root.classList.toggle('editing', ui.editing);
     root.classList.toggle('legacy', M.rs.legacy);
+    const ph = !!phone();
+    root.classList.toggle('phone', ph);
+    if (ph) {
+      root.replaceChildren(...phoneBody());
+      if (ui.drawer?.kind === 'item') itemDrawer(ui.drawer.uid);
+      return;
+    }
     root.replaceChildren(...[
       header(),
       empty && onBuilder && (gm || can('sheet')) ? h('div.callout', h('p', h('b', 'This sheet is empty.'), gm ? ' Walk through the builder with the player, or fill it in by hand.' : ' The builder takes you through it step by step.'), h('button.btn.btn-primary', { type: 'button', onclick: () => onBuilder(M, player) }, 'Open the builder')) : null,
@@ -790,6 +1119,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     if (pending && !(ae?.matches?.('input, textarea, select') && (root.contains(ae) || ae.closest('.drawer')))) draw();
   }, 0));
   try { ui.tab = sessionStorage.getItem(`system.sheetTab.${mode}`) || null; } catch {}
+  try { ui.ptab = sessionStorage.getItem(`system.sheetPhoneTab.${mode}`) || 'skills'; } catch {}
 
   return {
     el: root,
@@ -801,7 +1131,16 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     },
     redraw: () => draw(true),
     model: () => M,
-    setTab(id) { ui.tab = id; draw(true); },
+    setTab(id) {
+      ui.tab = id;
+      if (phone() && ['msg', 'ach'].includes(id)) {
+        const x = (extraTabs() || []).find((t) => t.id === id);
+        if (x) openDrawer({ title: x.label, body: x.render(), onClose: () => draw(true) });
+        return;
+      }
+      if (phone()) ui.ptab = { attacks: 'actions', gear: 'inventory', hotlist: 'inventory', story: 'background' }[id] || id;
+      draw(true);
+    },
     setEditing(on) { ui.editing = !!on; draw(true); },
     act,
   };

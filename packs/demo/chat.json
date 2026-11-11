@@ -1,162 +1,568 @@
 [
-  {
-    "user": "xX_LootLord_Xx",
-    "text": "open the box open the box OPEN THE BOX"
-  },
-  {
-    "user": "GoblinMom42",
-    "text": "my son could do better and he is a goblin"
-  },
-  {
-    "user": "tentacle_tim",
-    "text": "first time watching, why is everyone screaming"
-  },
-  {
-    "user": "DiceGoblin",
-    "text": "rolled a one? relatable"
-  },
-  {
-    "user": "crit_happens_99",
-    "text": "CRIT CRIT CRIT"
-  },
-  {
-    "user": "SirLurksAlot",
-    "text": "lurking. ignore me."
-  },
-  {
-    "user": "spoon_enjoyer",
-    "text": "i hope they find a spoon"
-  },
-  {
-    "user": "NotAMimic",
-    "text": "that chest looks totally normal, go ahead"
-  },
-  {
-    "user": "mossy_steve",
-    "text": "is the wizard ok"
-  },
-  {
-    "user": "BananaPaladin",
-    "text": "F in the chat"
-  },
-  {
-    "user": "sad_skeleton",
-    "text": "F"
-  },
-  {
-    "user": "QuestGiverKaren",
-    "text": "i want to speak to the dungeon manager"
-  },
-  {
-    "user": "pixelpotato",
-    "text": "W team"
-  },
-  {
-    "user": "ratking_official",
-    "text": "the rats are rooting for you. sort of"
-  },
-  {
-    "user": "VoidSnacks",
-    "text": "this is better than my real life"
-  },
-  {
-    "user": "moonpie_mage",
-    "text": "who gave them a torch, they will burn everything"
-  },
-  {
-    "user": "LegallyAWizard",
-    "text": "wizard diff"
-  },
-  {
-    "user": "bard_of_bad_ideas",
-    "text": "play a song! no wait, don't"
-  },
-  {
-    "user": "GrumpyGolem",
-    "text": "boring. more explosions"
-  },
-  {
-    "user": "NoodleKnight",
-    "text": "go left. LEFT. why would you go right"
-  },
-  {
-    "user": "chest_inspector",
-    "text": "rating that loot a 3 out of 10"
-  },
-  {
-    "user": "ZomboniDriver",
-    "text": "my money's on the monster"
-  },
-  {
-    "user": "lil_lich",
-    "text": "dying is just a lifestyle choice"
-  },
-  {
-    "user": "Captain_Shoulda",
-    "text": "should have rested first"
-  },
-  {
-    "user": "frog_with_hat",
-    "text": "ribbit (supportive)"
-  },
-  {
-    "user": "OwlbearHugs",
-    "text": "hug the boss. trust me"
-  },
-  {
-    "user": "salt_merchant",
-    "text": "salt? anyone need salt?"
-  },
-  {
-    "user": "HypeLord_Doom",
-    "text": "HYPE"
-  },
-  {
-    "user": "nap_cleric",
-    "text": "heal the tank!!!"
-  },
-  {
-    "user": "Sir_Clicksalot",
-    "text": "clip that"
-  },
-  {
-    "user": "Granny_Grimoire",
-    "text": "back in my day dungeons had standards"
-  },
-  {
-    "user": "slimetime_sam",
-    "text": "the slime deserved better"
-  },
-  {
-    "user": "MimicSupporter",
-    "text": "justice for the mimic"
-  },
-  {
-    "user": "TrapEnjoyer",
-    "text": "step on it. step on it."
-  },
-  {
-    "user": "Couch_Barbarian",
-    "text": "honestly i would have died ten minutes ago"
-  },
-  {
-    "user": "nineteen_hp_left",
-    "text": "they're fine. probably."
-  },
-  {
-    "user": "the_real_boss",
-    "text": "i'm not worried."
-  },
-  {
-    "user": "dungeon_dad",
-    "text": "proud of you kiddo"
-  },
-  {
-    "user": "AFK_Ranger",
-    "text": "what did i miss"
-  },
-  {
-    "user": "Hype_Hamster",
-    "text": "LETS GOOOO"
-  }
+ {
+  "user": "SirLurksAlot",
+  "text": "lurking. ignore me",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "i hope they find a spoon",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "GoblinMom42",
+  "text": "my son could do better and he is a goblin",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "first time watching, why is everyone screaming",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "modbot_beep",
+  "text": "be nice in chat. or at least funny",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "SnackGremlin",
+  "text": "brb getting snacks. do not die without me",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "ODDS UPDATE: STILL BAD",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "moon_jelly",
+  "text": "it is very late on my moon",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "ceiling_fan",
+  "text": "the ceiling is doing great tonight",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "QuestGiverKaren",
+  "text": "i would like to speak to the dungeon manager",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "retired_lich",
+  "text": "back in my day dungeons had standards",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "Bloop",
+  "text": "bloop",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "whats_this",
+  "text": "wat is hapening, i just got here",
+  "tags": [
+   "idle"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "WE ARE SO BACK",
+  "tags": [
+   "lobby"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "PRE-SHOW BETS OPEN. FAVORITE: NOBODY",
+  "tags": [
+   "lobby"
+  ]
+ },
+ {
+  "user": "{player}_fanclub",
+  "text": "{player} {player} {player}",
+  "tags": [
+   "lobby"
+  ]
+ },
+ {
+  "user": "SnackGremlin",
+  "text": "blanket on. snacks out. ready",
+  "tags": [
+   "lobby"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "who dies first, place your bets",
+  "tags": [
+   "lobby"
+  ]
+ },
+ {
+  "user": "NoodleKnight",
+  "text": "go left. LEFT",
+  "tags": [
+   "explore"
+  ]
+ },
+ {
+  "user": "NotAMimic3",
+  "text": "that chest looks totally normal, open it",
+  "tags": [
+   "explore"
+  ]
+ },
+ {
+  "user": "map_goblin",
+  "text": "they are walking in circles and i love it",
+  "tags": [
+   "explore"
+  ]
+ },
+ {
+  "user": "ceiling_fan",
+  "text": "look up. no. ok never mind",
+  "tags": [
+   "explore"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "walking simulator",
+  "tags": [
+   "explore"
+  ]
+ },
+ {
+  "user": "{player}_fanclub",
+  "text": "{player} leading the way like a hero",
+  "tags": [
+   "explore"
+  ]
+ },
+ {
+  "user": "moon_jelly",
+  "text": "the quiet parts are my favorite parts",
+  "tags": [
+   "explore"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "FIGHT FIGHT FIGHT",
+  "tags": [
+   "combat"
+  ],
+  "weight": 2
+ },
+ {
+  "user": "crit_happens_99",
+  "text": "CRIT CRIT CRIT",
+  "tags": [
+   "combat"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "LIVE ODDS: CRAWLERS 2:1, {mob} 3:1",
+  "tags": [
+   "combat"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "not the face",
+  "tags": [
+   "combat"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "finally some action",
+  "tags": [
+   "combat"
+  ]
+ },
+ {
+  "user": "{player}_fanclub",
+  "text": "{player} DO THE THING",
+  "tags": [
+   "combat"
+  ]
+ },
+ {
+  "user": "NoodleKnight",
+  "text": "flank it. does nobody flank",
+  "tags": [
+   "combat"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "hit it with a spoon",
+  "tags": [
+   "combat"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "BOSS FIGHT",
+  "tags": [
+   "boss"
+  ],
+  "weight": 2
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "BOSS DETECTED. ALL IN ON {boss}?",
+  "tags": [
+   "boss"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "{boss} is so big why is it so big",
+  "tags": [
+   "boss"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "now THIS is television",
+  "tags": [
+   "boss"
+  ]
+ },
+ {
+  "user": "{player}_fanclub",
+  "text": "{player} vs {boss}, match of the year",
+  "tags": [
+   "boss"
+  ]
+ },
+ {
+  "user": "modbot_beep",
+  "text": "boss fight! keep spoilers out of chat",
+  "tags": [
+   "boss"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "PHASE CHANGE. PREVIOUS ODDS ARE NOW A LIE",
+  "tags": [
+   "boss_phase"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "IT HAS A SECOND FORM",
+  "tags": [
+   "boss_phase"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "nobody said there was a phase two",
+  "tags": [
+   "boss_phase"
+  ]
+ },
+ {
+  "user": "crit_happens_99",
+  "text": "they need TWO crits now",
+  "tags": [
+   "boss_phase"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "THEY DID IT",
+  "tags": [
+   "boss_defeat"
+  ],
+  "weight": 2
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "PAYOUTS PROCESSING. MANY OF YOU ARE POOR NOW",
+  "tags": [
+   "boss_defeat"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "GG GG GG",
+  "tags": [
+   "boss_defeat"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "ok. fine. that was good",
+  "tags": [
+   "boss_defeat"
+  ]
+ },
+ {
+  "user": "spoon_enjoyer",
+  "text": "rest in pieces {boss}",
+  "tags": [
+   "boss_defeat"
+  ]
+ },
+ {
+  "user": "moon_jelly",
+  "text": "o7 o7 o7",
+  "tags": [
+   "boss_defeat"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "open the box open the box OPEN THE BOX",
+  "tags": [
+   "loot"
+  ]
+ },
+ {
+  "user": "chest_critic",
+  "text": "{item}? i give it a 6 out of 10",
+  "tags": [
+   "loot"
+  ]
+ },
+ {
+  "user": "{player}_fanclub",
+  "text": "{player} deserves every shiny thing",
+  "tags": [
+   "loot"
+  ]
+ },
+ {
+  "user": "SnackGremlin",
+  "text": "is {item} edible",
+  "tags": [
+   "loot"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "{item}. lol",
+  "tags": [
+   "loot"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "ACHIEVEMENT UNLOCKED",
+  "tags": [
+   "achievement"
+  ]
+ },
+ {
+  "user": "{player}_fanclub",
+  "text": "PROUD OF YOU {player}",
+  "tags": [
+   "achievement"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "participation trophy",
+  "tags": [
+   "achievement"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "the System roasting {player} is my favorite part",
+  "tags": [
+   "achievement"
+  ]
+ },
+ {
+  "user": "BananaPaladin",
+  "text": "F",
+  "tags": [
+   "death"
+  ],
+  "weight": 2
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "not {player}. anyone but {player}",
+  "tags": [
+   "death"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "DEATH POOL PAYOUTS ARE PROCESSING",
+  "tags": [
+   "death"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "called it",
+  "tags": [
+   "death"
+  ]
+ },
+ {
+  "user": "moon_jelly",
+  "text": ":( :( :(",
+  "tags": [
+   "death"
+  ]
+ },
+ {
+  "user": "DiceGoblin",
+  "text": "rolled a one? relatable",
+  "tags": [
+   "nat1"
+  ],
+  "weight": 2
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "lmaooo",
+  "tags": [
+   "nat1"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "A ONE. STATISTICALLY INEVITABLE",
+  "tags": [
+   "nat1"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "{player} the dice hate you personally",
+  "tags": [
+   "nat1"
+  ]
+ },
+ {
+  "user": "crit_happens_99",
+  "text": "NAT 20 NAT 20",
+  "tags": [
+   "nat20"
+  ],
+  "weight": 2
+ },
+ {
+  "user": "{player}_fanclub",
+  "text": "{player} IS THE MAIN CHARACTER",
+  "tags": [
+   "nat20"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "TWENTY LETS GOOO",
+  "tags": [
+   "nat20"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "NATURAL 20. ODDS SHIFTING",
+  "tags": [
+   "nat20"
+  ]
+ },
+ {
+  "user": "xX_LootLord_Xx",
+  "text": "THE CLOCK THE CLOCK",
+  "tags": [
+   "countdown"
+  ]
+ },
+ {
+  "user": "OddsBot_9",
+  "text": "TIMER BETS ARE OPEN",
+  "tags": [
+   "countdown"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "i do not like timers",
+  "tags": [
+   "countdown"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "who is THAT",
+  "tags": [
+   "npc"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "talk less, fight more",
+  "tags": [
+   "npc"
+  ]
+ },
+ {
+  "user": "moon_jelly",
+  "text": "new favorite character",
+  "tags": [
+   "npc"
+  ]
+ },
+ {
+  "user": "moon_jelly",
+  "text": "oh good, i missed last week",
+  "tags": [
+   "recap"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "skip the recap",
+  "tags": [
+   "recap"
+  ]
+ },
+ {
+  "user": "tentacle_tim",
+  "text": "i remember none of this and i was watching",
+  "tags": [
+   "recap"
+  ]
+ }
 ]

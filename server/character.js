@@ -12,6 +12,8 @@ export const MAX_ATTACKS = 50;
 export const MAX_SPELLS = 200;
 export const MAX_BUFFS = 50;
 export const MAX_INVENTORY = 500;
+export const MAX_POOLS = 20;
+export const ORIGIN_KEYS = ['race', 'class', 'background'];
 export const MAX_LIB_PER_KIND = 500;
 const FORBIDDEN_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
@@ -81,6 +83,11 @@ export function migrateSheet(sheet, legacy, ruleset) {
     buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0) })),
     story: cleanMap(s.story),
     portrait: typeof s.portrait === 'string' ? s.portrait : null,
+    // Counters like "Lay on Hands": { uid, name, cur, max, desc } (player-trackable, GM/sheet-editable).
+    pools: arr(s.pools).slice(0, MAX_POOLS).map((k) => ({ uid: String(k.uid ?? ''), name: String(k.name ?? 'Pool').slice(0, 60), cur: Math.max(0, finite(k.cur, 0)), max: Math.max(0, finite(k.max, 0)), desc: String(k.desc ?? '').slice(0, 1000) })).filter((k) => k.uid),
+    // Race / class / background the player asked for (allowOrigins), waiting for the GM; locked once approved.
+    pending: isObj(s.pending) ? Object.fromEntries(ORIGIN_KEYS.filter((k) => typeof s.pending[k] === 'string').map((k) => [k, s.pending[k].slice(0, 40)])) : {},
+    originsLocked: !!s.originsLocked,
   };
 }
 
@@ -92,6 +99,7 @@ export function migrateInventory(inv, ruleset) {
     qty: Number.isInteger(i.qty) && i.qty >= 0 ? i.qty : 1,
     notes: typeof i.notes === 'string' ? i.notes : '',
     equippedSlot: typeof i.equippedSlot === 'string' && slots.has(i.equippedSlot) ? i.equippedSlot : null,
+    containerUid: typeof i.containerUid === 'string' ? i.containerUid : null,
   }));
 }
 
@@ -109,6 +117,7 @@ export function invItem(item, ctx) {
     qty: 1,
     notes: '',
     equippedSlot: null,
+    containerUid: null,
   };
 }
 
@@ -178,6 +187,9 @@ export function characterOf(p, ruleset) {
     buffs: sh.buffs,
     story,
     portrait: sh.portrait,
+    pools: sh.pools ?? [],
+    pending: sh.pending ?? {},
+    originsLocked: !!sh.originsLocked,
   };
 }
 
@@ -186,6 +198,9 @@ export function computeFor(p, pack, library) {
   return { ch, computed: computeSheet(ch, pack.ruleset, library) };
 }
 
+/** Library items tagged "container" (bag of holding, backpack…) can hold other inventory entries. */
+export const isContainer = (def) => !!def && (def.container === true || (def.tags ?? []).includes('container'));
+
 export function enrichInventory(inv, library) {
   return inv.map((i) => {
     const def = library.get('item', i.itemId);
@@ -193,7 +208,7 @@ export function enrichInventory(inv, library) {
     return {
       ...i,
       name: def.name, desc: def.desc, flavor: def.flavor ?? '', rarity: def.rarity, image: def.image ?? i.image ?? null,
-      slot: def.slot ?? null, stackable: !!def.stackable, effects: def.effects ?? [], attack: def.attack ?? null, use: def.use ?? null, tags: def.tags ?? [], source: def.source,
+      container: isContainer(def), slot: def.slot ?? null, stackable: !!def.stackable, effects: def.effects ?? [], attack: def.attack ?? null, use: def.use ?? null, tags: def.tags ?? [], source: def.source,
     };
   });
 }
@@ -371,6 +386,7 @@ function addBuff(p, buff, ruleset) {
 
 function removeInv(p, uid) {
   p.inventory = p.inventory.filter((i) => i.uid !== uid);
+  for (const i of p.inventory) if (i.containerUid === uid) i.containerUid = null;
   p.sheet.hotlist = p.sheet.hotlist.map((x) => (x === uid ? null : x));
 }
 
@@ -441,7 +457,7 @@ function setPath(p, path, value, pack, out) {
   const seg = path.split('.');
   if (!seg.every(safeKey)) throw bad(`bad path ${JSON.stringify(path)}`);
   const [root, key, part] = seg;
-  const idKeys = new Set([...ruleset.identity, 'name', 'level', 'race', 'class', 'floor', 'pronouns']);
+  const idKeys = new Set([...ruleset.identity, 'name', 'level', 'race', 'class', 'background', 'floor', 'pronouns']);
   const storyKeys = new Set([...ruleset.storyFields, 'notes']);
   const fieldDef = (id) => ruleset.fields.find((f) => f.id === id);
   const textFor = (id, v, max) => {
@@ -520,7 +536,70 @@ export const SHEET = {
     const notesOnly = root === 'story' || (root === 'fields' && ctx.pack.ruleset.storyFields.includes(key));
     const p = targetOf(st, a, ctx, notesOnly ? 'notes' : 'sheet');
     if (a.value === undefined) throw bad('value required');
+    if (ctx.actor.role !== 'gm' && root === 'identity' && ORIGIN_KEYS.includes(key) && a.path.split('.').length === 2) {
+      // Players never set race / class / background directly: with allowOrigins it becomes a request.
+      const v = str(a.value, key, 40, { allowEmpty: true });
+      const cur = key === 'race' ? p.race : key === 'class' ? p.klass : p.sheet.identity.background;
+      if (v === (cur ?? '') && !(key in p.sheet.pending)) { out.changed = false; return; } // unchanged (builder re-sends it)
+      if (!st.session.permissions?.allowOrigins) throw forbidden('race, class and background are set by the GM');
+      if (p.sheet.originsLocked) throw forbidden('the GM approved your origins; ask the GM to change them');
+      if (v === (cur ?? '')) delete p.sheet.pending[key];
+      else p.sheet.pending[key] = v;
+      out.result = { pending: { ...p.sheet.pending } };
+      if (Object.keys(p.sheet.pending).length) out.emit({ kind: 'originsRequest', playerId: p.id, name: p.name, pending: { ...p.sheet.pending } }, { roles: ['gm'] });
+      return;
+    }
     setPath(p, a.path, a.value, ctx.pack, out);
+  },
+
+  'pool.add'(st, a, ctx, out) {
+    const p = targetOf(st, a, ctx, 'sheet');
+    if (p.sheet.pools.length >= MAX_POOLS) throw bad(`max ${MAX_POOLS} pools`);
+    const max = int(a.max, 'max', 0, 9999);
+    const pool = { uid: ctx.genId('pl'), name: str(a.name, 'name', 60), cur: int(a.cur, 'cur', 0, 9999, { optional: true }) ?? max, max, desc: str(a.desc, 'desc', 1000, { optional: true, allowEmpty: true }) ?? '' };
+    pool.cur = Math.min(pool.cur, pool.max);
+    p.sheet.pools.push(pool);
+    out.result = { uid: pool.uid };
+  },
+
+  'pool.update'(st, a, ctx) {
+    const p = targetOf(st, a, ctx, 'sheet');
+    const pool = findUid(p.sheet.pools, a.uid, 'pool');
+    const name = str(a.name, 'name', 60, { optional: true });
+    const desc = str(a.desc, 'desc', 1000, { optional: true, allowEmpty: true });
+    const max = int(a.max, 'max', 0, 9999, { optional: true });
+    if (name !== undefined) pool.name = name;
+    if (desc !== undefined) pool.desc = desc;
+    if (max !== undefined) { pool.max = max; pool.cur = Math.min(pool.cur, max); }
+  },
+
+  /** Spend / regain from a pool: always allowed for the own character (like rolling), clamped 0..max. */
+  'pool.set'(st, a, ctx) {
+    const p = targetOf(st, a, ctx, 'play');
+    const pool = findUid(p.sheet.pools, a.uid, 'pool');
+    if (a.delta !== undefined) pool.cur = Math.max(0, Math.min(pool.max, pool.cur + int(a.delta, 'delta', -9999, 9999)));
+    else pool.cur = Math.max(0, Math.min(pool.max, int(a.cur, 'cur', 0, 9999)));
+  },
+
+  'pool.remove'(st, a, ctx) {
+    const p = targetOf(st, a, ctx, 'sheet');
+    findUid(p.sheet.pools, a.uid, 'pool');
+    p.sheet.pools = p.sheet.pools.filter((x) => x.uid !== a.uid);
+  },
+
+  /** Puts an inventory entry into a container item (bag of holding), or back out (into: null). */
+  'item.move'(st, a, ctx) {
+    const p = targetOf(st, a, ctx, 'sheet');
+    const inv = findUid(p.inventory, a.uid, 'item');
+    if (a.into === null) { inv.containerUid = null; return; }
+    const box = findUid(p.inventory, a.into, 'container');
+    const library = libraryOf(st, ctx.pack);
+    if (!isContainer(library.get('item', box.itemId))) throw bad(`${box.name} is not a container`);
+    if (box.uid === inv.uid) throw bad('an item cannot go inside itself');
+    if (isContainer(library.get('item', inv.itemId))) throw bad('containers cannot go inside other containers');
+    if (box.containerUid) throw bad(`${box.name} is inside another container`);
+    inv.containerUid = box.uid;
+    inv.equippedSlot = null;
   },
 
   'track.set'(st, a, ctx, out) {
@@ -667,6 +746,7 @@ export const SHEET = {
     const used = p.inventory.filter((i) => i.equippedSlot === slot.id && i.uid !== inv.uid).length;
     if (used >= slot.max) throw bad(`${slot.label} is full (max ${slot.max})`);
     inv.equippedSlot = slot.id;
+    inv.containerUid = null;
   },
 
   'item.qty'(st, a, ctx) {
@@ -965,8 +1045,33 @@ export const SHEET_GM = {
   },
 
   'session.permissions'(st, a) {
-    if (!PLAYER_EDIT.includes(a.playerEdit)) throw bad(`playerEdit must be one of ${PLAYER_EDIT.join(', ')}`);
-    st.session.permissions = { ...(st.session.permissions ?? {}), playerEdit: a.playerEdit };
+    if (a.playerEdit === undefined && a.allowOrigins === undefined) throw bad('playerEdit or allowOrigins required');
+    if (a.playerEdit !== undefined && !PLAYER_EDIT.includes(a.playerEdit)) throw bad(`playerEdit must be one of ${PLAYER_EDIT.join(', ')}`);
+    if (a.allowOrigins !== undefined && typeof a.allowOrigins !== 'boolean') throw bad('allowOrigins must be a boolean');
+    st.session.permissions = { ...(st.session.permissions ?? {}), ...(a.playerEdit !== undefined ? { playerEdit: a.playerEdit } : {}), ...(a.allowOrigins !== undefined ? { allowOrigins: a.allowOrigins } : {}) };
+  },
+
+  /** Applies the player's requested race / class / background and locks them for the player. */
+  'origins.approve'(st, a, ctx, out) {
+    const p = playerOf(st, a.playerId);
+    const pend = p.sheet.pending ?? {};
+    if (!Object.keys(pend).length) throw bad(`${p.name} has no origin request`);
+    for (const [k, v] of Object.entries(pend)) setPath(p, `identity.${k}`, v, ctx.pack, out);
+    p.sheet.pending = {};
+    p.sheet.originsLocked = true;
+    out.result = { race: p.race, class: p.klass, background: p.sheet.identity.background ?? '' };
+  },
+
+  'origins.deny'(st, a) {
+    const p = playerOf(st, a.playerId);
+    p.sheet.pending = {};
+  },
+
+  /** GM: let the player choose again (clears the lock) or lock without a request. */
+  'origins.lock'(st, a) {
+    const p = playerOf(st, a.playerId);
+    if (typeof a.locked !== 'boolean') throw bad('locked must be a boolean');
+    p.sheet.originsLocked = a.locked;
   },
 };
 

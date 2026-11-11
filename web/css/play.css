@@ -226,3 +226,35 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
   .ticker-track { animation: none; padding-left: 16px; }
   .box.shake { animation: none; }
 }
+
+/* ---------- first visit: start screen ---------- */
+
+.start { min-height: calc(100dvh - 120px); display: grid; place-items: center; padding: 24px 8px; }
+.start[hidden] { display: none; }
+.start-inner { width: min(100%, 440px); display: grid; gap: 14px; justify-items: start; padding: 24px 22px; background: var(--c-panel); border: 1px solid var(--c-line); border-top: 4px solid var(--me); border-radius: var(--r-2); }
+.start-k { margin: 0; font-family: var(--f-ui); font-weight: 600; color: var(--c-ink-3); }
+.start-t { margin: 0; font-family: var(--f-ui); font-weight: 700; font-size: 34px; line-height: 1.05; overflow-wrap: anywhere; }
+.start-d { margin: 0; font-size: 16px; line-height: 1.5; color: var(--c-ink-2); max-width: 36ch; }
+.tool .start-go { width: 100%; min-height: 52px; font-size: 17px; }
+.tool .start-skip { width: 100%; min-height: 44px; }
+.start-tip { margin: 4px 0 0; font-size: 13px; color: var(--c-ink-3); }
+
+.tool .log-close { display: none; }
+.to-face { width: 96px; height: 96px; object-fit: cover; border: 3px solid var(--glow, var(--cyan)); box-shadow: 0 0 30px -4px var(--glow, var(--cyan)); animation: slam 0.5s var(--ease-slam) both; }
+
+/* ---------- phones: the sheet is the app ---------- */
+
+@media (max-width: 699px) {
+  body.play { padding-bottom: 0; }
+  body.play .appbar, body.play .ticker { display: none; }
+  .app-cols { padding: 0 12px; gap: 0; }
+  body.log-open .log-rail { top: 0; height: 100dvh; border-radius: 0; z-index: 60; display: flex; flex-direction: column; padding-top: env(safe-area-inset-top); }
+  body.log-open .log-rail > :not(.log-close) { flex: 1; min-height: 0; }
+  .tool .log-close { display: flex; justify-content: flex-start; min-height: 48px !important; margin: 4px 8px; flex: none; }
+  .tool-page .drawer, .tool-page .drawer.wide { top: 0; max-height: 100dvh; height: 100dvh; border-radius: 0; border-top: 0; }
+  .tool-page .drawer-head { padding-top: max(var(--sp-4), env(safe-area-inset-top)); }
+  .tool-page .drawer-head .icon-btn { width: 44px; height: 44px; }
+  .tool-page .drawer .btn { min-height: 44px; }
+  .tool-page .drawer .inp { min-height: 44px; font-size: 16px; }
+  .tool-page .ask-dlg .btn { min-height: 44px; }
+}

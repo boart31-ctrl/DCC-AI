@@ -1,6 +1,6 @@
 // Step-by-step character builder: Identity → Origins → Stats → Skills → Starting gear → Review.
 // Nothing is sent until Review; then the builder sends the same actions a hand edit would.
-import { h, toast } from './client.js';
+import { h, toast, ask } from './client.js';
 import { evaluate } from './rules.js';
 import { icon, signed, field, select, labeled } from './ui.js';
 
@@ -20,8 +20,12 @@ const STEPS = [
  * @param {boolean} o.gm
  * @param {(a:object)=>Promise} o.act  sheet act() (adds playerId for the GM)
  */
-export function openBuilder({ model: M, player, gm, act }) {
+export function openBuilder({ model: M, player, gm, act, allowOrigins = false }) {
   const rs = M.rs;
+  // Race / class / background: the GM decides. Players only see the step when the GM allows requests,
+  // and only until the GM approved one (then they are locked).
+  const originsOpen = gm || (allowOrigins && !M.sheet.originsLocked);
+  const steps = STEPS.filter((x) => x.id !== 'origins' || originsOpen);
   const id = M.sheet.identity || {};
   const d = {
     identity: { name: id.name || player.name || '', pronouns: id.pronouns || '', crawlerNumber: id.crawlerNumber || '', floor: id.floor ?? 1, level: id.level ?? player.level ?? 1 },
@@ -39,29 +43,41 @@ export function openBuilder({ model: M, player, gm, act }) {
   const dlg = h('dialog.builder.tool', { 'aria-label': 'Character builder' });
   const nav = h('ol.bld-steps');
   const body = h('div.bld-body');
-  const back = h('button.btn', { type: 'button', onclick: () => go(step - 1) }, 'Back');
-  const next = h('button.btn.btn-primary', { type: 'button', onclick: () => (step === STEPS.length - 1 ? save() : go(step + 1)) });
+  const back = h('button.btn.bld-back', { type: 'button', onclick: () => go(step - 1) }, 'Back');
+  const next = h('button.btn.btn-primary.bld-next', { type: 'button', onclick: () => (step === steps.length - 1 ? save() : go(step + 1)) });
+  // Never a trap: every step can leave without saving, or save what is there so far.
+  const skip = h('button.btn.btn-quiet.bld-skip', { type: 'button', title: 'Close without saving. The builder is on the sheet whenever you want it.', onclick: () => skipOut() }, 'Skip, finish later');
+  const saveNow = h('button.btn.bld-save', { type: 'button', title: 'Save what is filled in so far and close', onclick: () => save() }, 'Save & close');
   dlg.append(
     h('header.bld-head',
-      h('div', h('h2', 'Character builder'), h('p.dim', `${d.identity.name || 'New crawler'}. Nothing is saved until the last step.`)),
-      h('button.icon-btn', { type: 'button', 'aria-label': 'Close builder', onclick: () => close() }, icon('x', { size: 18 })),
+      h('div', h('h2', 'Character builder'), h('p.dim', `${d.identity.name || 'New crawler'}. Save & close keeps what you filled in; Skip leaves the sheet as it was.`)),
+      h('button.icon-btn', { type: 'button', 'aria-label': 'Close builder', onclick: () => skipOut() }, icon('x', { size: 18 })),
     ),
     nav, body,
-    h('footer.bld-foot', back, h('span.grow'), next),
+    h('footer.bld-foot', back, skip, h('span.grow'), saveNow, next),
   );
-  dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); skipOut(); });
+  let touched = false;
+  dlg.addEventListener('change', () => { touched = true; });
+  dlg.addEventListener('click', (e) => { if (e.target.closest('.pick-card')) touched = true; });
+  async function skipOut() {
+    if (touched && !(await ask('Close the builder without saving? What you picked here is dropped. Save & close keeps it.', { ok: 'Close without saving', cancel: 'Keep building' }))) return;
+    close();
+    toast('Builder closed. Open it again from the sheet any time.');
+  }
   document.body.append(dlg);
   dlg.showModal();
 
   function close() { try { dlg.close(); } catch {} dlg.remove(); }
 
   function go(i) {
-    step = Math.max(0, Math.min(STEPS.length - 1, i));
-    nav.replaceChildren(...STEPS.map((s, j) => h('li', { class: j === step ? 'on' : j < step ? 'done' : null, 'aria-current': j === step ? 'step' : null },
+    step = Math.max(0, Math.min(steps.length - 1, i));
+    nav.replaceChildren(...steps.map((s, j) => h('li', { class: j === step ? 'on' : j < step ? 'done' : null, 'aria-current': j === step ? 'step' : null },
       h('button', { type: 'button', onclick: () => go(j) }, h('span.n', String(j + 1)), h('span.l', s.label)))));
     back.disabled = step === 0;
-    next.textContent = step === STEPS.length - 1 ? 'Save character' : `Next: ${STEPS[step + 1].label}`;
-    body.replaceChildren(render[STEPS[step].id]());
+    next.textContent = step === steps.length - 1 ? 'Save character' : `Next: ${steps[step + 1].label}`;
+    saveNow.hidden = step === steps.length - 1;
+    body.replaceChildren(render[steps[step].id]());
     body.scrollTop = 0;
     body.querySelector('input, select, button.pick-card')?.focus({ preventScroll: true });
   }
@@ -95,7 +111,7 @@ export function openBuilder({ model: M, player, gm, act }) {
         );
       };
       return h('div.bld-step',
-        h('p.bld-lede', 'Pick from the pack, or type your own. Placeholders are fine; the GM can change them later.'),
+        h('p.bld-lede', gm ? 'Pick from the pack, or type your own. Placeholders are fine; you can change them later.' : 'Pick what you would like to play. Your GM approves it; after that it is locked.'),
         group('Race', 'race', libOr('race', rs.races)),
         group('Class', 'class', libOr('class', rs.classes)),
         rs.backgrounds.length || M.lib.background.length ? group('Background', 'background', libOr('background', rs.backgrounds)) : null,
@@ -176,11 +192,19 @@ export function openBuilder({ model: M, player, gm, act }) {
 
   async function save() {
     if (!d.identity.name.trim()) { go(0); toast('Give the character a name first.', { error: true }); return; }
-    next.disabled = true;
+    next.disabled = saveNow.disabled = true;
+    const label = next.textContent;
     next.textContent = 'Saving…';
     const ops = [];
     for (const [k, v] of Object.entries(d.identity)) ops.push({ t: 'sheet.set', path: `identity.${k}`, value: v });
-    for (const k of ['race', 'class', 'background']) if (d[k] || M.sheet.identity?.[k]) ops.push({ t: 'sheet.set', path: `identity.${k}`, value: d[k] });
+    let asked = false;
+    if (originsOpen) {
+      for (const k of ['race', 'class', 'background']) {
+        if ((d[k] || '') === (M.sheet.identity?.[k] || '')) continue;
+        ops.push({ t: 'sheet.set', path: `identity.${k}`, value: d[k] });
+        asked = !gm;
+      }
+    }
     for (const [sid, parts] of Object.entries(d.stats)) for (const [p, v] of Object.entries(parts)) ops.push({ t: 'sheet.set', path: `stats.${sid}.${p}`, value: Number(v) || 0 });
     const have = new Map((M.sheet.skills || []).map((s) => [s.skillId, s]));
     for (const [sid, rank] of d.skills) {
@@ -198,8 +222,8 @@ export function openBuilder({ model: M, player, gm, act }) {
     }
     let failed = 0;
     for (const op of ops) { if (!(await act(op))) failed++; }
-    if (failed) { toast(`${failed} of ${ops.length} changes did not save. Check the sheet.`, { error: true, ms: 5000 }); next.disabled = false; next.textContent = 'Save character'; return; }
-    toast('Character saved.');
+    if (failed) { toast(`${failed} of ${ops.length} changes did not save. Check the sheet.`, { error: true, ms: 5000 }); next.disabled = saveNow.disabled = false; next.textContent = label; return; }
+    toast(asked ? 'Character saved. Race and class went to the GM for approval.' : 'Character saved.');
     close();
   }
 

@@ -1,9 +1,17 @@
 // Shared bits for the TV scenes: timers bound to a scene's lifetime, the party strip with HP
 // slots, boss art with a generated silhouette fallback, and small text helpers.
 // TV budget: transforms + opacity only, no animated filters, no canvas.
-import { h } from '../client.js';
+import { h, portraitSrc } from '../client.js';
 
 export { h };
+
+/** Level badge of a crawler; with a portrait the picture fills the badge and the level sits on it. */
+export function levelBadge(cls, p, level) {
+  const url = portraitSrc(p?.portrait);
+  const el = h(`div.${cls}`, { class: url ? `${cls} has-face` : cls }, h('small', 'Lv'), h('b', String(level ?? 1)));
+  if (url) el.prepend(h('img.face', { src: url, alt: '', decoding: 'async' }));
+  return el;
+}
 
 /** Timers that die with the scene (no stray callbacks after a transition). */
 export function timers() {
@@ -164,7 +172,7 @@ export function partyStrip() {
         'data-id': p.id, 'data-hp': hp ? String(hp.cur) : '',
         style: { '--pc': p.color || '#2ef2ff' },
       },
-      h('div.ps-lvl', h('small', 'Lv'), h('b', String(p.level ?? 1))),
+      levelBadge('ps-lvl', p, p.level),
       h('div.ps-main',
         h('div.ps-name', p.name),
         tr.map((t, i) => trackEl(t, i === 0))),

@@ -54,7 +54,7 @@ the GM view shows player links but never TV tokens or the GM key.
 
 | | |
 |---|---|
-| Message size | max 16 KB (Node: ws `maxPayload`; host: close 1009) |
+| Message size | max 16 KB (host: close 1009). Exception: a GM / player `sheet.set` frame whose first 300 characters hold `"path":"portrait"` (or `identity.portrait`) may be up to 256 KB (portrait upload; Node ws `maxPayload` is 256 KB, the host checks the rest) |
 | Rate | per socket token bucket: GM and stage 20 msg/s (burst 40), players and not-yet-authenticated sockets 10/s (burst 20). Over the limit: message dropped, one `error rate_limited` per second |
 | Sockets | max 40 per campaign (close 1013 / HTTP 503) |
 | Hello | sockets without a successful `hello` within 10 s are closed (4000) |
@@ -215,15 +215,25 @@ Access additions (both editions):
     "requests": [ { "id": "rq_...", "name": "Lucie", "wants": "p_x7" | null, "at": 0 } ],
     "tvs": [ { "id": "tv_...", "label": "Living room", "at": 0, "connected": 1 } ],
     "tvWaiting": 0,
+    "stagesOn": 1,
     "access": { "edition": "cloud" | "node", "legacy": false, "keyLogin": true, "backups": true, "maxTvs": 3 }
   }
 }
 ```
-Cloudflare edition: `gm.pins` is `{}` (no PIN login), `gm.joinUrl` / stage `joinUrl` = `<origin>/join`,
+`stagesOn` = stage sockets on air right now (paired TVs and stage pages opened with the GM key); the desk's
+TV button and setup checklist use it. Cloudflare edition: `gm.pins` is `{}` (no PIN login), `gm.joinUrl` / stage `joinUrl` = `<origin>/join`,
 `gm.stageUrl` = `<origin>/tv`.
 
 ### Stage view
 Common fields + `"joinUrl"` (for the QR code) + `"queueLength"`.
+
+### Portraits
+`players[]` (every role) carries `portrait`: a crawler's picture (`sheet.portrait`), so the TV strip, arena,
+lobby and takeovers can show it. Uploaded pictures are data: URLs of up to ~150 KB; to keep views small the
+host replaces every data: URL in a view (`players[].portrait`, `me.sheet.portrait`, `gm.playersFull[].sheet.portrait`)
+with a ref `"portrait:<hash>"` and sends the pictures themselves once per socket, before the view that first uses
+them: `{ "t": "portraits", "portraits": { "portrait:<hash>": "data:image/webp;base64,…" } }`. http(s) and `/pack/`
+URLs pass through unchanged. Clients resolve refs with a cache (`portraitSrc()` in web/js/client.js).
 
 ## 3. GM actions (client → server)
 
@@ -258,7 +268,10 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.card.remove` | `id` | |
 | `prep.card.fire` | `id`, `playerId?`, `to?` | Runs the card's action with its payload (`playerId`/`to` override it), marks the card `used`. Same events/voice lines as the underlying action |
 | `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories + homebrew + permissions; clears the dice log) |
-| `session.permissions` | `playerEdit`: `"none"` / `"notes"` / `"sheet"` | What players may change on their own sheet (default `sheet`) |
+| `session.permissions` | `playerEdit?`: `"none"` / `"notes"` / `"sheet"`, `allowOrigins?`: boolean (one or both) | What players may change on their own sheet (default `sheet`). `allowOrigins` (default off): players may *request* race / class / background (see `origins.*`) |
+| `origins.approve` | `playerId` | Applies the player's `sheet.pending` race / class / background and sets `sheet.originsLocked` (the player can no longer change them; the GM still can) |
+| `origins.deny` | `playerId` | Clears `sheet.pending` |
+| `origins.lock` | `playerId`, `locked` (boolean) | Lock / unlock the player's origins without a request |
 | `buff.add` | `playerId`, `buffId` **or** `name`, `effects?`, `external?`, `desc?`, `duration?` | Adds a buff. Enforces `buffSlots.external.max`. A library buff the character already has is not added twice (`result.added: false`) |
 | `buff.remove` | `playerId`, `uid` | |
 | `skills.rankUp` | `playerId?` (all players if omitted) | For every skill with `used: true`: rolls `skills.rankUp.roll`, compares (`gt`/`gte`/`lt`/`lte`) with `target` (number or formula; `rank` = the skill's rank), on success `rank += amount` (default 1, capped at `rankMax`). Clears `used`. Every roll goes to the dice log with `rankUp: {skillUid, name, rule, target, success, from, to}`. Ack `result.results: [{playerId, uid, name, roll, target, success, from, to, rollId}]` |
@@ -466,6 +479,12 @@ the connection. The "player needs" column is the minimum `session.permissions.pl
 | `item.qty` | `uid`, `qty` (0..9999; 0 removes) | `sheet` | |
 | `item.use` | `uid`, `target?` (playerId, GM only unless self) | `play` | Applies the item's `use`: heal a track, remove a buff, apply a buff (on `target`, or on the user when `use.target` is `"self"`; otherwise reported as `pendingBuff` for the GM), consume one (`use.consume`, default = stackable). Event `itemUse`, feed line |
 | `hotlist.set` | `index`, `uid` or null | `sheet` | Hotlisted items count as equipped for effects |
+| `item.move` | `uid`, `into` (uid of a container item, or null = out) | `sheet` | Containers = library items with `container: true` or tag `container` (bag of holding). One level only: no containers inside containers. Equipping takes an item out; removing a container drops its contents into the backpack. Inventory entries carry `containerUid` (null = loose) and enriched `container: true/false` |
+| `pool.add` | `name`, `max`, `cur?`, `desc?` | `sheet` | Counter on the sheet (`sheet.pools[]`: `{uid, name, cur, max, desc}`, max 20), e.g. Lay on Hands |
+| `pool.update` | `uid`, `name?`, `max?`, `desc?` | `sheet` | |
+| `pool.set` | `uid`, `delta` or `cur` | own character (like rolling) | Spend / regain, clamped 0..max |
+| `pool.remove` | `uid` | `sheet` | |
+| `sheet.set` `identity.race` / `class` / `background` | `value` | — | Players: without `allowOrigins` → `forbidden` (re-sending the current value is a no-op). With it the value goes to `sheet.pending` (event `originsRequest {playerId, name, pending}` to the GM) until `origins.approve`; after approval → `forbidden` until the GM unlocks |
 | `roll` | `what`, `secret?` | `play` | `what`: `{kind:"stat", id}` → `dice + mod`; `{kind:"derived", id}` → `derived.roll + value`; `{kind:"skill", uid, markUsed?}` → `skills.check.roll + total`, marks the skill used; `{kind:"attack", uid, part?: "toHit"|"damage"}`; `{kind:"custom", formula, label?}` (formula may use sheet identifiers; GM may omit `playerId`). Server RNG (Web Crypto). Ack `result: {rollId, total}` |
 
 ### Rolls
@@ -520,8 +539,9 @@ the dice RNG (tests); default Web Crypto.
 | `announcement` | `messageId`, `from`, `text` | stage (only for `msg.send` with `onStage: true` and a group recipient) |
 | `secret` | `playerId`, `messageId` | legacy: also sent for every private message, to that player + gm |
 | `viewers` | `viewers`, `delta` | stage, gm |
-| `chat` | `user`, `text` | stage |
+| `chat` | `user`, `text`, `tag` (chat context it was picked for, see CONTENT_PACKS.md `chat.json`) | stage. Calm lines every few seconds while a stage is connected (faster in combat / boss scenes); a burst of 2–6 quick lines after a nat 20 / nat 1, boss intro / phase / defeat, a crawler going down, loot, achievements, countdown and recap scenes. The same moments bump `viewers` (system action `audience.react`). |
 | `joinRequest` | `requestId`, `name` | gm (a phone asked to join, §1a) |
+| `originsRequest` | `playerId`, `name`, `pending` | gm (a player asked for a race / class / background) |
 | `boss.intro` | `sceneId`, `name`, `title`, `intro` | stage, gm (TV cinematic; GM desk plays the sting) |
 | `boss.hit` | `sceneId`, `amount`, `from`, `hp`, `max`, `suggestPhase` | stage, gm |
 | `boss.heal` | `sceneId`, `amount`, `from`, `hp`, `max` | stage, gm |

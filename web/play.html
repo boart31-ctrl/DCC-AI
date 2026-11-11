@@ -74,7 +74,10 @@
       <button type="button" class="btn btn-quiet btn-sm" id="leave" title="Leave this device">Leave</button>
     </header>
     <div class="app-cols">
-      <div class="app-sheet" id="sheet-root"></div>
+      <div class="app-sheet">
+        <section class="start" id="start" hidden aria-live="polite"></section>
+        <div id="sheet-root"></div>
+      </div>
       <aside class="log-rail" id="log-rail" aria-label="Dice log"></aside>
     </div>
     <footer class="ticker" aria-label="Latest from the show">

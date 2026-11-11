@@ -1,6 +1,6 @@
 // Tool-UI primitives shared by the player sheet and the GM desk: icons, signed numbers,
 // the "why" breakdown popover, drawers, segmented tabs, steppers and small form helpers.
-import { h } from './client.js';
+import { h, portraitSrc } from './client.js';
 
 /* ---------------- icons (24px grid, 1.75 stroke, currentColor) ---------------- */
 
@@ -38,6 +38,12 @@ const PATHS = {
   eye: 'M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12zM12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
   skull: 'M12 3a8 8 0 0 0-5 14.2V20h10v-2.8A8 8 0 0 0 12 3zM9 12h.01M15 12h.01M10 20v-2M14 20v-2',
   chat: 'M4 5h16v11H9l-5 4z',
+  qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2zM16 16h2v2h-2z',
+  phone: 'M7 3h10v18H7zM11 18h2',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
+  back: 'M15 6l-6 6 6 6',
+  check: 'M5 12l5 5 9-10',
+  share: 'M12 4v11M8 8l4-4 4 4M5 14v6h14v-6',
 };
 
 export function icon(name, { size = 16, label } = {}) {
@@ -130,7 +136,17 @@ export function whyContent(b, { title, prefix, note } = {}) {
   );
 }
 
+/** Phones: the breakdown is a bottom sheet (readable, thumb-closable) instead of a tiny bubble. */
+const sheetMode = () => window.innerWidth <= 600;
+
 function place(el) {
+  pop.classList.toggle('as-sheet', sheetMode());
+  if (sheetMode()) {
+    pop.style.left = '';
+    pop.style.top = '';
+    pop.hidden = false;
+    return;
+  }
   const r = el.getBoundingClientRect();
   pop.style.left = '0px';
   pop.style.top = '0px';
@@ -148,6 +164,7 @@ function place(el) {
 export function showWhy(el, content) {
   ensurePop();
   pop.replaceChildren(typeof content === 'function' ? content() : content);
+  if (sheetMode()) pop.append(h('button.btn.why-close', { type: 'button', onclick: () => hideWhy() }, 'Close'));
   popFor = el;
   el.setAttribute('aria-describedby', 'why-pop');
   place(el);
@@ -318,7 +335,8 @@ export function initials(name) {
 
 export function avatar(name, { color, src, size = 56 } = {}) {
   const el = h('span.avatar', { style: { '--av': color || 'var(--c-accent)', width: `${size}px`, height: `${size}px`, fontSize: `${Math.round(size * 0.38)}px` }, 'aria-hidden': 'true' });
-  if (src) el.append(h('img', { src, alt: '' })); else el.textContent = initials(name);
+  const url = portraitSrc(src);
+  if (url) el.append(h('img', { src: url, alt: '' })); else el.textContent = initials(name);
   return el;
 }
 

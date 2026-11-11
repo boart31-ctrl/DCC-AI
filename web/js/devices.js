@@ -166,7 +166,4 @@ $('#bk-export-campaign').addEventListener('click', () => exportData('campaign'))
 
 if (!isHosted()) {
   ext.afterRender.push((v) => { view = v; draw(); });
-  ext.client.on('event', (e) => {
-    if (e.kind === 'joinRequest') toast(`${e.name} wants to join. Settings → Players & devices.`, { ms: 8000 });
-  });
 }
