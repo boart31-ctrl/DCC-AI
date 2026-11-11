@@ -546,6 +546,10 @@ body.stage[data-scene] .sub-text { font-size: 1.9rem; }
 body.stage.cine .subtitle { bottom: 1.2rem; }
 .bi-fig .b-art, .bs-pre-fig .b-art { -webkit-mask-image: radial-gradient(closest-side, #000 70%, transparent); mask-image: radial-gradient(closest-side, #000 70%, transparent); background: transparent; }
 .bs-pre-fig .b-art { box-shadow: none; }
+/* generated silhouette: no oval mask (it clipped the horns), transparent backdrop so it sits on the stage glow */
+.bi-fig .b-art.gen, .bs-pre-fig .b-art.gen { -webkit-mask-image: none; mask-image: none; overflow: visible; }
+.bi-fig .b-art.gen svg > rect:first-of-type, .bs-pre-fig .b-art.gen svg > rect:first-of-type { fill: transparent; }
+.bi-fig .b-art.gen svg > rect:last-of-type, .bs-pre-fig .b-art.gen svg > rect:last-of-type { display: none; }
 .sc-boss.dead .bs-flavor { display: none; }
 
 /* long read-aloud text (pack locations): smaller type so the card never climbs under the bug */

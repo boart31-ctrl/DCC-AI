@@ -94,7 +94,7 @@ const SHAPES = [
 ];
 
 /** SVG markup for a generated boss portrait. `lit: false` = pure silhouette (pre-reveal). */
-export function bossSvg(boss, { lit = true } = {}) {
+export function bossSvg(boss, { lit = true, fit = 'slice' } = {}) {
   const c = threatColor(boss);
   const s = SHAPES[hash(boss?.name) % SHAPES.length];
   const id = `g${hash(`${boss?.name}${lit}`) % 1e6}`;
@@ -104,7 +104,7 @@ export function bossSvg(boss, { lit = true } = {}) {
     const a = (i / 18) * Math.PI * 2;
     return `<line x1="200" y1="300" x2="${(200 + Math.cos(a) * 420).toFixed(0)}" y2="${(300 + Math.sin(a) * 420).toFixed(0)}"/>`;
   }).join('') : '';
-  return `<svg viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+  return `<svg viewBox="0 0 400 500" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="xMidYMax ${fit === 'meet' ? 'meet' : 'slice'}"${fit === 'meet' ? ' overflow="visible"' : ''} aria-hidden="true">
   <defs>
     <radialGradient id="${id}b" cx="50%" cy="62%" r="65%"><stop offset="0" stop-color="${c}" stop-opacity="${lit ? 0.95 : 0.45}"/><stop offset=".4" stop-color="${c}" stop-opacity="${lit ? 0.3 : 0.12}"/><stop offset="1" stop-color="#05020a" stop-opacity="0"/></radialGradient>
     <linearGradient id="${id}f" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${lit ? '#fff' : '#000'}" stop-opacity="${lit ? 0.18 : 1}"/><stop offset=".12" stop-color="${lit ? c : '#000'}" stop-opacity="${lit ? 0.75 : 1}"/><stop offset=".55" stop-color="#1a0a2e"/><stop offset="1" stop-color="#05020a"/></linearGradient>
@@ -136,7 +136,8 @@ export function bossArt(boss, { lit = true, onUrl } = {}) {
   const wrap = h('div.b-art');
   const fallback = () => {
     wrap.classList.add('gen');
-    wrap.innerHTML = bossSvg(boss, { lit });
+    // meet: the whole silhouette (horns included) stays in frame on the TV; tall/wide frames get dark bands
+    wrap.innerHTML = bossSvg(boss, { lit, fit: 'meet' });
     onUrl?.(svgDataUrl(bossSvg(boss, { lit: true })));
   };
   if (boss?.image) {

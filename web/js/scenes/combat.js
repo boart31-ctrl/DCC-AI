@@ -100,7 +100,7 @@ export default function combat(root, sc, env) {
 
   function foeArt(x, cls = 'ar-art') {
     const wrap = h(`div.${cls}`);
-    const gen = () => { wrap.classList.add('gen'); wrap.innerHTML = bossSvg({ name: x.name.replace(/\s+\d+$/, '') }, { lit: !x.down }); };
+    const gen = () => { wrap.classList.add('gen'); wrap.innerHTML = bossSvg({ name: x.name.replace(/\s+\d+$/, '') }, { lit: !x.down, fit: 'meet' }); };
     if (x.image) {
       const img = h('img', { alt: '', decoding: 'async' });
       img.onerror = () => { img.remove(); gen(); };

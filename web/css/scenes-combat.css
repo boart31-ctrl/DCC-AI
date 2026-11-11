@@ -120,6 +120,8 @@
 .ar-foe.boss .ar-name { color: var(--th); }
 .ar-art { position: relative; height: 100%; min-height: 4rem; overflow: hidden; background: #07030f; }
 .ar-art img, .ar-art svg { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; display: block; }
+/* whole creature in frame (portraits are 3:4, the cells are often wide): no zoomed-in crop of horns/straps */
+.ar-art img { object-fit: contain; }
 .ar-card.down { opacity: 0.55; }
 .ar-crawler .ar-down { top: 0.6rem; right: 2rem; transform: rotate(-6deg); font-size: 1.4rem; }
 .ar-card.down .ar-name { text-decoration: line-through; text-decoration-thickness: 0.12em; color: var(--ink-dim); }
