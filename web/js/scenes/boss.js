@@ -32,7 +32,9 @@ export default function boss(root, sc, env) {
   const loot = h('div.bs-loot');
   // The art on screen follows the fight: the current phase's portrait (bosses.json phases[].image), the
   // defeated pose (imageKo) once it is down, else the splash.
-  const shown = () => ({ ...b, image: (d.defeated && b.imageKo) || b.phases?.[d.phase]?.image || b.image });
+  // The frame is portrait-shaped: the square crop beats a centre-cropped 16:9 splash.
+  const fit = (x) => ({ ...x, image: x.imageSquare || x.image });
+  const shown = () => ({ ...b, image: (d.defeated && b.imageKo) || b.phases?.[d.phase]?.image || b.imageSquare || b.image });
   let artKey = shown().image;
   let art = bossArt(shown(), { onUrl: (u) => { artUrl = u; } });
   const frame = h('div.bs-frame', art, flash, h('i.c1'), h('i.c2'), h('i.c3'), h('i.c4'), stamp);
@@ -48,7 +50,7 @@ export default function boss(root, sc, env) {
   );
 
   /* ---------- pre-reveal ---------- */
-  let preArt = bossArt(b, { lit: false });
+  let preArt = bossArt(fit(b), { lit: false });
   const pre = h('div.bs-pre',
     h('div.hz.hz-top'), h('div.hz.hz-bot'),
     h('p.bs-pre-k', b.floor ? `Threat detected // Floor ${b.floor}` : 'Threat detected'),
@@ -126,7 +128,7 @@ export default function boss(root, sc, env) {
     const na = bossArt(shown(), { onUrl: (u) => { artUrl = u; } });
     art.replaceWith(na);
     art = na;
-    const np = bossArt(b, { lit: false });
+    const np = bossArt(fit(b), { lit: false });
     preArt.replaceWith(np);
     preArt = np;
   }
@@ -201,7 +203,7 @@ export default function boss(root, sc, env) {
       h('div.bi-band.top', h('div.bi-marq', h('span', marq), h('span', marq))),
       h('div.bi-band.bot', h('div.bi-marq', h('span', marq), h('span', marq))),
       h('p.bi-warn', 'Warning'),
-      h('div.bi-fig', h('div.bi-sil', bossArt(b, { lit: false })), h('div.bi-lit', bossArt(b))),
+      h('div.bi-fig', h('div.bi-sil', bossArt(fit(b), { lit: false })), h('div.bi-lit', bossArt(fit(b)))),
       h('div.bi-flash'),
       h('div.bi-card',
         h('p.bi-name', b.name),
