@@ -320,7 +320,8 @@ export function createHost(opts) {
     onPlay: (item) => {
       const quip = item.quipId ? pack.quipsById.get(item.quipId) : null;
       logEvent({ at: now(), kind: 'play', id: item.id, priority: item.priority, text: item.text, quipId: item.quipId });
-      const audio = quip ? quipAudio(quip, state.session.voice) : null;
+      const silent = !!state.session.aiMute; // Mute AI: subtitle only, no audio / TTS / speech
+      const audio = quip && !silent ? quipAudio(quip, state.session.voice) : null;
       recentPlays.set(item.id, { text: item.text, ttsVoice: item.ttsVoice ?? null, cue: item.cue ?? null });
       while (recentPlays.size > 50) recentPlays.delete(recentPlays.keys().next().value);
       toStage({
@@ -332,7 +333,8 @@ export function createHost(opts) {
         voice: voiceFor(pack, state.session.voice),
         cue: item.cue ?? null, // id of the event (achievement / announcement) this line belongs to
         sync: (state.show?.audioDevice ?? 'gm') === 'gm', // the TV waits for `audio.started` (max 3 s)
-        tts: tts.playInfo(item, audio),
+        tts: silent ? null : tts.playInfo(item, audio),
+        ...(silent ? { silent: true } : {}),
       });
     },
     onStop: () => toStage({ t: 'stop' }),
@@ -393,7 +395,7 @@ export function createHost(opts) {
   let chatBurstTimer = null;
   const MAX_BURST_QUEUE = 8;
   const stageOn = () => [...conns.values()].some((m) => m.role === 'stage');
-  const sendChat = (line) => deliver({ id: genId('e'), at: now(), kind: 'chat', user: line.user, text: line.text, tag: line.tag }, { roles: ['stage'] });
+  const sendChat = (line) => state.session.aiMute ? null : deliver({ id: genId('e'), at: now(), kind: 'chat', user: line.user, text: line.text, tag: line.tag }, { roles: ['stage'] });
   const stageSees = (to) => to === 'all' || !!to?.roles?.includes('stage');
 
   function pumpBurst() {

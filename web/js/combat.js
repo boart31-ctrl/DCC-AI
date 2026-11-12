@@ -86,7 +86,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
     if (!la?.startAt || la.undone) return 0;
     const n = (la.steps || []).filter((x) => !x.skipped).length;
     const slots = Math.max(0, ...(la.steps || []).map((x) => (Number.isInteger(x.slot) ? x.slot + 1 : 0)), n ? 1 : 0);
-    const end = la.startAt + slots * (la.stepMs || 2000) + 300;
+    const end = la.startAt + slots * (la.stepMs || 2800) + 300;
     return Math.max(0, end - serverNow());
   }
 
@@ -266,7 +266,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
       rule('evadeBase', 'Evade base', field(s.evadeBase ?? 0, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 0, max: 30, 'aria-label': 'Added to every Evade' }, onCommit: (v) => set({ evadeBase: Math.max(0, Math.min(30, Math.round(v) || 0)) }) })),
       rule('drMin', 'Damage after DR at least', field(s.drMin ?? 1, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 0, max: 5, 'aria-label': 'Minimum damage' }, onCommit: (v) => set({ drMin: Math.max(0, Math.min(5, Math.round(v) || 0)) }) })),
       rule('crit', 'Natural 20', select([{ value: 'double', label: 'Double damage' }, { value: 'none', label: 'Just a hit' }], s.crit, { cls: 'inp-sm', label: 'Natural 20 rule', onChange: (v) => set({ crit: v }) })),
-      rule('stepMs', 'TV pace per mob', select([1400, 2000, 2600, 3200].map((ms) => ({ value: String(ms), label: `${(ms / 1000).toFixed(1)} s` })), String(s.stepMs ?? 2000), { cls: 'inp-sm', label: 'TV pace', onChange: (v) => set({ stepMs: Number(v) }) })),
+      rule('stepMs', 'TV pace per mob', select([2000, 2800, 3400, 4000].map((ms) => ({ value: String(ms), label: `${(ms / 1000).toFixed(1)} s${ms === 2800 ? ' (default)' : ''}` })), String(s.stepMs ?? 2800), { cls: 'inp-sm', label: 'TV pace', onChange: (v) => set({ stepMs: Number(v) }) })),
       h('div.cbt-rule-chks',
         chk('public', 'Rolls in the public dice log'),
         chk('includeHidden', 'Hidden mobs act too', 'The TV shows them as "something unseen"'),

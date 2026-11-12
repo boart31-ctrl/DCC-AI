@@ -259,6 +259,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `sponsor.box` | `playerId`, `tier?`, `sponsor?` | Loot box framed as a sponsor gift, event `sponsor` |
 | `session.mode` | `mode`: `roleplay`/`combat`/`quiet` | |
 | `session.auto` | `on`: bool | Master AUTO switch. Off also clears `pendingAuto` |
+| `session.aiMute` | `on`: bool | Mute AI: System lines go out as text only (`play` gets `silent: true`, no audio/TTS), the audience chat stops, AUTO turns off and cannot be turned on while muted. Kept across `session.new` |
 | `session.budget` | `value` | Set remaining auto budget |
 | `session.voice` | `voice` (id from pack `voices`) | Switches the System voice live; stage applies it to the next line |
 | `auto.veto` | `id` | Cancels a pending P2 line |

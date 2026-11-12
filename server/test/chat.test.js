@@ -74,7 +74,7 @@ test('ambient: only lines of the current context or generic lines, generic weigh
   const seen = new Map();
   for (let i = 0; i < 400; i++) {
     const { line, delayMs } = chat.ambient(st);
-    assert.ok(delayMs >= 2600 && delayMs <= 5200, `combat gap ${delayMs}`); // busier than any calm scene
+    assert.ok(delayMs >= 5000 && delayMs <= 9000, `combat gap ${delayMs}`); // busier than any calm scene
     seen.set(line.text, (seen.get(line.text) ?? 0) + 1);
   }
   assert.ok(!seen.has('boss only') && !seen.has('explore only'), 'no other contexts');
@@ -84,7 +84,7 @@ test('ambient: only lines of the current context or generic lines, generic weigh
   assert.ok(generic > 0, 'generic lines still show up');
   // Explore is calmer than combat.
   const calm = createChat({ lines, rng: seeded(3) }).ambient({ ...STATE });
-  assert.ok(calm.delayMs >= 11000 && calm.delayMs <= 21000);
+  assert.ok(calm.delayMs >= 15000 && calm.delayMs <= 28000);
 });
 
 test('weights: a weight-5 line is picked about five times as often', () => {
@@ -164,7 +164,7 @@ test('reactionFor: big moments map to bursts; secret rolls and quiet events do n
   assert.equal(reactionFor({ kind: 'viewers' }), null);
 });
 
-test('bursts: 3–5 quick nat20 lines (first within a second), afterglow flavours calm chat', () => {
+test('bursts: 3 calm nat20 lines (first within a second), afterglow flavours calm chat', () => {
   const lines = normalizeChatLines([
     ...Array.from({ length: 12 }, (_, i) => L(`n${i}`, `nat20 hype ${i}`, ['nat20'])),
     ...Array.from({ length: 6 }, (_, i) => L(`e${i}`, `explore ${i}`, ['explore'])),
@@ -173,8 +173,8 @@ test('bursts: 3–5 quick nat20 lines (first within a second), afterglow flavour
   const chat = createChat({ lines, rng: seeded(4), now: () => t });
   for (let s = 0; s < 20; s++) {
     const r = chat.react({ kind: 'roll', nat20: true, playerId: 'p1' }, STATE);
-    assert.ok(r.lines.length >= 3 && r.lines.length <= 5, `burst ${r.lines.length}`);
-    assert.ok(r.gapsMs[0] < 1000 && r.gapsMs.slice(1).every((g) => g >= 600 && g <= 1700));
+    assert.ok(r.lines.length === 3, `burst ${r.lines.length}`); // capped at BURST_MAX
+    assert.ok(r.gapsMs[0] < 1300 && r.gapsMs.slice(1).every((g) => g >= 1500 && g <= 2800));
     assert.ok(r.viewers >= 0.02 && r.viewers <= 0.05);
     assert.ok(r.lines.every((l) => l.tag === 'nat20'));
   }

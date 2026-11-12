@@ -63,7 +63,7 @@ export function createCombatSfx({ board, getView, onChange }) {
   function auto(e) {
     cancel(e.autoId);
     const beats = e.beats || DEFAULT_BEATS;
-    const stepMs = e.stepMs || 2000;
+    const stepMs = e.stepMs || 2800;
     const start = (e.startAt ?? Date.now() + offset) - (Date.now() + offset);
     (e.steps || []).forEach((st, k) => {
       if (st.skipped) return;

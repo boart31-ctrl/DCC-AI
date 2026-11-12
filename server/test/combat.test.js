@@ -377,3 +377,28 @@ test('ad-hoc mobs and combat.update take an image from the art gallery', () => {
   assert.equal(mobs(s)[0].image, null);
   assert.throws(() => gm(s, { t: 'combat.update', uid, image: 'data:text/html,x' }), /image must be/);
 });
+
+test('session.aiMute: AUTO goes off and cannot come back while muted; survives session.new; visible to the TV', () => {
+  let { s } = base();
+  s = gm(s, { t: 'session.auto', on: true }).state;
+  s = gm(s, { t: 'session.aiMute', on: true }).state;
+  assert.equal(s.session.aiMute, true);
+  assert.equal(s.session.auto, false);
+  assert.throws(() => gm(s, { t: 'session.auto', on: true }), /muted/);
+  assert.equal(viewFor(s, pack, 'stage').session.aiMute, true);
+  s = gm(s, { t: 'session.new' }).state;
+  assert.equal(s.session.aiMute, true);
+  s = gm(s, { t: 'session.aiMute', on: false }).state;
+  s = gm(s, { t: 'session.auto', on: true }).state;
+  assert.equal(s.session.auto, true);
+  assert.equal(normalizeState(JSON.parse(JSON.stringify({ ...s, session: { ...s.session, aiMute: 'yes' } })), pack, 0).session.aiMute, false);
+});
+
+test('TV pace: rooms on the old 2.0 s default move to 2.8 s once; an explicit pick sticks', () => {
+  let { s } = base();
+  const old = normalizeState(JSON.parse(JSON.stringify({ ...s, combat: { ...s.combat, settings: { ...s.combat.settings, stepMs: 2000, paceV: undefined } } })), pack, 0);
+  assert.equal(old.combat.settings.stepMs, 2800);
+  s = gm(s, { t: 'combat.set', settings: { stepMs: 2000 } }).state;
+  assert.equal(s.combat.settings.stepMs, 2000);
+  assert.equal(normalizeState(JSON.parse(JSON.stringify(s)), pack, 0).combat.settings.stepMs, 2000);
+});

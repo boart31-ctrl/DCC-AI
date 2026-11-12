@@ -58,10 +58,14 @@ export function normalizeChatLines(raw, warnings = []) {
 // ---------- context ----------
 
 /** Seconds between calm lines, per context: [min, max]. Combat and bosses chatter faster. */
+// Calmer since 11/2026 (the TV strip felt busy): roughly half the old rate in fights.
 export const AMBIENT_GAP_S = {
-  lobby: [7, 14], idle: [9, 18], explore: [11, 21], recap: [14, 26], countdown: [5, 10],
-  npc: [10, 18], loot: [6, 12], combat: [2.6, 5.2], boss: [2.8, 5.5], finale: [3, 6],
+  lobby: [10, 20], idle: [13, 25], explore: [15, 28], recap: [18, 32], countdown: [7, 13],
+  npc: [14, 24], loot: [8, 15], combat: [5, 9], boss: [5, 9.5], finale: [5, 9],
 };
+/** A burst never has more lines than this, and its lines arrive this far apart (ms) after the first. */
+export const BURST_MAX = 3;
+const BURST_GAP_MS = [1500, 2800];
 
 /** What the TV is showing right now, as a chat context. */
 export function chatContext(state) {
@@ -285,7 +289,7 @@ export function createChat({ lines = [], rng = Math.random, now = Date.now, rece
       if (!r) return null;
       const spec = REACTIONS[r.key];
       const [lo, hi] = spec.burst;
-      const n = lo + Math.floor(rng() * (hi - lo + 1));
+      const n = Math.min(BURST_MAX, lo + Math.floor(rng() * (hi - lo + 1)));
       const out = [];
       for (let k = 0; k < n; k++) {
         const line = pick(spec.tag, state, { fill: r.fill, strict: true }) || (spec.alt ? pick(spec.alt, state, { fill: r.fill, strict: true }) : null);
@@ -293,7 +297,7 @@ export function createChat({ lines = [], rng = Math.random, now = Date.now, rece
         out.push(line);
       }
       if (spec.burst[1] >= 2) afterglow = { tag: spec.tag, at: now(), fill: r.fill };
-      const gapsMs = out.map((_, k) => Math.round(k === 0 ? 350 + rng() * 650 : 600 + rng() * 1100));
+      const gapsMs = out.map((_, k) => Math.round(k === 0 ? 500 + rng() * 800 : BURST_GAP_MS[0] + rng() * (BURST_GAP_MS[1] - BURST_GAP_MS[0])));
       const viewers = spec.viewers ? spec.viewers[0] + rng() * (spec.viewers[1] - spec.viewers[0]) : null;
       return { key: r.key, lines: out, gapsMs, viewers, delayMs: r.delayMs ?? 0 };
     },

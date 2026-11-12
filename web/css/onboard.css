@@ -173,7 +173,7 @@
   .brand { gap: 8px; }
   .brand-name { font-size: 15px; max-width: 30vw; overflow: hidden; text-overflow: ellipsis; }
   .room, .conn-text, #log-toggle, #theme-btn, .stop kbd, .tv-btn .tv-state { display: none; }
-  .tv-btn, .auto-toggle, .stop { height: 40px; min-height: 40px !important; }
+  .tv-btn, .auto-toggle, .ai-mute, .stop { height: 40px; min-height: 40px !important; }
   .tv-btn { padding: 0 12px; }
   .auto-toggle { padding: 0 8px; }
   .stop { padding: 0 14px !important; }

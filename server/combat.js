@@ -45,11 +45,11 @@ export const AGGRO_DEFAULT = 3;
  *  public   auto rolls go to everyone's dice log (true) or GM only
  *  includeHidden  hidden mobs act too in auto mode
  *  finishDowned   downed crawlers (HP 0) may be targeted
- *  stepMs   TV pacing of the auto-mode cinematic per mob (1200..4000)
+ *  stepMs   TV pacing of the auto-mode cinematic per mob (1200..4000, default 2800)
  *  autoEnd  offer victory / defeat when every revealed mob / every crawler is down
  */
 export const DEFAULT_SETTINGS = Object.freeze({
-  hitRule: '>=', drMin: 1, crit: 'double', evadeBase: 0, public: true, includeHidden: false, finishDowned: false, stepMs: 2000, autoEnd: true,
+  hitRule: '>=', drMin: 1, crit: 'double', evadeBase: 0, public: true, includeHidden: false, finishDowned: false, stepMs: 2800, autoEnd: true, paceV: 2,
 });
 export const UNVERIFIED_RULES = ['hitRule', 'drMin', 'crit', 'evadeBase'];
 
@@ -64,8 +64,10 @@ function normalizeSettings(raw) {
     public: typeof r.public === 'boolean' ? r.public : d.public,
     includeHidden: r.includeHidden === true,
     finishDowned: r.finishDowned === true,
-    stepMs: Number.isInteger(r.stepMs) && r.stepMs >= 1200 && r.stepMs <= 4000 ? r.stepMs : d.stepMs,
+    // paceV 2 (11/2026): the old 2.0 s default felt rushed on the TV, rooms still on it move to the new default
+    stepMs: Number.isInteger(r.stepMs) && r.stepMs >= 1200 && r.stepMs <= 4000 && !(r.paceV !== 2 && r.stepMs === 2000) ? r.stepMs : d.stepMs,
     autoEnd: typeof r.autoEnd === 'boolean' ? r.autoEnd : d.autoEnd,
+    paceV: 2,
   };
 }
 

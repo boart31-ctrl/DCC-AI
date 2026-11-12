@@ -40,7 +40,7 @@
 .ar-phases li.done { color: rgba(163, 151, 204, 0.55); }
 .ar-phases li.on { color: var(--void); background: var(--acid); border-color: var(--acid); box-shadow: 0 0 1rem rgba(228, 255, 46, 0.55); }
 .ar-status { margin: 0; font-family: var(--f-show); font-style: italic; font-weight: 800; font-size: 1.6rem; text-transform: uppercase; color: var(--cyan); }
-.pulse { animation: arpulse 0.7s var(--ease-slam); }
+.pulse { animation: arpulse 0.9s var(--ease-out); }
 @keyframes arpulse { 0% { transform: scale(1.35); opacity: 0.4; } 100% { transform: none; opacity: 1; } }
 
 .ar-board { position: relative; z-index: 2; flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(0, 0.85fr) 5rem minmax(0, 1.15fr); gap: 1.2rem; }
@@ -99,7 +99,7 @@
 @keyframes arbrk { 0% { background: #fff; transform: skewX(-14deg) scaleY(1.8); opacity: 1; } 60% { background: #ff3355; transform: skewX(-14deg) translateY(0.6rem) scaleY(0.6); opacity: 0.8; } 100% { transform: skewX(-14deg); opacity: 1; } }
 .ar-bar { flex: 1; height: 1.1rem; background: rgba(255, 255, 255, 0.09); transform: skewX(-14deg); overflow: hidden; }
 .ar-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--th, var(--alarm)), #fff 160%); transform-origin: 0 50%; transition: transform 0.6s var(--ease-out); }
-.ar-card.low .ar-pips i.on, .ar-card.low .ar-bar i { animation: lowpip 1.1s ease-in-out infinite; }
+.ar-card.low .ar-pips i.on, .ar-card.low .ar-bar i { animation: lowpip 1.8s ease-in-out infinite; }
 .ar-conds { display: flex; flex-wrap: wrap; gap: 0.3rem; }
 .ar-conds span { padding: 0.05rem 0.55rem; font-family: var(--f-mono); font-size: 0.9rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; color: var(--void); background: var(--acid); transform: skewX(-10deg); }
 
@@ -144,13 +144,13 @@
   color: var(--alarm); border: 0.2rem solid var(--alarm);
 }
 .ar-flash { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #fff; opacity: 0; pointer-events: none; }
-.ar-card.hit { animation: arhit 0.5s; }
-.ar-card.hit .ar-flash { animation: arflash 0.6s; }
-.ar-card.crit { animation: arcrit 0.7s; }
+.ar-card.hit { animation: arhit 0.75s; }
+.ar-card.hit .ar-flash { animation: arflash 0.85s; }
+.ar-card.crit { animation: arcrit 0.95s; }
 .ar-card.crit .ar-flash { background: #ffd23f; animation: arflash 0.8s; }
 .ar-card.healed .ar-flash { background: var(--ok); animation: arflash 0.9s; }
-.ar-card.ko { animation: arko 0.8s var(--ease-slam); }
-.ar-card.enter { animation: arenter 0.7s var(--ease-slam) backwards; }
+.ar-card.ko { animation: arko 1.1s var(--ease-slam); }
+.ar-card.enter { animation: arenter 1s var(--ease-out) backwards; }
 @keyframes arhit { 15% { transform: translateX(-0.8rem); } 35% { transform: translateX(0.7rem); } 55% { transform: translateX(-0.4rem); } 75% { transform: none; } }
 @keyframes arcrit { 10% { transform: translate(-1.4rem, 0.4rem) rotate(-1.5deg); } 25% { transform: translate(1.2rem, -0.3rem) rotate(1deg); } 45% { transform: translate(-0.8rem, 0.2rem); } 65% { transform: translate(0.4rem, 0); } 100% { transform: none; } }
 @keyframes arflash { 0% { opacity: 0.85; } 100% { opacity: 0; } }
@@ -160,7 +160,7 @@
 /* auto mode: lunge (mob → target), aim marker, dodge, fumble, shatter */
 .ar-card.lunge { z-index: 6; transform: translate(var(--lx, 0), var(--ly, 0)) scale(1.08); transition: transform 0.26s cubic-bezier(0.5, 0, 0.2, 1.4); box-shadow: 0 0 0 0.25rem var(--th, var(--alarm)), 0 1.6rem 3rem rgba(0, 0, 0, 0.6); }
 .ar-card.aim { z-index: 4; box-shadow: 0 0 0 0.25rem var(--alarm), 0 0 2.4rem rgba(255, 36, 72, 0.55); }
-.ar-card.dodge { animation: ardodge 0.6s var(--ease-out); }
+.ar-card.dodge { animation: ardodge 0.85s var(--ease-out); }
 @keyframes ardodge { 30% { transform: translate(-2.2rem, -0.4rem) skewX(8deg); } 60% { transform: translate(-1.6rem, 0); } 100% { transform: none; } }
 .ar-card.fumble { animation: arfumble 0.9s var(--ease-out); }
 @keyframes arfumble { 30% { transform: rotate(-9deg) translateY(0.8rem); } 55% { transform: rotate(6deg); } 100% { transform: none; } }
@@ -224,7 +224,7 @@ body.stage[data-scene="combat"] #subtitle.subtitle { left: auto; right: 2.2rem; 
 .ar-callout.out, .ar-d20.out, .ar-crit.out { opacity: 0; transition: opacity 0.25s; }
 @keyframes arcall { from { opacity: 0; transform: translateX(-50%) scaleX(0.2); } }
 .ar-d20 { position: absolute; width: 9rem; margin: -4.5rem 0 0 -4.5rem; display: grid; justify-items: center; gap: 0.4rem; }
-.ar-d20-spin { position: relative; width: 9rem; height: 9rem; display: grid; place-items: center; animation: ard20 0.6s linear infinite; }
+.ar-d20-spin { position: relative; width: 9rem; height: 9rem; display: grid; place-items: center; animation: ard20 1.1s linear infinite; }
 .ar-d20-shape { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: #fff; clip-path: polygon(50% 0, 93% 25%, 93% 75%, 50% 100%, 7% 75%, 7% 25%); box-shadow: inset 0 0 0 0.3rem var(--void); }
 .ar-d20-shape::after { content: ""; position: absolute; top: 18%; left: 18%; right: 18%; bottom: 18%; background: var(--void); clip-path: polygon(50% 0, 100% 86%, 0 86%); opacity: 0.12; }
 .ar-d20-n { position: relative; font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 4rem; line-height: 1; color: var(--void); }
@@ -303,7 +303,7 @@ body.stage[data-scene="finale"][data-finale="runaway"] .bug { padding: 0.3rem 1r
 .fn-static { position: absolute; top: -50%; left: 0; right: 0; height: 200%; opacity: 0.4; background:
   repeating-linear-gradient(0deg, rgba(255, 36, 72, 0.5) 0 2px, transparent 2px 5px),
   repeating-linear-gradient(0deg, rgba(255, 255, 255, 0.12) 0 1px, transparent 1px 9px);
-  animation: fnstatic 0.35s steps(4) infinite; }
+  animation: fnstatic 0.6s steps(4) infinite; }
 @keyframes fnstatic { to { transform: translateY(-9%); } }
 .fn-bars { position: absolute; top: 0; left: 0; right: 0; height: 1.2rem; display: flex; opacity: 0.6; }
 .fn-bars i { flex: 1; }

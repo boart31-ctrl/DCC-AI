@@ -157,3 +157,17 @@ test('portraits: one picture per frame; portraits.want sends a missing one again
   assert.equal(again[0].portraits[ref], pic('B'));
   assert.equal(s.tv.ack('w1').result.sent, 1);
 });
+
+test('Mute AI: System lines go out silent (text only), no audience chat at all', async () => {
+  const s = setup();
+  await s.act({ t: 'session.aiMute', on: true });
+  await fight(s);
+  const chatBefore = s.tv.all('event').filter((m) => m.event.kind === 'chat').length;
+  await s.act({ t: 'combat.auto' });
+  s.c.advance(8000);
+  const lines = s.gm.all('play').filter((m) => /Crawler down line/.test(m.text));
+  assert.ok(lines.length, 'the line still goes out (subtitle)');
+  assert.ok(lines.every((m) => m.silent === true && !m.audio && !m.tts));
+  s.c.advance(60_000);
+  assert.equal(s.tv.all('event').filter((m) => m.event.kind === 'chat').length, chatBefore, 'no chat while muted');
+});

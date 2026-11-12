@@ -107,7 +107,8 @@ export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {}, re
     onSub(m.text || '');
     onDuck(true);
     // Before the first user gesture audio is locked: show the subtitle for reading time, then release.
-    if (!unlocked) { onStart(m); setTimeout(done, Math.min(8000, 1500 + (m.text || '').length * 50)); return; }
+    // Mute AI (m.silent) or audio still locked before the first gesture: subtitle for reading time, no sound.
+    if (m.silent || !unlocked) { onStart(m); setTimeout(done, Math.min(8000, 1500 + (m.text || '').length * 50)); return; }
     const fallback = () => { if (!finished) speak(m, done, () => finished); };
     const playUrl = (url) => {
       if (finished) return;

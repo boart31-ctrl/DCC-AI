@@ -123,7 +123,7 @@ body.stage::before {
   box-shadow: 0 0 24px var(--magenta);
   transition: width 1.2s var(--ease-out);
 }
-.hype.hot .hype-track { border-color: var(--acid); animation: hot 0.9s ease-in-out infinite; }
+.hype.hot .hype-track { border-color: var(--acid); animation: hot 1.8s ease-in-out infinite; }
 @keyframes hot { 50% { box-shadow: 0 0 30px var(--acid); } }
 
 /* ---------- Arena: event feed ---------- */
@@ -234,6 +234,7 @@ body.stage::before {
 
 /* Pinned to the bottom of the visible screen on its own layer, above every scene: a TV browser whose
    100vh is taller than what it shows (toolbar) or that mis-stacks 3D layers can no longer hide it. */
+body.ai-muted .chat { opacity: 0; transform: translateY(100%); pointer-events: none; }
 .chat {
   grid-area: chat;
   position: fixed;
@@ -413,7 +414,7 @@ body.stage::before {
 .card .rarity-tag { font-size: 1.2rem; align-self: flex-start; padding: 0.15em 0.7em; }
 .card-name { font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-size: 4rem; line-height: 0.95; margin: 0; }
 .card-desc { font-size: 1.7rem; color: var(--ink-dim); margin: 0; line-height: 1.3; }
-.card.r-legendary { animation: cardin 0.8s var(--ease-slam) both, legend 1.6s ease-in-out 0.8s infinite; }
+.card.r-legendary { animation: cardin 0.8s var(--ease-slam) both, legend 2.6s ease-in-out 0.8s infinite; }
 @keyframes legend { 50% { box-shadow: 0 0 140px 0 var(--r, var(--r-common)), 0 0 0 2px #000; } }
 @keyframes cardin { 0% { transform: scale(0.2) rotate(-10deg); opacity: 0; } 100% { transform: none; opacity: 1; } }
 

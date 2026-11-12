@@ -42,6 +42,7 @@ function newSession(pack, now, prev) {
     startedAt: now,
     mode: 'roleplay',
     auto: false,
+    aiMute: !!prev?.aiMute, // Mute AI: no System voice audio, no audience chat, no AUTO (survives a new session)
     budgetLeft: pack.autoBudget,
     voice: prev?.voice && pack.voicesById.has(prev.voice) ? prev.voice : defaultVoiceId(pack),
     recap: '',
@@ -94,6 +95,7 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.messages = Array.isArray(raw.messages) ? raw.messages : [];
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
   if (typeof s.session.recap !== 'string') s.session.recap = '';
+  s.session.aiMute = s.session.aiMute === true;
   if (!PLAYER_EDIT.includes(s.session.permissions?.playerEdit)) s.session.permissions = { playerEdit: 'sheet' };
   s.library = normalizeHomebrew(raw.library);
   s.libArt = normalizeLibArt(raw.libArt);
@@ -469,8 +471,19 @@ const GM = {
 
   'session.auto'(st, a, ctx, out) {
     if (typeof a.on !== 'boolean') throw bad('on must be a boolean');
+    if (a.on && st.session.aiMute) throw bad('AI is muted: unmute it first');
     st.session.auto = a.on;
     if (!a.on) out.effects.push({ type: 'clearPending' });
+  },
+
+  /** Mute AI: the System's lines stay as on-screen text only, the audience chat stops, AUTO goes off. */
+  'session.aiMute'(st, a, ctx, out) {
+    if (typeof a.on !== 'boolean') throw bad('on must be a boolean');
+    st.session.aiMute = a.on;
+    if (a.on && st.session.auto) {
+      st.session.auto = false;
+      out.effects.push({ type: 'clearPending' });
+    }
   },
 
   'session.budget'(st, a) {
@@ -690,7 +703,7 @@ function common(state, pack, opts) {
   return {
     room: state.room,
     session: {
-      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, budgetLeft: s.budgetLeft, voice: s.voice,
+      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, budgetLeft: s.budgetLeft, voice: s.voice,
       permissions: { playerEdit: s.permissions?.playerEdit ?? 'sheet' },
     },
     pack: {

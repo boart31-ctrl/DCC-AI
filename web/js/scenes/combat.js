@@ -284,7 +284,7 @@ export default function combat(root, sc, env) {
     // Crawlers show their HP from before the run until their own step resolves.
     for (const st of steps) if (st.targetUid && !override.has(st.targetUid)) override.set(st.targetUid, st.hpBefore);
     redraw();
-    const stepMs = e.stepMs || 2000;
+    const stepMs = e.stepMs || 2800;
     const beats = e.beats || { lunge: 0, swing: 0.12, roll: 0.2, result: 0.52, down: 0.72 };
     const start = (e.startAt ?? clock.now()) - clock.now(); // ms from now (server clock)
     play = { id: e.autoId, timers: [] };

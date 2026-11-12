@@ -95,6 +95,15 @@ function render() {
   const auto = $('#auto');
   auto.setAttribute('aria-checked', String(!!s.auto));
   $('.auto-state', auto).textContent = s.auto ? 'On' : 'Off';
+  auto.disabled = !!s.aiMute;
+  auto.title = s.aiMute ? 'AI is muted: unmute it to use AUTO' : 'Toggle AUTO (A)';
+  const mute = $('#ai-mute');
+  if (mute.dataset.on !== String(!!s.aiMute)) {
+    mute.dataset.on = String(!!s.aiMute);
+    mute.setAttribute('aria-pressed', String(!!s.aiMute));
+    $('.ai-mute-i', mute).replaceChildren(icon(s.aiMute ? 'mute' : 'speaker', { size: 14 }));
+    $('.ai-mute-s', mute).textContent = s.aiMute ? 'Muted' : 'On';
+  }
 
   for (const b of document.querySelectorAll('#mode button')) {
     b.setAttribute('aria-checked', String(b.dataset.mode === s.mode));
@@ -765,6 +774,7 @@ function renderLinks() {
 /* ---------- top bar + forms ---------- */
 
 function toggleAuto() {
+  if (view?.session?.aiMute) { toast('AI is muted: unmute it first.'); return; }
   const on = !view?.session?.auto;
   act({ t: 'session.auto', on }, on ? 'AUTO is on.' : 'AUTO is off.');
 }
@@ -774,6 +784,10 @@ function stopAll() {
 }
 
 $('#auto').addEventListener('click', toggleAuto);
+$('#ai-mute').addEventListener('click', () => {
+  const on = !view?.session?.aiMute;
+  act({ t: 'session.aiMute', on }, on ? 'AI muted: text only, no chat, AUTO off.' : 'AI is back on.');
+});
 $('#stop').addEventListener('click', stopAll);
 $('#mode').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-mode]');

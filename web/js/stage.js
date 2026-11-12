@@ -55,6 +55,7 @@ client.on('stop', () => stopAll());
 /* ---------- render ---------- */
 
 function render() {
+  document.body.classList.toggle('ai-muted', !!view.session?.aiMute); // Mute AI: no audience chat strip
   director.render(view);
   showAudio.view(view);
   syncCurtain();
@@ -175,7 +176,7 @@ function userColor(u) {
   return USER_COLORS[x % USER_COLORS.length];
 }
 // One strip, one transform, positions decided once per message (ticker.js explains the old glitch).
-const ticker = createTicker($('#chat').parentElement, $('#chat'), { speed: 90, reduced });
+const ticker = createTicker($('#chat').parentElement, $('#chat'), { speed: 62, reduced }); // calm, readable crawl
 function addChat(user, text) {
   ticker.add(h('span.m', { style: { '--u': userColor(user) } }, h('b', user), text));
 }

@@ -82,7 +82,7 @@ test('auto: weighted target, d20 + toHit vs Evade, damage − DR applied to the 
   // stage + GM get the cinematic; TV steps carry no roll ids
   const gmEv = r.events.find((e) => e.event.kind === 'combat.auto' && e.to.roles?.includes('gm'));
   const tvEv = r.events.find((e) => e.event.kind === 'combat.auto' && e.to.roles?.includes('stage'));
-  assert.ok(gmEv.event.startAt > 5_000_000 && gmEv.event.stepMs === 2000);
+  assert.ok(gmEv.event.startAt > 5_000_000 && gmEv.event.stepMs === 2800);
   assert.equal(tvEv.event.steps[0].rollId, undefined);
   assert.equal(s.combat.stats.taken[ids[1]], 3);
 });
