@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { loadPack, fallbackPack, PackError, voiceFor, quipAudio, DEFAULT_VOICE } from '../pack.js';
+import { loadPack, fallbackPack, PackError, voiceFor, quipAudio, recordedAudio, voiceKey, DEFAULT_VOICE, serializePack, deserializePack } from '../pack.js';
+import { voiceLines } from '../tts.js';
 import { tmpDir, writePack } from './fixtures.js';
 
 test('loads a valid pack with assets, stats, resources, voices', () => {
@@ -23,6 +24,23 @@ test('per-voice audio is preferred over generic audio', () => {
   assert.equal(quipAudio(q, 'gremlin'), '/pack/audio/gremlin/nat1_01.mp3');
   assert.equal(quipAudio(q, 'host'), '/pack/audio/nat1_01.mp3');
   assert.equal(quipAudio(pack.quipsById.get('nat1_02'), 'host'), null);
+});
+
+test('recorded audio is found by quip id, then by matching text (boss intros, announcements)', () => {
+  const { pack } = loadPack(writePack(tmpDir()));
+  assert.equal(recordedAudio(pack, { quipId: 'nat1_01', text: 'whatever' }, 'host'), '/pack/audio/nat1_01.mp3');
+  // no quip id (boss intro / typed announcement): text match ignores case, spacing and end punctuation
+  assert.equal(recordedAudio(pack, { text: '  one!' }, 'gremlin'), '/pack/audio/gremlin/nat1_01.mp3');
+  assert.equal(recordedAudio(pack, { quipId: 'nat1_02', text: 'Another one.' }, 'host'), null);
+  assert.equal(recordedAudio(pack, { text: 'Something new' }, 'host'), null);
+  assert.equal(voiceKey('It\u2019s  Fine…'), "it's fine");
+  // survives the cloud build (serialize → deserialize)
+  const again = deserializePack(serializePack(pack));
+  assert.equal(recordedAudio(again, { text: 'One' }, 'host'), '/pack/audio/nat1_01.mp3');
+  // pre-render skips lines that already have a recording, including boss lines matched by text
+  pack.library.boss = [{ id: 'b1', intro: 'One.', defeatLine: 'Gone.' }];
+  const refs = voiceLines(pack, {}, undefined, { voiceId: 'host' }).map((l) => l.ref);
+  assert.ok(!refs.includes('nat1_01') && !refs.includes('b1:intro') && refs.includes('b1:defeat'));
 });
 
 test('voiceFor falls back to first voice, then built-in host', () => {

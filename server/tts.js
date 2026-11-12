@@ -17,6 +17,8 @@
 //   has(hash) get(hash) -> Uint8Array|null put(hash, bytes, meta) delete(hash) touch(hash, at)
 //   entries() -> [{hash, size, at}] stats() -> {bytes, count} clear()
 
+import { voiceKey } from './pack-core.js';
+
 export const API_BASE = 'https://api.elevenlabs.io';
 export const DEFAULT_MODEL = 'eleven_multilingual_v2'; // the API's own default model_id
 export const DEFAULT_FORMAT = 'mp3_44100_96';
@@ -364,9 +366,15 @@ export function voiceLines(pack, state, settings = DEFAULT_SETTINGS, { configure
     seen.add(t);
     out.push({ kind, ref, text: t });
   };
+  // Lines with their own recorded file (by quip or by matching text, e.g. a boss intro) cost nothing.
+  const recorded = (text) => {
+    const q = pack?.quipsByText?.get(voiceKey(text));
+    return !!(q && (q.audioByVoice?.[voiceId] ?? q.audio));
+  };
+  const addLive = (kind, ref, text) => { if (!recorded(text)) add(kind, ref, text); };
   for (const q of pack?.quips ?? []) {
-    const recorded = q.audioByVoice?.[voiceId] ?? q.audio ?? null;
-    if (!recorded) add('quip', q.id, q.text);
+    const own = q.audioByVoice?.[voiceId] ?? q.audio ?? null;
+    if (!own) addLive('quip', q.id, q.text);
   }
   if (achievementMode(settings, configured) === 'announce') {
     for (const a of pack?.achievements ?? []) add('achievement', a.id, achievementText(pack, a, settings));
@@ -374,8 +382,8 @@ export function voiceLines(pack, state, settings = DEFAULT_SETTINGS, { configure
   const bosses = [...(pack?.library?.boss ?? []), ...(Array.isArray(state?.library?.boss) ? state.library.boss : [])];
   for (const b of bosses) {
     if (!b || typeof b !== 'object') continue;
-    add('boss', `${b.id}:intro`, b.intro);
-    add('boss', `${b.id}:defeat`, b.defeatLine);
+    addLive('boss', `${b.id}:intro`, b.intro);
+    addLive('boss', `${b.id}:defeat`, b.defeatLine);
   }
   return out;
 }

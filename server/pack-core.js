@@ -524,6 +524,12 @@ function finish(pack) {
   pack.itemsById = new Map(pack.items.map((i) => [i.id, i]));
   pack.quipsById = new Map(pack.quips.map((q) => [q.id, q]));
   pack.quipsByCategory = new Map();
+  // Recorded lines by text: a boss intro, a defeat line or a typed announcement whose text matches a
+  // recorded quip plays that file (edit the text and it falls back to TTS until it is recorded again).
+  pack.quipsByText = new Map();
+  for (const q of pack.quips) {
+    if (q.audio || Object.keys(q.audioByVoice ?? {}).length) pack.quipsByText.set(voiceKey(q.text), q);
+  }
   for (const q of pack.quips) {
     if (!pack.quipsByCategory.has(q.category)) pack.quipsByCategory.set(q.category, []);
     pack.quipsByCategory.get(q.category).push(q);
@@ -544,6 +550,20 @@ export function voiceFor(pack, id) {
 /** Audio URL for a quip in a given voice: audio/<voiceId>/<file> beats audio/<file>. */
 export function quipAudio(quip, voiceId) {
   return quip.audioByVoice?.[voiceId] ?? quip.audio ?? null;
+}
+
+/** Text key for recorded lines: whitespace, case, curly quotes and trailing punctuation do not matter. */
+export function voiceKey(text) {
+  return String(text ?? '').replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/\s+/g, ' ').trim().toLowerCase().replace(/[.!?…]+$/, '');
+}
+
+/** Recorded audio for any line: its own quip first, then a recorded quip with the same text. */
+export function recordedAudio(pack, { quipId = null, text = '' } = {}, voiceId = null) {
+  const own = quipId ? pack?.quipsById?.get(quipId) : null;
+  const ownUrl = own ? quipAudio(own, voiceId) : null;
+  if (ownUrl) return ownUrl;
+  const byText = text ? pack?.quipsByText?.get(voiceKey(text)) : null;
+  return byText ? quipAudio(byText, voiceId) : null;
 }
 
 /**

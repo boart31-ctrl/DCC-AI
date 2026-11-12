@@ -263,6 +263,13 @@ Standard categories the GM panel shows as buttons: `nat1`, `nat20`, `death`, `le
 `fail`, `success`, `idle`, `achievement`, `loot`, `sponsor`, `welcome`, `goodbye`. Packs may add more.
 `audio` is optional; without it the stage uses text-to-speech.
 
+A recorded quip also plays for **any** spoken line with the same text (case, spacing and end punctuation
+ignored): boss intros / defeat lines, typed announcements. `tools/voice_ingest.py` builds recording waves
+(`plan`), cuts long takes into lines on silences (a clap discards the line before it), levels them and
+wires them in (`ingest`); boss lines become quips `<boss>_intro` / `<boss>_defeat` (categories
+`boss_intro` / `boss_defeat`). `tools/voice_bake.mjs` renders a wave with ElevenLabs (e.g. a cloned voice)
+through the same pipeline. Recorded lines are skipped by the ElevenLabs pre-render.
+
 Combat categories the engine plays by itself (P1, also in combat mode): `crawler_down` (a crawler hits 0 HP),
 `mob_killed` (a revealed mob dies), `mob_crit` / `mob_miss` (auto mode: a mob's natural 20 / natural 1), and one per
 combat ending: `combat_victory`, `combat_defeat`, `combat_runaway`, `combat_truce`, `combat_special`,

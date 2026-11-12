@@ -23,7 +23,7 @@
 //   urls(base, state) -> { join, stage, gm }, playerUrl(base, token)
 import { normalizeState, reduce, reducePlayerAction, viewFor, genId, ActionError } from './state.js';
 import { VoiceQueue } from './quips.js';
-import { voiceFor, quipAudio } from './pack-core.js';
+import { voiceFor, recordedAudio } from './pack-core.js';
 import { makeToken } from './random.js';
 import { safeEqual, RateLimiter, TokenBucket, authenticate, makePairCode } from './access.js';
 import { createTtsHost } from './tts-host.js';
@@ -318,10 +318,9 @@ export function createHost(opts) {
     getSession: () => state.session,
     consumeBudget: () => apply({ role: 'system', t: 'budget.consume' }),
     onPlay: (item) => {
-      const quip = item.quipId ? pack.quipsById.get(item.quipId) : null;
       logEvent({ at: now(), kind: 'play', id: item.id, priority: item.priority, text: item.text, quipId: item.quipId });
       const silent = !!state.session.aiMute; // Mute AI: subtitle only, no audio / TTS / speech
-      const audio = quip && !silent ? quipAudio(quip, state.session.voice) : null;
+      const audio = silent ? null : recordedAudio(pack, item, state.session.voice);
       recentPlays.set(item.id, { text: item.text, ttsVoice: item.ttsVoice ?? null, cue: item.cue ?? null });
       while (recentPlays.size > 50) recentPlays.delete(recentPlays.keys().next().value);
       toStage({
