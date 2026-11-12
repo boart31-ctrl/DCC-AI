@@ -5,7 +5,7 @@
 // or throws ActionError. `to` is 'all' or { roles: [...], playerId? }.
 // Voice lines: { priority, text, quipId|null, crit } — the server feeds them to the VoiceQueue.
 import { makeToken, makeRoomCode, makePin, randInt, genId } from './random.js';
-import { MODES, pickQuip, markQuipUsed, quipsLeft } from './quips.js';
+import { MODES, pickQuip, markQuipUsed, quipsLeft, categoryPool } from './quips.js';
 import { STANDARD_CATEGORIES } from './constants.js';
 import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView, showView } from './scenes.js';
@@ -774,7 +774,7 @@ export function viewFor(state, pack, role, opts = {}) {
         id,
         label: categoryLabel(id),
         left: quipsLeft(pack, state.usedQuips, id),
-        total: pack.quipsByCategory.get(id)?.length ?? 0,
+        total: categoryPool(pack, id).length,
       })),
       achievementsCatalog: pack.achievements.map(({ id, title, desc, reward, group }) => ({ id, title, desc, reward, group })),
       itemsCatalog: library.list('item').map(({ id, name, rarity, desc, flavor, slot, stackable, source }) => ({ id, name, rarity, desc, flavor, slot, stackable, source })),

@@ -15,9 +15,21 @@ export function modeAllows(mode, priority, crit = false) {
   return true;
 }
 
+const isRecorded = (q) => !!(q.audio || Object.keys(q.audioByVoice ?? {}).length);
+
+/**
+ * The quips a category draws from: once any line in it has a recording, only recorded lines are picked
+ * (a half-recorded category never falls back to the robot voice). No recordings → every line.
+ */
+export function categoryPool(pack, category) {
+  const all = pack.quipsByCategory?.get(category) ?? [];
+  const rec = all.filter(isRecorded);
+  return rec.length ? rec : all;
+}
+
 /** How many unused quips are left in a category this session. */
 export function quipsLeft(pack, used, category) {
-  const all = pack.quipsByCategory.get(category) ?? [];
+  const all = categoryPool(pack, category);
   const u = new Set(used?.[category] ?? []);
   return all.filter((q) => !u.has(q.id)).length;
 }
@@ -28,7 +40,7 @@ export function quipsLeft(pack, used, category) {
  * Returns { quip, used } with a new `used` object, or null if the category has no quips.
  */
 export function pickQuip(pack, used, category, rng = Math.random) {
-  const all = pack.quipsByCategory.get(category) ?? [];
+  const all = categoryPool(pack, category);
   if (!all.length) return null;
   const prev = used?.[category] ?? [];
   const usedSet = new Set(prev);

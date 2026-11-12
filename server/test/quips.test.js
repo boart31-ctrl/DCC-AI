@@ -5,6 +5,8 @@ import { pickQuip, quipsLeft, modeAllows, VoiceQueue, STALE_MS, VETO_MS } from '
 import { tmpDir, writePack, seq } from './fixtures.js';
 
 const { pack } = loadPack(writePack(tmpDir()));
+// the generic picker tests run on unrecorded lines (the fixture records nat1_01; see the recorded-only test below)
+for (const q of pack.quips) { delete q.audio; q.audioByVoice = {}; }
 
 test('pickQuip never repeats within a round, then recycles without immediate repeat', () => {
   let used = {};
@@ -136,4 +138,16 @@ test('deterministic pick with injected rng', () => {
   const r2 = pickQuip(pack, {}, 'nat1', seq(0.99));
   assert.equal(r1.quip.id, 'nat1_01');
   assert.equal(r2.quip.id, 'nat1_03');
+});
+
+test('a category with recordings only picks recorded lines; without any it uses every line', async () => {
+  const { pickQuip: pick, quipsLeft: left } = await import('../quips.js');
+  const q = (id, audio) => ({ id, category: 'loot', text: id, ...(audio ? { audio } : {}) });
+  const pack = { quipsByCategory: new Map([['loot', [q('a', '/pack/audio/a.mp3'), q('b'), q('c', '/pack/audio/c.mp3')]], ['trap', [q('x'), q('y')]]]) };
+  let used = {};
+  const seen = new Set();
+  for (let i = 0; i < 6; i++) { const r = pick(pack, used, 'loot'); used = r.used; seen.add(r.quip.id); }
+  assert.deepEqual([...seen].sort(), ['a', 'c']);
+  assert.equal(left(pack, {}, 'loot'), 2);
+  assert.equal(left(pack, {}, 'trap'), 2);
 });
