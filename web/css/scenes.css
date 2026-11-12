@@ -95,6 +95,7 @@ body.preview { cursor: default; }
 .ps-card.off { opacity: 0.5; }
 .ps-card.down .ps-name { text-decoration: line-through; text-decoration-thickness: 0.12em; color: var(--ink-dim); }
 .ps-card.hurt { animation: pshurt 0.6s; }
+.ps-face { flex: none; width: 4.2rem; height: 4.2rem; object-fit: cover; object-position: 50% 25%; border-radius: 0.4rem; box-shadow: 0 0 0 0.2rem var(--pc, #2ef2ff); }
 .ps-card.hurt::after, .ps-card.healed::after { content: ""; position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--alarm); opacity: 0; animation: psflash 0.9s; pointer-events: none; }
 .ps-card.healed::after { background: var(--ok); }
 @keyframes pshurt { 20% { transform: translateX(-0.6rem); } 40% { transform: translateX(0.5rem); } 60% { transform: translateX(-0.3rem); } 80% { transform: none; } }
@@ -224,10 +225,11 @@ body.preview { cursor: default; }
 .bs-hp { grid-area: hp; }
 .bs-mid { grid-area: mid; min-height: 0; display: flex; flex-direction: column; justify-content: flex-end; gap: 1.2rem; }
 .bs-party { grid-area: party; }
-.bs-party .party-strip { gap: 0.7rem; }
-.bs-party .ps-card { padding: 0.6rem 1.1rem 0.7rem 0.9rem; gap: 0.7rem; }
-.bs-party .ps-name { font-size: 1.7rem; }
-.bs-party .ps-lvl { width: 2.9rem; height: 2.9rem; }
+.bs-party .party-strip { gap: 0.9rem; }
+.bs-party .ps-card { padding: 0.8rem 1.2rem 0.9rem 0.9rem; gap: 0.9rem; }
+.bs-party .ps-name { font-size: 2.2rem; }
+.bs-party .ps-lvl { width: 3.2rem; height: 3.2rem; }
+.bs-party .ps-face { width: 5.2rem; height: 5.2rem; }
 .bs-framewrap { grid-area: art; position: relative; min-height: 0; }
 .sc-boss.pre .bs-fight, .sc-boss.intro .bs-fight { opacity: 0; }
 .bs-fight.enter { animation: bsenter 0.8s var(--ease-out); }
@@ -572,3 +574,22 @@ body.stage[data-scene="roll"] .subtitle { bottom: auto; top: 6.2rem; }
 .has-face > b { position: relative; font-size: 1.05rem !important; padding: 0 0.3em; background: var(--pc); color: var(--void); line-height: 1.1; }
 .m-player.has-face { display: inline-flex; align-items: center; gap: 0.35em; padding-left: 0.25em; }
 .m-player > .face { width: 1.25em; height: 1.25em; object-fit: cover; border: 3px solid var(--void); transform: skewX(calc(var(--slant) * -1)); }
+
+/* boss attack callout (boss.js onAttacks): over the report, left of the portrait */
+.bs-atk {
+  position: absolute; z-index: 6; left: 3rem; top: 47%; width: 52rem; max-width: 58%;
+  padding: 1.4rem 2rem 1.6rem; display: grid; gap: 0.3rem;
+  background: rgba(7, 3, 15, 0.94); border-left: 0.6rem solid var(--th, var(--alarm));
+  box-shadow: 0 1.5rem 4rem rgba(0, 0, 0, 0.6);
+  opacity: 0; transform: translate3d(-3rem, -50%, 0); pointer-events: none;
+  transition: opacity 0.5s var(--ease-out), transform 0.6s var(--ease-out);
+}
+.bs-atk.show { opacity: 1; transform: translate3d(0, -50%, 0); }
+.bs-atk-who { font-family: var(--f-show); font-size: 4.4rem; line-height: 0.95; color: #fff; text-transform: uppercase; }
+.bs-atk-tgt { font-family: var(--f-mono); font-size: 2rem; letter-spacing: 0.08em; color: var(--th, var(--alarm)); text-transform: uppercase; }
+.bs-atk-roll { font-family: var(--f-mono); font-size: 2.6rem; color: #cfc6e6; white-space: pre; }
+.bs-atk.hit .bs-atk-roll { color: #ff4d6d; }
+.bs-atk.miss .bs-atk-roll { color: #9be7ff; }
+.bs-frame.lunge { animation: bslunge 0.8s var(--ease-out); }
+@keyframes bslunge { 0% { transform: none; } 35% { transform: translate3d(-2.5rem, 0, 0) scale(1.03); } 100% { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .bs-atk { transition: none; } .bs-frame.lunge { animation: none; } }

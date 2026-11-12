@@ -34,9 +34,9 @@ const shownPins = new Set();
 async function act(action, okMsg) {
   buzz(10);
   try {
-    await client.send(action);
+    const ack = await client.send(action);
     if (okMsg) toast(okMsg);
-    return true;
+    return ack && typeof ack === 'object' ? ack : true; // truthy; the ack carries `result`
   } catch (err) {
     toast(`${okMsg ? okMsg.replace(/\.$/, '') + ' failed: ' : ''}${err.message}`, { error: true, ms: 3500 });
     return false;

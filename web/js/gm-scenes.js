@@ -205,6 +205,7 @@ export function createScenes({ client, act, getView }) {
     else live.replaceChildren(head);
   }
 
+  let bossTarget = null; // boss panel target pick (kept across redraws)
   function bossLib(id) { return (view().library?.boss || []).find((b) => b.id === id) || null; }
 
   function bossControls(sc) {
@@ -237,6 +238,7 @@ export function createScenes({ client, act, getView }) {
         big('+1 Heal', '.sc-heal', () => send({ t: 'boss.heal', amount: 1 }), { disabled: d.hp >= max }),
         big(next ? `Next phase: ${next.name}` : 'Last phase', '.sc-phase', () => send({ t: 'boss.phase' }, next ? `Phase: ${next.name}.` : null), { disabled: !next }),
         big(d.defeated ? 'Defeated' : 'Defeat', '.btn-danger.sc-defeat', () => send({ t: 'boss.defeat' }, 'Boss defeated.'), { disabled: d.defeated && false })),
+      bossAttacks(d, b, lib),
       h('div.sc-boss-info',
         h('div.sc-gm-only',
           h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'),
@@ -246,6 +248,48 @@ export function createScenes({ client, act, getView }) {
           !d.revealed ? h('p.dim', 'The TV shows a silhouette until you press Intro.') : null),
         labeled('Loot line on TV after defeat', tvLoot)),
     );
+  }
+
+  /**
+   * The boss's attacks, rolled for real: the boss is a combatant in the running fight (linked to this
+   * scene), combat.mobAct resolves the attack against the target's Evade / DR, hits the sheet, and the
+   * TV plays it on the boss screen. Not in the fight yet → one button puts him in (and starts it).
+   */
+  function bossAttacks(d, b, lib) {
+    const c = view().combat || {};
+    const fighter = c.active ? (c.combatants || []).find((x) => x.type === 'mob' && x.linked) : null;
+    const attacks = fighter?.attacks || lib?.attacks || b.attacks || [];
+    if (!attacks.length) return null;
+    if (!fighter) {
+      const inFight = (c.combatants || []).some((x) => x.type === 'mob' && x.linked);
+      return h('div.sc-batk',
+        h('div.sc-batk-head', h('b', 'Attacks'), h('span.dim', `${attacks.length}: ${attacks.map((a) => a.name).join(', ')}`)),
+        h('div.sc-batk-row',
+          h('button.btn.btn-primary', {
+            type: 'button',
+            onclick: async () => {
+              if (!inFight) { const ok = await act({ t: 'combat.addMob', sourceId: d.bossId, hidden: false }, null); if (!ok) return; }
+              if (!c.active) await act({ t: 'combat.start' }, `Fight on: ${b.name} vs the party.`);
+            },
+          }, icon('swords', { size: 14 }), c.active ? `Put ${b.name} into the fight` : `Start the fight with ${b.name}`),
+          h('span.dim', 'Then roll his attacks here: to-hit vs Evade, damage − DR onto the sheets, on the TV.')));
+    }
+    const crawlers = (c.combatants || []).filter((x) => x.type === 'crawler');
+    if (bossTarget && !crawlers.some((x) => x.uid === bossTarget)) bossTarget = null;
+    const tgt = h('div.seg.seg-sm.sc-batk-tgt', { role: 'radiogroup', 'aria-label': 'Target' },
+      h('button', { type: 'button', role: 'radio', 'aria-checked': String(!bossTarget), onclick: () => { bossTarget = null; drawLive(); } }, 'Auto'),
+      ...crawlers.map((x) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(bossTarget === x.uid), disabled: x.down, title: `${x.name}: ${x.hp}/${x.hpMax} HP, Evade ${x.evade ?? '?'}`, onclick: () => { bossTarget = x.uid; drawLive(); } }, x.name)));
+    const sign = (n) => (n > 0 ? `+${n}` : String(n || 0));
+    return h('div.sc-batk',
+      h('div.sc-batk-head', h('b', 'Attacks'), h('span.dim', 'Target'), tgt),
+      h('div.sc-batk-list', attacks.map((a, i) => h('button.btn.sc-batk-btn', {
+        type: 'button', disabled: fighter.hp <= 0, title: a.effects || '',
+        onclick: async () => {
+          const r = await act({ t: 'combat.mobAct', uid: fighter.uid, attackIndex: i, ...(bossTarget ? { targetUid: bossTarget } : {}) }, null);
+          const st = r?.result?.sequence?.[0] ?? r?.sequence?.[0];
+          if (st) toast(`${a.name} → ${st.target}: ${st.total} vs ${st.evade} ${st.hit ? `HIT${st.damage ? `, −${st.damage} HP` : ''}${st.crit ? ' (crit)' : ''}${st.down ? `, ${st.target} is down` : ''}` : 'miss'}`);
+        },
+      }, h('b', a.name), h('span.sc-batk-k', `${sign(a.toHit)} to hit${a.damage && !/^0+$/.test(a.damage) ? ` · ${a.damage}` : ''}`), a.effects ? h('span.sc-batk-fx', a.effects) : null))));
   }
 
   function countdownControls(sc) {

@@ -295,3 +295,23 @@ test('settings validation and GM-only view fields', () => {
   assert.equal(p.combatants.find((x) => x.type === 'crawler').aggro, undefined);
   assert.throws(() => reduce(s, { role: 'player', actorId: ids[0], t: 'combat.auto' }, ctx()), /unknown action/);
 });
+
+test('combat.mobAct: the GM picks the mob, the attack and the target; same resolution, cinematic and undo', () => {
+  let { s, ids } = setup([['imp', 1]]);
+  const imp = mobsOf(s)[0];
+  const katia = crawlers(s)[2];
+  // attack 1 (Jeer, +5, no damage) at Katia: d20 7 + 5 = 12 vs 12 → hit, 0 damage
+  let r = gm(s, { t: 'combat.mobAct', uid: imp.uid, attackIndex: 1, targetUid: katia.uid }, { rolls: [7] });
+  let [step] = r.result.sequence;
+  assert.deepEqual([step.attack, step.target, step.total, step.hit, step.damage, step.mode], ['Jeer', 'Katia', 12, true, 0, 'gm']);
+  assert.ok(r.events.some((e) => e.event.kind === 'combat.auto' && e.to.roles?.includes('stage')));
+  // attack 0 (Poke 1d6) at Carl: 15 → hit, 4 damage; undo restores
+  r = gm(r.state, { t: 'combat.mobAct', uid: imp.uid, attackIndex: 0, targetUid: crawlers(s)[0].uid }, { rolls: [15, 4] });
+  s = r.state;
+  assert.equal(hpOf(s, ids[0]), 6);
+  s = gm(s, { t: 'combat.autoUndo' }).state;
+  assert.equal(hpOf(s, ids[0]), 10);
+  assert.throws(() => gm(s, { t: 'combat.mobAct', uid: imp.uid, attackIndex: 5 }), /attackIndex/);
+  assert.throws(() => gm(s, { t: 'combat.mobAct', uid: 'nope' }), /no mob/);
+  assert.throws(() => gm(s, { t: 'combat.mobAct', uid: imp.uid, targetUid: 'cb_x' }), /not in the fight/);
+});

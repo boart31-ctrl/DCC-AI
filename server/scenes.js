@@ -390,6 +390,18 @@ function amountOf(a) {
 
 // ---------- reducers (merged into the GM table by state.js) ----------
 
+/**
+ * The boss on the TV is also in the running fight (added from the library as a combatant): its HP follows
+ * the boss panel too (combat.js already pushes combatant hits to the scene). Direct write, no events:
+ * the scene's boss.hit / boss.heal is the one the TV plays.
+ */
+function syncBossCombatant(st, d) {
+  if (!st.combat?.active || !d.bossId) return;
+  for (const m of st.combat.combatants ?? []) {
+    if (m.type === 'mob' && m.sourceKind === 'boss' && m.sourceId === d.bossId) m.hp = Math.max(0, Math.min(m.hpMax, d.hp));
+  }
+}
+
 export const SCENE_GM = {
   'scene.set'(st, a, ctx) {
     if (!SCENE_KINDS.includes(a.kind)) throw bad(`kind must be one of ${SCENE_KINDS.join(', ')}`);
@@ -467,6 +479,7 @@ export const SCENE_GM = {
     const amount = amountOf(a);
     const from = d.hp;
     d.hp = Math.max(0, d.hp - amount);
+    syncBossCombatant(st, d);
     const suggestPhase = phaseFor(d);
     out.emit({ kind: 'boss.hit', sceneId: st.scene.id, amount: from - d.hp, from, hp: d.hp, max: d.boss.hpSlots, suggestPhase }, STAGE_GM);
     out.result = { hp: d.hp, max: d.boss.hpSlots, suggestPhase };
@@ -478,6 +491,7 @@ export const SCENE_GM = {
     const from = d.hp;
     d.hp = Math.min(d.boss.hpSlots, d.hp + amount);
     if (d.hp > 0) d.defeated = false;
+    syncBossCombatant(st, d);
     out.emit({ kind: 'boss.heal', sceneId: st.scene.id, amount: d.hp - from, from, hp: d.hp, max: d.boss.hpSlots }, STAGE_GM);
     out.result = { hp: d.hp, max: d.boss.hpSlots };
   },

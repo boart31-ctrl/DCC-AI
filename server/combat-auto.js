@@ -14,7 +14,7 @@
 // The TV plays `combat.auto` as a cinematic: one step every settings.stepMs from `startAt` (server ms).
 // Voice lines and chat bursts carry `delayMs` so they land on their step; the GM desk cues SFX from
 // the same timeline. Unverified rules (hitRule, drMin, crit) are flagged in the GM view.
-import { bad } from './errors.js';
+import { bad, notFound } from './errors.js';
 import { FINALE_OUTCOMES } from './scenes.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import {
@@ -115,11 +115,18 @@ function remember(undo, st, ctx, s) {
 }
 
 /** One mob's turn. Mutates the state; returns the step record. */
-function resolveMob(st, ctx, out, c, m, run) {
+function resolveMob(st, ctx, out, c, m, run, force = {}) {
   const step = { i: run.steps.length, mobUid: m.uid, mob: m.name, image: m.image ?? null, hidden: !!m.hidden, boss: m.sourceKind === 'boss' };
-  const pick = pickAttack(ctx, m);
+  // force.attackIndex / force.targetUid: the GM picked the attack and / or the target (combat.mobAct)
+  const pick = force.attackIndex !== undefined ? (m.attacks[force.attackIndex] ? { atk: m.attacks[force.attackIndex], index: force.attackIndex } : null) : pickAttack(ctx, m);
   if (!pick) return { ...step, skipped: 'no attacks' };
-  const { target, reason, mode } = pickTarget(st, ctx, c, m);
+  let picked;
+  if (force.targetUid) {
+    const x = c.combatants.find((y) => y.uid === force.targetUid && y.type === 'crawler');
+    const s0 = x ? crawlerState(st, ctx, x) : null;
+    picked = s0 && s0.max > 0 ? { target: s0, mode: 'gm' } : { target: null, reason: 'that crawler is not in the fight' };
+  } else picked = pickTarget(st, ctx, c, m);
+  const { target, reason, mode } = picked;
   step.attack = pick.atk.name;
   step.attackIndex = pick.index;
   if (!target) return { ...step, skipped: reason };
@@ -269,6 +276,36 @@ export const AUTO_GM = {
     const timing = emitRun(st, ctx, out, c, run, fresh);
     storeRun(c, run, timing, from > 0);
     out.result = { autoId: run.id, sequence: fresh, ...timing, suggestEnd: endSuggestion(st, ctx.pack) };
+  },
+
+  /**
+   * One chosen mob (a boss too) attacks now: optional attackIndex (default: its attack mode) and targetUid
+   * (default: its targeting). Same resolution, cinematic, dice log and undo as auto mode.
+   */
+  'combat.mobAct'(st, a, ctx, out) {
+    const c = C(st);
+    needActive(c);
+    const m = c.combatants.find((x) => x.uid === a.uid && x.type === 'mob');
+    if (!m) throw notFound(`no mob ${a.uid}`);
+    if (m.hp <= 0) throw bad(`${m.name} is down`);
+    if (!m.attacks?.length) throw bad(`${m.name} has no attacks`);
+    const force = {};
+    if (a.attackIndex !== undefined) {
+      if (!Number.isInteger(a.attackIndex) || a.attackIndex < 0 || a.attackIndex >= m.attacks.length) throw bad(`attackIndex must be 0..${m.attacks.length - 1}`);
+      force.attackIndex = a.attackIndex;
+    }
+    if (a.targetUid !== undefined && a.targetUid !== null) {
+      if (typeof a.targetUid !== 'string') throw bad('targetUid must be a string');
+      force.targetUid = a.targetUid;
+    }
+    c.autoQueue = null;
+    const run = newRun(st, ctx, c, a);
+    const step = resolveMob(st, ctx, out, c, m, run, force);
+    if (step.skipped) throw bad(`${m.name}: ${step.skipped}`);
+    run.steps.push(step);
+    const timing = emitRun(st, ctx, out, c, run, [step]);
+    storeRun(c, run, timing, false);
+    out.result = { autoId: run.id, sequence: [step], ...timing, suggestEnd: endSuggestion(st, ctx.pack) };
   },
 
   /** One mob at a time: builds the queue on the first call, resolves the next mob on each call. */

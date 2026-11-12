@@ -187,6 +187,7 @@ export function partyStrip() {
         'data-id': p.id, 'data-hp': hp ? String(hp.cur) : '',
         style: { '--pc': p.color || '#2ef2ff' },
       },
+      portraitSrc(p.portrait) ? h('img.ps-face', { src: portraitSrc(p.portrait), alt: '', decoding: 'async' }) : null,
       levelBadge('ps-lvl', p, p.level),
       h('div.ps-main',
         h('div.ps-name', p.name),

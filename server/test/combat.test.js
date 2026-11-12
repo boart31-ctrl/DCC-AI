@@ -402,3 +402,16 @@ test('TV pace: rooms on the old 2.0 s default move to 2.8 s once; an explicit pi
   assert.equal(s.combat.settings.stepMs, 2000);
   assert.equal(normalizeState(JSON.parse(JSON.stringify(s)), pack, 0).combat.settings.stepMs, 2000);
 });
+
+test('boss panel damage / heal moves the boss combatant in the running fight too', () => {
+  let { s } = base();
+  s = gm(s, { t: 'scene.set', kind: 'boss', data: { bossId: 'porter' } }).state;
+  s = gm(s, { t: 'combat.addMob', sourceId: 'porter', hidden: false }).state;
+  s = gm(s, { t: 'player.add', name: 'Carl' }).state;
+  s = gm(s, { t: 'combat.start' }).state;
+  s = gm(s, { t: 'boss.damage', amount: 4 }).state;
+  assert.equal(mobs(s)[0].hp, 16);
+  assert.equal(s.scene.data.hp, 16);
+  s = gm(s, { t: 'boss.heal', amount: 2 }).state;
+  assert.equal(mobs(s)[0].hp, 18);
+});

@@ -7,7 +7,7 @@ import { floorLayer } from '../ui-art.js';
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
 
 export default function boss(root, sc, env) {
-  const { T } = env;
+  const { T, clock } = env;
   let d = sc.data;
   let b = d.boss || { name: 'Unknown', hpSlots: 10, phases: [] };
   let artUrl = '';
@@ -41,12 +41,14 @@ export default function boss(root, sc, env) {
   const party = partyStrip();
   // Fighting-game layout: name, HP and the System's phase report on the left, a tall portrait
   // on the right, the party under the report.
+  const atkBox = h('div.bs-atk', { 'aria-live': 'polite' }); // the boss's attack (combat.mobAct / Mobs act)
   const fight = h('div.bs-fight',
     h('div.bs-head', h('div.bs-namebox', name, title), phase),
     hp,
     h('div.bs-mid', info, loot),
     h('div.bs-party', party.el),
     h('div.bs-framewrap', frame, dmg),
+    atkBox,
   );
 
   /* ---------- pre-reveal ---------- */
@@ -301,7 +303,41 @@ export default function boss(root, sc, env) {
     drawStatic();
   }
 
+  /** Auto-mode / GM-picked attacks while the boss screen is up: a callout per step, the target's card flashes. */
+  let lastView = env.view;
+  let partyHold = 0; // Date.now() until which view updates leave the party strip alone (an attack is playing)
+  function onAttacks(e) {
+    const stepMs = e.stepMs || 2800;
+    const beats = e.beats || { result: 0.52 };
+    const now = clock?.now ? clock.now() : Date.now();
+    const start = (e.startAt ?? now) - now;
+    const lastIdx = (e.steps || []).length - 1;
+    partyHold = Date.now() + Math.max(0, start) + (lastIdx + 1) * stepMs + 500;
+    (e.steps || []).forEach((st, k) => {
+      if (st.skipped) return;
+      const t0 = start + (Number.isInteger(st.slot) ? st.slot : k) * stepMs;
+      T.after(Math.max(0, t0), () => {
+        atkBox.className = 'bs-atk';
+        atkBox.replaceChildren(
+          h('div.bs-atk-who', st.boss ? st.attack : `${st.mob}: ${st.attack}`),
+          h('div.bs-atk-tgt', `→ ${st.target || '?'}`),
+          h('div.bs-atk-roll', '…'));
+        replay(atkBox, 'show');
+        if (st.boss && !env.reduced) replay(frame, 'lunge');
+      });
+      T.after(Math.max(0, t0 + (beats.result ?? 0.52) * stepMs), () => {
+        const r = atkBox.querySelector('.bs-atk-roll');
+        if (r) r.textContent = `${st.total} vs ${st.evade}  ${st.hit ? (st.crit ? 'CRIT' : 'HIT') : 'MISS'}${st.hit && st.damage ? `  −${st.damage}` : ''}`;
+        atkBox.classList.add(st.hit ? 'hit' : 'miss');
+        if (k === lastIdx) partyHold = 0;
+        party.update(lastView); // the HP drop (and its flash) lands with the result, not before
+      });
+      T.after(Math.max(0, t0 + stepMs * 0.95), () => atkBox.classList.remove('show'));
+    });
+  }
+
   function event(e) {
+    if (e.kind === 'combat.auto') { onAttacks(e); return; }
     if (e.kind === 'boss.intro') { if (!env.reduced) intro(); else { root.classList.remove('pre'); } }
     else if (e.kind === 'boss.hit') onHit(e);
     else if (e.kind === 'boss.heal') onHeal(e);
@@ -313,7 +349,7 @@ export default function boss(root, sc, env) {
   party.update(env.view);
   const baseUpdate = update;
   return {
-    update(s, view) { baseUpdate(s, view); party.update(view); },
+    update(s, view) { lastView = view; baseUpdate(s, view); if (Date.now() >= partyHold) party.update(view); },
     event,
     destroy() { document.body.classList.remove('cine'); },
     get hp() { return hpShown; },
