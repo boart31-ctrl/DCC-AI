@@ -7,7 +7,7 @@
 // "Step" does one mob, "Undo" puts it back; the TV plays it as a cinematic and this desk plays the
 // sounds in step. Endings: "End ▾" picks the outcome (TV finale); victory / defeat are offered by
 // themselves (3 s toast with Cancel) when every revealed mob / every crawler is down.
-import { h, toast, portraitSrc, onPortraits } from './client.js';
+import { h, toast, portraitSrc, onPortraits, itemArt } from './client.js';
 import { sheetModel, libraryOf } from './rules.js';
 import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
 import { entryArt } from './portrait.js';
@@ -474,8 +474,43 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
       entryArt({ name: m.name, image: m.image }, { cls: 'cbt-art sm', lit: false }),
       h('s', m.name),
       h('span.grow'),
+      looted(m.uid) ? h('span.dim.cbt-looted', 'Looted') : h('button.btn.btn-sm', { type: 'button', title: 'Drop its loot (library list) on the TV', onclick: () => act({ t: 'loot.corpse', uid: m.uid }, `${m.name} dropped its loot.`) }, icon('gift', { size: 13 }), 'Loot'),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'combat.heal', uid: m.uid, amount: 1 }, `${m.name} is back up.`), title: 'Back to 1 HP' }, '+1'),
       h('button.icon-btn', { type: 'button', 'aria-label': `Remove ${m.name}`, onclick: () => act({ t: 'combat.remove', uid: m.uid }) }, icon('trash', { size: 14 })));
+  }
+
+  /* ---------- loot from the dead (loot.js) ---------- */
+
+  const drops = () => view?.gm?.drops || [];
+  const looted = (uid) => drops().some((d) => d.from.uid === uid);
+  /** Bodies to loot (downed mobs + crawlers) and the piles to hand out, item by item, to a crawler. */
+  function lootPanel() {
+    const ds = drops();
+    const bodies = (C().combatants || []).filter((x) => x.down && !looted(x.uid));
+    if (!ds.length && !bodies.length) return null;
+    const ps = view?.players || [];
+    const name = (id) => ps.find((p) => p.id === id)?.name || '?';
+    return h('section.panel.cbt-lootp',
+      h('div.sec-head', h('h2', 'Loot'), h('span.dim', 'from the dead: pick who takes what')),
+      bodies.length ? h('div.cbt-bodies', bodies.map((x) => h('button.btn.btn-sm', {
+        type: 'button',
+        title: x.type === 'mob' ? 'Its library loot falls on the TV' : 'Everything they carried falls on the TV',
+        onclick: () => act({ t: 'loot.corpse', uid: x.uid }, `${x.name} dropped ${x.type === 'mob' ? 'its loot' : 'everything'}.`),
+      }, icon('gift', { size: 13 }), `Loot ${x.name}`))) : null,
+      [...ds].reverse().map((d) => {
+        const left = d.items.filter((it) => !it.takenBy).length;
+        return h('div.cbt-drop',
+          h('div.cbt-drop-head', h('b', d.from.name), h('span.dim', left ? `${left} left` : 'all taken'), h('span.grow'),
+            h('button.icon-btn', { type: 'button', title: 'Forget this pile', 'aria-label': `Forget the pile of ${d.from.name}`, onclick: () => act({ t: 'loot.clear', dropId: d.id }) }, icon('x', { size: 14 }))),
+          h('ul.cbt-drop-items', d.items.map((it) => h('li', { class: it.takenBy ? 'taken' : '' },
+            itemArt(it, 'cbt-drop-art'),
+            h('span.cbt-drop-nm', it.name, it.qty > 1 ? h('span.dim', ` ×${it.qty}`) : null),
+            it.takenBy ? h('span.dim', `→ ${name(it.takenBy)}`)
+              : h('span.cbt-drop-to', ps.filter((p) => p.id !== d.from.playerId).map((p) => h('button.btn.btn-sm.btn-quiet', {
+                type: 'button', title: `Give ${it.name} to ${p.name}`,
+                onclick: () => act({ t: 'loot.take', dropId: d.id, key: it.key, playerId: p.id }, `${p.name} takes ${it.name}.`),
+              }, p.name)))))));
+      }));
   }
 
   /* ---------- finale follow-up (after combat.end) ---------- */
@@ -654,7 +689,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
       dead.length ? h('details.cbt-fallen', { open: ui.fallenOpen || null, ontoggle: (e) => { ui.fallenOpen = e.target.open; } },
         h('summary', `Defeated (${dead.length})`), h('ul.cbt-list', dead.map(fallenRow))) : null,
     );
-    const side = h('div.cbt-side', c.active ? autoPanel() : null, builder(), lastRollCard());
+    const side = h('div.cbt-side', lootPanel(), c.active ? autoPanel() : null, builder(), lastRollCard());
     el.replaceChildren(...[
       header(),
       ui.editPhases ? phaseEditor() : null,

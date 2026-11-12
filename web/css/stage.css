@@ -558,3 +558,28 @@ body.moment-on .sub-text { font-size: 1.6rem; }
 .m-recap .m-scroll .sys-desc { font-size: 2.2rem; color: #fff; }
 body.hosted .join { display: none; }
 body.recap-on .subtitle { display: none; } /* the recap text is already on screen while it is read aloud */
+
+/* ---------- loot from the dead (stage.js lootTray) ---------- */
+.loot-tray {
+  position: fixed; z-index: 30; left: 50%; bottom: 5.4rem; max-width: 90vw;
+  padding: 1.2rem 1.8rem 1.4rem; display: grid; gap: 0.9rem; justify-items: center;
+  background: rgba(7, 3, 15, 0.94); border: 0.15rem solid var(--acid, #e4ff2e); border-radius: 0.6rem;
+  box-shadow: 0 0 3rem rgba(228, 255, 46, 0.25), 0 1.5rem 4rem rgba(0, 0, 0, 0.6);
+  opacity: 0; transform: translate3d(-50%, 3rem, 0); pointer-events: none;
+  transition: opacity 0.6s var(--ease-out, ease-out), transform 0.7s var(--ease-out, ease-out);
+}
+.loot-tray.on { opacity: 1; transform: translate3d(-50%, 0, 0); }
+.lt-head { margin: 0; font-family: var(--f-mono); font-size: 1.6rem; letter-spacing: 0.1em; text-transform: uppercase; color: #cfc6e6; }
+.lt-head b { color: var(--acid, #e4ff2e); font-weight: 700; }
+.lt-items { list-style: none; margin: 0; padding: 0; display: flex; gap: 1.4rem; flex-wrap: wrap; justify-content: center; }
+.lt-items li { display: grid; justify-items: center; gap: 0.3rem; width: 10rem; transition: opacity 0.5s, transform 0.5s; }
+.lt-ico { width: 7rem; height: 7rem; display: grid; place-items: center; border-radius: 0.5rem; background: radial-gradient(circle at 50% 40%, #2a1640, #0b0614); font-size: 3rem; color: #9a8fb8; }
+.lt-ico img { width: 100%; height: 100%; object-fit: contain; }
+.lt-items li.r-rare .lt-ico { box-shadow: 0 0 0 0.15rem #3b8cff; }
+.lt-items li.r-epic .lt-ico, .lt-items li.r-legendary .lt-ico { box-shadow: 0 0 0 0.18rem #ffd23f, 0 0 1.4rem rgba(255, 210, 63, 0.5); }
+.lt-nm { font-family: var(--f-ui, sans-serif); font-size: 1.4rem; line-height: 1.15; text-align: center; color: #fff; }
+.lt-who { font-family: var(--f-mono); font-size: 1.3rem; color: var(--pc, var(--cyan)); min-height: 1.4rem; }
+.lt-items li.taken .lt-ico { box-shadow: 0 0 0 0.2rem var(--pc, var(--cyan)); }
+.lt-items li.taken .lt-nm { opacity: 0.6; }
+.lt-more { margin: 0; font-size: 1.3rem; color: #9a8fb8; }
+@media (prefers-reduced-motion: reduce) { .loot-tray { transition: opacity 0.3s; transform: translate3d(-50%, 0, 0); } }

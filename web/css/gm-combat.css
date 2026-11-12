@@ -312,3 +312,17 @@
 .ag-name { font-family: var(--f-ui); font-size: 12px; line-height: 1.2; color: var(--c-ink-2); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-transform: capitalize; }
 .ag-url { display: flex; gap: 6px; }
 .ag-url .inp { flex: 1; }
+
+/* ---------- loot from the dead ---------- */
+.cbt-lootp { display: grid; gap: 10px; border-color: color-mix(in srgb, var(--c-accent) 40%, var(--c-line)); }
+.cbt-bodies { display: flex; flex-wrap: wrap; gap: 6px; }
+.cbt-drop { display: grid; gap: 6px; padding-top: 8px; border-top: 1px solid var(--c-line); }
+.cbt-drop-head { display: flex; align-items: center; gap: 8px; font-family: var(--f-ui); font-size: 14px; }
+.cbt-drop-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.cbt-drop-items li { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 4px 8px; }
+.cbt-drop-items li.taken { opacity: 0.55; }
+.cbt-drop-items .cbt-drop-art { grid-row: span 2; width: 34px; height: 34px; }
+.cbt-drop-nm { font-size: 13px; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cbt-drop-to { display: flex; flex-wrap: wrap; gap: 4px; }
+.cbt-drop-to .btn { height: 24px; padding: 0 8px; font-size: 12px; }
+.cbt-looted { font-size: 12px; }

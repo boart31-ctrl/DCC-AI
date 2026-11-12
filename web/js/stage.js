@@ -211,6 +211,8 @@ function onEvent(e) {
       if (!momentBusy) nextMoment();
       break;
     case 'stat': flashPlayer(e.playerId); break;
+    case 'loot.drop': lootTray(e); break;
+    case 'loot.take': lootTaken(e); break;
     case 'announcement':
       cueGate.hold(e, () => { momentQ.push({ ...e, kind: 'announcement' }); if (!momentBusy) nextMoment(); }, !audioHere());
       break;
@@ -228,6 +230,43 @@ function npcSub(e) {
   npcSubEl.classList.remove('on'); void npcSubEl.offsetWidth; npcSubEl.classList.add('on');
   clearTimeout(npcSubTimer);
   npcSubTimer = setTimeout(() => npcSubEl.classList.remove('on'), Math.max(4500, Math.min(14000, 70 * (e.text || '').length)));
+}
+
+// Loot from the dead (loot.js): a tray of what fell, bottom centre, over any scene; items get the
+// taker's name as the GM hands them out. No takeover: the fight keeps running behind it.
+let trayEl = null;
+let trayTimer = 0;
+const trayItemSrc = (img) => (!img ? null : img.startsWith('/') || /^https?:/.test(img) ? img : `/pack/images/${img}`);
+function lootTray(e) {
+  if (!trayEl) { trayEl = h('div.loot-tray', { 'aria-live': 'polite' }); document.body.append(trayEl); }
+  trayEl.dataset.drop = e.dropId || '';
+  const items = (e.items || []).slice(0, 8);
+  trayEl.replaceChildren(...[
+    h('p.lt-head', h('b', e.from?.name || 'Something'), e.from?.type === 'crawler' ? ' dropped everything' : ' dropped'),
+    h('ul.lt-items', items.map((it) => h('li', { 'data-key': it.key, class: `r-${it.rarity || 'common'}` },
+      h('span.lt-ico', trayItemSrc(it.image) ? h('img', { src: trayItemSrc(it.image), alt: '', decoding: 'async' }) : h('span', '◆')),
+      h('span.lt-nm', it.name, it.qty > 1 ? ` ×${it.qty}` : ''),
+      h('span.lt-who')))),
+    (e.items || []).length > items.length ? h('p.lt-more', `+${e.items.length - items.length} more`) : null].filter(Boolean));
+  trayEl.classList.remove('on'); void trayEl.offsetWidth; trayEl.classList.add('on');
+  clearTimeout(trayTimer);
+  trayTimer = setTimeout(() => trayEl.classList.remove('on'), 14000);
+}
+function lootTaken(e) {
+  const p = playerOf(e.playerId);
+  if (trayEl && trayEl.dataset.drop === e.dropId) {
+    const li = trayEl.querySelector(`li[data-key="${CSS.escape(e.item?.key || '')}"]`);
+    if (li) {
+      li.classList.add('taken');
+      li.style.setProperty('--pc', p?.color || 'var(--cyan)');
+      li.querySelector('.lt-who').textContent = `→ ${e.name || p?.name || ''}`;
+    }
+    trayEl.classList.add('on');
+    clearTimeout(trayTimer);
+    const left = trayEl.querySelectorAll('li:not(.taken)').length;
+    trayTimer = setTimeout(() => trayEl.classList.remove('on'), left ? 12000 : 3500);
+  }
+  flashPlayer(e.playerId);
 }
 
 function flashPlayer(id) {

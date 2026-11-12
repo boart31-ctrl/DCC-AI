@@ -415,3 +415,45 @@ test('boss panel damage / heal moves the boss combatant in the running fight too
   s = gm(s, { t: 'boss.heal', amount: 2 }).state;
   assert.equal(mobs(s)[0].hp, 18);
 });
+
+test('loot from the dead: a downed mob drops its lootItems, the GM hands them out; a dead crawler drops their inventory', () => {
+  let { s, pid, pid2 } = base();
+  let r = gm(s, { t: 'combat.addMob', sourceId: 'goblin', hidden: false });
+  s = r.state;
+  const uid = r.result.uids[0];
+  s = gm(s, { t: 'combat.start' }).state;
+  assert.throws(() => gm(s, { t: 'loot.corpse', uid }), /still standing/);
+  s = gm(s, { t: 'combat.damage', uid, amount: 9 }).state;
+  r = gm(s, { t: 'loot.corpse', uid });
+  s = r.state;
+  const drop = s.drops[0];
+  assert.deepEqual(drop.items.map((x) => x.itemId), ['duck']);
+  const tv = r.events.find((e) => e.event.kind === 'loot.drop');
+  assert.equal(tv.to, 'all');
+  assert.deepEqual(tv.event.items.map((x) => x.name), ['Duck']);
+  assert.throws(() => gm(s, { t: 'loot.corpse', uid }), /already looted/);
+  r = gm(s, { t: 'loot.take', dropId: drop.id, key: drop.items[0].key, playerId: pid });
+  s = r.state;
+  assert.ok(s.players[0].inventory.some((i) => i.itemId === 'duck'));
+  assert.ok(r.events.some((e) => e.event.kind === 'loot.take' && e.event.name === 'Carl'));
+  assert.throws(() => gm(s, { t: 'loot.take', dropId: drop.id, key: drop.items[0].key, playerId: pid2 }), /already taken/);
+  assert.equal(viewFor(s, pack, 'gm').gm.drops.length, 1);
+  assert.equal(viewFor(s, pack, 'stage').gm, undefined, 'piles are GM-only (the TV gets events)');
+  // GM's own pick for a mob with no list
+  // a dead crawler: Carl (has the duck) goes down, Donut takes the duck from the body
+  const carl = s.combat.combatants.find((x) => x.type === 'crawler' && x.playerId === pid);
+  s = gm(s, { t: 'combat.damage', uid: carl.uid, amount: 99 }).state;
+  r = gm(s, { t: 'loot.corpse', uid: carl.uid });
+  s = r.state;
+  const body = s.drops[1];
+  assert.equal(body.from.type, 'crawler');
+  s = gm(s, { t: 'loot.take', dropId: body.id, key: body.items[0].key, playerId: pid2 }).state;
+  assert.ok(!s.players[0].inventory.some((i) => i.itemId === 'duck'), 'moved, not copied');
+  assert.ok(s.players[1].inventory.some((i) => i.itemId === 'duck'));
+  // survives save / load; session.new clears
+  assert.equal(normalizeState(JSON.parse(JSON.stringify(s)), pack, 0).drops.length, 2);
+  s = gm(s, { t: 'loot.clear', dropId: body.id }).state;
+  assert.equal(s.drops.length, 1);
+  s = gm(s, { t: 'session.new' }).state;
+  assert.equal(s.drops.length, 0);
+});

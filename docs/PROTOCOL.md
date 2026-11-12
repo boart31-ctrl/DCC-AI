@@ -259,6 +259,10 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `sponsor.box` | `playerId`, `tier?`, `sponsor?` | Loot box framed as a sponsor gift, event `sponsor` |
 | `session.mode` | `mode`: `roleplay`/`combat`/`quiet` | |
 | `session.auto` | `on`: bool | Master AUTO switch. Off also clears `pendingAuto` |
+| `combat.mobAct` | `uid`, `attackIndex`?, `targetUid`? | One chosen mob / boss attacks now (GM-picked attack and target, else its own modes). Same resolution, `combat.auto` cinematic and `combat.autoUndo` as Mobs act |
+| `loot.corpse` | `uid`, `itemIds`? | Loot a downed combatant: a mob drops its library `lootItems` (or `itemIds`), a crawler their inventory. One pile per body in `state.drops` (GM view `gm.drops`); event `loot.drop` to all |
+| `loot.take` | `dropId`, `key`, `playerId` | Hand one item of a pile to a crawler (a dead crawler's own item moves). Event `loot.take` to all |
+| `loot.clear` | `dropId` | Forget a pile |
 | `session.aiMute` | `on`: bool | Mute AI: System lines go out as text only (`play` gets `silent: true`, no audio/TTS), the audience chat stops, AUTO turns off and cannot be turned on while muted. Kept across `session.new` |
 | `session.budget` | `value` | Set remaining auto budget |
 | `session.voice` | `voice` (id from pack `voices`) | Switches the System voice live; stage applies it to the next line |
