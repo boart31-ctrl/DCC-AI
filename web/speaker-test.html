@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Speaker test · The System</title>
+<style>
+  :root { color-scheme: dark; --bg:#0d0a18; --card:#181330; --line:#2c2450; --txt:#ece8ff; --dim:#9a92c0; --acc:#ff3fb4; --ok:#45e0a0; --warn:#ffc04a; }
+  * { box-sizing: border-box; }
+  body { margin:0; font:16px/1.5 system-ui, sans-serif; background:var(--bg); color:var(--txt); }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 18px 60px; }
+  h1 { font-size: 26px; margin: 0 0 4px; } h2 { font-size: 17px; margin: 28px 0 10px; color: var(--acc); }
+  p, li { color: var(--dim); } b { color: var(--txt); }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; }
+  .stat { font-size: 20px; } .stat b { font-size: 28px; }
+  .ok { color: var(--ok); } .warn { color: var(--warn); }
+  .room { display:grid; grid-template-columns: repeat(3, 1fr); gap:10px; margin-top: 10px; }
+  button { font: inherit; color: var(--txt); background: #241c45; border: 1px solid var(--line); border-radius: 10px; padding: 14px 10px; cursor: pointer; }
+  button:hover { border-color: var(--acc); } button.on { background: var(--acc); color: #120a20; border-color: var(--acc); }
+  button[disabled] { opacity: .35; cursor: not-allowed; }
+  .wide { grid-column: 1 / -1; } .row { display:flex; gap:10px; flex-wrap: wrap; margin-top: 10px; } .row button { flex: 1 1 200px; }
+  .tv { grid-column: 1 / -1; text-align:center; color: var(--dim); border:1px dashed var(--line); border-radius:10px; padding:6px; font-size: 13px; }
+  .you { grid-column: 2; text-align:center; color: var(--dim); font-size: 13px; padding: 6px; }
+  small { color: var(--dim); }
+</style>
+</head>
+<body>
+<main>
+  <h1>Test reproduktorů</h1>
+  <p>Pusť tuhle stránku <b>na notebooku, který je připojený k soundbaru</b>, ve stejném prohlížeči jako GM pult. Zjistí, kolik kanálů prohlížeč do soundbaru pustí, a každý kanál přehraje zvlášť.</p>
+
+  <div class="card">
+    <div class="stat">Kanálů k dispozici: <b id="max">?</b></div>
+    <div id="verdict">Klikni na <b>Start</b> (prohlížeč pustí zvuk až po kliknutí).</div>
+    <div class="row"><button id="start">Start</button></div>
+  </div>
+
+  <h2>1. Každý reproduktor zvlášť</h2>
+  <p>Ozve se šum a hlas „left / right / …“. Zapiš si, odkud to <b>opravdu</b> šlo.</p>
+  <div class="card">
+    <div class="room">
+      <div class="tv">📺 TV / přední strana</div>
+      <button data-ch="0" disabled>Levý přední</button>
+      <button data-ch="2" disabled>Střed</button>
+      <button data-ch="1" disabled>Pravý přední</button>
+      <button data-ch="3" class="wide" disabled>Subwoofer (LFE)</button>
+      <button data-ch="4" disabled>Levý zadní</button>
+      <div class="you">🎲 stůl</div>
+      <button data-ch="5" disabled>Pravý zadní</button>
+    </div>
+  </div>
+
+  <h2>2. Bas</h2>
+  <p>Hluboký „dunivý“ přejezd 25 → 90 Hz. Varianta A jde přímo do subwooferu (LFE), varianta B přes přední reproduktory (soundbar si bas pošle do subu sám).</p>
+  <div class="card row">
+    <button id="subA" disabled>A: Sub drop do LFE</button>
+    <button id="subB" disabled>B: Sub drop přes přední</button>
+  </div>
+
+  <h2>3. Ukázka, jak by to znělo ve hře</h2>
+  <div class="card row">
+    <button id="crowd" disabled>Publikum za zády (zadní)</button>
+    <button id="boss" disabled>Příchod bosse (všude + sub)</button>
+    <button id="flyby" disabled>Něco proletí místností</button>
+  </div>
+
+  <h2>Co mi pak napiš</h2>
+  <ul>
+    <li>číslo „Kanálů k dispozici“,</li>
+    <li>které tlačítko hrálo odkud (hlavně zadní a sub),</li>
+    <li>jestli bas A nebo B duněl víc.</li>
+  </ul>
+  <p><small>Když je kanálů jen 2: ve Windows → Nastavení zvuku → výstup (soundbar / HDMI) → Vlastnosti → Formát / Konfigurace reproduktorů zkus 5.1 nebo 7.1, pak stránku obnov. Prohlížeč pustí víc kanálů, jen když mu je systém nabídne.</small></p>
+</main>
+<script>
+const NAMES = ['left', 'right', 'center', 'subwoofer', 'rear left', 'rear right', 'side left', 'side right'];
+let ctx, out, merger, channels = 2;
+const $ = (s) => document.querySelector(s);
+
+function setup() {
+  ctx = new (window.AudioContext || window.webkitAudioContext)();
+  const max = ctx.destination.maxChannelCount || 2;
+  channels = Math.min(max, 8);
+  try {
+    ctx.destination.channelCount = channels;
+    ctx.destination.channelCountMode = 'explicit';
+    ctx.destination.channelInterpretation = 'discrete';
+  } catch (e) { channels = 2; }
+  merger = ctx.createChannelMerger(Math.max(channels, 2));
+  merger.connect(ctx.destination);
+  $('#max').textContent = max;
+  const v = $('#verdict');
+  if (max >= 6) { v.innerHTML = '<span class="ok">Prohlížeč vidí vícekanálový výstup.</span> Vyzkoušej každý reproduktor, jestli opravdu hraje ten správný.'; }
+  else { v.innerHTML = '<span class="warn">Jen ' + max + ' kanály (stereo).</span> Zadní reproduktory a samostatný sub z prohlížeče teď nejdou. Bas varianta B funguje i tak. Viz tip dole.'; }
+  document.querySelectorAll('button[data-ch]').forEach((b) => { b.disabled = +b.dataset.ch >= channels; });
+  ['#subA'].forEach((s) => { $(s).disabled = channels < 4; });
+  ['#subB', '#boss', '#flyby'].forEach((s) => { $(s).disabled = false; });
+  $('#crowd').disabled = channels < 6;
+}
+
+function to(ch) { const g = ctx.createGain(); g.connect(merger, 0, ch); return g; }
+
+function noise(sec) {
+  const b = ctx.createBuffer(1, Math.floor(ctx.sampleRate * sec), ctx.sampleRate);
+  const d = b.getChannelData(0); let b0 = 0, b1 = 0, b2 = 0;
+  for (let i = 0; i < d.length; i++) { // pink-ish noise
+    const w = Math.random() * 2 - 1; b0 = 0.997 * b0 + w * 0.029591; b1 = 0.985 * b1 + w * 0.032534; b2 = 0.95 * b2 + w * 0.048056;
+    d[i] = (b0 + b1 + b2 + w * 0.05) * 0.9;
+  }
+  const s = ctx.createBufferSource(); s.buffer = b; return s;
+}
+
+function env(g, t0, a, hold, r, peak = 1) {
+  g.gain.setValueAtTime(0, t0); g.gain.linearRampToValueAtTime(peak, t0 + a);
+  g.gain.setValueAtTime(peak, t0 + a + hold); g.gain.linearRampToValueAtTime(0, t0 + a + hold + r);
+}
+
+function speak(text) {
+  try { const u = new SpeechSynthesisUtterance(text); u.lang = 'en-US'; speechSynthesis.cancel(); speechSynthesis.speak(u); } catch {}
+}
+
+function pingChannel(ch, btn) {
+  const t = ctx.currentTime + 0.05;
+  if (ch === 3) { subDrop(true); }
+  else {
+    const n = noise(1.2), g = ctx.createGain(); env(g, t, 0.02, 0.9, 0.2, 0.5);
+    n.connect(g).connect(to(ch)); n.start(t); n.stop(t + 1.2);
+  }
+  speak(NAMES[ch]);
+  btn.classList.add('on'); setTimeout(() => btn.classList.remove('on'), 1300);
+}
+
+function subDrop(lfe) {
+  const t = ctx.currentTime + 0.05, o = ctx.createOscillator(), g = ctx.createGain();
+  o.type = 'sine'; o.frequency.setValueAtTime(90, t); o.frequency.exponentialRampToValueAtTime(25, t + 2.2);
+  env(g, t, 0.05, 1.8, 0.6, 0.9);
+  o.connect(g);
+  if (lfe && channels >= 4) g.connect(to(3)); else { g.connect(to(0)); g.connect(to(1)); }
+  o.start(t); o.stop(t + 2.6);
+}
+
+function crowd() { // murmur + cheer swell from the rear pair
+  const t = ctx.currentTime + 0.05;
+  for (const ch of [4, 5]) {
+    const n = noise(3.5), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+    bp.type = 'bandpass'; bp.frequency.value = 900 + (ch - 4) * 300; bp.Q.value = 0.6;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0.25, t + 0.6); g.gain.linearRampToValueAtTime(0.7, t + 2.2); g.gain.linearRampToValueAtTime(0, t + 3.4);
+    n.connect(bp).connect(g).connect(to(ch)); n.start(t); n.stop(t + 3.5);
+  }
+}
+
+function boss() { // sub drop + low brass-ish swell on every speaker
+  subDrop(channels >= 4);
+  const t = ctx.currentTime + 0.05;
+  const all = channels >= 6 ? [0, 1, 2, 4, 5] : [0, 1];
+  for (const f of [55, 82.5, 110]) {
+    const o = ctx.createOscillator(), lp = ctx.createBiquadFilter(), g = ctx.createGain();
+    o.type = 'sawtooth'; o.frequency.value = f; lp.type = 'lowpass'; lp.frequency.setValueAtTime(200, t); lp.frequency.linearRampToValueAtTime(1400, t + 1.5);
+    env(g, t, 0.8, 1.0, 1.0, 0.08);
+    o.connect(lp).connect(g); for (const ch of all) g.connect(to(ch)); o.start(t); o.stop(t + 3);
+  }
+}
+
+function flyby() { // whoosh panned front-left → rear-right (or left → right on stereo)
+  const t = ctx.currentTime + 0.05, dur = 2.0;
+  const path = channels >= 6 ? [0, 2, 1, 5, 4] : [0, 1];
+  const n = noise(dur + 0.2), bp = ctx.createBiquadFilter();
+  bp.type = 'bandpass'; bp.Q.value = 2; bp.frequency.setValueAtTime(500, t); bp.frequency.linearRampToValueAtTime(2500, t + dur / 2); bp.frequency.linearRampToValueAtTime(400, t + dur);
+  n.connect(bp);
+  path.forEach((ch, i) => {
+    const g = ctx.createGain(), seg = dur / (path.length - 1 || 1), c = t + i * seg;
+    g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(0, Math.max(t, c - seg));
+    g.gain.linearRampToValueAtTime(0.8, c); g.gain.linearRampToValueAtTime(0, c + seg);
+    bp.connect(g).connect(to(ch));
+  });
+  n.start(t); n.stop(t + dur + 0.2);
+}
+
+$('#start').onclick = () => { if (!ctx) setup(); ctx.resume(); $('#start').textContent = 'Běží ✓'; };
+document.querySelectorAll('button[data-ch]').forEach((b) => b.onclick = () => pingChannel(+b.dataset.ch, b));
+$('#subA').onclick = () => subDrop(true);
+$('#subB').onclick = () => subDrop(false);
+$('#crowd').onclick = crowd;
+$('#boss').onclick = boss;
+$('#flyby').onclick = flyby;
+</script>
+</body>
+</html>
