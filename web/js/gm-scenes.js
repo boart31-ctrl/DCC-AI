@@ -62,14 +62,15 @@ export function createScenes({ client, act, getView }) {
   const stingBtn = h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(audio.stingersOn), onclick: () => { audio.stingersOn = !audio.stingersOn; drawAudio(); } });
   const soundState = h('span.sc-sound');
   const testBtn = h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Play the boss stinger here', onclick: () => audio.test() }, 'Test sound');
-  const previewToggle = h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => { store.set('preview', !store.get('preview', true)); drawPreview(true); } });
+  const previewToggle = h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => { store.set('pv', !store.get('pv', false)); drawPreview(true); } }); // hidden by default (11/2026): more room
 
+  let grid;
   const el = h('section.scenes-panel', { 'aria-label': 'Scenes' },
     h('div.sc-bar',
       h('span.sc-bar-t', 'Audio plays on'), audioSeg, stingBtn, testBtn, soundState,
       h('span.grow'),
       previewToggle),
-    h('div.sc-grid',
+    grid = h('div.sc-grid',
       h('div.sc-col-l', tabs),
       h('div.sc-col-c', live, form),
       h('div.sc-col-r', previewBox, h('p.hint', 'What the TV shows right now. F1–F8 put a scene on the TV.'))),
@@ -96,8 +97,10 @@ export function createScenes({ client, act, getView }) {
   let frameSrc = '';
   function drawPreview(force = false) {
     // The preview is a whole second stage client: only while Scenes is actually on screen.
-    const on = store.get('preview', true) && el.isConnected && !el.closest('[hidden]');
-    previewToggle.replaceChildren(icon('tv', { size: 14 }), on ? 'Hide preview' : 'Show preview');
+    const want = store.get('pv', false);
+    const on = want && el.isConnected && !el.closest('[hidden]');
+    previewToggle.replaceChildren(icon('tv', { size: 14 }), want ? 'Hide TV preview' : 'Show TV preview');
+    grid.classList.toggle('pv-off', !want);
     const url = view().gm?.stageUrl || '';
     if (!on || !url) {
       if (frame) { frame.remove(); frame = null; frameSrc = ''; }
@@ -187,6 +190,8 @@ export function createScenes({ client, act, getView }) {
     if (!sc) { live.replaceChildren(); return; }
     const meta = SCENES.find((s) => s.kind === sc.kind);
     const head = h('div.sc-live-head', h('span.sc-onair', 'On TV'), h('b', meta?.label || sc.kind));
+    // Scenes without controls here: one quiet line instead of a big card
+    live.classList.toggle('compact', !['boss', 'countdown', 'loot'].includes(sc.kind));
     if (sc.kind === 'boss') live.replaceChildren(head, bossControls(sc));
     else if (sc.kind === 'countdown') live.replaceChildren(head, countdownControls(sc));
     else if (sc.kind === 'loot') live.replaceChildren(head, lootControls(sc));

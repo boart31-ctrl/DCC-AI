@@ -885,17 +885,31 @@ $('#gm-log').append(h('button.btn.btn-quiet.log-close', { type: 'button', onclic
 onLocalRoll(() => renderLog());
 function renderLog() {
   if (!view) return;
+  drawLogBadge();
   const rolls = [...(view.rolls || []), ...localRolls].sort((a, b) => (a.at || 0) - (b.at || 0));
   diceLog.update({ ...view, rolls }, null);
 }
-const logPref = () => { try { return localStorage.getItem('system.gm.log'); } catch { return null; } };
+// Closed by default (11/2026, "log2" resets older saved choices): rolls still pop as cards, and the button
+// counts the rolls that came in while it was closed.
+const logPref = () => { try { return localStorage.getItem('system.gm.log2'); } catch { return null; } };
+let logSeen = null; // set on the first view, so old rolls do not count as new
+const rollCount = () => (view?.rolls?.length || 0) + localRolls.length;
 function setLog(open, remember = window.innerWidth >= 760) {
   document.body.classList.toggle('log-closed', !open);
   $('#log-toggle').setAttribute('aria-expanded', String(open));
-  if (remember) try { localStorage.setItem('system.gm.log', open ? '1' : '0'); } catch {}
+  if (open) logSeen = rollCount();
+  drawLogBadge();
+  if (remember) try { localStorage.setItem('system.gm.log2', open ? '1' : '0'); } catch {}
+}
+function drawLogBadge() {
+  const btn = $('#log-toggle');
+  const open = !document.body.classList.contains('log-closed');
+  if (open || (logSeen === null && view)) logSeen = rollCount();
+  const n = open || logSeen === null ? 0 : Math.max(0, rollCount() - logSeen);
+  btn.replaceChildren('Dice log', n ? h('span.log-badge', { 'aria-label': `${n} new` }, String(n > 99 ? '99+' : n)) : '');
 }
 $('#log-toggle').addEventListener('click', () => setLog(document.body.classList.contains('log-closed')));
-setLog(window.innerWidth < 760 ? false : logPref() ? logPref() === '1' : window.innerWidth >= 1500, false);
+setLog(window.innerWidth >= 760 && logPref() === '1', false);
 
 const themeBtn = $('#theme-btn');
 const drawTheme = () => {
