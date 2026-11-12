@@ -18,7 +18,8 @@ ingest   One or more files. If every file name (stem) is a line id ("nat1_03.mp3
          (single-file mode: retakes, ElevenLabs downloads). Otherwise the files are long takes read in
          script order: speech is split on silences >= --gap seconds; a CLAP (very short loud burst) throws
          away the line before it, so a fluffed line is fixed by clapping and reading it again. Segments map
-         onto the wave's lines from --start (or the --only ids, in that order). The segment count must
+         onto the wave's lines from --start (--each: every file is one line, files sorted by the ElevenLabs
+         timestamp in their names, so downloads need no renaming) (or the --only ids, in that order). The segment count must
          match unless --partial. Every clip is trimmed, gets 0.12 s / 0.30 s of air, a high-pass, RMS
          levelling with a peak limit, and is written as <pack>/audio/<id>.mp3 (mono 96 kbps).
          Wiring: quip lines get "audio": "<id>.mp3" in quips.json; boss intro/defeat lines become quips
@@ -49,6 +50,8 @@ SR = 44100
 FRAME = 0.02  # analysis frame, seconds
 CSV_COLS = ["wave", "order", "id", "kind", "category", "who", "scope", "text", "say", "status"]
 WORDS_PER_SEC = 2.6  # rough reading speed for the length sanity check
+# less mud, clearer consonants, a bit of air (dark phone-sample clones); tuned on the DCC clone, Nov 2026
+EQ = "highpass=f=80,equalizer=f=250:t=q:w=1.2:g=-2,equalizer=f=3500:t=q:w=1.0:g=4,highshelf=f=9000:g=3"
 
 # Lines mentioning these are DCC-specific; everything else can go to the generic engine pack.
 DCC_RE = re.compile(
@@ -307,7 +310,7 @@ def render_clip(x: np.ndarray, s: float, e: float, out: Path) -> float:
     clip = np.concatenate([np.zeros(int(0.12 * SR)), clip, np.zeros(int(0.30 * SR))]).astype(np.float32)
     out.parent.mkdir(parents=True, exist_ok=True)
     r = subprocess.run([ffmpeg(), "-v", "error", "-y", "-f", "f32le", "-ar", str(SR), "-ac", "1", "-i", "-",
-                        "-af", "highpass=f=80", "-c:a", "libmp3lame", "-b:a", "96k", str(out)],
+                        "-af", EQ, "-c:a", "libmp3lame", "-b:a", "96k", str(out)],
                        input=clip.tobytes(), capture_output=True)
     if r.returncode:
         die(f"ffmpeg encode failed: {r.stderr.decode(errors='replace')[:300]}")
@@ -371,18 +374,24 @@ def wire(pack: Path, done: list[dict], lines: dict) -> None:
     save_json(qp, quips)
 
 
+def _stamp(p: Path):
+    """Sort key: the timestamp in an ElevenLabs download name (…_2026-11-12T16_50_57_…), else the name."""
+    m = re.search(r"\d{4}-\d\d-\d\dT\d\d_\d\d_\d\d", p.name)
+    return (m.group(0) if m else "~", p.name)
+
+
 def cmd_ingest(a) -> None:
     pack, vdir = Path(a.pack), Path(a.voice)
     rows = read_csv(vdir / "WAVES.csv")
     if not rows:
         die("WAVES.csv missing: run `plan` first")
     lines = pack_lines(pack)
-    files = [Path(f) for f in a.audio]
+    files = sorted((Path(f) for f in a.audio), key=_stamp) if a.each else [Path(f) for f in a.audio]
     for f in files:
         if not f.exists():
             die(f"{f} not found")
     all_ids = {r["id"]: r for r in rows}
-    single = all(f.stem in all_ids for f in files)
+    single = not a.each and all(f.stem in all_ids for f in files)
     who = a.who or "ty"
     plan, takes, segs_all = [], [], []
 
@@ -416,6 +425,14 @@ def cmd_ingest(a) -> None:
         for f in files:
             x = decode(f)
             segs, thr = detect(x, a.gap)
+            if a.each:  # one file = one line (ElevenLabs downloads): keep everything from first to last sound
+                body, _ = apply_claps(segs)
+                if not body:
+                    die(f"{f.name}: no speech found")
+                one = {"s": body[0]["s"], "e": body[-1]["e"], "clap": False}
+                takes.append((f.name, x, [one], thr))
+                speech.append((x, one))
+                continue
             kept, dropped = apply_claps(segs)
             takes.append((f.name, x, segs, thr))
             speech += [(x, sg) for sg in kept]
@@ -510,6 +527,7 @@ def main() -> None:
             p.add_argument("--who", choices=["ty", "klon"])
             p.add_argument("--gap", type=float, default=1.6)
             p.add_argument("--partial", action="store_true")
+            p.add_argument("--each", action="store_true", help="every file is one line, sorted by the timestamp in its name")
             p.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     {"plan": cmd_plan, "ingest": cmd_ingest, "status": cmd_status}[a.cmd](a)

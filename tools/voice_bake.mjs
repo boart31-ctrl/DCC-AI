@@ -5,6 +5,7 @@
 //   ELEVENLABS_API_KEY=… ELEVENLABS_VOICE_ID=… node tools/voice_bake.mjs --pack packs/dcc --voice voice --wave V05
 //       [--only id,id] [--force] [--dry-run] [--model eleven_multilingual_v2]
 //
+// Tagged lines (voice/tts.json) are rendered with eleven_v3 unless --model / ELEVENLABS_MODEL_ID says otherwise.
 // Lines already recorded (status set and file present) are skipped unless --force (or listed in --only).
 // --dry-run prints the lines and the character count (what it will cost) and calls nothing.
 // Voice settings: ELEVENLABS_STABILITY / _SIMILARITY / _STYLE (0..1) optional.
@@ -54,9 +55,14 @@ const todo = rows.filter((r) => {
   const done = r.status && !r.status.startsWith('ZMĚNA') && fs.existsSync(path.join(audioDir, `${r.id}.mp3`));
   return args.force || !done;
 });
-const chars = todo.reduce((n, r) => n + r.text.length, 0);
+// Tagged scripts for Eleven v3 (voice/tts.json: { id: "[excited] Twenty! ..." }) are spoken instead of the plain text.
+const ttsFile = path.join(args.voice, 'tts.json');
+const tagged = fs.existsSync(ttsFile) ? JSON.parse(fs.readFileSync(ttsFile, 'utf8')) : {};
+for (const r of todo) r.say = tagged[r.id] || r.text;
+const anyTagged = todo.some((r) => tagged[r.id]);
+const chars = todo.reduce((n, r) => n + r.say.length, 0);
 console.log(`${args.wave}: ${todo.length}/${rows.length} lines to render, ${chars} characters`);
-for (const r of todo) console.log(`  ${r.order.padStart(3)}  ${r.id.padEnd(28)} ${r.text.slice(0, 70)}`);
+for (const r of todo) console.log(`  ${r.order.padStart(3)}  ${r.id.padEnd(28)} ${r.say.slice(0, 70)}`);
 if (args['dry-run'] || !todo.length) process.exit(0);
 
 const apiKey = process.env.ELEVENLABS_API_KEY;
@@ -70,13 +76,13 @@ const voiceSettings = {
   use_speaker_boost: true,
 };
 const el = createElevenLabs({ apiKey, timeoutMs: 60_000 });
-const modelId = typeof args.model === 'string' ? args.model : process.env.ELEVENLABS_MODEL_ID || DEFAULT_MODEL;
+const modelId = typeof args.model === 'string' ? args.model : process.env.ELEVENLABS_MODEL_ID || (anyTagged ? 'eleven_v3' : DEFAULT_MODEL);
 const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'voice-bake-'));
 const files = [];
 for (const r of todo) {
   for (let attempt = 1; ; attempt++) {
     try {
-      const bytes = await el.tts({ voiceId, modelId, text: r.text, voiceSettings, format: 'mp3_44100_128' });
+      const bytes = await el.tts({ voiceId, modelId, text: r.say, voiceSettings, format: 'mp3_44100_128' });
       const f = path.join(tmp, `${r.id}.mp3`);
       fs.writeFileSync(f, bytes);
       files.push(f);
