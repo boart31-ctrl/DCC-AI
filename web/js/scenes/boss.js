@@ -62,6 +62,11 @@ export default function boss(root, sc, env) {
 
   const floorBg = floorLayer('boss');
   root.prepend(floorBg.el);
+  // The wide 16:9 splash (when the pack also has the square crop): mirrored and dimmed behind the fight
+  // (boss on the right behind his frame, the empty side under the text), shown whole at the end of the intro.
+  const splashUrl = b.imageSquare && b.image && b.image !== b.imageSquare
+    ? (/^(\/|https?:)/.test(b.image) ? b.image : `/pack/images/${b.image}`) : null;
+  if (splashUrl) floorBg.el.after(h('div.bs-splash', { 'aria-hidden': 'true' }, h('img', { src: splashUrl, alt: '', decoding: 'async' })));
   floorBg.update(env.view, b.floor);
   root.append(pre, fight);
 
@@ -201,7 +206,8 @@ export default function boss(root, sc, env) {
     const sys = (env.view.pack?.systemName || 'The System').toUpperCase();
     const marq = 'Boss encounter ◆ Boss encounter ◆ Boss encounter ◆ Boss encounter ◆ Boss encounter ◆ Boss encounter ◆ ';
     const typed = h('span');
-    const fx = h('div.bi',
+    const fx = h(`div.bi${splashUrl ? '.has-splash' : ''}`,
+      splashUrl ? h('div.bi-splash', h('img', { src: splashUrl, alt: '', decoding: 'async' })) : null,
       h('div.bi-band.top', h('div.bi-marq', h('span', marq), h('span', marq))),
       h('div.bi-band.bot', h('div.bi-marq', h('span', marq), h('span', marq))),
       h('p.bi-warn', 'Warning'),
