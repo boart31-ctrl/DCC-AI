@@ -4,6 +4,9 @@
 //
 //   const s = createStingers(); s.unlock() (inside a user gesture); s.play('bossIntro');
 
+/** Pace of the boss intro (same factor as scenes/boss.js INTRO_PACE; kept here so this file has no imports). */
+const INTRO_PACE = 1.5;
+
 const NOTE = (n) => 440 * 2 ** ((n - 69) / 12); // MIDI → Hz
 
 export function createStingers({ volume = 0.8 } = {}) {
@@ -94,14 +97,16 @@ export function createStingers({ volume = 0.8 } = {}) {
 
   const S = {
     bossIntro(t) {
-      // siren (0–1.5 s), sub drone, impact on the shake, swell, braam on the reveal, slam on the name card
-      for (let i = 0; i < 6; i++) tone(t + i * 0.25, { type: 'square', f: i % 2 ? 880 : 660, dur: 0.2, a: 0.01, peak: 0.07, filter: { type: 'bandpass', f: 1200, q: 2 } });
-      tone(t, { f: 55, to: 38, a: 1.2, hold: 1.4, dur: 1.2, peak: 0.45 });
-      impact(t + 1.6, 0.8);
-      noise(t + 2.4, { a: 0.8, dur: 0.05, peak: 0.25, type: 'highpass', f: 600, to: 5000 });
-      impact(t + 3.2, 1);
-      chord(t + 3.2, [33, 45, 52, 57], { dur: 2.2, hold: 0.6, peak: 0.14, f: 260, to: 2400, back: 380 });
-      impact(t + 3.6, 0.6);
+      // siren, sub drone, impact on the shake, swell, braam on the reveal, slam on the name card.
+      // Paced with the TV cinematic (scenes/boss.js INTRO_PACE = 1.5).
+      const P = INTRO_PACE;
+      for (let i = 0; i < 9; i++) tone(t + i * 0.25, { type: 'square', f: i % 2 ? 880 : 660, dur: 0.2, a: 0.01, peak: 0.07, filter: { type: 'bandpass', f: 1200, q: 2 } });
+      tone(t, { f: 55, to: 38, a: 1.2 * P, hold: 1.4 * P, dur: 1.2 * P, peak: 0.45 });
+      impact(t + 1.6 * P, 0.8);
+      noise(t + 2.4 * P, { a: 0.8 * P, dur: 0.05, peak: 0.25, type: 'highpass', f: 600, to: 5000 });
+      impact(t + 3.2 * P, 1);
+      chord(t + 3.2 * P, [33, 45, 52, 57], { dur: 2.2 * P, hold: 0.6 * P, peak: 0.14, f: 260, to: 2400, back: 380 });
+      impact(t + 3.6 * P, 0.6);
     },
     hit(t) {
       noise(t, { dur: 0.16, peak: 0.6, f: 1600, to: 200 });
@@ -178,7 +183,7 @@ export function createStingers({ volume = 0.8 } = {}) {
 }
 
 /** How long a stinger needs before the System voice may start (ms). */
-export const VOICE_HOLD = { bossIntro: 3900, defeat: 2600, phase: 1200 };
+export const VOICE_HOLD = { bossIntro: Math.round(3900 * INTRO_PACE), defeat: 2600, phase: 1200 };
 
 /** Which stinger an event (or scene change) should fire. */
 export function stingFor(e) {

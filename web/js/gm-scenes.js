@@ -1,8 +1,14 @@
-// GM desk → Show → Scenes: direct what the TV shows. Scene buttons (F1–F8), per-scene forms,
-// big boss controls, countdown controls, "Roll on TV", recap, the audio device switch and a live
-// mini-preview of the stage. Also makes this page the audio device (System voice + stingers).
+// GM desk → Show: the broadcast switcher. Works like a TV control room:
+//   ON AIR bar   what the TV shows right now (tap = jump to its controls)
+//   chips        every scene (Lobby, Explore, Fight, Boss, NPC, …) + Sound and Desk; the live one is marked
+//   panel        the picked chip. Not on air → PREVIEW: its form + a live preview of that scene (a local
+//                stage page fed by the server's scene.preview dry run) + GO LIVE. On air → its live controls.
+// Fight = the shared combat tracker (its own state, independent of the scene); GO LIVE puts the boss
+// screen on the TV when a boss is in the fight, else the arena (VS). Boss = boss + minions (packs of 4+
+// of one monster fight together) + up to 3 attack buttons; GO LIVE always plays the intro.
+// Also makes this page the audio device (System voice + stingers).
 //
-// Mounted from gm.js with one call: createScenes({ client, act, getView }) → { el, update(view) }.
+// Mounted from gm.js: createScenes({ client, act, getView }) → { update, mountInto(section, parts) }.
 import { h, toast } from './client.js';
 import { icon, field, select, labeled } from './ui.js';
 import { createGmAudio } from './gm-audio.js';
@@ -10,16 +16,22 @@ import { createGmAudio } from './gm-audio.js';
 const SCENES = [
   { kind: 'lobby', label: 'Lobby', key: 'F1', hint: 'Title card + join QR' },
   { kind: 'explore', label: 'Explore', key: 'F2', hint: 'Where the party is' },
-  { kind: 'boss', label: 'Boss', key: 'F3', hint: 'Boss battle' },
+  { kind: 'fight', label: 'Fight', key: '', hint: 'Tracker. TV: arena, or the boss screen' },
+  { kind: 'boss', label: 'Boss', key: 'F3', hint: 'Boss, minions, attacks' },
+  { kind: 'npc', label: 'NPC', key: '', hint: 'Portrait + speak as the NPC' },
   { kind: 'loot', label: 'Loot', key: 'F4', hint: 'A box for one crawler' },
   { kind: 'countdown', label: 'Countdown', key: 'F5', hint: 'Floor collapse timer' },
   { kind: 'roll', label: 'Big roll', key: 'F6', hint: 'Dice on the TV' },
   { kind: 'recap', label: 'Recap', key: 'F7', hint: 'Previously on…' },
-  { kind: 'blank', label: 'Blank', key: 'F8', hint: 'Logo, stand by' },
-  { kind: 'combat', label: 'Arena', key: '', hint: 'Party vs revealed mobs' },
-  { kind: 'npc', label: 'NPC', key: '', hint: 'Portrait + name card' },
+  { kind: 'blank', label: 'Stand by', key: 'F8', hint: 'Logo only' },
+];
+const TOOLS = [
+  { id: 'sound', label: 'Sound', icon: 'bolt' },
+  { id: 'desk', label: 'Desk', icon: 'chat', hint: 'Quips, comms, audience, recap' },
 ];
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+const PACK_MIN = 4; // same as scenes/boss.js: 4+ copies of one monster fight (and show) as one pack
+const MAX_ATTACKS = 3;
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(`system.scenes.${k}`); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -41,109 +53,165 @@ function parsePhases(src) {
   });
 }
 
+const sign = (n) => (n > 0 ? `+${n}` : String(n || 0));
+const hasDmg = (a) => a.damage && !/^0+$/.test(a.damage.trim());
+/** Up to five words for the attack button: the pack's `short`, else the start of its effects text. */
+export function shortOf(a) {
+  if (a.short) return a.short;
+  const words = String(a.effects || '').replace(/\s+/g, ' ').trim().split(' ').filter(Boolean);
+  if (!words.length) return hasDmg(a) ? `${a.damage} damage` : '';
+  const cut = words.slice(0, 5).join(' ').replace(/[.,;:]+$/, '');
+  return words.length > 5 ? `${cut}…` : cut;
+}
+
+/** Mobs of the fight that are not a boss, grouped: one row per mob, or one per pack (4+ of one monster). */
+export function minionRows(combat) {
+  const mobs = (combat?.combatants || []).filter((x) => x.type === 'mob' && x.sourceKind !== 'boss');
+  const groups = new Map();
+  for (const m of mobs) {
+    const k = m.sourceId ? `${m.sourceKind}:${m.sourceId}` : m.name.replace(/\s+\d+$/, '');
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(m);
+  }
+  const out = [];
+  for (const [key, list] of groups) {
+    if (list.length >= PACK_MIN) out.push({ key, pack: true, name: list[0].name.replace(/\s+\d+$/, ''), members: list });
+    else for (const m of list) out.push({ key: m.uid, pack: false, name: m.name, members: [m] });
+  }
+  return out;
+}
+
 export function createScenes({ client, act, getView }) {
   const audio = createGmAudio({ client, getView });
   const view = () => getView() || {};
-  // Drafts per scene kind (what F-keys / "Show on TV" send). Persisted per device.
+  // Drafts per scene kind (what F-keys / GO LIVE send). Persisted per device.
   const draft = store.get('draft', {});
   const D = (k) => (draft[k] ||= {});
   const saveDraft = () => store.set('draft', draft);
-  let tab = store.get('tab', 'lobby');
+  let tab = store.get('tab2', 'lobby');
+  if (![...SCENES.map((s) => s.kind), ...TOOLS.map((t) => t.id)].includes(tab)) tab = 'lobby';
   let bossPick = D('boss').bossId ?? null;
+  const pref = { atkTv: store.get('atkTv', true), pv: store.get('pv2', true) };
+  const ui = { openAtk: new Set(), bossTarget: null, editOpen: false };
+  const parts = { fight: null, npcs: null, sound: null, desk: null, goLiveFight: null };
 
   /* ---------- shell ---------- */
-  const tabs = h('div.sc-tabs', { role: 'tablist', 'aria-label': 'Scenes' });
-  const form = h('div.sc-form');
-  const live = h('div.sc-live');
-  const previewBox = h('div.sc-preview');
-  const audioSeg = h('div.seg.seg-sm', { role: 'radiogroup', 'aria-label': 'Audio device' },
-    h('button', { type: 'button', role: 'radio', 'data-dev': 'gm', onclick: () => setDevice('gm') }, 'GM desk'),
-    h('button', { type: 'button', role: 'radio', 'data-dev': 'stage', onclick: () => setDevice('stage') }, 'TV'));
-  const stingBtn = h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(audio.stingersOn), onclick: () => { audio.stingersOn = !audio.stingersOn; drawAudio(); } });
+  const onair = h('button.sh-onair', { type: 'button', onclick: () => { const k = liveChip(); if (k) pick(k); } });
   const soundState = h('span.sc-sound');
-  const testBtn = h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Play the boss stinger here', onclick: () => audio.test() }, 'Test sound');
-  const previewToggle = h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => { store.set('pv', !store.get('pv', false)); drawPreview(true); } }); // hidden by default (11/2026): more room
-
-  let grid;
-  const el = h('section.scenes-panel', { 'aria-label': 'Scenes' },
-    h('div.sc-bar',
-      h('span.sc-bar-t', 'Audio plays on'), audioSeg, stingBtn, testBtn, soundState,
-      h('span.grow'),
-      previewToggle),
-    grid = h('div.sc-grid',
-      h('div.sc-col-l', tabs),
-      h('div.sc-col-c', live, form),
-      h('div.sc-col-r', previewBox, h('p.hint', 'What the TV shows right now. F1–F8 put a scene on the TV.'))),
-  );
+  const chips = h('div.sh-chips', { role: 'tablist', 'aria-label': 'Show' });
+  const head = h('div.sh-head');
+  const body = h('div.sh-body');
+  const pvBox = h('div.sc-preview');
+  const pvToggle = h('button.btn.btn-sm.btn-quiet.sh-pv-toggle', { type: 'button', onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawPanel(); } });
+  const pvCol = h('div.sh-pv', h('div.sh-pv-head', h('span.sh-pv-k', 'Preview'), h('span.dim', 'Not on the TV yet'), h('span.grow'), pvToggle), pvBox);
+  const golive = h('div.sh-golive');
+  const panel = h('div.sh-panel', head, h('div.sh-grid', body, pvCol), golive);
+  const el = h('section.show2', { 'aria-label': 'Show' },
+    h('div.sh-bar', h('div.sh-bar-top', onair, soundState), chips),
+    panel);
 
   function setDevice(d) {
     act({ t: 'show.audio', device: d }, d === 'gm' ? 'Sound plays on this desk.' : 'Sound plays on the TV.');
   }
-
   function drawAudio() {
+    const dev = view().show?.audioDevice || 'gm';
+    if (dev !== 'gm') soundState.replaceChildren();
+    else if (!audio.unlocked) soundState.replaceChildren(h('span.sc-warn', icon('warn', { size: 14 }), 'Tap anywhere to enable sound'));
+    else soundState.replaceChildren();
+    if (audioPanel) drawAudioPanel();
+  }
+  audio.onChange = drawAudio;
+
+  /** Sound settings (audio device, stingers, test): top of the Sound chip. */
+  let audioPanel = null;
+  const audioSeg = h('div.seg.seg-sm', { role: 'radiogroup', 'aria-label': 'Audio device' },
+    h('button', { type: 'button', role: 'radio', 'data-dev': 'gm', onclick: () => setDevice('gm') }, 'GM desk'),
+    h('button', { type: 'button', role: 'radio', 'data-dev': 'stage', onclick: () => setDevice('stage') }, 'TV'));
+  const stingBtn = h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => { audio.stingersOn = !audio.stingersOn; drawAudio(); } });
+  const testBtn = h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Play the boss stinger here', onclick: () => audio.test() }, 'Test sound');
+  const audioState = h('span.sc-sound');
+  function drawAudioPanel() {
     const dev = view().show?.audioDevice || 'gm';
     for (const b of audioSeg.children) b.setAttribute('aria-checked', String(b.dataset.dev === dev));
     stingBtn.setAttribute('aria-pressed', String(audio.stingersOn));
     stingBtn.replaceChildren(icon('bolt', { size: 14 }), audio.stingersOn ? 'Stingers on' : 'Stingers off');
-    if (dev !== 'gm') soundState.replaceChildren(h('span.dim', 'The TV plays voice and stingers'));
-    else if (!audio.unlocked) soundState.replaceChildren(h('span.sc-warn', icon('warn', { size: 14 }), 'Click anywhere on this page to enable sound'));
-    else soundState.replaceChildren(h('span.sc-ok', 'Sound ready'));
+    if (dev !== 'gm') audioState.replaceChildren(h('span.dim', 'The TV plays voice and stingers'));
+    else if (!audio.unlocked) audioState.replaceChildren(h('span.sc-warn', icon('warn', { size: 14 }), 'Click anywhere on this page to enable sound'));
+    else audioState.replaceChildren(h('span.sc-ok', 'Sound ready'));
     testBtn.hidden = dev !== 'gm';
   }
-  audio.onChange = drawAudio;
+  audioPanel = h('div.sc-bar', h('span.sc-bar-t', 'Audio plays on'), audioSeg, stingBtn, testBtn, audioState);
 
-  /* ---------- preview (the real stage page, scaled) ---------- */
-  let frame = null;
-  let frameSrc = '';
-  function drawPreview(force = false) {
-    // The preview is a whole second stage client: only while Scenes is actually on screen.
-    const want = store.get('pv', false);
-    const on = want && el.isConnected && !el.closest('[hidden]');
-    previewToggle.replaceChildren(icon('tv', { size: 14 }), want ? 'Hide TV preview' : 'Show TV preview');
-    grid.classList.toggle('pv-off', !want);
-    const url = view().gm?.stageUrl || '';
-    if (!on || !url) {
-      if (frame) { frame.remove(); frame = null; frameSrc = ''; }
-      previewBox.replaceChildren(h('p.dim.sc-pv-off', !url ? 'Preview appears once the host is connected.' : 'Preview hidden.'));
-      return;
-    }
-    const src = url.replace(/\/stage(\?[^#]*)?#/, '/stage?preview=1#');
-    if (frame && frameSrc === src && !force) return;
-    frameSrc = src;
-    frame = h('iframe.sc-pv', { title: 'TV preview', src, tabindex: '-1', loading: 'lazy' });
-    previewBox.replaceChildren(h('div.sc-pv-box', frame));
+  /* ---------- what is on air ---------- */
+  const sceneOf = (kind) => SCENES.find((s) => s.kind === kind);
+  /** The chip that is on the TV now (the arena and the fight finale belong to Fight). */
+  function liveChip() {
+    const k = view().scene?.kind;
+    if (!k) return null;
+    if (k === 'combat' || k === 'finale') return 'fight';
+    return sceneOf(k) ? k : null;
   }
-  // Scale the 1920x1080 stage into the box.
-  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
-    const box = previewBox.querySelector('.sc-pv-box');
-    if (box && frame) frame.style.transform = `scale(${box.clientWidth / 1920})`;
-  }) : null;
-  ro?.observe(previewBox);
+  const isLive = (kind) => liveChip() === kind;
+  /** The fight is on the TV: arena / finale, or the boss screen of a boss that is in the fight. */
+  const fightOnAir = () => isLive('fight') || (view().scene?.kind === 'boss' && !!fightBoss());
 
-  /* ---------- tabs ---------- */
-  function drawTabs() {
+  function drawOnair() {
     const sc = view().scene;
-    tabs.replaceChildren(...SCENES.map((s) => h('button.sc-tab', {
-      type: 'button', role: 'tab', 'aria-selected': String(tab === s.kind), 'data-kind': s.kind,
-      class: `sc-tab${sc?.kind === s.kind ? ' is-live' : ''}`,
-      onclick: () => { tab = s.kind; store.set('tab', tab); drawTabs(); drawForm(); },
-    },
-    h('span.sc-tab-l', s.label),
-    sc?.kind === s.kind ? h('span.sc-onair', 'On TV') : h('span.sc-tab-h', s.hint),
-    s.key ? h('kbd', s.key) : null)));
+    const k = liveChip();
+    let what = sc ? (sceneOf(k)?.label || sc.kind) : 'Nothing';
+    if (sc?.kind === 'combat') what = 'Fight: arena';
+    else if (sc?.kind === 'finale') what = 'Fight: finale';
+    let detail = '';
+    if (sc?.kind === 'boss') detail = `${sc.data.boss?.name || ''}, ${sc.data.hp}/${sc.data.boss?.hpSlots} HP`;
+    else if (sc?.kind === 'npc') detail = sc.data.npc?.name || '';
+    else if (sc?.kind === 'explore') detail = [sc.data.floor, sc.data.location].filter(Boolean).join(', ');
+    else if (sc?.kind === 'combat') { const c = view().combat || {}; detail = c.active ? `round ${c.round}` : 'not started'; }
+    onair.replaceChildren(...[h('span.sh-onair-k', 'On air'), h('b', what), detail ? h('span.sh-onair-d', detail) : null, k && k !== tab ? h('span.sh-onair-go', 'Controls', icon('chevron', { size: 13 })) : null].filter(Boolean));
+    onair.disabled = !k || k === tab;
   }
 
-  /* ---------- putting a scene on the TV ---------- */
+  /* ---------- chips ---------- */
+  function drawChips() {
+    const live = liveChip();
+    const chip = (id, label, extra = {}) => h('button.sh-chip', {
+      type: 'button', role: 'tab', 'aria-selected': String(tab === id), 'data-id': id,
+      class: `sh-chip${live === id ? ' is-live' : ''}${extra.tool ? ' tool-chip' : ''}`,
+      title: extra.hint || null,
+      onclick: () => pick(id),
+    }, live === id ? h('i.sh-live-dot', { 'aria-label': 'on air' }) : null, extra.icon ? icon(extra.icon, { size: 14 }) : null, label, extra.key ? h('kbd', extra.key) : null);
+    chips.replaceChildren(
+      ...SCENES.map((s) => chip(s.kind, s.label, { key: s.key, hint: s.hint })),
+      h('span.sh-sep', { 'aria-hidden': 'true' }),
+      ...TOOLS.map((t) => chip(t.id, t.label, { tool: true, icon: t.icon, hint: t.hint })));
+    // Keep the picked chip in view (horizontal only: never scroll the page).
+    const cur = chips.querySelector('[aria-selected="true"]');
+    if (cur) requestAnimationFrame(() => {
+      const l = cur.offsetLeft - chips.offsetLeft;
+      if (l < chips.scrollLeft || l + cur.offsetWidth > chips.scrollLeft + chips.clientWidth) chips.scrollLeft = Math.max(0, l - 24);
+    });
+  }
+
+  function pick(id) {
+    if (tab !== id) ui.editOpen = false;
+    tab = id;
+    store.set('tab2', tab);
+    sig = '';
+    drawAll();
+  }
+
+  /* ---------- scene data from the drafts ---------- */
+  function bossDraftData() {
+    const d = D('boss');
+    if (d.mode === 'adhoc') {
+      return { boss: { name: d.name || 'Unnamed horror', title: d.title || '', hpSlots: Number(d.hpSlots) || 10, image: d.image || null, color: d.color || null, phases: parsePhases(d.phases), intro: d.intro || '' } };
+    }
+    const id = bossPick || view().library?.boss?.[0]?.id;
+    return id ? { bossId: id } : null;
+  }
   function dataFor(kind) {
     const d = { ...D(kind) };
     const v = view();
-    if (kind === 'boss') {
-      if (d.mode === 'adhoc') {
-        return { boss: { name: d.name || 'Unnamed horror', title: d.title || '', hpSlots: Number(d.hpSlots) || 10, image: d.image || null, color: d.color || null, phases: parsePhases(d.phases), intro: d.intro || '' } };
-      }
-      const id = bossPick || v.library?.boss?.[0]?.id;
-      return id ? { bossId: id } : null;
-    }
+    if (kind === 'boss') return bossDraftData();
     if (kind === 'countdown') return { label: d.label || 'Floor collapse in', seconds: Math.max(1, Math.round((Number(d.minutes) || 0) * 60 + (Number(d.seconds) || 0))) || 300, autostart: !!d.autostart };
     if (kind === 'loot') {
       const pid = d.playerId || v.players?.[0]?.id || null;
@@ -159,56 +227,164 @@ export function createScenes({ client, act, getView }) {
     if (kind === 'lobby') return { title: d.title || '', subtitle: d.subtitle || '', showQr: d.showQr !== false };
     if (kind === 'recap') return { title: d.title || '', text: d.text ?? (v.recap || '') };
     if (kind === 'blank') return { text: d.text || '' };
-    if (kind === 'combat') return { title: d.title || '' };
+    if (kind === 'combat') return { title: D('fight').title || '' };
     if (kind === 'npc') {
       const id = d.npcId || v.library?.npc?.[0]?.id;
       return id ? { npcId: id } : null;
     }
     return {};
   }
+  /** The scene kind GO LIVE sends for a chip (Fight → boss screen when a boss is in the fight). */
+  function fightBoss() {
+    return (view().combat?.combatants || []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && !x.down) || null;
+  }
+  function sceneKindFor(chipId) {
+    if (chipId === 'fight') return fightBoss() ? 'boss' : 'combat';
+    return chipId;
+  }
+  function sceneDataFor(chipId) {
+    if (chipId === 'fight') {
+      const b = fightBoss();
+      return b ? { bossId: b.sourceId } : dataFor('combat');
+    }
+    return dataFor(chipId);
+  }
 
-  async function showOnTv(kind) {
-    const data = dataFor(kind);
-    if (data === null) { toast(kind === 'npc' ? 'No NPCs in the library yet.' : 'Pick a boss first (or build one ad hoc).', { error: true }); return false; }
+  /* ---------- GO LIVE ---------- */
+  async function goLive(chipId) {
+    if (chipId === 'boss') return goLiveBoss(bossDraftData());
+    if (chipId === 'fight') {
+      const b = fightBoss();
+      if (b) return goLiveBoss({ bossId: b.sourceId });
+      return act({ t: 'scene.set', kind: 'combat', data: dataFor('combat') }, 'On air: the arena.');
+    }
+    const data = dataFor(chipId);
+    if (data === null) { toast(chipId === 'npc' ? 'No NPCs in the library yet.' : 'Nothing to show yet.', { error: true }); return false; }
+    const label = sceneOf(chipId)?.label || chipId;
     // explore: a picked location fills the fields; typed fields override it.
-    if (kind === 'explore' && data.locationId) {
-      const ok = await act({ t: 'scene.set', kind, data: { locationId: data.locationId, showFeed: data.showFeed } }, null);
+    if (chipId === 'explore' && data.locationId) {
+      const ok = await act({ t: 'scene.set', kind: chipId, data: { locationId: data.locationId, showFeed: data.showFeed } }, null);
       const over = {};
       for (const k of ['location', 'floor', 'text']) if (D('explore')[`${k}Touched`]) over[k] = data[k];
       if (ok && Object.keys(over).length) await act({ t: 'scene.update', data: over }, null);
-      if (ok) toast(`On TV: ${SCENES.find((s) => s.kind === kind).label}.`);
+      if (ok) toast(`On air: ${label}.`);
       return ok;
     }
-    return act({ t: 'scene.set', kind, data }, `On TV: ${SCENES.find((s) => s.kind === kind).label}.`);
+    return act({ t: 'scene.set', kind: chipId, data }, `On air: ${label}.`);
   }
 
-  /* ---------- live controls (what is on the TV now) ---------- */
+  /**
+   * Boss: scene → the boss joins the fight (library bosses have attacks) → prepared minions are revealed →
+   * the fight starts → intro cinematic, always.
+   */
+  async function goLiveBoss(data) {
+    if (!data) { toast('Pick a boss first (or build one ad hoc).', { error: true }); return false; }
+    if (!(await act({ t: 'scene.set', kind: 'boss', data }, null))) return false;
+    const c = view().combat || {};
+    if (data.bossId && !(c.combatants || []).some((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === data.bossId)) {
+      await act({ t: 'combat.addMob', kind: 'boss', sourceId: data.bossId, hidden: false }, null);
+    }
+    if ((view().combat?.combatants || []).some((x) => x.type === 'mob' && x.hidden && !x.down)) await act({ t: 'combat.reveal', all: true }, null);
+    if (!view().combat?.active) await act({ t: 'combat.start' }, null);
+    await act({ t: 'boss.intro' }, null);
+    toast('On air: boss intro.');
+    pick('boss');
+    return true;
+  }
+
+  /* ---------- the preview: a local stage page fed by scene.preview ---------- */
+  let pvFrame = null;
+  let pvReady = false;
+  let pvScene = null;
+  let pvReq = 0;
+  let pvTimer = 0;
+  let pvKey = '';
+  const pvMsg = h('p.dim.sc-pv-off');
+  window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin || !pvFrame || e.source !== pvFrame.contentWindow) return;
+    if (e.data?.t === 'draft.ready') { pvReady = true; pvPost(); }
+  });
+  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(() => {
+    const box = pvBox.querySelector('.sc-pv-box');
+    if (box && pvFrame) pvFrame.style.transform = `scale(${box.clientWidth / 1920})`;
+  }) : null;
+  ro?.observe(pvBox);
+
+  /** View for the preview: the GM view with the dry-run scene; hidden (prepared) minions shown as they will be. */
+  function draftView() {
+    const v = view();
+    const c = v.combat || {};
+    const shown = (c.combatants || []).map((x) => (x.type === 'mob'
+      ? { ...x, hidden: false, boss: x.sourceKind === 'boss', group: x.sourceId ? `${x.sourceKind}:${x.sourceId}` : null, hpPct: x.hpMax ? x.hp / x.hpMax : 1 }
+      : x));
+    return { ...v, scene: pvScene, combat: { ...c, active: c.active || pvScene?.kind === 'boss', combatants: shown } };
+  }
+  function pvPost() {
+    if (!pvReady || !pvScene || !pvFrame?.contentWindow) return;
+    try { pvFrame.contentWindow.postMessage({ t: 'draft.view', view: JSON.parse(JSON.stringify(draftView())) }, location.origin); } catch (err) { console.error(err); }
+  }
+  function pvEnsureFrame() {
+    if (pvFrame) return;
+    pvReady = false;
+    pvFrame = h('iframe.sc-pv', { title: 'Preview of the scene', src: '/stage?draft=1', tabindex: '-1' });
+    pvBox.replaceChildren(h('div.sc-pv-box', pvFrame), pvMsg);
+    requestAnimationFrame(() => { const box = pvBox.querySelector('.sc-pv-box'); if (box) pvFrame.style.transform = `scale(${box.clientWidth / 1920})`; });
+  }
+  function pvDrop() {
+    if (!pvFrame) return;
+    pvFrame = null;
+    pvReady = false;
+    pvScene = null;
+    pvKey = '';
+    pvBox.replaceChildren();
+  }
+  /** Asks the server for the dry-run scene of the picked chip (debounced; the same draft is asked once). */
+  function pvRefresh() {
+    const wantPv = pref.pv && !isTool(tab) && !isLive(tab) && el.isConnected && !el.closest('[hidden]');
+    pvToggle.replaceChildren(icon('tv', { size: 14 }), pref.pv ? 'Hide' : 'Show preview');
+    pvCol.classList.toggle('off', !pref.pv);
+    if (!wantPv) { pvDrop(); return; }
+    const kind = sceneKindFor(tab);
+    const data = sceneDataFor(tab);
+    if (!data) { pvEnsureFrame(); pvMsg.textContent = 'Nothing to preview yet.'; return; }
+    pvEnsureFrame();
+    const key = JSON.stringify([kind, data]);
+    if (key === pvKey) { pvPost(); return; }
+    clearTimeout(pvTimer);
+    pvTimer = setTimeout(async () => {
+      const n = ++pvReq;
+      try {
+        const r = await client.send({ t: 'scene.preview', kind, data });
+        if (n !== pvReq) return;
+        pvKey = key;
+        pvScene = r?.result?.scene || null;
+        pvMsg.textContent = '';
+        pvPost();
+      } catch (err) {
+        if (n === pvReq) pvMsg.textContent = `Preview: ${err.message}`;
+      }
+    }, 150);
+  }
+
+  /* ---------- live controls ---------- */
   let cdTimer = null;
-  function drawLive() {
+  function liveControls(kind) {
     const sc = view().scene;
     clearInterval(cdTimer);
-    if (!sc) { live.replaceChildren(); return; }
-    const meta = SCENES.find((s) => s.kind === sc.kind);
-    const head = h('div.sc-live-head', h('span.sc-onair', 'On TV'), h('b', meta?.label || sc.kind));
-    // Scenes without controls here: one quiet line instead of a big card
-    live.classList.toggle('compact', !['boss', 'countdown', 'loot'].includes(sc.kind));
-    if (sc.kind === 'boss') live.replaceChildren(head, bossControls(sc));
-    else if (sc.kind === 'countdown') live.replaceChildren(head, countdownControls(sc));
-    else if (sc.kind === 'loot') live.replaceChildren(head, lootControls(sc));
-    else if (sc.kind === 'roll') live.replaceChildren(head, h('p.sc-line', sc.data.total == null ? `Waiting: ${sc.data.name || 'someone'} is up.` : `${sc.data.name} rolled ${sc.data.total}${sc.data.nat20 ? ' (natural 20)' : sc.data.nat1 ? ' (natural 1)' : ''}.`));
-    else if (sc.kind === 'explore') live.replaceChildren(head, h('p.sc-line', [sc.data.floor, sc.data.location].filter(Boolean).join(', ') || 'Exploring'));
-    else if (sc.kind === 'combat') {
-      const c = view().combat || {};
-      const shown = (c.combatants || []).filter((x) => x.type === 'mob' && !x.hidden).length;
-      live.replaceChildren(head, h('p.sc-line', c.active ? `Round ${c.round}, ${c.phase}. ${shown} mob${shown === 1 ? '' : 's'} on screen. Run the fight from Combat.` : 'Combat has not started. The arena shows the party only.'));
-    } else if (sc.kind === 'npc') live.replaceChildren(head, h('p.sc-line', `${sc.data.npc?.name || 'NPC'}${sc.data.line ? `: “${sc.data.line}”` : ''}`));
-    else live.replaceChildren(head);
+    if (kind === 'boss') return bossLive(sc);
+    if (kind === 'countdown') return countdownControls(sc);
+    if (kind === 'loot') return lootControls(sc);
+    if (kind === 'roll') return h('div.sc-live-row', h('p.sc-line', sc.data.total == null ? `Waiting: ${sc.data.name || 'someone'} is up.` : `${sc.data.name} rolled ${sc.data.total}${sc.data.nat20 ? ' (natural 20)' : sc.data.nat1 ? ' (natural 1)' : ''}.`),
+      h('button.btn.btn-primary', { type: 'button', onclick: rollOnTv }, icon('dice', { size: 15 }), 'Roll again'));
+    if (kind === 'explore') return h('p.sc-line', [sc.data.floor, sc.data.location].filter(Boolean).join(', ') || 'Exploring');
+    if (kind === 'npc') return h('p.sc-line', `${sc.data.npc?.name || 'NPC'}${sc.data.line ? `: “${sc.data.line}”` : ''}`);
+    return h('p.sc-line.dim', 'On the TV now. Change it below and press Update.');
   }
 
-  let bossTarget = null; // boss panel target pick (kept across redraws)
   function bossLib(id) { return (view().library?.boss || []).find((b) => b.id === id) || null; }
+  const bossFighterFor = (bossId) => (view().combat?.combatants || []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && (!bossId || x.sourceId === bossId)) || null;
 
-  function bossControls(sc) {
+  function bossLive(sc) {
     const d = sc.data;
     const b = d.boss;
     const lib = d.bossId ? bossLib(d.bossId) : null;
@@ -224,6 +400,8 @@ export function createScenes({ client, act, getView }) {
         h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => send({ t: 'boss.phase', index: d.suggestPhase }, `Phase: ${b.phases[d.suggestPhase].name}.`) }, 'Advance'))
       : null;
     const tvLoot = field(d.lootHint, { placeholder: 'e.g. Silver crate incoming', onCommit: (v) => send({ t: 'scene.update', data: { lootHint: v } }, 'Loot line set.') });
+    const fighter = d.bossId ? bossFighterFor(d.bossId) : null;
+    const attacks = fighter?.attacks || lib?.attacks || [];
     return h('div.sc-boss',
       h('div.sc-boss-top',
         h('div', h('div.sc-boss-name', b.name), b.title ? h('div.dim', b.title) : null),
@@ -231,65 +409,143 @@ export function createScenes({ client, act, getView }) {
       hpBar,
       sug,
       h('div.sc-boss-row',
-        big(d.revealed ? 'Replay intro' : 'Intro', '.btn-primary.sc-intro', () => send({ t: 'boss.intro' }, 'Boss intro.'), { title: 'Cinematic + intro line' }),
         big('−1', '.sc-dmg', () => send({ t: 'boss.damage', amount: 1 }), { disabled: d.hp <= 0 }),
         big('−2', '.sc-dmg', () => send({ t: 'boss.damage', amount: 2 }), { disabled: d.hp <= 0 }),
         big('−3', '.sc-dmg', () => send({ t: 'boss.damage', amount: 3 }), { disabled: d.hp <= 0 }),
-        big('+1 Heal', '.sc-heal', () => send({ t: 'boss.heal', amount: 1 }), { disabled: d.hp >= max }),
-        big(next ? `Next phase: ${next.name}` : 'Last phase', '.sc-phase', () => send({ t: 'boss.phase' }, next ? `Phase: ${next.name}.` : null), { disabled: !next }),
-        big(d.defeated ? 'Defeated' : 'Defeat', '.btn-danger.sc-defeat', () => send({ t: 'boss.defeat' }, 'Boss defeated.'), { disabled: d.defeated && false })),
-      bossAttacks(d, b, lib),
+        big('+1', '.sc-heal', () => send({ t: 'boss.heal', amount: 1 }), { disabled: d.hp >= max, title: 'Heal 1' }),
+        big(next ? `Phase: ${next.name}` : 'Last phase', '.sc-phase', () => send({ t: 'boss.phase' }, next ? `Phase: ${next.name}.` : null), { disabled: !next }),
+        big(d.defeated ? 'Defeated' : 'Defeat', '.btn-danger.sc-defeat', () => send({ t: 'boss.defeat' }, 'Boss defeated.')),
+        h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => send({ t: 'boss.intro' }, 'Boss intro.'), title: 'Cinematic + intro line again' }, 'Replay intro')),
+      attacks.length ? attackSection(b.name, attacks, fighter, d.bossId, { boss: true }) : null,
+      minionSection(true),
       h('div.sc-boss-info',
         h('div.sc-gm-only',
           h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'),
           cur ? h('p', h('b', `Phase ${ROMAN[d.phase] || d.phase + 1}: ${cur.name}. `), cur.text || '') : null,
           lib?.tactics ? h('p', h('b', 'Tactics. '), lib.tactics) : null,
-          lib?.lootHint ? h('p', h('b', 'Loot. '), lib.lootHint) : null,
-          !d.revealed ? h('p.dim', 'The TV shows a silhouette until you press Intro.') : null),
+          lib?.lootHint ? h('p', h('b', 'Loot. '), lib.lootHint) : null),
         labeled('Loot line on TV after defeat', tvLoot)),
     );
   }
 
-  /**
-   * The boss's attacks, rolled for real: the boss is a combatant in the running fight (linked to this
-   * scene), combat.mobAct resolves the attack against the target's Evade / DR, hits the sheet, and the
-   * TV plays it on the boss screen. Not in the fight yet → one button puts him in (and starts it).
-   */
-  function bossAttacks(d, b, lib) {
-    const c = view().combat || {};
-    const fighter = c.active ? (c.combatants || []).find((x) => x.type === 'mob' && x.linked) : null;
-    const attacks = fighter?.attacks || lib?.attacks || b.attacks || [];
-    if (!attacks.length) return null;
-    if (!fighter) {
-      const inFight = (c.combatants || []).some((x) => x.type === 'mob' && x.linked);
+  /** Rolls go to the TV (cinematic + public dice) or stay with the GM: one switch for every attack button. */
+  function tvSwitch() {
+    return h('label.sh-tvsw', { title: 'On: the TV plays the attack and everyone sees the dice. Off: only you see the roll; the damage still lands on the sheet.' },
+      h('input', { type: 'checkbox', checked: pref.atkTv, onchange: (e) => { pref.atkTv = e.target.checked; store.set('atkTv', pref.atkTv); sig = ''; drawAll(); } }),
+      h('span', pref.atkTv ? 'Rolls on TV' : 'Rolls GM only'));
+  }
+
+  function targetSeg() {
+    const crawlers = (view().combat?.combatants || []).filter((x) => x.type === 'crawler');
+    if (!crawlers.length) return null;
+    if (ui.bossTarget && !crawlers.some((x) => x.uid === ui.bossTarget)) ui.bossTarget = null;
+    return h('div.seg.seg-sm.sc-batk-tgt', { role: 'radiogroup', 'aria-label': 'Target' },
+      h('button', { type: 'button', role: 'radio', 'aria-checked': String(!ui.bossTarget), onclick: () => { ui.bossTarget = null; sig = ''; drawAll(); } }, 'Auto'),
+      ...crawlers.map((x) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(ui.bossTarget === x.uid), disabled: x.down, title: `${x.name}: ${x.hp}/${x.hpMax} HP, Evade ${x.evade ?? '?'}`, onclick: () => { ui.bossTarget = x.uid; sig = ''; drawAll(); } }, x.name)));
+  }
+
+  /** Attack buttons (max 3 + "more"): tap rolls it for real, ⓘ opens the details. */
+  function attackButtons(attacks, ownerKey, roll, { disabled = false } = {}) {
+    const one = (a, i) => {
+      const k = `${ownerKey}:${i}`;
+      const open = ui.openAtk.has(k);
+      return h('div.sh-atk', { class: open ? 'sh-atk open' : 'sh-atk' },
+        h('button.sh-atk-go', { type: 'button', disabled, onclick: () => roll(i), title: `Roll ${a.name}` },
+          h('b', a.name), h('span.sh-atk-s', shortOf(a))),
+        h('button.icon-btn.sh-atk-i', { type: 'button', 'aria-expanded': String(open), 'aria-label': `Details: ${a.name}`, onclick: () => { open ? ui.openAtk.delete(k) : ui.openAtk.add(k); sig = ''; drawAll(); } }, icon(open ? 'up' : 'info', { size: 14 })),
+        open ? h('div.sh-atk-d',
+          h('p.sh-atk-k', `${sign(a.toHit)} to hit${hasDmg(a) ? ` · ${a.damage} damage` : ''}${a.buffs?.length ? ` · ${a.buffs.join(', ')}` : ''}`),
+          a.effects ? h('p', a.effects) : null) : null);
+    };
+    const shown = attacks.slice(0, MAX_ATTACKS).map((a, i) => one(a, i));
+    const rest = attacks.length > MAX_ATTACKS
+      ? h('details.sh-atk-more', h('summary', `${attacks.length - MAX_ATTACKS} more`), h('div.sh-atks', attacks.slice(MAX_ATTACKS).map((a, j) => one(a, j + MAX_ATTACKS))))
+      : null;
+    return h('div.sh-atks', shown, rest);
+  }
+
+  function attackToast(name, r) {
+    const st = r?.result?.sequence?.[0] ?? r?.sequence?.[0];
+    if (st) toast(`${name} → ${st.target}: ${st.total} vs ${st.evade} ${st.hit ? `HIT${st.damage ? `, −${st.damage} HP` : ''}${st.crit ? ' (crit)' : ''}${st.down ? `, ${st.target} is down` : ''}` : 'miss'}`, { ms: 5000 });
+  }
+
+  /** The boss's attacks: not in the fight yet → the first tap puts him in (and starts it), then rolls. */
+  function attackSection(name, attacks, fighter, bossId, { boss = false, prep = false } = {}) {
+    if (prep) {
       return h('div.sc-batk',
-        h('div.sc-batk-head', h('b', 'Attacks'), h('span.dim', `${attacks.length}: ${attacks.map((a) => a.name).join(', ')}`)),
-        h('div.sc-batk-row',
-          h('button.btn.btn-primary', {
-            type: 'button',
-            onclick: async () => {
-              if (!inFight) { const ok = await act({ t: 'combat.addMob', sourceId: d.bossId, hidden: false }, null); if (!ok) return; }
-              if (!c.active) await act({ t: 'combat.start' }, `Fight on: ${b.name} vs the party.`);
-            },
-          }, icon('swords', { size: 14 }), c.active ? `Put ${b.name} into the fight` : `Start the fight with ${b.name}`),
-          h('span.dim', 'Then roll his attacks here: to-hit vs Evade, damage − DR onto the sheets, on the TV.')));
+        h('div.sc-batk-head', h('b', 'Attacks'), h('span.dim', 'You roll them here once he is on air')),
+        attackButtons(attacks, `prep:${bossId || name}`, () => {}, { disabled: true }));
     }
-    const crawlers = (c.combatants || []).filter((x) => x.type === 'crawler');
-    if (bossTarget && !crawlers.some((x) => x.uid === bossTarget)) bossTarget = null;
-    const tgt = h('div.seg.seg-sm.sc-batk-tgt', { role: 'radiogroup', 'aria-label': 'Target' },
-      h('button', { type: 'button', role: 'radio', 'aria-checked': String(!bossTarget), onclick: () => { bossTarget = null; drawLive(); } }, 'Auto'),
-      ...crawlers.map((x) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(bossTarget === x.uid), disabled: x.down, title: `${x.name}: ${x.hp}/${x.hpMax} HP, Evade ${x.evade ?? '?'}`, onclick: () => { bossTarget = x.uid; drawLive(); } }, x.name)));
-    const sign = (n) => (n > 0 ? `+${n}` : String(n || 0));
+    const roll = async (i) => {
+      let uid = fighter?.uid;
+      if (!uid && bossId) {
+        const r = await act({ t: 'combat.addMob', kind: 'boss', sourceId: bossId, hidden: false }, null);
+        uid = r?.result?.uids?.[0];
+      }
+      if (!uid) return;
+      if (!view().combat?.active && !(await act({ t: 'combat.start' }, null))) return;
+      const r = await act({ t: 'combat.mobAct', uid, attackIndex: i, tv: pref.atkTv, ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
+      attackToast(attacks[i].name, r);
+    };
     return h('div.sc-batk',
-      h('div.sc-batk-head', h('b', 'Attacks'), h('span.dim', 'Target'), tgt),
-      h('div.sc-batk-list', attacks.map((a, i) => h('button.btn.sc-batk-btn', {
-        type: 'button', disabled: fighter.hp <= 0, title: a.effects || '',
+      h('div.sc-batk-head', h('b', boss ? 'Attacks' : `${name}: attacks`), h('span.grow'), tvSwitch()),
+      h('div.sc-batk-head', h('span.dim', 'Target'), targetSeg() || h('span.dim', 'everyone (the fight starts on the first attack)')),
+      attackButtons(attacks, fighter?.uid || bossId || name, roll, { disabled: fighter ? fighter.hp <= 0 : false }));
+  }
+
+  /* minions: single mobs and packs, with HP and their attacks */
+  let addPick = '';
+  let addCount = 1;
+  function minionSection(live) {
+    const rows = minionRows(view().combat);
+    const mons = view().library?.monster || [];
+    const aliveOf = (r) => r.members.filter((m) => !m.down);
+    const rollMob = async (r, i) => {
+      const alive = aliveOf(r).filter((m) => m.attacks?.[i]);
+      if (!alive.length) return;
+      const m = alive[Math.floor(Math.random() * alive.length)]; // a pack: whoever is in front
+      if (!view().combat?.active && !(await act({ t: 'combat.start' }, null))) return;
+      if (m.hidden) await act({ t: 'combat.reveal', uid: m.uid }, null);
+      const res = await act({ t: 'combat.mobAct', uid: m.uid, attackIndex: i, tv: pref.atkTv, ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
+      attackToast(`${m.name}: ${m.attacks[i].name}`, res);
+    };
+    // A pack takes damage at the front: the first living member.
+    const hit = (r, amount) => { const m = aliveOf(r)[0]; if (m) act({ t: 'combat.damage', uid: m.uid, amount }); };
+    const heal = (r) => { const m = [...r.members].reverse().find((x) => x.hp < x.hpMax); if (m) act({ t: 'combat.heal', uid: m.uid, amount: 1 }); };
+    const row = (r) => {
+      const alive = aliveOf(r);
+      const hidden = r.members.some((m) => m.hidden);
+      const first = r.members[0];
+      const hpTxt = r.pack ? `${alive.length}/${r.members.length} standing` : `${first.hp}/${first.hpMax} HP`;
+      return h('li.sh-min', { class: `sh-min${alive.length ? '' : ' down'}${r.pack ? ' pack' : ''}` },
+        h('div.sh-min-top',
+          h('b', r.pack ? `${r.name} ×${r.members.length}` : r.name),
+          r.pack ? h('span.pill', 'Pack') : null,
+          hidden ? h('span.pill', { title: 'Shown on the TV when you go live or reveal it' }, icon('eyeOff', { size: 12 }), 'hidden') : null,
+          h('span.grow'),
+          h('span.sh-min-hp', hpTxt),
+          h('button.icon-btn.xs', { type: 'button', 'aria-label': `1 damage to ${r.name}`, disabled: !alive.length, onclick: () => hit(r, 1) }, icon('minus', { size: 13 })),
+          h('button.icon-btn.xs', { type: 'button', 'aria-label': `Heal ${r.name} 1`, onclick: () => heal(r) }, icon('plus', { size: 13 })),
+          h('button.icon-btn.xs', { type: 'button', 'aria-label': `Remove ${r.name}`, title: 'Remove from the fight', onclick: async () => { for (const m of r.members) await act({ t: 'combat.remove', uid: m.uid }, null); } }, icon('x', { size: 13 }))),
+        r.pack ? h('div.sh-pips', r.members.map((m) => h('i', { class: m.down ? 'gone' : '' }))) : h('div.sh-hpbar', h('i', { style: { width: `${first.hpMax ? (first.hp / first.hpMax) * 100 : 0}%` } })),
+        first.attacks?.length && alive.length ? attackButtons(first.attacks, r.key, (i) => rollMob(r, i)) : null);
+    };
+    if (!addPick || !mons.some((m) => m.id === addPick)) addPick = mons[0]?.id || '';
+    const add = mons.length ? h('div.sh-min-add',
+      select(mons.map((m) => ({ value: m.id, label: `${m.floor != null && m.floor !== '' ? `F${m.floor} ` : ''}${m.name} (${m.hpSlots ?? '?'} HP)` })), addPick, { onChange: (v) => { addPick = v; } }),
+      h('input.inp.inp-sm.sh-cnt', { type: 'number', min: 1, max: 20, value: addCount, 'aria-label': 'How many', onchange: (e) => { addCount = Math.max(1, Math.min(20, Number(e.target.value) || 1)); } }),
+      h('button.btn.btn-sm', {
+        type: 'button',
         onclick: async () => {
-          const r = await act({ t: 'combat.mobAct', uid: fighter.uid, attackIndex: i, ...(bossTarget ? { targetUid: bossTarget } : {}) }, null);
-          const st = r?.result?.sequence?.[0] ?? r?.sequence?.[0];
-          if (st) toast(`${a.name} → ${st.target}: ${st.total} vs ${st.evade} ${st.hit ? `HIT${st.damage ? `, −${st.damage} HP` : ''}${st.crit ? ' (crit)' : ''}${st.down ? `, ${st.target} is down` : ''}` : 'miss'}`);
+          const e = mons.find((m) => m.id === addPick);
+          if (!e) return;
+          await act({ t: 'combat.addMob', kind: 'monster', sourceId: e.id, count: addCount, hidden: !live }, `${addCount > 1 ? `${addCount}× ` : ''}${e.name} ${live ? 'joins the fight' : 'ready (hidden until you go live)'}.`);
         },
-      }, h('b', a.name), h('span.sc-batk-k', `${sign(a.toHit)} to hit${a.damage && !/^0+$/.test(a.damage) ? ` · ${a.damage}` : ''}`), a.effects ? h('span.sc-batk-fx', a.effects) : null))));
+      }, icon('plus', { size: 13 }), 'Add')) : h('p.dim', 'No monsters in the library.');
+    return h('div.sh-mins',
+      h('div.sc-batk-head', h('b', 'Minions'), h('span.dim', rows.length ? `${PACK_MIN}+ of one kind fight as a pack` : 'None yet. A boss rarely comes alone.')),
+      rows.length ? h('ul.sh-min-list', rows.map(row)) : null,
+      add);
   }
 
   function countdownControls(sc) {
@@ -324,50 +580,54 @@ export function createScenes({ client, act, getView }) {
   }
 
   /* ---------- per-scene forms (drafts) ---------- */
+  const changed = () => { sig = ''; pvRefresh(); drawGoLive(); };
   function txt(kind, key, label, opts = {}) {
     return labeled(label, field(D(kind)[key] ?? opts.dflt ?? '', {
       placeholder: opts.placeholder || '', multiline: !!opts.rows, rows: opts.rows || 3,
       attrs: { maxlength: opts.max || 200 },
-      onCommit: (v) => { D(kind)[key] = v; if (opts.touch) D(kind)[`${key}Touched`] = true; saveDraft(); },
+      onCommit: (v) => { D(kind)[key] = v; if (opts.touch) D(kind)[`${key}Touched`] = true; saveDraft(); changed(); },
     }), { cls: opts.cls || '' });
   }
   function chk(kind, key, label, dflt = true) {
     const v = D(kind)[key] ?? dflt;
-    return h('label.chk', h('input', { type: 'checkbox', checked: !!v, onchange: (e) => { D(kind)[key] = e.target.checked; saveDraft(); } }), h('span', label));
+    return h('label.chk', h('input', { type: 'checkbox', checked: !!v, onchange: (e) => { D(kind)[key] = e.target.checked; saveDraft(); changed(); } }), h('span', label));
   }
   function crawlerSelect(kind, { allowNone = false } = {}) {
     const ps = view().players || [];
     const opts = [...(allowNone ? [{ value: '', label: 'The GM' }] : []), ...ps.map((p) => ({ value: p.id, label: p.name }))];
-    return labeled('Crawler', select(opts, D(kind).playerId || (allowNone ? '' : ps[0]?.id || ''), { onChange: (v) => { D(kind).playerId = v || null; saveDraft(); } }));
+    return labeled('Crawler', select(opts, D(kind).playerId || (allowNone ? '' : ps[0]?.id || ''), { onChange: (v) => { D(kind).playerId = v || null; saveDraft(); changed(); } }));
   }
 
   function bossPicker() {
     const list = view().library?.boss || [];
     const mode = D('boss').mode || (list.length ? 'library' : 'adhoc');
-    const seg = h('div.seg.seg-sm', { role: 'radiogroup' },
-      h('button', { type: 'button', role: 'radio', 'aria-checked': String(mode === 'library'), onclick: () => { D('boss').mode = 'library'; saveDraft(); drawForm(); } }, `From the library (${list.length})`),
-      h('button', { type: 'button', role: 'radio', 'aria-checked': String(mode === 'adhoc'), onclick: () => { D('boss').mode = 'adhoc'; saveDraft(); drawForm(); } }, 'Ad hoc'));
+    const seg = h('div.seg.seg-sm.span-all', { role: 'radiogroup' },
+      h('button', { type: 'button', role: 'radio', 'aria-checked': String(mode === 'library'), onclick: () => { D('boss').mode = 'library'; saveDraft(); sig = ''; drawAll(); } }, `From the library (${list.length})`),
+      h('button', { type: 'button', role: 'radio', 'aria-checked': String(mode === 'adhoc'), onclick: () => { D('boss').mode = 'adhoc'; saveDraft(); sig = ''; drawAll(); } }, 'Ad hoc'));
     if (mode === 'adhoc') {
-      return [seg, h('div.form-grid',
+      return [seg,
         txt('boss', 'name', 'Name', { placeholder: 'Gary, Devourer of Snacks', max: 80 }),
         txt('boss', 'title', 'Title / epithet', { placeholder: 'He was told no.', max: 120 }),
-        labeled('HP slots', field(D('boss').hpSlots ?? 10, { type: 'number', attrs: { min: 1, max: 100 }, onCommit: (v) => { D('boss').hpSlots = Math.max(1, Math.min(100, Math.round(v) || 10)); saveDraft(); } })),
-        labeled('Threat colour', h('input.swatch', { type: 'color', value: D('boss').color || '#ff2448', onchange: (e) => { D('boss').color = e.target.value; saveDraft(); } })),
+        labeled('HP slots', field(D('boss').hpSlots ?? 10, { type: 'number', attrs: { min: 1, max: 100 }, onCommit: (v) => { D('boss').hpSlots = Math.max(1, Math.min(100, Math.round(v) || 10)); saveDraft(); changed(); } })),
+        labeled('Threat colour', h('input.swatch', { type: 'color', value: D('boss').color || '#ff2448', onchange: (e) => { D('boss').color = e.target.value; saveDraft(); changed(); } })),
         txt('boss', 'image', 'Image URL (optional)', { placeholder: '/pack/images/gary.webp or https://…', max: 2000, cls: 'span-2' }),
         txt('boss', 'phases', 'Phases, one per line: Name | text | at HP', { rows: 3, max: 3000, cls: 'span-all', placeholder: 'Snack time | He eats the furniture. | 10\nHangry | Everything is on fire. | 4' }),
         txt('boss', 'intro', 'Intro announcement (TV + System voice)', { rows: 2, max: 600, cls: 'span-all' }),
-      )];
+        h('p.hint.span-all', 'An ad-hoc boss has no attacks: run his hits with the HP buttons once he is on air.')];
     }
     if (!bossPick || !list.some((b) => b.id === bossPick)) bossPick = list[0]?.id ?? null;
-    return [seg, h('div.sc-bosses', list.length ? list.map((b) => h('button.sc-bosscard', {
+    const picked = bossLib(bossPick);
+    return [seg, h('div.sc-bosses.span-all', list.length ? list.map((b) => h('button.sc-bosscard', {
       type: 'button', 'aria-pressed': String(b.id === bossPick),
       style: { '--th': b.color || 'var(--c-bad)' },
-      onclick: () => { bossPick = b.id; D('boss').bossId = b.id; saveDraft(); drawForm(); },
+      onclick: () => { bossPick = b.id; D('boss').bossId = b.id; saveDraft(); sig = ''; drawAll(); },
     },
     h('b', b.name),
     h('span.dim', b.title || ''),
     h('span.sc-bc-meta', `${b.hpSlots} HP`, b.phases?.length ? `, ${b.phases.length} phases` : '', b.floor ? `, floor ${b.floor}` : '', b.source === 'homebrew' ? ', homebrew' : ''),
-    )) : h('p.dim', 'No bosses in the pack yet. Add bosses.json, create one in the Library, or switch to Ad hoc.'))];
+    )) : h('p.dim', 'No bosses in the pack yet. Add bosses.json, create one in the Library, or switch to Ad hoc.')),
+    picked?.attacks?.length ? h('div.span-all', attackSection(picked.name, picked.attacks, null, picked.id, { boss: true, prep: !isLive('boss') })) : null,
+    picked?.tactics ? h('div.sc-gm-only.span-all', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'), h('p', h('b', 'Tactics. '), picked.tactics)) : null];
   }
 
   function locationPicker() {
@@ -383,7 +643,8 @@ export function createScenes({ client, act, getView }) {
             ? { locationId: l.id, location: l.name, floor: l.floor !== '' && l.floor != null ? `Floor ${l.floor}` : '', image: l.image || '', text: l.readAloud || '', locationTouched: false, floorTouched: false, textTouched: false }
             : { locationId: null });
           saveDraft();
-          drawForm();
+          sig = '';
+          drawAll();
         },
       }), { cls: 'span-all' }),
       loc?.features?.length ? h('div.sc-gm-only.span-all', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only: features'), h('ul', loc.features.map((f) => h('li', f)))) : null,
@@ -395,46 +656,117 @@ export function createScenes({ client, act, getView }) {
     ];
   }
 
-  function drawForm() {
-    const kind = tab;
+  function formBody(kind) {
     const v = view();
-    const meta = SCENES.find((s) => s.kind === kind);
-    const isLive = v.scene?.kind === kind;
-    let body = [];
-    let extra = null;
-    if (kind === 'lobby') body = [txt('lobby', 'title', 'Title', { placeholder: v.pack?.systemName || 'The System', max: 80 }), txt('lobby', 'subtitle', 'Subtitle', { placeholder: 'Grab your phone. The show starts soon.', max: 160, cls: 'span-2' }), chk('lobby', 'showQr', 'Show the join QR')];
-    else if (kind === 'explore') body = [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Text on screen (read-aloud)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showFeed', 'Show the event feed')];
-    else if (kind === 'boss') body = bossPicker();
-    else if (kind === 'loot') body = [crawlerSelect('loot'), labeled('Box', select((v.pack?.lootTiers || []).map((t) => ({ value: t.id, label: t.name })), D('loot').tier || v.pack?.lootTiers?.[0]?.id || '', { onChange: (x) => { D('loot').tier = x; saveDraft(); } }))];
-    else if (kind === 'countdown') body = [txt('countdown', 'label', 'Label', { placeholder: 'Floor collapse in', max: 80, cls: 'span-2' }),
-      labeled('Minutes', field(D('countdown').minutes ?? 5, { type: 'number', attrs: { min: 0, max: 1440 }, onCommit: (x) => { D('countdown').minutes = x; saveDraft(); } })),
-      labeled('Seconds', field(D('countdown').seconds ?? 0, { type: 'number', attrs: { min: 0, max: 59 }, onCommit: (x) => { D('countdown').seconds = x; saveDraft(); } })),
-      chk('countdown', 'autostart', 'Start right away', false)];
-    else if (kind === 'roll') {
-      body = [crawlerSelect('roll', { allowNone: true }), txt('roll', 'formula', 'Dice', { placeholder: 'd20', max: 60 }), txt('roll', 'label', 'What for', { placeholder: 'Save vs. the jukebox', max: 80 })];
-      extra = h('button.btn.btn-primary', { type: 'button', onclick: rollOnTv }, icon('dice', { size: 15 }), 'Roll on TV');
-    } else if (kind === 'recap') body = [txt('recap', 'text', 'Recap text', { rows: 6, max: 4000, cls: 'span-all', dflt: v.recap || '', placeholder: 'Last time, our crawlers…' }), txt('recap', 'title', 'Show title', { placeholder: v.pack?.systemName || 'The System', max: 80 })];
-    else if (kind === 'blank') body = [txt('blank', 'text', 'Line under the logo', { placeholder: 'Stand by', max: 160, cls: 'span-2' })];
-    else if (kind === 'combat') body = [txt('combat', 'title', 'Banner title (optional)', { placeholder: 'Lobby brawl', max: 80, cls: 'span-2' }), h('p.hint.span-all', 'Round, phase, party and revealed mobs come from the Combat section.')];
-    else if (kind === 'npc') {
+    if (kind === 'lobby') return [txt('lobby', 'title', 'Title', { placeholder: v.pack?.systemName || 'The System', max: 80 }), txt('lobby', 'subtitle', 'Subtitle', { placeholder: 'Grab your phone. The show starts soon.', max: 160, cls: 'span-2' }), chk('lobby', 'showQr', 'Show the join QR')];
+    if (kind === 'explore') return [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Text on screen (read-aloud)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showFeed', 'Show the event feed')];
+    if (kind === 'boss') return bossPicker();
+    if (kind === 'loot') return [crawlerSelect('loot'), labeled('Box', select((v.pack?.lootTiers || []).map((t) => ({ value: t.id, label: t.name })), D('loot').tier || v.pack?.lootTiers?.[0]?.id || '', { onChange: (x) => { D('loot').tier = x; saveDraft(); changed(); } }))];
+    if (kind === 'countdown') {
+      return [txt('countdown', 'label', 'Label', { placeholder: 'Floor collapse in', max: 80, cls: 'span-2' }),
+        labeled('Minutes', field(D('countdown').minutes ?? 5, { type: 'number', attrs: { min: 0, max: 1440 }, onCommit: (x) => { D('countdown').minutes = x; saveDraft(); changed(); } })),
+        labeled('Seconds', field(D('countdown').seconds ?? 0, { type: 'number', attrs: { min: 0, max: 59 }, onCommit: (x) => { D('countdown').seconds = x; saveDraft(); changed(); } })),
+        chk('countdown', 'autostart', 'Start right away', false)];
+    }
+    if (kind === 'roll') return [crawlerSelect('roll', { allowNone: true }), txt('roll', 'formula', 'Dice', { placeholder: 'd20', max: 60 }), txt('roll', 'label', 'What for', { placeholder: 'Save vs. the jukebox', max: 80 })];
+    if (kind === 'recap') return [txt('recap', 'text', 'Recap text', { rows: 6, max: 4000, cls: 'span-all', dflt: v.recap || '', placeholder: 'Last time, our crawlers…' }), txt('recap', 'title', 'Show title', { placeholder: v.pack?.systemName || 'The System', max: 80 })];
+    if (kind === 'blank') return [txt('blank', 'text', 'Line under the logo', { placeholder: 'Stand by', max: 160, cls: 'span-2' })];
+    if (kind === 'npc') {
       const list = v.library?.npc || [];
-      body = list.length
-        ? [labeled('NPC', select(list.map((n) => ({ value: n.id, label: `${n.name}${n.role ? `, ${n.role}` : ''}` })), D('npc').npcId || list[0].id, { onChange: (x) => { D('npc').npcId = x; saveDraft(); } }), { cls: 'span-2' }), h('p.hint.span-all', 'Name, role and portrait only. Speak as the NPC from the NPCs section.')]
+      return list.length
+        ? [labeled('NPC', select(list.map((n) => ({ value: n.id, label: `${n.name}${n.role ? `, ${n.role}` : ''}` })), D('npc').npcId || list[0].id, { onChange: (x) => { D('npc').npcId = x; saveDraft(); changed(); } }), { cls: 'span-2' })]
         : [h('p.dim.span-all', 'No NPCs yet. Add npcs.json or create one in the Library.')];
     }
-    const actions = h('div.row-end',
-      extra,
-      isLive && !['boss', 'roll', 'countdown', 'loot', 'npc'].includes(kind) ? h('button.btn', { type: 'button', onclick: () => act({ t: 'scene.update', data: (() => { const x = dataFor(kind); delete x.locationId; return x; })() }, 'TV updated.') }, 'Update TV') : null,
-      kind === 'roll' ? null : h('button.btn.btn-primary', { type: 'button', onclick: () => showOnTv(kind) }, icon('tv', { size: 15 }), showLabel(kind, isLive, meta), meta.key ? h('kbd', meta.key) : null));
-    form.replaceChildren(h('div.sc-form-head', h('h2', meta.label), h('span.dim', meta.hint)), h('div.form-grid', body.flat().filter(Boolean)), actions);
+    return [];
   }
 
-  function showLabel(kind, isLive, meta) {
-    if (kind === 'boss' && (D('boss').mode || 'library') !== 'adhoc') {
-      const b = bossLib(bossPick);
-      if (b) return isLive && view().scene?.data?.bossId === b.id ? `Restart ${b.name} on TV` : `Show ${b.name} on TV`;
+  /* ---------- panel ---------- */
+  const isTool = (id) => TOOLS.some((t) => t.id === id);
+
+  function goLiveLabel(chipId) {
+    if (chipId === 'boss') {
+      const d = D('boss');
+      const name = d.mode === 'adhoc' ? (d.name || 'the boss') : bossLib(bossPick)?.name;
+      return `Go live: ${name || 'boss'} + intro`;
     }
-    return isLive ? `Restart ${meta.label.toLowerCase()} on TV` : `Show ${meta.label.toLowerCase()} on TV`;
+    if (chipId === 'fight') { const b = fightBoss(); return b ? `Go live: boss screen (${b.name})` : 'Go live: arena (VS)'; }
+    if (chipId === 'roll') return 'Roll on TV';
+    return `Go live: ${sceneOf(chipId)?.label.toLowerCase()}`;
+  }
+  function drawGoLive() {
+    const id = tab;
+    if (isTool(id)) { golive.replaceChildren(); golive.hidden = true; return; }
+    const live = id === 'fight' ? fightOnAir() : isLive(id);
+    golive.hidden = false;
+    const meta = sceneOf(id);
+    if (live) {
+      const canUpdate = ['lobby', 'explore', 'recap', 'blank'].includes(id);
+      golive.replaceChildren(...[
+        canUpdate ? h('button.btn', { type: 'button', onclick: () => act({ t: 'scene.update', data: (() => { const x = dataFor(id); delete x.locationId; return x; })() }, 'TV updated.') }, 'Update the TV') : null,
+        h('span.grow'),
+        id === 'fight' || id === 'boss' ? null : h('button.btn.btn-quiet', { type: 'button', onclick: () => goLive(id) }, 'Restart')].filter(Boolean));
+      golive.classList.add('is-live');
+      return;
+    }
+    golive.classList.remove('is-live');
+    golive.replaceChildren(
+      h('span.sh-golive-h.dim', id === 'fight' ? 'The fight runs here whether or not it is on the TV.' : 'Get it ready. The TV changes only when you press the button.'),
+      h('span.grow'),
+      h('button.btn.btn-primary.sh-golive-btn', { type: 'button', onclick: () => (id === 'roll' ? rollOnTv() : goLive(id)) },
+        icon(id === 'roll' ? 'dice' : 'tv', { size: 16 }), goLiveLabel(id), meta?.key ? h('kbd', meta.key) : null));
+  }
+
+  function drawHead() {
+    const id = tab;
+    const tool = TOOLS.find((t) => t.id === id);
+    if (tool) { head.replaceChildren(...[h('h2', tool.label), tool.hint ? h('span.dim', tool.hint) : null].filter(Boolean)); return; }
+    const meta = sceneOf(id);
+    const live = id === 'fight' ? fightOnAir() : isLive(id);
+    head.replaceChildren(
+      live ? h('span.sh-state.live', 'On air') : h('span.sh-state', 'Preview'),
+      h('h2', meta.label), h('span.dim', meta.hint));
+    panel.classList.toggle('is-live', live);
+  }
+
+  // Fixed slots: the desk, sound, fight and NPC panels stay in the page (gm.js renders into them by id).
+  const slots = { scene: h('div.sh-slot'), fight: h('div.sh-slot'), npc: h('div.sh-slot'), sound: h('div.sh-slot'), desk: h('div.sh-slot') };
+  body.append(slots.scene, slots.fight, slots.npc, slots.sound, slots.desk);
+  function drawBody() {
+    const id = tab;
+    const live = isLive(id);
+    pvCol.hidden = isTool(id) || live || id === 'fight';
+    panel.classList.toggle('no-pv', pvCol.hidden || !pref.pv);
+    slots.fight.hidden = id !== 'fight';
+    slots.npc.hidden = id !== 'npc';
+    slots.sound.hidden = id !== 'sound';
+    slots.desk.hidden = id !== 'desk';
+    slots.scene.hidden = isTool(id);
+    if (id === 'sound') { drawAudioPanel(); return; }
+    if (id === 'desk') return;
+    if (id === 'fight') {
+      const sc = view().scene;
+      slots.scene.replaceChildren(sc?.kind === 'boss' ? h('p.sh-note', icon('tv', { size: 14 }), 'The TV shows the boss screen. Boss HP, phases and his attacks are on the Boss chip.', h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => pick('boss') }, 'Boss controls')) : '');
+      return;
+    }
+    const out = [];
+    if (live) out.push(h('div.sc-live', liveControls(id)));
+    const form = h('div.form-grid', formBody(id).flat().filter(Boolean));
+    if (live && id !== 'npc') {
+      out.push(h('details.sh-edit', { open: ui.editOpen || null, ontoggle: (e) => { ui.editOpen = e.target.open; } }, h('summary', id === 'boss' ? 'Another boss (restarts the boss screen)' : 'Change it'), h('div.sc-form', form,
+        id === 'boss' ? h('div.row-end', h('button.btn', { type: 'button', onclick: () => goLiveBoss(bossDraftData()) }, 'Restart with this boss + intro')) : null)));
+    } else out.push(h('div.sc-form', form));
+    if (id === 'boss' && !live) out.push(h('div.sc-form', minionSection(false)));
+    slots.scene.replaceChildren(...out);
+  }
+
+  function drawAll() {
+    drawOnair();
+    drawChips();
+    drawHead();
+    const focusIn = slots.scene.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]), textarea, select');
+    if (!focusIn) drawBody();
+    drawGoLive();
+    pvRefresh();
   }
 
   async function rollOnTv() {
@@ -445,14 +777,15 @@ export function createScenes({ client, act, getView }) {
     await act(a, null);
   }
 
-  /* ---------- keyboard: F1–F8 ---------- */
+  /* ---------- keyboard: F1–F8 = go live with that scene's draft ---------- */
   document.addEventListener('keydown', (e) => {
     const m = /^F([1-8])$/.exec(e.key);
     if (!m || e.ctrlKey || e.metaKey || e.altKey) return;
     if (document.querySelector('dialog[open]')) return;
+    const s = SCENES.find((x) => x.key === e.key);
+    if (!s) return;
     e.preventDefault();
-    const s = SCENES[Number(m[1]) - 1];
-    if (s.kind === 'roll') rollOnTv(); else showOnTv(s.kind);
+    if (s.kind === 'roll') rollOnTv(); else goLive(s.kind);
   });
 
   /* ---------- render ---------- */
@@ -460,45 +793,32 @@ export function createScenes({ client, act, getView }) {
   function update(v) {
     audio.update(v);
     drawAudio();
-    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, v.players, v.library?.boss?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show, v.scene?.kind === 'combat' ? [v.combat?.round, v.combat?.phase, v.combat?.active, v.combat?.combatants?.filter((x) => !x.hidden).length] : null]);
-    if (s !== sig) {
-      const focusIn = form.contains(document.activeElement);
-      sig = s;
-      drawTabs();
-      drawLive();
-      if (!focusIn) drawForm();
-    }
-    drawPreview();
+    const c = v.combat || {};
+    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, tab, v.players, v.library?.boss?.length, v.library?.monster?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show,
+      [c.active, c.round, c.phase, (c.combatants || []).map((x) => [x.uid, x.hp, x.hidden, x.down, x.name, x.type === 'crawler' ? x.hpMax : x.attacks?.length])]]);
+    if (s !== sig) { sig = s; drawAll(); } else pvPost();
   }
 
-  /** Puts Scenes next to the existing show desk inside the Show view, with a two-way switch. */
-  /** Puts Scenes next to the existing show desk inside the Show view, with a sub-tab switch.
-   *  `extras` = [{ id, label, el, icon? }] adds more sub-tabs (Sound). */
-  function mountInto(section, extras = []) {
+  /**
+   * Builds the Show view: `parts` = { fight: el (combat tracker), npcs: el, sound: el, desk: el }.
+   * The old show desk (quips, comms, audience) is whatever is in `section` now: it becomes Desk.
+   */
+  function mountInto(section, p = {}) {
     const desk = h('div.show-desk');
     desk.append(...section.childNodes);
-    const seg = h('div.seg.show-sub', { role: 'tablist', 'aria-label': 'Show' });
-    const ids = ['scenes', 'desk', ...extras.map((x) => x.id)];
-    const pick = (which) => {
-      if (!ids.includes(which)) which = 'scenes';
-      store.set('sub', which);
-      el.hidden = which !== 'scenes';
-      desk.hidden = which !== 'desk';
-      for (const x of extras) x.el.hidden = which !== x.id;
-      for (const b of seg.children) b.setAttribute('aria-selected', String(b.dataset.sub === which));
-      if (which === 'scenes') { sig = ''; update(view()); }
-    };
-    seg.append(
-      h('button', { type: 'button', role: 'tab', 'data-sub': 'scenes', onclick: () => pick('scenes') }, icon('tv', { size: 14 }), 'Scenes'),
-      ...extras.map((x) => h('button', { type: 'button', role: 'tab', 'data-sub': x.id, onclick: () => pick(x.id) }, x.icon ? icon(x.icon, { size: 14 }) : null, x.label)),
-      h('button', { type: 'button', role: 'tab', 'data-sub': 'desk', onclick: () => pick('desk') }, 'Quips, comms, audience'));
-    section.replaceChildren(h('div.show-subbar', seg), el, ...extras.map((x) => x.el), desk);
-    pick(store.get('sub', 'scenes'));
-    api.openSub = pick;
-    // Load / drop the preview when the Show view is opened or left.
-    new MutationObserver(() => drawPreview()).observe(section, { attributes: true, attributeFilter: ['hidden'] });
+    if (p.deskExtra) desk.append(p.deskExtra);
+    Object.assign(parts, { fight: p.fight || h('div'), npcs: p.npcs || null, sound: p.sound || h('div'), desk });
+    slots.fight.append(parts.fight);
+    if (parts.npcs) slots.npc.append(parts.npcs);
+    slots.sound.append(audioPanel, parts.sound);
+    slots.desk.append(desk);
+    section.replaceChildren(el);
+    sig = '';
+    drawBody();
+    // Preview on / off with the Show view.
+    new MutationObserver(() => { sig = ''; if (!section.hidden) update(view()); else pvDrop(); }).observe(section, { attributes: true, attributeFilter: ['hidden'] });
   }
 
-  const api = { el, update, audio, mountInto, openSub: null, refresh: () => { sig = ''; update(view()); } };
+  const api = { el, update, audio, mountInto, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
   return api;
 }

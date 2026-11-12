@@ -213,7 +213,7 @@ function newRun(st, ctx, c, a) {
 }
 
 /** Emits the cinematic for `steps` (GM: everything; TV + phones: public copies). */
-function emitRun(st, ctx, out, c, run, steps, kind = 'combat.auto') {
+function emitRun(st, ctx, out, c, run, steps, kind = 'combat.auto', tv = true) {
   const startAt = ctx.now + AUTO_LEAD_MS;
   const stepMs = c.settings.stepMs;
   steps.forEach((x, k) => { x.slot = k; }); // position in this cinematic (timing), `i` = position in the run
@@ -221,7 +221,8 @@ function emitRun(st, ctx, out, c, run, steps, kind = 'combat.auto') {
   cues(st, ctx, out, local);
   const base = { kind, autoId: run.id, startAt, stepMs, beats: BEATS, round: c.round };
   out.emit({ ...base, steps }, { roles: ['gm'] });
-  out.emit({ ...base, steps: steps.map(publicStep) }, { roles: ['stage', 'player'] });
+  // tv false (combat.mobAct): a GM-only roll, the TV and phones see the result on the sheets only.
+  if (tv) out.emit({ ...base, steps: steps.map(publicStep) }, { roles: ['stage', 'player'] });
   const downs = steps.filter((x) => x.down).length;
   const hits = steps.filter((x) => x.hit).length;
   if (steps.length) {
@@ -298,12 +299,13 @@ export const AUTO_GM = {
       if (typeof a.targetUid !== 'string') throw bad('targetUid must be a string');
       force.targetUid = a.targetUid;
     }
+    const tv = a.tv === undefined ? true : flag(a.tv, 'tv');
     c.autoQueue = null;
-    const run = newRun(st, ctx, c, a);
+    const run = newRun(st, ctx, c, tv ? a : { ...a, public: false });
     const step = resolveMob(st, ctx, out, c, m, run, force);
     if (step.skipped) throw bad(`${m.name}: ${step.skipped}`);
     run.steps.push(step);
-    const timing = emitRun(st, ctx, out, c, run, [step]);
+    const timing = emitRun(st, ctx, out, c, run, [step], 'combat.auto', tv);
     storeRun(c, run, timing, false);
     out.result = { autoId: run.id, sequence: [step], ...timing, suggestEnd: endSuggestion(st, ctx.pack) };
   },

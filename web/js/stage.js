@@ -3,6 +3,7 @@ import {
 } from './client.js';
 import { createDirector } from './scenes/director.js';
 import { levelBadge } from './scenes/common.js';
+import { INTRO_HOLD_MS } from './scenes/boss.js';
 import { createVoicePlayer, createSubtitleOnly, createCueGate } from './voice.js';
 import { createShowAudio } from './show-audio.js';
 import { createTicker } from './ticker.js';
@@ -192,7 +193,7 @@ function onEvent(e) {
     director.event(e);
     showAudio.event(e);
     // The System's line (boss intro / defeat) starts once the stinger has hit.
-    const hold = { 'boss.intro': reduced ? 0 : 3900, 'boss.defeat': reduced ? 0 : 2600 }[e.kind];
+    const hold = { 'boss.intro': reduced ? 0 : INTRO_HOLD_MS, 'boss.defeat': reduced ? 0 : 2600 }[e.kind];
     if (hold) { voicePlayer.holdFor(hold); subOnly.holdFor(hold); }
     return;
   }
@@ -488,7 +489,10 @@ function autoScroll(box, hold, startAfter = 1200) {
 // The GM desk is the audio device by default (view.show.audioDevice). The TV then shows the
 // subtitle only and never acks; with "audio device: TV" it plays and acks as before.
 // ?preview=1 (the GM desk's mini-preview) never plays anything.
-const PREVIEW = new URLSearchParams(location.search).has('preview');
+const PREVIEW = new URLSearchParams(location.search).has('preview') || new URLSearchParams(location.search).has('draft');
+// ?draft=1: the GM desk's preview of a scene that is NOT on the TV yet. No connection: the desk posts
+// the view (with the dry-run scene from scene.preview) and test events into this frame.
+const DRAFT = new URLSearchParams(location.search).has('draft');
 const music = $('#music');
 const subtitle = $('#subtitle');
 function showSub(text) {
@@ -593,7 +597,16 @@ export function mountStage(transport, opts = {}) {
 
 if (PREVIEW) { document.body.classList.add('preview'); $('#curtain').hidden = true; }
 
-if (!isHosted()) {
+if (DRAFT) {
+  document.body.classList.add('draft');
+  $('#offair').hidden = true;
+  window.addEventListener('message', (e) => {
+    if (e.origin !== location.origin || !e.data) return;
+    if (e.data.t === 'draft.view') { view = e.data.view; render(); }
+    else if (e.data.t === 'draft.event') director.event(e.data.event);
+  });
+  window.parent?.postMessage({ t: 'draft.ready' }, location.origin);
+} else if (!isHosted()) {
   // Login: stage link token (Node), paired-TV token, GM key on the GM's own machine, or a pairing code (tvpair.js).
   import('./tvpair.js').then(({ bootStage }) => bootStage({ mountStage, SystemClient, takeHashToken })).catch((err) => {
     console.error(err);

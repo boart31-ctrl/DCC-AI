@@ -674,6 +674,7 @@ export function combatView(state, pack, role) {
     if (x.hidden) continue;
     const row = {
       uid: x.uid, type: 'mob', name: x.name, image: x.image ?? null, boss: x.sourceKind === 'boss',
+      group: x.sourceKey ?? null, // same library monster → one pack on the TV
       hpPct: hpFraction(x.hp, x.hpMax), down: x.hp <= 0,
       conditions: (x.conditions ?? []).map((k) => ({ id: k.id ?? null, name: k.name })),
     };

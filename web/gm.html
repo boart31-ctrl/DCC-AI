@@ -31,7 +31,7 @@
     <button class="ai-mute" id="ai-mute" type="button" aria-pressed="false" title="Mute AI: the System's lines as on-screen text only, no audience chat, AUTO off. Stop only clears what is playing now.">
       <span class="ai-mute-i" aria-hidden="true"></span><span class="ai-mute-l">AI</span><span class="ai-mute-s">On</span>
     </button>
-    <button class="btn btn-quiet btn-sm" id="log-toggle" type="button" aria-controls="gm-log" aria-expanded="true">Dice log</button>
+    <button class="btn btn-quiet btn-sm" id="log-toggle" type="button" aria-controls="gm-log" aria-expanded="true" title="Dice log: every roll this session">Dice log</button>
     <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme (dark, light, neon)"></button>
     <button class="btn btn-danger stop" id="stop" type="button" title="Stop all audio and clear the queue (Esc)">Stop <kbd>Esc</kbd></button>
   </header>
@@ -39,11 +39,9 @@
   <div class="gm-shell">
     <nav class="gm-nav" id="gm-nav" aria-label="Desk sections">
       <button type="button" data-view="party" aria-current="page">Party</button>
-      <button type="button" data-view="combat">Combat</button>
-      <button type="button" data-view="npcs">NPCs</button>
-      <button type="button" data-view="library">Library <kbd>/</kbd></button>
       <button type="button" data-view="show">Show</button>
-      <button type="button" data-view="campaign">Campaign</button>
+      <button type="button" data-view="library">Library <kbd>/</kbd></button>
+      <button type="button" data-view="rewards">Rewards</button>
       <button type="button" data-view="settings">Settings</button>
     </nav>
 
@@ -65,9 +63,8 @@
         </div>
       </section>
 
-      <!-- Combat -->
-      <section class="gm-view view-combat" id="view-combat" aria-label="Combat" hidden></section>
-      <section class="gm-view view-npcs" id="view-npcs" aria-label="NPCs" hidden></section>
+      <!-- Rewards: loot boxes, gifts and achievements per crawler -->
+      <section class="gm-view view-rewards" id="view-rewards" aria-label="Rewards" hidden></section>
 
       <!-- Library -->
       <section class="gm-view view-library" id="view-library" aria-label="Library" hidden></section>
@@ -162,7 +159,6 @@
 
       <!-- Campaign -->
       <section class="gm-view view-campaign" id="view-campaign" aria-label="Campaign" hidden>
-        <div class="view-head"><h1>Campaign</h1></div>
         <div class="node-campaign" id="node-campaign">
           <section class="panel">
             <h2>"Previously on…"</h2>
@@ -263,9 +259,10 @@
   <!-- phones: bottom navigation (the side nav is hidden below 760px) -->
   <nav class="gm-bnav" id="gm-bnav" aria-label="Desk sections">
     <button type="button" data-view="party"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.5a4 4 0 0 1 0 7.5M22 21v-1a6 6 0 0 0-4-5.6"/></svg><span>Party</span></button>
-    <button type="button" data-view="combat"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14.5 17.5L3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2M9.5 17.5L21 6V3h-3L6.5 14.5M11 19l-6-6M8 16l-4 4M5 21l-2-2"/></svg><span>Combat</span></button>
     <button type="button" data-view="show"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18v12H3zM8 21h8M12 18v3"/></svg><span>Show</span></button>
-    <button type="button" data-more aria-haspopup="dialog"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><path d="M5 12h.01M12 12h.01M19 12h.01"/></svg><span>More</span></button>
+    <button type="button" data-view="library"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4zM20 4h-6a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h7z"/></svg><span>Library</span></button>
+    <button type="button" data-view="rewards"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11h16v9H4zM3 7h18v4H3zM12 7v13M12 7c-2-4-6-3-5 0M12 7c2-4 6-3 5 0"/></svg><span>Rewards</span></button>
+    <button type="button" data-view="settings"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
   </nav>
 
   <dialog id="sheet" class="sheet-dlg tool">

@@ -287,3 +287,28 @@ body.hosted .links, body.hosted #node-campaign { display: none; }
 .gate-box { max-width: 420px; padding: 20px; background: var(--c-panel); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
 .gate-title { margin: 0 0 6px; font-family: var(--f-ui); font-weight: 700; font-size: 20px; }
 .gate-desc { margin: 0; color: var(--c-ink-2); line-height: 1.5; }
+
+/* ---------- rewards ---------- */
+.rewards { display: grid; gap: 14px; }
+.rw-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 10px; }
+.rw-card { display: grid; gap: 10px; padding: 12px; background: var(--c-panel); border: 1px solid var(--c-line); border-top: 3px solid var(--pc); border-radius: var(--r-2); }
+.rw-who { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.rw-who > div { display: grid; min-width: 0; }
+.rw-who b { font-family: var(--f-ui); font-size: 17px; }
+.rw-who .dim { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.rw-acts { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+.tool .rw-btn { min-height: 44px; justify-content: flex-start; }
+.rw-recent h2 { margin-bottom: 8px; }
+.rw-recent .feed { max-height: none; }
+.desk-sec { font-size: 16px; margin: 6px 0 8px; }
+#view-campaign { margin-top: 16px; }
+@media (max-width: 760px) {
+  .brand-name { display: none; }
+  #log-toggle { display: inline-flex !important; }
+}
+#log-toggle { gap: 6px; }
+@media (max-width: 760px) {
+  .gm-bnav { grid-template-columns: repeat(5, 1fr) !important; }
+  #log-toggle .log-l { display: none; }
+  #log-toggle { height: 40px; padding: 0 10px; }
+}

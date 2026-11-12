@@ -410,6 +410,20 @@ export const SCENE_GM = {
     setScene(st, ctx, a.kind, data);
   },
 
+  /**
+   * Dry run of scene.set for the desk's preview: same validation and library lookups, nothing changes.
+   * Ack `result: { scene }` = what the TV would get (boss: already revealed, so the preview shows the fight).
+   */
+  'scene.preview'(st, a, ctx, out) {
+    if (!SCENE_KINDS.includes(a.kind)) throw bad(`kind must be one of ${SCENE_KINDS.join(', ')}`);
+    const data = mergeData(st, ctx, a.kind, DEFAULTS[a.kind](), a.data ?? {}, true);
+    if (a.kind === 'recap' && !data.text) data.text = st.session.recap ?? '';
+    if (a.kind === 'boss') data.revealed = true;
+    const tmp = { ...st, scene: { id: `preview_${a.kind}`, kind: a.kind, data, since: ctx.now } };
+    out.result = { scene: sceneView(tmp, ctx.pack, ctx.now) };
+    out.changed = false;
+  },
+
   'scene.update'(st, a, ctx) {
     const sc = st.scene;
     if (a.data === undefined) throw bad('data required');

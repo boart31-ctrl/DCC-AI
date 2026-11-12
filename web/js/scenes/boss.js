@@ -5,6 +5,30 @@ import { h, bossArt, partyStrip, threatColor, rgb, replay, typeText } from './co
 import { floorLayer } from '../ui-art.js';
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
+// The intro cinematic runs at this pace (1 = the old 6.4 s cut, felt rushed on the TV). The CSS reads the
+// same factor from --bk on .bi; stage.js holds the System's intro line for INTRO_HOLD_MS.
+export const INTRO_PACE = 1.5;
+export const INTRO_HOLD_MS = Math.round(3900 * INTRO_PACE);
+// Copies of one monster from this many on fight as one pack (one tile, they stay together).
+export const PACK_MIN = 4;
+
+/** Revealed non-boss mobs of the running fight → tiles: single mobs, or packs of the same monster. */
+export function minionGroups(combat) {
+  if (!combat?.active) return [];
+  const mobs = (combat.combatants || []).filter((x) => x.type === 'mob' && !x.boss && !x.hidden);
+  const byGroup = new Map();
+  for (const m of mobs) {
+    const k = m.group || m.name.replace(/\s+\d+$/, '');
+    if (!byGroup.has(k)) byGroup.set(k, []);
+    byGroup.get(k).push(m);
+  }
+  const out = [];
+  for (const [k, list] of byGroup) {
+    if (list.length >= PACK_MIN) out.push({ key: k, pack: true, name: list[0].name.replace(/\s+\d+$/, ''), members: list, alive: list.filter((m) => !m.down).length });
+    else for (const m of list) out.push({ key: m.uid, pack: false, name: m.name, members: [m], alive: m.down ? 0 : 1 });
+  }
+  return out;
+}
 
 export default function boss(root, sc, env) {
   const { T, clock } = env;
@@ -42,10 +66,11 @@ export default function boss(root, sc, env) {
   // Fighting-game layout: name, HP and the System's phase report on the left, a tall portrait
   // on the right, the party under the report.
   const atkBox = h('div.bs-atk', { 'aria-live': 'polite' }); // the boss's attack (combat.mobAct / Mobs act)
+  const minions = h('div.bs-minions', { 'aria-label': 'Minions' });
   const fight = h('div.bs-fight',
     h('div.bs-head', h('div.bs-namebox', name, title), phase),
     hp,
-    h('div.bs-mid', info, loot),
+    h('div.bs-mid', minions, info, loot),
     h('div.bs-party', party.el),
     h('div.bs-framewrap', frame, dmg),
     atkBox,
@@ -111,6 +136,29 @@ export default function boss(root, sc, env) {
   function lootText() {
     const tier = d.lootTierInfo;
     return d.lootHint || (tier ? `${tier.name} incoming` : 'Loot incoming');
+  }
+
+  /** Minions: one tile per mob, or one per pack (4+ of the same monster), HP as pips / a bar. */
+  let minionSig = '';
+  function drawMinions(v) {
+    const groups = minionGroups(v?.combat);
+    const sig = JSON.stringify(groups.map((g) => [g.key, g.name, g.members.map((m) => [m.hpPct, m.down, m.hp])]));
+    if (sig === minionSig) return;
+    minionSig = sig;
+    root.classList.toggle('has-minions', groups.length > 0);
+    root.classList.toggle('many-minions', groups.length > 4);
+    minions.replaceChildren(...groups.slice(0, 8).map((g) => {
+      if (g.pack) {
+        return h('div.bm', { class: `bm pack${g.alive ? '' : ' down'}` },
+          h('div.bm-n', h('b', g.name), h('span.bm-x', `×${g.alive}`)),
+          h('div.bm-pips', g.members.map((m) => h('i', { class: m.down ? 'gone' : '' }))));
+      }
+      const m = g.members[0];
+      const pct = Math.max(0, Math.min(1, m.hpPct ?? (m.hpMax ? m.hp / m.hpMax : 1)));
+      return h('div.bm', { class: m.down ? 'bm down' : 'bm' },
+        h('div.bm-n', h('b', m.name)),
+        h('div.bm-bar', h('i', { style: { width: `${pct * 100}%` } })));
+    }), groups.length > 8 ? h('div.bm.more', `+${groups.length - 8}`) : '');
   }
 
   function drawStatic() {
@@ -219,8 +267,10 @@ export default function boss(root, sc, env) {
     );
     fx.querySelector('.bi-name').classList.toggle('long', b.name.length > 16);
     root.append(fx);
-    T.after(3700, () => typeText(typed, b.title || 'Threat level: yes.', 900, T));
-    T.after(6400, () => {
+    const P = INTRO_PACE;
+    fx.style.setProperty('--bk', String(P));
+    T.after(3700 * P, () => typeText(typed, b.title || 'Threat level: yes.', 900 * P, T));
+    T.after(6400 * P, () => {
       fx.classList.add('out');
       document.body.classList.remove('cine');
       root.classList.remove('intro');
@@ -228,7 +278,7 @@ export default function boss(root, sc, env) {
       drawStatic();
       replay(fight, 'enter');
     });
-    T.after(7000, () => fx.remove());
+    T.after(7000 * P, () => fx.remove());
   }
 
   /** Triangle fan from an impact point: 12 shards that fly out from the frame. */
@@ -352,10 +402,11 @@ export default function boss(root, sc, env) {
   }
 
   drawStatic();
+  drawMinions(env.view);
   party.update(env.view);
   const baseUpdate = update;
   return {
-    update(s, view) { lastView = view; baseUpdate(s, view); if (Date.now() >= partyHold) party.update(view); },
+    update(s, view) { lastView = view; baseUpdate(s, view); drawMinions(view); if (Date.now() >= partyHold) party.update(view); },
     event,
     destroy() { document.body.classList.remove('cine'); },
     get hp() { return hpShown; },

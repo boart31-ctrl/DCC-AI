@@ -127,7 +127,7 @@ test('combat.start adds every crawler; addMob numbers copies and starts hidden; 
   s = rev.state;
   for (const v of Object.values(views(s, pid))) {
     const mob = v.combat.combatants.find((x) => x.type === 'mob');
-    assert.deepEqual(Object.keys(mob).sort(), ['boss', 'conditions', 'down', 'hpPct', 'image', 'name', 'type', 'uid']);
+    assert.deepEqual(Object.keys(mob).sort(), ['boss', 'conditions', 'down', 'group', 'hpPct', 'image', 'name', 'type', 'uid']);
     assert.equal(mob.name, 'Goblin 1');
     assert.equal(mob.hpPct, 1);
     assert.doesNotMatch(JSON.stringify(v), SECRETS);

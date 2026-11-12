@@ -30,7 +30,7 @@ export const OUTCOMES = [
 const MODES = [['auto', 'Auto'], ['focus', 'Focus'], ['spread', 'Spread']];
 const END_DELAY_S = 3;
 
-export function createCombat({ act, send, getView, sfx = null, openSound = null }) {
+export function createCombat({ act, send, getView, sfx = null, openSound = null, goLive = null }) {
   let view = null;
   let sig = '';
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
@@ -47,7 +47,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
   const C = () => view?.combat || { active: false, round: 1, phaseIndex: 0, phases: ['Crawlers', 'Mobs'], combatants: [] };
   const lib = () => libraryOf(view);
   const libEntry = (m) => (m.sourceKind ? (lib()[m.sourceKind] || []).find((e) => e.id === m.sourceId) : null);
-  const onTv = () => view?.scene?.kind === 'combat';
+  const onTv = () => ['combat', 'finale'].includes(view?.scene?.kind) || (view?.scene?.kind === 'boss' && C().combatants.some((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === view?.scene?.data?.bossId));
   /** Art button: the picture opens the gallery. */
   const artBtn = (art, label, onclick) => h('button.cbt-artbtn', { type: 'button', title: label, 'aria-label': label, onclick }, art, h('span.cbt-artbtn-k', { 'aria-hidden': 'true' }, icon('edit', { size: 11 })));
   /** Library monster / boss: a pack entry gets a GM art pick (lib.art), a homebrew one is saved with the picture. */
@@ -109,8 +109,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null 
         soundButton(),
         h('button.icon-btn.cbt-tvbtn', {
           type: 'button', class: onTv() ? 'icon-btn cbt-tvbtn is-live' : 'icon-btn cbt-tvbtn', 'aria-pressed': String(onTv()),
-          title: onTv() ? 'The arena is on the TV' : 'Show the arena on the TV', 'aria-label': onTv() ? 'Arena is on the TV' : 'Show the arena on the TV',
-          onclick: () => act({ t: 'scene.set', kind: 'combat', data: {} }, 'On TV: the arena.'),
+          title: onTv() ? 'The fight is on the TV' : 'Go live: arena, or the boss screen when a boss is in the fight', 'aria-label': onTv() ? 'The fight is on the TV' : 'Put the fight on the TV',
+          onclick: () => (goLive ? goLive() : act({ t: 'scene.set', kind: 'combat', data: {} }, 'On TV: the arena.')),
         }, icon('tv', { size: 18 }))),
       h('div.cbt-turn',
         h('ol.cbt-phases', { 'aria-label': 'Phases' }, ph.map((p, i) => h('li', h('button', {

@@ -131,6 +131,7 @@ function render() {
   npcs.update(view);
   scenes.update(view);
   sound.update(view);
+  rewards.update(view);
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -323,7 +324,7 @@ function partyRow(p, summary) {
       iconBtn('sparkle', 'Award achievement', () => achievementSheet(p)),
       iconBtn('gift', 'Loot box', () => lootSheet(p, false)),
       iconBtn('star', 'Sponsor box', () => lootSheet(p, true)),
-      iconBtn('log', 'Message', () => { showView('show'); openComms([p.id]); }),
+      iconBtn('log', 'Message', () => { showView('show'); scenes.pick('desk'); requestAnimationFrame(() => openComms([p.id])); }),
     ),
   );
 }
@@ -566,6 +567,45 @@ function lootSheet(p, sponsor) {
     );
   }
   openSheet(sponsor ? `Sponsor box for ${p.name}` : `Loot box for ${p.name}`, body, sponsor ? 'var(--magenta)' : 'var(--acid)');
+}
+
+/* ---------- rewards: one card per crawler (achievement, loot box, sponsor box, gift) ---------- */
+
+function createRewards() {
+  const el = h('div.rewards');
+  let sig = '';
+  function update(v) {
+    const list = v.players || [];
+    const recent = [...(v.feed || [])].filter((e) => ['achievement', 'loot', 'sponsor'].includes(e.kind)).reverse().slice(0, 12);
+    const s = JSON.stringify([list.map((p) => [p.id, p.name, p.color, p.connected, fullPlayer(p.id)?.gold, fullPlayer(p.id)?.sheet?.portrait ? 1 : 0]), recent.map((e) => e.id || e.at)]);
+    if (s === sig) return;
+    sig = s;
+    const card = (sum) => {
+      const p = fullPlayer(sum.id);
+      const M = sheetModel(v, p);
+      const id = M.sheet.identity || {};
+      const btn = (ic, label, fn, cls = '') => h(`button.btn.rw-btn${cls}`, { type: 'button', onclick: () => { buzz(10); fn(); } }, icon(ic, { size: 16 }), label);
+      return h('article.rw-card', { style: { '--pc': p.color || 'var(--c-accent)' } },
+        h('header.rw-who',
+          avatar(id.name || p.name, { color: p.color, src: M.sheet.portrait, size: 40 }),
+          h('div', h('b', id.name || p.name), h('span.dim', [[id.race, id.class].filter(Boolean).join(' '), `Lv ${id.level ?? p.level ?? 1}`, `${p.gold ?? 0} gold`].filter(Boolean).join(' · ')))),
+        h('div.rw-acts',
+          btn('gift', 'Loot box', () => lootSheet(p, false), '.btn-primary'),
+          btn('star', 'Sponsor box', () => lootSheet(p, true)),
+          btn('sparkle', 'Achievement', () => achievementSheet(p)),
+          btn('plus', 'Give from library', () => givePicker(p, sheetModel(view, fullPlayer(p.id))))));
+    };
+    const kindText = { achievement: 'Achievement', loot: 'Loot', sponsor: 'Sponsor' };
+    el.replaceChildren(
+      h('div.view-head', h('h1', 'Rewards'), h('span.dim', 'Loot boxes, sponsor boxes, gifts and achievements')),
+      list.length ? h('div.rw-grid', list.map(card)) : h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add them on Party first.')),
+      h('section.panel.rw-recent',
+        h('h2', 'Handed out lately'),
+        recent.length ? h('ol.feed', recent.map((e) => h('li', h('span.k', { class: `k k-${e.kind}`, 'aria-hidden': 'true' }, KIND_GLYPH[e.kind] || '•'), h('div', h('b', `${kindText[e.kind] || e.kind}. `), e.text || '', h('time', timeAgo(e.at))))))
+          : h('p.dim', 'Nothing yet this session.')),
+    );
+  }
+  return { el, update };
 }
 
 /* ---------- prepared cards (prep.card.*) ---------- */
@@ -830,44 +870,28 @@ $('#new-session').addEventListener('click', async () => {
 
 /* ---------- views, settings, dice log ---------- */
 
-const VIEWS = ['party', 'combat', 'npcs', 'library', 'show', 'campaign', 'settings'];
+const VIEWS = ['party', 'show', 'library', 'rewards', 'settings'];
+// Old section names (links, saved tabs): they live inside Show now.
+const INTO_SHOW = { combat: 'fight', npcs: 'npc', campaign: 'desk' };
 let currentView = 'party';
 function showView(v) {
+  if (INTO_SHOW[v]) { const sub = INTO_SHOW[v]; showView('show'); scenes.pick(sub); return; }
   if (!VIEWS.includes(v)) v = 'party';
   currentView = v;
   for (const b of document.querySelectorAll('#gm-nav [data-view], #gm-bnav [data-view]')) {
     if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
-  const more = $('#gm-bnav [data-more]');
-  if (more) { if (['npcs', 'library', 'campaign', 'settings'].includes(v)) more.setAttribute('aria-current', 'page'); else more.removeAttribute('aria-current'); }
   for (const id of VIEWS) $(`#view-${id}`).hidden = id !== v;
-  document.body.dataset.view = v;
+  document.body.dataset.desk = v; // not data-view: [data-view] means a nav button
   try { sessionStorage.setItem('system.gmView', v); } catch {}
 }
-$('#gm-nav').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-view]');
-  if (b) showView(b.dataset.view);
-});
-// Phones: bottom nav. "More" holds the rest of the desk plus the dice log and theme.
-$('#gm-bnav').addEventListener('click', (e) => {
-  const b = e.target.closest('[data-view]');
-  if (b) { showView(b.dataset.view); $('.gm-main').scrollTop = 0; return; }
-  if (e.target.closest('[data-more]')) openMore();
-});
-function openMore() {
-  const go = (v) => () => { closeDrawer(); showView(v); $('.gm-main').scrollTop = 0; };
-  const row = (ic, label, sub, fn) => h('li', h('button.more-row', { type: 'button', onclick: fn }, icon(ic, { size: 20 }), h('span', h('b', label), sub ? h('small', sub) : null), icon('chevron', { size: 16 })));
-  openDrawer({
-    title: 'More',
-    body: h('ul.more-list',
-      row('users', 'NPCs', 'Speak as an NPC on the TV', go('npcs')),
-      row('book', 'Library', 'Items, spells, monsters, bosses', go('library')),
-      row('map', 'Campaign', '"Previously on…" recap', go('campaign')),
-      row('gear', 'Settings', 'Player editing, voice, backups', go('settings')),
-      row('tv', 'TV screen', 'Pair or check the TV', () => { closeDrawer(); ext.openTv?.(); }),
-      row('dice', 'Dice log', 'Every roll this session', () => { closeDrawer(); setLog(true); }),
-      row('sun', 'Theme', 'Dark, light or neon', () => { toggleTheme(); drawTheme(); }),
-    ),
+// Both navs: the button carries data-view (closest() on the button only, never the page).
+for (const nav of [$('#gm-nav'), $('#gm-bnav')]) {
+  nav.addEventListener('click', (e) => {
+    const b = e.target.closest('button[data-view]');
+    if (!b || !nav.contains(b)) return;
+    showView(b.dataset.view);
+    $('.gm-main').scrollTop = 0;
   });
 }
 export { showView };
@@ -906,7 +930,7 @@ function drawLogBadge() {
   const open = !document.body.classList.contains('log-closed');
   if (open || (logSeen === null && view)) logSeen = rollCount();
   const n = open || logSeen === null ? 0 : Math.max(0, rollCount() - logSeen);
-  btn.replaceChildren('Dice log', n ? h('span.log-badge', { 'aria-label': `${n} new` }, String(n > 99 ? '99+' : n)) : '');
+  btn.replaceChildren(icon('dice', { size: 15 }), h('span.log-l', 'Dice log'), n ? h('span.log-badge', { 'aria-label': `${n} new` }, String(n > 99 ? '99+' : n)) : '');
 }
 $('#log-toggle').addEventListener('click', () => setLog(document.body.classList.contains('log-closed')));
 setLog(window.innerWidth >= 760 && logPref() === '1', false);
@@ -970,25 +994,30 @@ const library = createLibrary({
   hasAi: () => !!ext.libraryDraft,
 });
 $('#view-library').append(library.el);
-// Show → Scenes (TV director + this desk as the audio device). Hoisted use in render() is safe: views arrive after boot.
+// Show = the broadcast switcher (gm-scenes.js): scenes, the fight tracker, NPCs, sound and the old desk.
+// Hoisted use in render() is safe: views arrive after boot.
 const scenes = createScenes({ client, act, getView: () => view });
-// Show → Sound (SFX pads, announcements, voice pre-render) + Settings → Voice. The audio fetches use the desk's login.
-scenes.audio.credential = () => ext.credential;
+scenes.audio.credential = () => ext.credential; // the audio fetches use the desk's login
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
-scenes.mountInto($('#view-show'), [{ id: 'sound', label: 'Sound', icon: 'bolt', el: sound.el }]);
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
 const combatSfx = createCombatSfx({ board: sound.board, getView: () => view, onChange: () => combat?.update(view) });
 sound.el.append(combatSfx.panel());
 const openSound = () => {
   showView('show');
-  scenes.openSub?.('sound');
+  scenes.pick('sound');
   requestAnimationFrame(() => document.getElementById('combat-sounds')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
 };
-const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound });
+const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight') });
 $('#view-settings .settings-grid').append(sound.settingsEl);
-$('#view-combat').append(combat.el);
 const npcs = createNpcs({ act, getView: () => view, openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
-$('#view-npcs').append(npcs.el);
+// The campaign panel ("Previously on…", plus the hosted edition's extras) lives in Show → Desk.
+const campaignBox = $('#view-campaign');
+campaignBox.hidden = false;
+campaignBox.classList.remove('gm-view');
+campaignBox.prepend(h('h2.desk-sec', 'Campaign'));
+scenes.mountInto($('#view-show'), { fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox });
+const rewards = createRewards();
+$('#view-rewards').append(rewards.el);
 
 /* ---------- keyboard ---------- */
 

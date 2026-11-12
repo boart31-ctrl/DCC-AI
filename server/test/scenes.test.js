@@ -352,3 +352,19 @@ test('private-pack boss shape: intro/defeatLine voiced, atHp suggests phases, ta
   assert.equal(r.state.scene.data.location, 'The Grand Lobby');
   assert.throws(() => g2(s, { t: 'scene.set', kind: 'explore', data: { locationId: 'nope' } }), /unknown location/);
 });
+
+test('scene.preview: dry run of scene.set (validated, library boss resolved and revealed), state unchanged', () => {
+  const { s } = base();
+  const r = gm(s, { t: 'scene.preview', kind: 'boss', data: { bossId: 'jukebox' } });
+  assert.equal(r.changed, false);
+  assert.equal(r.state, s);
+  assert.equal(r.events.length, 0);
+  const sc = r.result.scene;
+  assert.equal(sc.kind, 'boss');
+  assert.equal(sc.data.boss.name, 'The Hungry Jukebox');
+  assert.equal(sc.data.hp, 8);
+  assert.equal(sc.data.revealed, true);
+  assert.ok(Array.isArray(sc.party));
+  assert.throws(() => gm(s, { t: 'scene.preview', kind: 'boss', data: { bossId: 'nope' } }), /unknown boss/);
+  assert.throws(() => gm(s, { t: 'scene.preview', kind: 'disco' }), /kind must be/);
+});

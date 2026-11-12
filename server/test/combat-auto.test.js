@@ -315,3 +315,16 @@ test('combat.mobAct: the GM picks the mob, the attack and the target; same resol
   assert.throws(() => gm(s, { t: 'combat.mobAct', uid: 'nope' }), /no mob/);
   assert.throws(() => gm(s, { t: 'combat.mobAct', uid: imp.uid, targetUid: 'cb_x' }), /not in the fight/);
 });
+
+test('combat.mobAct tv:false: GM-only (no stage/phone cinematic, secret dice), the damage still lands', () => {
+  const { s, ids } = setup([['imp', 1]]);
+  const imp = mobsOf(s)[0];
+  const r = gm(s, { t: 'combat.mobAct', uid: imp.uid, attackIndex: 0, targetUid: crawlers(s)[0].uid, tv: false }, { rolls: [15, 4] });
+  const cine = r.events.filter((e) => e.event.kind === 'combat.auto');
+  assert.equal(cine.length, 1);
+  assert.deepEqual(cine[0].to, { roles: ['gm'] });
+  assert.equal(hpOf(r.state, ids[0]), 6);
+  const rolls = r.state.rolls.slice(-2);
+  assert.ok(rolls.every((x) => x.secret), 'dice are GM-only');
+  assert.throws(() => gm(s, { t: 'combat.mobAct', uid: imp.uid, tv: 'no' }), /tv must be a boolean/);
+});

@@ -259,7 +259,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `sponsor.box` | `playerId`, `tier?`, `sponsor?` | Loot box framed as a sponsor gift, event `sponsor` |
 | `session.mode` | `mode`: `roleplay`/`combat`/`quiet` | |
 | `session.auto` | `on`: bool | Master AUTO switch. Off also clears `pendingAuto` |
-| `combat.mobAct` | `uid`, `attackIndex`?, `targetUid`? | One chosen mob / boss attacks now (GM-picked attack and target, else its own modes). Same resolution, `combat.auto` cinematic and `combat.autoUndo` as Mobs act |
+| `combat.mobAct` | `uid`, `attackIndex`?, `targetUid`?, `tv`? [true] | One chosen mob / boss attacks now (GM-picked attack and target, else its own modes). Same resolution, `combat.auto` cinematic and `combat.autoUndo` as Mobs act. `tv: false` = GM-only: secret dice, no cinematic on the TV / phones (damage still lands on the sheet) |
 | `loot.corpse` | `uid`, `itemIds`? | Loot a downed combatant: a mob drops its library `lootItems` (or `itemIds`), a crawler their inventory. One pile per body in `state.drops` (GM view `gm.drops`); event `loot.drop` to all |
 | `loot.take` | `dropId`, `key`, `playerId` | Hand one item of a pile to a crawler (a dead crawler's own item moves). Event `loot.take` to all |
 | `loot.clear` | `dropId` | Forget a pile |
@@ -333,6 +333,7 @@ Location `features` are GM-only too.
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `scene.set` | `kind`, `data?` | New scene (new `id`, `since` = now). `data` is validated per kind; unknown fields → `bad_request`. Boss: `bossId` **or** ad-hoc `boss` (name required, `hpSlots` 1..100, ≤10 phases); HP starts full. Explore: `locationId` fills location/floor/image/text from the library location (other fields override). Countdown: `seconds` (1..86400), `autostart?` |
+| `scene.preview` | `kind`, `data?` | Dry run of `scene.set` for the desk's preview: same validation, nothing changes. Ack `result: {scene}` (the stage's scene view; a boss is already revealed) |
 | `scene.update` | `data` | Shallow merge into the current scene's data, same validation (no transition on the TV). Boss: `hp`, `phase`, `revealed`, `defeated`, `lootHint`, `bossId`/`boss` (swap). Countdown: `label`, `seconds` (resets), `running` |
 | `scene.roll` | `playerId?`, `formula?` [d20] **or** `what?` (as `roll.what`), `label?`, `name?` — or `rollId` (re-show a public dice-log roll) | Rolls exactly like `roll` (dice log, `roll` event, nat1/nat20 line), then sets the `roll` scene. Ack `result: {rollId, total, sceneId}` |
 | `show.audio` | `device`: `"gm"` / `"stage"` | Which page plays the System voice and the stingers (default `gm`). Both pages receive `play`/`stop`; only the device plays and acks `audio.done`, the other shows the subtitle |
