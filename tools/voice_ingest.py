@@ -51,7 +51,7 @@ FRAME = 0.02  # analysis frame, seconds
 CSV_COLS = ["wave", "order", "id", "kind", "category", "who", "scope", "text", "say", "status"]
 WORDS_PER_SEC = 2.6  # rough reading speed for the length sanity check
 # less mud, clearer consonants, a bit of air (dark phone-sample clones); tuned on the DCC clone, Nov 2026
-EQ = "highpass=f=80,equalizer=f=250:t=q:w=1.2:g=-2,equalizer=f=3500:t=q:w=1.0:g=4,highshelf=f=9000:g=3"
+EQ = "highpass=f=80,equalizer=f=250:t=q:w=1.2:g=-2,equalizer=f=3500:t=q:w=1.0:g=4,highshelf=f=9000:g=3,deesser=i=0.6:m=0.5:f=0.5:s=o"  # + de-esser: whispers were mostly sibilance
 
 # Lines mentioning these are DCC-specific; everything else can go to the generic engine pack.
 DCC_RE = re.compile(
