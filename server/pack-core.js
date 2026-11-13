@@ -48,7 +48,7 @@ function assetUrl(io, sub, rel, warnings, label) {
 
 const HOTKEY_RE = /^Shift\+(Digit[0-9]|Key[A-Z])$/;
 
-/** sfx.json: [{ id, label, file, hotkey?, volume? }] — files under audio/sfx/. Adds/overrides GM desk pads. */
+/** sfx.json: [{ id, label, file, hotkey?, volume?, route?, sub?, group? }] — files under audio/sfx/. Adds/overrides GM desk pads. */
 export function loadSfx(io, raw, warnings) {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) {
@@ -74,6 +74,10 @@ export function loadSfx(io, raw, warnings) {
       url,
       hotkey: isStr(e.hotkey) && HOTKEY_RE.test(e.hotkey) ? e.hotkey : null,
       volume: typeof e.volume === 'number' && e.volume >= 0 && e.volume <= 2 ? e.volume : 1,
+      // Surround: where it plays (front | rear | center | all) and how much goes to the subwoofer (0..1).
+      route: ['front', 'rear', 'center', 'all'].includes(e.route) ? e.route : 'front',
+      sub: typeof e.sub === 'number' && e.sub >= 0 && e.sub <= 1 ? e.sub : 0,
+      group: (isStr(e.group) ? e.group : '').slice(0, 30),
     });
   });
   return out;

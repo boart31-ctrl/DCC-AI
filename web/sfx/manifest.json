@@ -8,7 +8,10 @@
    "file": "boss_sting.mp3",
    "hotkey": "Shift+Digit1",
    "volume": 1,
-   "duration": 3.05
+   "duration": 3.05,
+   "group": "Show",
+   "route": "all",
+   "sub": 0.8
   },
   {
    "id": "phase_change",
@@ -16,7 +19,10 @@
    "file": "phase_change.mp3",
    "hotkey": "Shift+Digit2",
    "volume": 1,
-   "duration": 2.96
+   "duration": 2.96,
+   "group": "Show",
+   "route": "all",
+   "sub": 0.5
   },
   {
    "id": "victory_fanfare",
@@ -24,7 +30,10 @@
    "file": "victory_fanfare.mp3",
    "hotkey": "Shift+Digit3",
    "volume": 1,
-   "duration": 3.53
+   "duration": 3.53,
+   "group": "Show",
+   "route": "all",
+   "sub": 0.3
   },
   {
    "id": "death",
@@ -32,7 +41,10 @@
    "file": "death.mp3",
    "hotkey": "Shift+Digit4",
    "volume": 1,
-   "duration": 4.2
+   "duration": 4.2,
+   "group": "Combat",
+   "route": "all",
+   "sub": 0.6
   },
   {
    "id": "loot_open",
@@ -40,7 +52,10 @@
    "file": "loot_open.mp3",
    "hotkey": "Shift+Digit5",
    "volume": 1,
-   "duration": 2.6
+   "duration": 2.6,
+   "group": "Show",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "achievement",
@@ -48,7 +63,10 @@
    "file": "achievement.mp3",
    "hotkey": "Shift+Digit6",
    "volume": 1,
-   "duration": 2.4
+   "duration": 2.4,
+   "group": "Show",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "crowd_cheer",
@@ -56,7 +74,10 @@
    "file": "crowd_cheer.mp3",
    "hotkey": "Shift+Digit7",
    "volume": 1,
-   "duration": 3.8
+   "duration": 3.8,
+   "group": "Crowd",
+   "route": "rear",
+   "sub": 0
   },
   {
    "id": "crowd_boo",
@@ -64,7 +85,10 @@
    "file": "crowd_boo.mp3",
    "hotkey": "Shift+Digit8",
    "volume": 1,
-   "duration": 3.2
+   "duration": 3.2,
+   "group": "Crowd",
+   "route": "rear",
+   "sub": 0
   },
   {
    "id": "crowd_gasp",
@@ -72,7 +96,10 @@
    "file": "crowd_gasp.mp3",
    "hotkey": "Shift+Digit9",
    "volume": 1,
-   "duration": 1.39
+   "duration": 1.39,
+   "group": "Crowd",
+   "route": "rear",
+   "sub": 0
   },
   {
    "id": "hype_horn",
@@ -80,7 +107,10 @@
    "file": "hype_horn.mp3",
    "hotkey": "Shift+Digit0",
    "volume": 1,
-   "duration": 2.54
+   "duration": 2.54,
+   "group": "Crowd",
+   "route": "all",
+   "sub": 0.3
   },
   {
    "id": "drumroll",
@@ -88,7 +118,10 @@
    "file": "drumroll.mp3",
    "hotkey": "Shift+KeyQ",
    "volume": 1,
-   "duration": 4.23
+   "duration": 4.23,
+   "group": "Show",
+   "route": "all",
+   "sub": 0.2
   },
   {
    "id": "fail",
@@ -96,7 +129,10 @@
    "file": "fail.mp3",
    "hotkey": "Shift+KeyW",
    "volume": 1,
-   "duration": 3.4
+   "duration": 3.4,
+   "group": "Show",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "alarm_collapse",
@@ -104,7 +140,10 @@
    "file": "alarm_collapse.mp3",
    "hotkey": "Shift+KeyE",
    "volume": 1,
-   "duration": 4.6
+   "duration": 4.6,
+   "group": "Dungeon",
+   "route": "all",
+   "sub": 0.9
   },
   {
    "id": "door_creak",
@@ -112,7 +151,10 @@
    "file": "door_creak.mp3",
    "hotkey": "Shift+KeyR",
    "volume": 1,
-   "duration": 2.4
+   "duration": 2.4,
+   "group": "Dungeon",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "magic_zap",
@@ -120,7 +162,10 @@
    "file": "magic_zap.mp3",
    "hotkey": "Shift+KeyT",
    "volume": 1,
-   "duration": 1.74
+   "duration": 1.74,
+   "group": "Combat",
+   "route": "front",
+   "sub": 0.2
   },
   {
    "id": "explosion",
@@ -128,7 +173,10 @@
    "file": "explosion.mp3",
    "hotkey": "Shift+KeyU",
    "volume": 1,
-   "duration": 2.93
+   "duration": 2.93,
+   "group": "Combat",
+   "route": "all",
+   "sub": 1.0
   },
   {
    "id": "swing",
@@ -136,7 +184,10 @@
    "file": "swing.mp3",
    "hotkey": "Shift+KeyI",
    "volume": 1,
-   "duration": 0.46
+   "duration": 0.46,
+   "group": "Combat",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "whiff",
@@ -144,7 +195,10 @@
    "file": "whiff.mp3",
    "hotkey": "Shift+KeyO",
    "volume": 1,
-   "duration": 1.1
+   "duration": 1.1,
+   "group": "Combat",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "impact",
@@ -152,7 +206,10 @@
    "file": "impact.mp3",
    "hotkey": "Shift+KeyP",
    "volume": 1,
-   "duration": 0.39
+   "duration": 0.39,
+   "group": "Combat",
+   "route": "front",
+   "sub": 0.4
   },
   {
    "id": "crit_hit",
@@ -160,7 +217,10 @@
    "file": "crit_hit.mp3",
    "hotkey": "Shift+KeyA",
    "volume": 1,
-   "duration": 1.69
+   "duration": 1.69,
+   "group": "Combat",
+   "route": "all",
+   "sub": 0.6
   },
   {
    "id": "ko",
@@ -168,7 +228,10 @@
    "file": "ko.mp3",
    "hotkey": "Shift+KeyS",
    "volume": 1,
-   "duration": 2.6
+   "duration": 2.6,
+   "group": "Combat",
+   "route": "all",
+   "sub": 0.5
   },
   {
    "id": "shatter",
@@ -176,7 +239,10 @@
    "file": "shatter.mp3",
    "hotkey": "Shift+KeyD",
    "volume": 1,
-   "duration": 1.17
+   "duration": 1.17,
+   "group": "Combat",
+   "route": "front",
+   "sub": 0.2
   },
   {
    "id": "round_bell",
@@ -184,7 +250,10 @@
    "file": "round_bell.mp3",
    "hotkey": "Shift+KeyF",
    "volume": 1,
-   "duration": 2.6
+   "duration": 2.6,
+   "group": "Show",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "signal_lost",
@@ -192,7 +261,10 @@
    "file": "signal_lost.mp3",
    "hotkey": "Shift+KeyG",
    "volume": 1,
-   "duration": 3.14
+   "duration": 3.14,
+   "group": "Show",
+   "route": "all",
+   "sub": 0.4
   },
   {
    "id": "crowd_aww",
@@ -200,7 +272,10 @@
    "file": "crowd_aww.mp3",
    "hotkey": "Shift+KeyH",
    "volume": 1,
-   "duration": 3
+   "duration": 3,
+   "group": "Crowd",
+   "route": "rear",
+   "sub": 0
   },
   {
    "id": "sponsor_chime",
@@ -208,7 +283,10 @@
    "file": "sponsor_chime.mp3",
    "hotkey": "Shift+KeyJ",
    "volume": 1,
-   "duration": 2.62
+   "duration": 2.62,
+   "group": "Show",
+   "route": "front",
+   "sub": 0
   },
   {
    "id": "getaway",
@@ -216,7 +294,10 @@
    "file": "getaway.mp3",
    "hotkey": "Shift+KeyK",
    "volume": 1,
-   "duration": 2.2
+   "duration": 2.2,
+   "group": "Combat",
+   "route": "front",
+   "sub": 0
   }
  ]
 }

@@ -571,6 +571,9 @@ export function generate(outDir, { log = console } = {}) {
   const ff = hasFfmpeg();
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'sfx-'));
   const manifest = [];
+  // Keep hand-set surround / grouping (route, sub, group) from the existing manifest across regenerations.
+  let prevMeta = {};
+  try { prevMeta = Object.fromEntries(JSON.parse(fs.readFileSync(path.join(outDir, 'manifest.json'), 'utf8')).pads.map((p) => [p.id, { route: p.route, sub: p.sub, group: p.group }])); } catch {}
   let total = 0;
   for (const [i, pad] of PADS.entries()) {
     const s = render(pad);
@@ -587,7 +590,7 @@ export function generate(outDir, { log = console } = {}) {
     }
     const size = fs.statSync(path.join(outDir, file)).size;
     total += size;
-    manifest.push({ id: pad.id, label: pad.label, file, hotkey: HOTKEYS[i] ?? null, volume: 1, duration: Math.round((s.length / SR) * 100) / 100 });
+    manifest.push({ id: pad.id, label: pad.label, file, hotkey: HOTKEYS[i] ?? null, volume: 1, duration: Math.round((s.length / SR) * 100) / 100, ...(prevMeta[pad.id] ?? {}) });
     log.log(`  ${file.padEnd(22)} ${(s.length / SR).toFixed(2)} s  ${(size / 1024).toFixed(0)} KB`);
   }
   fs.rmSync(tmp, { recursive: true, force: true });

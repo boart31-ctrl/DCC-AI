@@ -4,7 +4,12 @@
 //
 //   const board = createSfxBoard();   board.setPads(list); board.unlock(); board.play(id); board.stopAll();
 //   board.setVolume(id, v) / board.setMaster(v) / board.duck(on) / board.onChange = () => {...}
-// Graph: source → pad gain → master gain → duck gain → compressor → speakers.
+// Graph: source → pad gain → routing sends → channel merger → master gain → duck gain → compressor → speakers.
+//
+// Surround: pads carry `route` (front | rear | center | all) and `sub` (0..1, low-pass send to the LFE).
+// With a 5.1 output (Windows speaker setup 5.1/7.1, browser reports ≥ 6 channels) channels are
+// L R C LFE SL SR; on stereo everything folds into L/R and `sub` becomes a bass boost (the soundbar's
+// bass management still sends it to the subwoofer). board.setLayout('auto' | 'stereo' | '51').
 
 const store = {
   get(k, d) { try { const v = localStorage.getItem(`system.sfx.${k}`); return v == null ? d : JSON.parse(v); } catch { return d; } },
@@ -12,6 +17,8 @@ const store = {
 };
 
 export const DUCK_LEVEL = 0.35;
+export const ROUTES = ['front', 'rear', 'center', 'all'];
+const SUB_HZ = 110;
 
 /** Core manifest (generated) + pack pads; a pack pad with a core id replaces it in place. */
 export function mergePads(core = [], packPads = []) {
@@ -36,7 +43,7 @@ export async function loadCoreManifest(url = '/sfx/manifest.json') {
     const res = await fetch(url, { cache: 'no-cache' });
     if (!res.ok) return [];
     const j = await res.json();
-    return (j.pads || []).map((p) => ({ id: p.id, label: p.label, url: `/sfx/${p.file}`, hotkey: p.hotkey || null, volume: p.volume ?? 1, duration: p.duration ?? null }));
+    return (j.pads || []).map((p) => ({ id: p.id, label: p.label, url: `/sfx/${p.file}`, hotkey: p.hotkey || null, volume: p.volume ?? 1, duration: p.duration ?? null, route: p.route || 'front', sub: p.sub ?? 0, group: p.group || '' }));
   } catch {
     return [];
   }
@@ -52,20 +59,65 @@ export function createSfxBoard() {
   const vols = store.get('vol', {});
   let masterVol = store.get('master', 0.8);
   let ducked = false;
+  let layout = store.get('layout', 'auto'); // auto | stereo | 51
+  let channels = 2;
+  let maxChannels = 0;
+  let merger = null;
+
+  const discrete = (node, n) => { try { node.channelCount = n; node.channelCountMode = 'explicit'; node.channelInterpretation = 'discrete'; } catch {} return node; };
 
   function ensure() {
     if (ctx) return ctx;
     const AC = globalThis.AudioContext || globalThis.webkitAudioContext;
     if (!AC) return null;
     ctx = new AC();
-    const comp = ctx.createDynamicsCompressor();
+    maxChannels = ctx.destination.maxChannelCount || 2;
+    channels = layout !== 'stereo' && maxChannels >= 6 ? 6 : 2;
+    if (channels === 6) {
+      try { discrete(ctx.destination, 6); } catch { channels = 2; }
+    }
+    const comp = discrete(ctx.createDynamicsCompressor(), channels);
     comp.threshold.value = -10;
     comp.ratio.value = 4;
-    duckGain = ctx.createGain();
-    master = ctx.createGain();
+    duckGain = discrete(ctx.createGain(), channels);
+    master = discrete(ctx.createGain(), channels);
     master.gain.value = masterVol;
+    merger = ctx.createChannelMerger(channels);
+    merger.connect(master);
     master.connect(duckGain).connect(comp).connect(ctx.destination);
     return ctx;
+  }
+
+  /** Wires a pad's gain node into the merger by its route / sub (5.1 or folded to stereo). */
+  function route(pad, buf, gain) {
+    const c = ctx;
+    const split = c.createChannelSplitter(2);
+    gain.connect(split);
+    const L = 0, R = buf.numberOfChannels > 1 ? 1 : 0; // mono buffers feed both sides from channel 0
+    const send = (from, to, g) => { const n = c.createGain(); n.gain.value = g; split.connect(n, from); n.connect(merger, 0, to); };
+    const r = ROUTES.includes(pad.route) ? pad.route : 'front';
+    if (channels === 6) {
+      if (r === 'front' || r === 'all') { send(L, 0, 1); send(R, 1, 1); }
+      if (r === 'rear' || r === 'all') { send(L, 4, r === 'all' ? 0.8 : 1); send(R, 5, r === 'all' ? 0.8 : 1); }
+      if (r === 'center') { send(L, 2, 0.75); send(R, 2, 0.75); }
+      if (r === 'all') { send(L, 2, 0.4); send(R, 2, 0.4); }
+    } else {
+      const g = r === 'rear' ? 0.85 : 1;
+      if (r === 'center') { send(L, 0, 0.75); send(R, 0, 0.75); send(L, 1, 0.75); send(R, 1, 0.75); }
+      else { send(L, 0, g); send(R, 1, g); }
+    }
+    const sub = Math.max(0, Math.min(1, Number(pad.sub) || 0));
+    if (sub > 0) {
+      const lp = c.createBiquadFilter();
+      lp.type = 'lowpass'; lp.frequency.value = SUB_HZ; lp.Q.value = 0.7;
+      const mix = c.createGain(); mix.gain.value = 0.5;
+      split.connect(mix, L); if (R !== L) split.connect(mix, R);
+      mix.connect(lp);
+      const out = c.createGain();
+      lp.connect(out);
+      if (channels === 6) { out.gain.value = sub * 1.4; out.connect(merger, 0, 3); }
+      else { out.gain.value = sub * 0.6; out.connect(merger, 0, 0); out.connect(merger, 0, 1); }
+    }
   }
 
   function load(pad) {
@@ -105,6 +157,17 @@ export function createSfxBoard() {
     get ready() { return !!ctx && ctx.state === 'running'; },
     get master() { return masterVol; },
     get ducked() { return ducked; },
+    /** Output: { layout: 'auto'|'stereo'|'51', channels: 2|6 in use, max: what the browser reports (0 = not started yet) }. */
+    get output() { return { layout, channels, max: maxChannels }; },
+    /** Switch output layout; rebuilds the audio graph on the next play/unlock. */
+    setLayout(v) {
+      if (!['auto', 'stereo', '51'].includes(v)) return;
+      layout = v; store.set('layout', v);
+      for (const id of [...playing.keys()]) stop(id, 0.02);
+      if (ctx) { const old = ctx; ctx = null; merger = null; old.close?.().catch(() => {}); }
+      ensure(); ctx?.resume?.().catch(() => {});
+      changed();
+    },
     setPads(list) {
       pads = list;
       if (ctx) for (const p of pads) load(p).catch(() => {});
@@ -131,7 +194,8 @@ export function createSfxBoard() {
       src.buffer = buf;
       const gain = c.createGain();
       gain.gain.value = padVol(id);
-      src.connect(gain).connect(master);
+      src.connect(gain);
+      route(pad, buf, gain);
       const entry = { src, gain, startedAt: c.currentTime, duration: buf.duration };
       playing.set(id, entry);
       src.onended = () => { if (playing.get(id) === entry) { playing.delete(id); changed(); } };

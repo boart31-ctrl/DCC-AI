@@ -61,3 +61,8 @@
 .vs-slider .lbl-hint { grid-column: 2 / -1; }
 .vs-sub { display: flex; flex-direction: column; gap: 6px; padding-top: 8px; border-top: 1px solid var(--c-line); }
 .vs-sub p { margin: 0; }
+
+.snd-group { grid-column: 1 / -1; margin: 10px 0 0; font-size: 12px; letter-spacing: .08em; text-transform: uppercase; color: var(--c-ink-3); }
+.snd-group:first-child { margin-top: 0; }
+.snd-route { font-size: 10px; padding: 0 5px; border: 1px solid var(--c-line, currentColor); border-radius: 6px; opacity: .8; }
+.snd-out-info { min-width: 0; font-size: 12px; }

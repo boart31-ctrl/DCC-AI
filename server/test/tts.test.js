@@ -437,7 +437,7 @@ test('pack sfx.json: pads loaded from audio/sfx, invalid entries skipped, expose
     { id: 'evil', file: '../../secret.mp3' },
   ]));
   const { pack, warnings } = loadPack(dir);
-  assert.deepEqual(pack.sfx, [{ id: 'hype_horn', label: 'Our horn', url: '/pack/audio/sfx/horn.mp3', hotkey: 'Shift+KeyH', volume: 0.8 }]);
+  assert.deepEqual(pack.sfx, [{ id: 'hype_horn', label: 'Our horn', url: '/pack/audio/sfx/horn.mp3', hotkey: 'Shift+KeyH', volume: 0.8, route: 'front', sub: 0, group: '' }]);
   assert.ok(warnings.length >= 3);
   const host = createHost({ pack, state: createState(pack, Date.now()), log: silent, chat: false, gmKey: KEY, send: (c, t) => c.inbox.push(JSON.parse(t)), close() {} });
   const g = { inbox: [] };

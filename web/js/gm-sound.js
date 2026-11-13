@@ -31,6 +31,15 @@ export function createSound({ client, act, getView, audio }) {
   masterIn.value = String(board.master);
   const masterVal = h('span.snd-val', pct(board.master));
   masterIn.addEventListener('input', () => { board.setMaster(Number(masterIn.value)); masterVal.textContent = pct(board.master); });
+  const outSeg = h('div.seg.seg-sm', { role: 'radiogroup', 'aria-label': 'Speaker layout' },
+    ...[['auto', 'Auto'], ['stereo', 'Stereo'], ['51', '5.1']].map(([v, l]) => h('button', { type: 'button', role: 'radio', 'data-out': v, onclick: () => { board.setLayout(v); drawOut(); } }, l)));
+  const outInfo = h('span.snd-val.snd-out-info');
+  function drawOut() {
+    const o = board.output;
+    for (const b of outSeg.querySelectorAll('button')) b.setAttribute('aria-checked', String(b.dataset.out === o.layout));
+    outInfo.textContent = !o.max ? 'click a pad to start' : o.channels === 6 ? '5.1 active' : o.layout === '51' ? `only ${o.max} ch from Windows, using stereo` : `stereo (${o.max} ch available)`;
+    outInfo.title = 'Rear / sub routing needs Windows set to 5.1 or 7.1 speakers (Win+R → mmsys.cpl → Configure). Test: /speaker-test.html';
+  }
   const stopBtn = h('button.btn.btn-danger.btn-sm', { type: 'button', onclick: () => board.stopAll(), title: 'Stop every pad (the System voice keeps going; Esc stops that)' }, icon('x', { size: 14 }), 'Stop all pads');
   const voiceState = h('span.snd-state', { 'aria-live': 'polite' });
   const spotify = h('span.snd-chip', { title: 'Music plays in the Spotify app on this notebook. A web page cannot lower it, so turn it down yourself when the System talks.' }, icon('info', { size: 13 }), 'Spotify volume is up to you');
@@ -68,10 +77,19 @@ export function createSound({ client, act, getView, audio }) {
     board.setPads(mergePads(core, packPads));
     drawPads();
   }
+  const ROUTE_LABEL = { front: 'Front', rear: 'Rear', center: 'Center', all: 'All around' };
+  const GROUP_ORDER = ['Show', 'Crowd', 'Combat', 'Dungeon', 'System', 'Comedy'];
   function drawPads() {
     padEls.clear();
     if (!board.pads.length) { grid.replaceChildren(h('p.dim', 'Loading pads…')); return; }
-    grid.replaceChildren(...board.pads.map((p) => {
+    const groups = new Map();
+    for (const p of board.pads) { const g = p.group || 'Other'; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(p); }
+    const names = [...groups.keys()].sort((a, b) => ((GROUP_ORDER.indexOf(a) + 1 || 99) - (GROUP_ORDER.indexOf(b) + 1 || 99)) || a.localeCompare(b));
+    grid.replaceChildren(...names.flatMap((g) => [h('h3.snd-group', g), ...groups.get(g).map((p) => padCell(p))]));
+    drawPlaying();
+  }
+  function padCell(p) {
+    {
       const vol = h('input.snd-range.snd-pad-vol', { type: 'range', min: 0, max: 1.5, step: 0.05, 'aria-label': `${p.label} volume`, title: 'Pad volume' });
       vol.value = String(board.volume(p.id));
       vol.addEventListener('input', () => board.setVolume(p.id, Number(vol.value)));
@@ -83,13 +101,14 @@ export function createSound({ client, act, getView, audio }) {
         onclick: () => { board.unlock(); board.play(p.id); },
       },
       h('span.snd-pad-l', p.label),
-      h('span.snd-pad-m', p.hotkey ? h('kbd', hotkeyLabel(p.hotkey, layoutMap)) : null, p.source === 'pack' ? h('span.snd-pack', 'pack') : null),
+      h('span.snd-pad-m', p.hotkey ? h('kbd', hotkeyLabel(p.hotkey, layoutMap)) : null, p.source === 'pack' ? h('span.snd-pack', 'pack') : null,
+        p.route && p.route !== 'front' ? h('span.snd-route', { title: 'Where it plays on 5.1' }, ROUTE_LABEL[p.route] || p.route) : null,
+        p.sub > 0 ? h('span.snd-route', { title: 'Subwoofer send' }, 'Sub') : null),
       bar);
       const cell = h('div.snd-cell', btn, vol);
       padEls.set(p.id, { btn, bar });
       return cell;
-    }));
-    drawPlaying();
+    }
   }
   let raf = 0;
   function drawPlaying() {
@@ -106,7 +125,7 @@ export function createSound({ client, act, getView, audio }) {
     stopBtn.disabled = !any;
     if (any) raf = requestAnimationFrame(drawPlaying);
   }
-  board.onChange = drawPlaying;
+  board.onChange = () => { drawPlaying(); drawOut(); };
 
   // Hotkeys: Shift + physical key (e.code), any view, not while typing. Capture phase so the
   // desk's own 1–9 quip keys never fire for the same press (Czech layout: Shift+digit types a digit).
@@ -200,6 +219,7 @@ export function createSound({ client, act, getView, audio }) {
   const el = h('section.sound-panel', { 'aria-label': 'Sound' },
     h('div.snd-bar',
       h('label.snd-master', h('span', 'Pads'), masterIn, masterVal),
+      h('label.snd-master', h('span', 'Speakers'), outSeg, outInfo),
       stopBtn,
       h('span.grow'),
       voiceState,
