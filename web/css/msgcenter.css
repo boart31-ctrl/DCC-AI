@@ -99,3 +99,5 @@
 .mc-player .mc-side-head h2 { visibility: hidden; }
 @container (max-width: 380px) { .mc-send .mc-send-l { display: none; } }
 .mc-main { container-type: inline-size; }
+.mc-send.mc-send-all { background: var(--c-bad); border-color: var(--c-bad); color: #fff; }
+@media (min-width: 761px) { .mc-gm:not(.show-thread) .mc-main { display: grid; } }

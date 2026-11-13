@@ -18,7 +18,7 @@ export const threadKey = (ids) => (ids === 'all' ? 'all' : [...new Set(ids)].sor
 export function createMsgCenter({ role, send, getView, onUnread }) {
   const gm = role === 'gm';
   let visible = false;
-  let cur = gm ? 'all' : null; // open conversation; player phones start on the list
+  let cur = null; // open conversation; nothing by default, so nothing goes to everyone by accident
   let draftIds = null; // a new group being picked (ids)
   let paletteFor = null; // message id whose reaction palette is open
   let stickersOpen = false;
@@ -157,7 +157,7 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
       const chip = (p) => h('button.chip', { type: 'button', 'aria-pressed': String(draftIds.includes(p.id)), style: { '--cc': p.color }, onclick: () => { draftIds = draftIds.includes(p.id) ? draftIds.filter((x) => x !== p.id) : [...draftIds, p.id]; drawHead(); } }, p.name);
       const pick = players().filter((p) => gm || p.id !== meId());
       headEl.replaceChildren(
-        h('button.btn.btn-quiet.mc-back', { type: 'button', 'aria-label': 'Back', onclick: () => { draftIds = null; cur = gm ? 'all' : null; draw(); } }, icon('back', { size: 18 })),
+        h('button.btn.btn-quiet.mc-back', { type: 'button', 'aria-label': 'Back', onclick: () => { draftIds = null; cur = null; draw(); } }, icon('back', { size: 18 })),
         h('div.mc-pick', h('b', 'New group: who is in it?'), h('div.chips', pick.length ? pick.map(chip) : h('span.dim', 'No other crawlers yet.')), h('span.dim', gm ? 'Pick two or more for a group, one for a private line.' : 'You and the GM are always in it.')));
       return;
     }
@@ -185,7 +185,7 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
 
   function drawFeed() {
     if (draftIds) { feedEl.replaceChildren(h('p.mc-empty', 'Pick the crawlers above, then write the first message.')); return; }
-    if (!cur) { feedEl.replaceChildren(); return; }
+    if (!cur) { feedEl.replaceChildren(gm ? h('p.mc-empty', 'Pick a conversation on the left, or a crawler for a private line.') : ''); return; }
     const list = msgs().filter((m) => mThread(m) === cur);
     const atBottom = feedEl.scrollHeight - feedEl.scrollTop - feedEl.clientHeight < 60;
     const stk = new Map(stickers().map((s) => [s.id, s]));
@@ -224,6 +224,9 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
     if (stickersOpen && st.length && !stickerGrid.childElementCount) {
       stickerGrid.replaceChildren(...st.map((s) => h('button', { type: 'button', title: s.name, 'aria-label': `Send sticker ${s.name}`, onclick: () => post({ icon: s.id }) }, h('img', { src: s.src, alt: '' }))));
     }
+    const toAll = !draftIds && cur === 'all';
+    sendBtn.classList.toggle('mc-send-all', toAll);
+    sendBtn.querySelector('.mc-send-l').textContent = toAll ? 'Send to everyone' : 'Send';
     if (gm) {
       const group = draftIds ? draftIds.length > 1 : cur === 'all' || (cur && threadIds(cur).length > 1);
       tvWrap.hidden = !group;

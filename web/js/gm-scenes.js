@@ -801,7 +801,8 @@ export function createScenes({ client, act, getView }) {
     await act(a, null);
   }
 
-  /* ---------- keyboard: F1–F8 = go live with that scene's draft ---------- */
+  /* ---------- keyboard: F1–F8 (pressed twice) = go live with that scene's draft ---------- */
+  const armed = { key: null, at: 0 };
   document.addEventListener('keydown', (e) => {
     const m = /^F([1-8])$/.exec(e.key);
     if (!m || e.ctrlKey || e.metaKey || e.altKey) return;
@@ -809,6 +810,15 @@ export function createScenes({ client, act, getView }) {
     const s = SCENES.find((x) => x.key === e.key);
     if (!s) return;
     e.preventDefault();
+    // The TV is public: F-keys work only with the Show view open, and need a second press to fire.
+    if (!el.isConnected || el.closest('[hidden]')) { toast('F-keys work on the Show view.'); return; }
+    const now = Date.now();
+    if (armed.key !== e.key || now - armed.at > 1500) {
+      armed.key = e.key; armed.at = now;
+      toast(`Press ${e.key} again to put ${s.label} on the TV`);
+      return;
+    }
+    armed.key = null;
     if (s.kind === 'roll') rollOnTv(); else goLive(s.kind);
   });
 

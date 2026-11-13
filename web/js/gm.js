@@ -824,9 +824,11 @@ function toggleAuto() {
   const on = !view?.session?.auto;
   act({ t: 'session.auto', on }, on ? 'AUTO is on.' : 'AUTO is off.');
 }
+/** One panic button: the System's voice queue and every sound pad. */
 function stopAll() {
   buzz([20, 30, 20]);
-  act({ t: 'queue.clear' }, 'Stopped. Queue cleared.');
+  try { sound?.board?.stopAll(); } catch {}
+  act({ t: 'queue.clear' }, 'Stopped: voice queue cleared, pads silenced.');
 }
 
 $('#auto').addEventListener('click', toggleAuto);

@@ -389,7 +389,9 @@ export const AUTO_GM = {
       st.combatLog = [...(Array.isArray(st.combatLog) ? st.combatLog : []), entry].slice(-MAX_COMBAT_LOG);
     }
     const keep = { phases: c.phases, phasesVerified: c.phasesVerified, showMobHp: c.showMobHp, settings: c.settings };
-    st.combat = { ...initCombat(), ...keep, stats: initStats() };
+    // Prepared hidden mobs that never came out stay for the next fight.
+    const waiting = c.combatants.filter((x) => x.type === 'mob' && x.hidden && x.hp > 0);
+    st.combat = { ...initCombat(), ...keep, stats: initStats(), combatants: waiting };
     const showScene = a.scene === undefined ? true : flag(a.scene, 'scene');
     let sceneId = null;
     if (outcome && showScene) {

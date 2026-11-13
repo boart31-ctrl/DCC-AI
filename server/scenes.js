@@ -175,7 +175,12 @@ function bossMerge(st, ctx, prev, patch, fresh) {
   }
   if (!out.boss) throw bad('boss scene needs bossId (from the library) or an ad-hoc boss {name, ...}');
   const max = out.boss.hpSlots;
-  if (swapped && fresh) Object.assign(out, { hp: max, phase: 0, revealed: false, defeated: false });
+  if (swapped && fresh) {
+    Object.assign(out, { hp: max, phase: 0, revealed: false, defeated: false });
+    // Back on the TV mid-fight (an NPC cut-in, a misfired key): the boss keeps his HP and phase, no second intro.
+    const m = out.bossId && st.combat?.active ? (st.combat.combatants ?? []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === out.bossId) : null;
+    if (m) Object.assign(out, { hp: Math.max(0, Math.min(max, m.hp)), phase: Number.isInteger(m.bossPhase) ? m.bossPhase : 0, revealed: m.bossRevealed === true, defeated: m.hp <= 0 });
+  }
   if (patch.hp !== undefined) out.hp = intIn(patch.hp, 'hp', 0, max);
   if (patch.phase !== undefined) out.phase = intIn(patch.phase, 'phase', 0, Math.max(0, out.boss.phases.length - 1));
   if (patch.revealed !== undefined) out.revealed = flag(patch.revealed, 'revealed');
@@ -359,7 +364,17 @@ export function normalizeShow(raw) {
 }
 
 function setScene(st, ctx, kind, data) {
+  rememberBoss(st);
   st.scene = { id: ctx.genId('sc'), kind, data, since: ctx.now };
+}
+
+/** The boss leaving the TV while he is in the fight: his phase and reveal stay on his combatant. */
+function rememberBoss(st) {
+  const d = st.scene?.kind === 'boss' ? st.scene.data : null;
+  if (!d?.bossId || !st.combat?.active) return;
+  for (const m of st.combat.combatants ?? []) {
+    if (m.type === 'mob' && m.sourceKind === 'boss' && m.sourceId === d.bossId) { m.bossPhase = d.phase; m.bossRevealed = !!d.revealed; }
+  }
 }
 
 function bossScene(st) {

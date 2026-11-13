@@ -665,6 +665,8 @@ export function endSuggestion(state, pack) {
     if (crawlers.every((p) => { const h = hp(p); return h.max > 0 && h.cur <= 0; })) return 'defeat';
   }
   const shown = c.combatants.filter((x) => x.type === 'mob' && !x.hidden);
+  // Hidden mobs still standing = a prepared second wave: never call it a victory.
+  if (c.combatants.some((x) => x.type === 'mob' && x.hidden && x.hp > 0)) return null;
   if (shown.length && shown.every((m) => m.hp <= 0)) return 'victory';
   return null;
 }

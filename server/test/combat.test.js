@@ -161,9 +161,10 @@ test('combat.next: phase → next phase → next round; combat.set phases; comba
   assert.equal(viewFor(s, pack, 'stage').combat.phase, 'Mobs');
   assert.throws(() => gm(s, { t: 'combat.set', phases: [] }), /phases/);
   assert.throws(() => gm(s, { t: 'combat.set', phaseIndex: 3 }), /phaseIndex/);
-  s = gm(s, { t: 'combat.addMob', sourceId: 'rat' }).state;
+  s = gm(s, { t: 'combat.addMob', sourceId: 'rat' }).state; // hidden (prepared), never came out
   s = gm(s, { t: 'combat.end' }).state;
-  assert.deepEqual([s.combat.active, s.combat.combatants.length, s.combat.round], [false, 0, 1]);
+  assert.deepEqual([s.combat.active, s.combat.combatants.length, s.combat.round], [false, 1, 1]);
+  assert.equal(s.combat.combatants[0].hidden, true, 'a prepared mob that never came out waits for the next fight');
   assert.deepEqual(s.combat.phases, ['Fast', 'Slow', 'Mobs']);
 });
 
@@ -478,4 +479,35 @@ test('monster / NPC intros: once per campaign on reveal, add-live or NPC scene; 
   s = r.state;
   assert.deepEqual(say(gm(s, { t: 'scene.set', kind: 'npc', data: { npcId: 'quill' } })), []);
   assert.ok(normalizeState(JSON.parse(JSON.stringify(s)), pack, 0).introduced['npc:quill'], 'remembered across restarts');
+});
+
+test('a prepared hidden wave blocks the auto-victory offer', async () => {
+  const { endSuggestion } = await import('../combat.js');
+  let { s } = base();
+  s = gm(s, { t: 'combat.start' }).state;
+  s = gm(s, { t: 'combat.addMob', sourceId: 'rat', hidden: false }).state;
+  s = gm(s, { t: 'combat.addMob', sourceId: 'goblin' }).state; // hidden
+  const rat = mobs(s).find((x) => x.sourceId === 'rat');
+  s = gm(s, { t: 'combat.damage', uid: rat.uid, amount: 99 }).state;
+  assert.equal(endSuggestion(s, pack), null);
+  const gob = mobs(s).find((x) => x.sourceId === 'goblin');
+  s = gm(s, { t: 'combat.remove', uid: gob.uid }).state;
+  assert.equal(endSuggestion(s, pack), 'victory');
+});
+
+test('a boss back on the TV mid-fight keeps his HP, phase and reveal', () => {
+  let { s } = base();
+  s = gm(s, { t: 'combat.start' }).state;
+  s = gm(s, { t: 'combat.addMob', sourceKind: 'boss', sourceId: 'porter', hidden: false }).state;
+  s = gm(s, { t: 'scene.set', kind: 'boss', data: { bossId: 'porter' } }).state;
+  s = gm(s, { t: 'boss.intro' }).state;
+  s = gm(s, { t: 'boss.damage', amount: 9 }).state;
+  s = gm(s, { t: 'scene.update', data: { phase: 0 } }).state;
+  const before = { ...s.scene.data };
+  s = gm(s, { t: 'scene.set', kind: 'lobby' }).state;
+  s = gm(s, { t: 'scene.set', kind: 'boss', data: { bossId: 'porter' } }).state;
+  assert.equal(s.scene.data.hp, before.hp);
+  assert.equal(s.scene.data.hp, 11);
+  assert.equal(s.scene.data.revealed, true);
+  assert.equal(mobs(s)[0].hp, 11);
 });
