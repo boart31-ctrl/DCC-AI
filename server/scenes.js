@@ -414,7 +414,7 @@ export function introLine(st, ctx, kind, id, { force = false } = {}) {
   if (!st.introduced || typeof st.introduced !== 'object') st.introduced = {};
   if (st.introduced[key] && !force) return null;
   st.introduced[key] = true;
-  return { priority: 1, text: e.intro, quipId: null, crit: false, category: `${kind}_intro` };
+  return { priority: 1, text: e.intro, quipId: null, crit: false, category: `${kind}_intro`, source: { kind, id } };
 }
 
 export const SCENE_GM = {
@@ -515,7 +515,8 @@ export const SCENE_GM = {
     ctx.h.feedPush(st, ev, `BOSS: ${d.boss.name}${d.boss.title ? `, ${d.boss.title}` : ''}`);
     if (a.line !== false) {
       // The boss's own announcement (pack `intro`) beats a generic quip from category `boss`.
-      const line = d.boss.intro ? { priority: 1, text: d.boss.intro, quipId: null, crit: false, category: 'boss' } : ctx.h.categoryLine(st, ctx, 'boss', 1);
+      const src = d.bossId ? { kind: 'boss', id: d.bossId } : null;
+      const line = d.boss.intro ? { priority: 1, text: d.boss.intro, quipId: null, crit: false, category: 'boss_intro', source: src } : ctx.h.categoryLine(st, ctx, 'boss', 1);
       if (line) out.lines.push(line);
     }
   },
@@ -565,7 +566,7 @@ export const SCENE_GM = {
     const lootHint = d.lootHint || (tier ? `${tier.name} incoming` : 'Loot incoming');
     const ev = out.emit({ kind: 'boss.defeat', sceneId: st.scene.id, name: d.boss.name, lootHint, lootTier: d.boss.lootTier, defeatLine: d.boss.defeatLine }, STAGE_GM);
     ctx.h.feedPush(st, ev, `${d.boss.name} was defeated`);
-    if (d.boss.defeatLine && a.line !== false) out.lines.push({ priority: 1, text: d.boss.defeatLine, quipId: null, crit: false, category: 'boss' });
+    if (d.boss.defeatLine && a.line !== false) out.lines.push({ priority: 1, text: d.boss.defeatLine, quipId: null, crit: false, category: 'boss_defeat', source: d.bossId ? { kind: 'boss', id: d.bossId } : null });
     if (ctx.h.bumpPct) out.emit(ctx.h.bumpPct(st, ctx, 0.2));
   },
 

@@ -28,7 +28,7 @@ export function readPackFiles(dir) {
     throw new PackError(`pack folder not found: ${abs}`);
   }
   const raw = {};
-  for (const k of ['pack', 'achievements', 'items', 'loot', 'quips', 'chat', 'ruleset', 'sfx', 'ui', 'icons', ...LIBRARY_FILES]) raw[k] = readJson(abs, `${k}.json`);
+  for (const k of ['pack', 'achievements', 'items', 'loot', 'quips', 'chat', 'ruleset', 'sfx', 'sounds', 'cues', 'ui', 'icons', ...LIBRARY_FILES]) raw[k] = readJson(abs, `${k}.json`);
   if (raw.pack === undefined) throw new PackError(`pack.json is missing (looked in ${abs})`);
   return { abs, raw };
 }

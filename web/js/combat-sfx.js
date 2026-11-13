@@ -35,7 +35,7 @@ function load() {
   return { on: s.on !== false, map };
 }
 
-export function createCombatSfx({ board, getView, onChange }) {
+export function createCombatSfx({ board, getView, onChange, mobSound = null }) {
   const cfg = load();
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch {} onChange?.(); };
   let offset = 0; // server − local ms
@@ -43,16 +43,19 @@ export function createCombatSfx({ board, getView, onChange }) {
   let lastRound = null;
 
   const trace = (globalThis.__combatSfxLog = []); // headless checks: what played when
-  function play(ev) {
+  // A mob's own sound (Library → Sounds, its group's defaults in cues.json) beats the generic pad.
+  const MOB_SLOT = { swing: 'attack', hit: 'hit', crit: 'crit', killed: 'death' };
+  function play(ev, uid = null) {
     if (!cfg.on) return;
-    const id = cfg.map[ev];
+    const own = uid && MOB_SLOT[ev] ? mobSound?.(MOB_SLOT[ev], uid) : null;
+    const id = own || cfg.map[ev];
     if (!id) return;
     trace.push({ ev, id, at: Date.now() });
     if (trace.length > 200) trace.shift();
     board.play(id);
   }
-  function at(group, ms, ev) {
-    const t = setTimeout(() => play(ev), Math.max(0, ms));
+  function at(group, ms, ev, uid = null) {
+    const t = setTimeout(() => play(ev, uid), Math.max(0, ms));
     if (!timers.has(group)) timers.set(group, []);
     timers.get(group).push(t);
   }
@@ -68,8 +71,8 @@ export function createCombatSfx({ board, getView, onChange }) {
     (e.steps || []).forEach((st, k) => {
       if (st.skipped) return;
       const t0 = start + (Number.isInteger(st.slot) ? st.slot : k) * stepMs;
-      at(e.autoId, t0 + beats.swing * stepMs, 'swing');
-      at(e.autoId, t0 + beats.result * stepMs, st.crit ? 'crit' : st.hit ? 'hit' : st.nat1 ? 'fumble' : 'miss');
+      at(e.autoId, t0 + beats.swing * stepMs, 'swing', st.mobUid);
+      at(e.autoId, t0 + beats.result * stepMs, st.crit ? 'crit' : st.hit ? 'hit' : st.nat1 ? 'fumble' : 'miss', st.mobUid);
       if (st.down) at(e.autoId, t0 + beats.down * stepMs, 'down');
     });
   }
@@ -79,7 +82,8 @@ export function createCombatSfx({ board, getView, onChange }) {
       case 'combat.auto': auto(e); break;
       case 'combat.autoSkip': case 'combat.autoUndo': cancel(null); break;
       case 'combat.hit':
-        if (e.down && e.type === 'mob') play('killed');
+        if (e.down && e.type === 'mob') play('killed', e.uid);
+        else if (!e.down && e.type === 'mob' && e.amount > 0) play('hit', e.uid);
         else if (e.down && e.type === 'crawler') play('down');
         break;
       case 'combat.start': lastRound = 1; play('round'); break;

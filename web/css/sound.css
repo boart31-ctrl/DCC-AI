@@ -66,3 +66,11 @@
 .snd-group:first-child { margin-top: 0; }
 .snd-route { font-size: 10px; padding: 0 5px; border: 1px solid var(--c-line, currentColor); border-radius: 6px; opacity: .8; }
 .snd-out-info { min-width: 0; font-size: 12px; }
+
+.snd-search { width: 100%; margin: 8px 0 10px; }
+.cue-chc { white-space: nowrap; }
+.snd-cues { margin-top: 18px; }
+.cue-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+.cue-table th, .cue-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--c-line, rgba(255,255,255,.08)); vertical-align: middle; }
+.cue-table td:nth-child(3) input { width: 100%; min-width: 180px; }
+.cue-ch { width: 64px; }

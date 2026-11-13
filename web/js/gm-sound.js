@@ -70,13 +70,17 @@ export function createSound({ client, act, getView, audio }) {
   const grid = h('div.snd-pads', { role: 'group', 'aria-label': 'Sound effects' });
   const padEls = new Map();
   function refreshPads(force = false) {
-    const packPads = view().gm?.sfx || [];
-    const sig = JSON.stringify(packPads);
+    // Pack sound library (sounds.json) joins the pads: variants, kind (pad / music / ambience / random), tags.
+    const lib = (view().gm?.sounds || []).map((x) => ({ id: x.id, label: x.label, url: x.urls?.[0], urls: x.urls, kind: x.kind, group: x.group, route: x.route, sub: x.sub, volume: x.volume, tags: x.tags }));
+    const packPads = [...(view().gm?.sfx || []), ...lib];
+    const sig = JSON.stringify(packPads.map((p) => [p.id, p.url, p.urls?.length]));
     if (!force && sig === packSig) return;
     packSig = sig;
     board.setPads(mergePads(core, packPads));
     drawPads();
   }
+  const search = h('input.inp.inp-sm.snd-search', { type: 'search', placeholder: 'Find a sound (name, tag, group)…', 'aria-label': 'Find a sound' });
+  search.addEventListener('input', () => drawPads());
   const ROUTE_LABEL = { front: 'Front', rear: 'Rear', center: 'Center', all: 'All around' };
   const GROUP_ORDER = ['Show', 'Crowd', 'Combat', 'Dungeon', 'System', 'Comedy'];
   function drawPads() {
@@ -85,7 +89,12 @@ export function createSound({ client, act, getView, audio }) {
     const groups = new Map();
     for (const p of board.pads) { const g = p.group || 'Other'; if (!groups.has(g)) groups.set(g, []); groups.get(g).push(p); }
     const names = [...groups.keys()].sort((a, b) => ((GROUP_ORDER.indexOf(a) + 1 || 99) - (GROUP_ORDER.indexOf(b) + 1 || 99)) || a.localeCompare(b));
-    grid.replaceChildren(...names.flatMap((g) => [h('h3.snd-group', g), ...groups.get(g).map((p) => padCell(p))]));
+    const q = search.value.trim().toLowerCase();
+    const hit = (p) => !q || `${p.id} ${p.label} ${(p.tags || []).join(' ')} ${p.group || ''}`.toLowerCase().includes(q);
+    grid.replaceChildren(...names.flatMap((g) => {
+      const list = groups.get(g).filter(hit);
+      return list.length ? [h('h3.snd-group', `${g} · ${list.length}`), ...list.map((p) => padCell(p))] : [];
+    }));
     drawPlaying();
   }
   function padCell(p) {
@@ -98,12 +107,14 @@ export function createSound({ client, act, getView, audio }) {
       const btn = h('button.snd-pad', {
         type: 'button', 'data-id': p.id, 'aria-pressed': 'false',
         title: `${p.label}${p.hotkey ? ` (${hotkeyLabel(p.hotkey, layoutMap)})` : ''}${p.source === 'pack' ? ' · from the pack' : ''}`,
-        onclick: () => { board.unlock(); board.play(p.id); },
+        onclick: () => { board.unlock(); if (p.kind === 'ambience' && board.isPlaying(p.id)) board.stop(p.id, 2); else board.play(p.id); },
       },
       h('span.snd-pad-l', p.label),
       h('span.snd-pad-m', p.hotkey ? h('kbd', hotkeyLabel(p.hotkey, layoutMap)) : null, p.source === 'pack' ? h('span.snd-pack', 'pack') : null,
         p.route && p.route !== 'front' ? h('span.snd-route', { title: 'Where it plays on 5.1' }, ROUTE_LABEL[p.route] || p.route) : null,
-        p.sub > 0 ? h('span.snd-route', { title: 'Subwoofer send' }, 'Sub') : null),
+        p.sub > 0 ? h('span.snd-route', { title: 'Subwoofer send' }, 'Sub') : null,
+        p.urls?.length > 1 ? h('span.snd-route', { title: 'Variants, one at random' }, `×${p.urls.length}`) : null,
+        p.kind === 'ambience' ? h('span.snd-route', { title: 'Loops until clicked again' }, 'Loop') : p.kind === 'music' ? h('span.snd-route', 'Music') : null),
       bar);
       const cell = h('div.snd-cell', btn, vol);
       padEls.set(p.id, { btn, bar });
@@ -227,6 +238,7 @@ export function createSound({ client, act, getView, audio }) {
     h('div.snd-cols',
       h('div.snd-col-pads',
         h('div.col-head', h('h2', 'Sound pads'), h('span.dim', 'Click, or Shift + the key shown')),
+        search,
         grid),
       h('div.snd-col-voice',
         h('div.col-head', h('h2', 'Announcement')),

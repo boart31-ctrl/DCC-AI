@@ -18,11 +18,11 @@ const FIELDS = {
   class: ['features', 'statBonuses', 'skills'],
   background: ['features', 'statBonuses', 'skills'],
   // scenes (TV): tactics + lootHint stay on the GM desk; the rest can reach the TV
-  boss: ['title', 'floor', 'hpSlots', 'evade', 'dr', 'image', 'phases', 'intro', 'defeatLine', 'flavor', 'statAttacks', 'tactics', 'lootHint'],
-  location: ['floor', 'image', 'readAloud', 'featureNotes', 'cast'],
+  boss: ['title', 'floor', 'hpSlots', 'evade', 'dr', 'image', 'phases', 'intro', 'defeatLine', 'flavor', 'statAttacks', 'tactics', 'lootHint', 'sounds', 'moments'],
+  location: ['floor', 'image', 'readAloud', 'featureNotes', 'cast', 'sounds'],
   // bestiary: notes / tactics / lootHint / voice / hooks / secrets never leave the GM desk
-  monster: ['title', 'floor', 'group', 'hpSlots', 'evade', 'dr', 'image', 'flavor', 'intro', 'defeatLine', 'statAttacks', 'lootItems', 'notes', 'tactics', 'lootHint'],
-  npc: ['role', 'floor', 'image', 'personality', 'intro', 'voice', 'hooks', 'secrets'],
+  monster: ['title', 'floor', 'group', 'hpSlots', 'evade', 'dr', 'image', 'flavor', 'intro', 'defeatLine', 'statAttacks', 'lootItems', 'notes', 'tactics', 'lootHint', 'sounds', 'moments'],
+  npc: ['role', 'floor', 'image', 'personality', 'intro', 'voice', 'hooks', 'secrets', 'sounds'],
 };
 const GM_ONLY_HINT = 'GM only: never shown on the TV or phones';
 
@@ -219,6 +219,19 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     }
     if (f.includes('intro')) textRow('intro', 'Intro announcement (TV + System voice)', { rows: 2, cls: 'span-all' });
     if (f.includes('defeatLine')) textRow('defeatLine', 'Defeat line (TV + System voice)', { rows: 2, cls: 'span-all' });
+    // Sounds (web/js/cues.js): one slot per line, "slot: id, tag:x". Moments: "label | sounds | chance % | on | text".
+    if (f.includes('sounds')) {
+      const slots = kind === 'location' ? 'ambience, randoms, randomEvery' : kind === 'npc' ? 'intro' : 'intro, attack, hit, crit, death, phase, music';
+      const src = Object.entries(d.sounds || {}).map(([k, v]) => `${k}: ${(Array.isArray(v) ? v : []).join(', ')}`).join('\n');
+      formRows.push(labeled('Sounds', field(src, { multiline: true, rows: 3, disabled: ro, placeholder: kind === 'location' ? 'ambience: amb_drip\nrandoms: chains, tag:growl\nrandomEvery: 40, 90' : 'intro: monster_roar\nattack: tag:bite\ndeath: crowd_ooh',
+        onCommit: (v) => { const out = {}; for (const line of String(v).split('\n')) { const m = /^\s*([a-zA-Z_]+)\s*:\s*(.*)$/.exec(line); if (!m) continue; const vals = m[2].split(',').map((x) => x.trim()).filter(Boolean); if (m[1] === 'randomEvery') { const n = vals.map(Number).filter(Number.isFinite); if (n.length === 2) out.randomEvery = n; } else if (vals.length) out[m[1]] = vals; } set('sounds')(out); } }),
+        { cls: 'span-all', hint: `Slots: ${slots}. Values: a sound id from Show → Sound, or tag:roar for a random one with that tag. Empty = its group's defaults.` }));
+    }
+    if (f.includes('moments')) {
+      const src = (d.moments || []).map((m) => [m.label, (m.sounds || []).join(', '), Math.round((m.chance || 0) * 100), m.on || '', m.text || ''].join(' | ').replace(/( \| )+$/, '')).join('\n');
+      formRows.push(labeled('Moments', field(src, { multiline: true, rows: 2, disabled: ro, placeholder: 'Flush | toilet_flush | 100 | defeat\nFart | fart_1 | 30 | phase', onCommit: (v) => set('moments')(String(v).split('\n').map((l) => l.trim()).filter(Boolean).map((l) => { const [label = '', snd = '', ch = '0', on = '', text = ''] = l.split('|').map((x) => x.trim()); return { label, sounds: snd.split(',').map((x) => x.trim()).filter(Boolean), chance: Math.max(0, Math.min(100, Number(ch) || 0)) / 100, on: on || null, text }; })) }),
+        { cls: 'span-all', hint: 'Situational sounds: label | sounds | chance % (0 = button only) | on intro/phase/defeat/attack/kill | optional text. Buttons in the Fight tracker.' }));
+    }
     if (f.includes('tactics')) textRow('tactics', 'Tactics (GM only)', { rows: 3, cls: 'span-all', hint: GM_ONLY_HINT });
     if (f.includes('lootHint')) textRow('lootHint', 'Loot hint (GM only)', { cls: 'span-all', hint: GM_ONLY_HINT });
     if (f.includes('readAloud')) textRow('readAloud', 'Read-aloud (shown on the TV)', { rows: 4, cls: 'span-all' });

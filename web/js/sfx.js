@@ -120,16 +120,29 @@ export function createSfxBoard() {
     }
   }
 
-  function load(pad) {
-    if (!buffers.has(pad.url)) {
-      const p = fetch(pad.url)
-        .then((r) => { if (!r.ok) throw new Error(`${pad.url}: ${r.status}`); return r.arrayBuffer(); })
+  function loadUrl(url) {
+    if (!buffers.has(url)) {
+      const p = fetch(url)
+        .then((r) => { if (!r.ok) throw new Error(`${url}: ${r.status}`); return r.arrayBuffer(); })
         .then((b) => new Promise((res, rej) => ensure().decodeAudioData(b, res, rej)));
-      p.catch(() => buffers.delete(pad.url));
-      buffers.set(pad.url, p);
+      p.catch(() => buffers.delete(url));
+      buffers.set(url, p);
     }
-    return buffers.get(pad.url);
+    return buffers.get(url);
   }
+  const urlsOf = (pad) => (Array.isArray(pad.urls) && pad.urls.length ? pad.urls : [pad.url]).filter(Boolean);
+  const lastVariant = new Map(); // id → last url (variants avoid repeating back to back)
+  function pickUrl(pad) {
+    const list = urlsOf(pad);
+    if (list.length < 2) return list[0];
+    const pool = list.filter((u) => u !== lastVariant.get(pad.id));
+    const u = pool[Math.floor(Math.random() * pool.length)];
+    lastVariant.set(pad.id, u);
+    return u;
+  }
+  // Preload: short pads only (music / ambience load when first played).
+  const load = (pad) => Promise.all(urlsOf(pad).map(loadUrl));
+  const preloadable = (p) => p.kind !== 'music' && p.kind !== 'ambience';
 
   const padVol = (id) => {
     const pad = pads.find((p) => p.id === id);
@@ -170,7 +183,7 @@ export function createSfxBoard() {
     },
     setPads(list) {
       pads = list;
-      if (ctx) for (const p of pads) load(p).catch(() => {});
+      if (ctx) for (const p of pads) if (preloadable(p)) load(p).catch(() => {});
       changed();
     },
     /** Inside a user gesture. Also preloads every pad. */
@@ -178,25 +191,33 @@ export function createSfxBoard() {
       const c = ensure();
       if (!c) return false;
       if (c.state === 'suspended') c.resume().catch(() => {});
-      for (const p of pads) load(p).catch(() => {});
+      for (const p of pads) if (preloadable(p)) load(p).catch(() => {});
       return true;
     },
-    async play(id) {
+    /**
+     * Plays a pad (a random variant). Music: one at a time (the previous one fades out).
+     * Ambience: loops until stopped or replaced by another ambience (crossfade). opts.gain scales it.
+     */
+    async play(id, opts = {}) {
       const pad = pads.find((p) => p.id === id);
       if (!pad) return false;
       const c = ensure();
       if (!c) return false;
       if (c.state === 'suspended') await c.resume().catch(() => {});
       let buf;
-      try { buf = await load(pad); } catch (e) { console.warn('[sfx]', e.message); pad.error = true; changed(); return false; }
+      try { buf = await loadUrl(pickUrl(pad)); } catch (e) { console.warn('[sfx]', e.message); pad.error = true; changed(); return false; }
+      const exclusive = pad.kind === 'music' || pad.kind === 'ambience';
+      if (exclusive) for (const [pid, cur] of playing) if (pid !== id && cur.kind === pad.kind) stop(pid, pad.kind === 'ambience' ? 2.5 : 1.2);
       stop(id, 0.03); // retrigger restarts the pad
       const src = c.createBufferSource();
       src.buffer = buf;
+      src.loop = pad.kind === 'ambience';
       const gain = c.createGain();
-      gain.gain.value = padVol(id);
+      const target = padVol(id) * (opts.gain ?? 1);
+      if (pad.kind === 'ambience') { gain.gain.setValueAtTime(0, c.currentTime); gain.gain.linearRampToValueAtTime(target, c.currentTime + 2.5); } else gain.gain.value = target;
       src.connect(gain);
       route(pad, buf, gain);
-      const entry = { src, gain, startedAt: c.currentTime, duration: buf.duration };
+      const entry = { src, gain, startedAt: c.currentTime, duration: src.loop ? Infinity : buf.duration, kind: pad.kind || 'pad' };
       playing.set(id, entry);
       src.onended = () => { if (playing.get(id) === entry) { playing.delete(id); changed(); } };
       src.start();
@@ -205,11 +226,16 @@ export function createSfxBoard() {
     },
     stop,
     stopAll() { for (const id of [...playing.keys()]) stop(id, 0.12); },
+    /** Stop everything of a kind ('music' | 'ambience'), with a fade. */
+    stopKind(kind, fade = 1.5) { for (const [id, cur] of [...playing]) if (cur.kind === kind) stop(id, fade); },
+    /** Id currently playing of a kind (music / ambience), or null. */
+    current(kind) { for (const [id, cur] of playing) if (cur.kind === kind) return id; return null; },
     isPlaying: (id) => playing.has(id),
     /** 0..1 progress of a playing pad, or null. */
     progress(id) {
       const p = playing.get(id);
       if (!p || !ctx) return null;
+      if (!Number.isFinite(p.duration)) return 0; // looping ambience
       return Math.min(1, (ctx.currentTime - p.startedAt) / p.duration);
     },
     get anyPlaying() { return playing.size > 0; },

@@ -397,3 +397,21 @@ The engine never needs the book itself; it only reads the JSON above.
 `bosses.json` phases may carry `text` (GM mechanics, shown on the GM desk only) and an optional
 `tv` line (short, spoiler-free, shown in the TV's phase report). Library phase `text` never reaches
 the TV.
+
+## Sound library and cues (`sounds.json`, `cues.json`)
+
+`sounds.json` — the pack's sound library, files under `audio/sounds/`:
+`[{ id, label, kind: pad|music|ambience|random, group, route: front|rear|center|all, sub: 0..1, volume, tags: [], files: [] }]`.
+Several files = variants (one at random, never the same twice in a row). A sound whose id equals a built-in pad
+replaces it. `music` plays one at a time; `ambience` loops (crossfade) until stopped or replaced.
+
+`cues.json` — what the GM desk plays by itself:
+`{ events: { <event>: { sounds: [refs], chance: 0..1, delayMs } }, groups: { <monster group>: { <slot>: [refs] } } }`.
+Events are voice-line categories (`nat20`, `nat1`, `achievement`, `boss_intro`, `boss_defeat`, `monster_intro`,
+`crawlers_drop`, …) plus `boss_phase` and `loot_drop`. A ref is a sound / pad id or `tag:x` (random sound with that tag).
+
+Library entries (boss, monster, NPC, location) may carry `sounds: { <slot>: [refs] }` — slots `intro`, `attack`, `hit`,
+`crit`, `death`, `phase`, `music`; locations `ambience`, `randoms`, `randomEvery: [min, max]` seconds — and
+`moments: [{ label, sounds, text?, chance, on: intro|phase|defeat|attack|kill }]` (chance 0 = a button in the Fight tracker
+only). Resolution: the entry's own slot → its `group`'s slot in `cues.json` → the event default. Voice lines carry
+`category` and `source: { kind, id }` in the `play` message so the desk knows whose sound to use.

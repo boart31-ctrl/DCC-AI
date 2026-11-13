@@ -83,6 +83,66 @@ export function loadSfx(io, raw, warnings) {
   return out;
 }
 
+const SOUND_KINDS = ['pad', 'music', 'ambience', 'random'];
+const ROUTE_SET = ['front', 'rear', 'center', 'all'];
+const REF_RE = /^(tag:)?[A-Za-z0-9_-]{1,60}$/;
+
+/**
+ * sounds.json: the sound library [{ id, label, kind (pad|music|ambience|random), group, route, sub, volume,
+ * tags: [], files: [] }] — files under audio/sounds/; several files = variants, one is picked at random.
+ */
+export function loadSounds(io, raw, warnings) {
+  if (raw === undefined) return [];
+  if (!Array.isArray(raw)) { warnings.push('sounds.json must be an array, ignoring'); return []; }
+  const out = [];
+  const seen = new Set();
+  raw.slice(0, 1000).forEach((e, i) => {
+    if (!isObj(e) || !isStr(e.id) || !ID_RE.test(e.id) || seen.has(e.id)) { warnings.push(`sounds.json [${i}]: missing, invalid or duplicate id, skipping`); return; }
+    const files = Array.isArray(e.files) ? e.files : isStr(e.file) ? [e.file] : [];
+    const urls = files.filter(isStr).slice(0, 12).map((f) => assetUrl(io, 'audio', `sounds/${f}`, warnings, `sound ${e.id}`)).filter(Boolean);
+    if (!urls.length) { warnings.push(`sounds.json ${e.id}: no playable file, skipping`); return; }
+    seen.add(e.id);
+    out.push({
+      id: e.id,
+      label: (isStr(e.label) ? e.label : e.id).slice(0, 50),
+      kind: SOUND_KINDS.includes(e.kind) ? e.kind : 'pad',
+      group: (isStr(e.group) ? e.group : '').slice(0, 30),
+      route: ROUTE_SET.includes(e.route) ? e.route : 'front',
+      sub: typeof e.sub === 'number' && e.sub >= 0 && e.sub <= 1 ? e.sub : 0,
+      volume: typeof e.volume === 'number' && e.volume >= 0 && e.volume <= 2 ? e.volume : 1,
+      tags: Array.isArray(e.tags) ? [...new Set(e.tags.filter((t) => isStr(t) && /^[a-z0-9_-]{1,30}$/.test(t)))].slice(0, 20) : [],
+      urls,
+    });
+  });
+  return out;
+}
+
+/** A list of sound refs (sound / pad id or `tag:x`). */
+export function soundRefs(v, max = 20) {
+  const list = Array.isArray(v) ? v : isStr(v) ? v.split(',') : [];
+  return [...new Set(list.map((x) => (isStr(x) ? x.trim() : '')).filter((x) => REF_RE.test(x)))].slice(0, max);
+}
+
+/**
+ * cues.json: when the desk plays what. { events: { <event>: { sounds: [refs], chance?: 0..1 } },
+ * groups: { <monster group>: { <slot>: [refs] } } } — see docs/CONTENT_PACKS.md "Sound cues".
+ */
+export function loadCues(raw, warnings) {
+  const out = { events: {}, groups: {} };
+  if (raw === undefined) return out;
+  if (!isObj(raw)) { warnings.push('cues.json must be an object, ignoring'); return out; }
+  for (const [ev, c] of Object.entries(isObj(raw.events) ? raw.events : {})) {
+    if (!/^[a-z0-9_.:-]{1,60}$/.test(ev) || !isObj(c)) continue;
+    const chance = typeof c.chance === 'number' && c.chance >= 0 && c.chance <= 1 ? c.chance : 1;
+    out.events[ev] = { sounds: soundRefs(c.sounds), chance, ...(typeof c.delayMs === 'number' && c.delayMs >= 0 && c.delayMs <= 10000 ? { delayMs: c.delayMs } : {}) };
+  }
+  for (const [g, slots] of Object.entries(isObj(raw.groups) ? raw.groups : {})) {
+    if (!/^[a-z0-9_-]{1,40}$/.test(g) || !isObj(slots)) continue;
+    out.groups[g] = Object.fromEntries(Object.entries(slots).filter(([k]) => /^[a-z0-9_]{1,30}$/.test(k)).map(([k, v]) => [k, soundRefs(v)]));
+  }
+  return out;
+}
+
 function loadMeta(raw, warnings) {
   const F = 'pack.json';
   need(isObj(raw), F, '', 'must be an object');
@@ -601,8 +661,10 @@ export function normalizePack(raw, opts = {}) {
   const ruleset = normalizeRuleset(rawRuleset, { stats: meta.stats, resources: meta.resources }, warnings);
   const library = loadLibrary(raw, ruleset, warnings, io);
   const sfx = loadSfx(io, raw.sfx, warnings);
+  const sounds = loadSounds(io, raw.sounds, warnings);
+  const cues = loadCues(raw.cues, warnings);
   const ui = loadUi(io, raw.ui, warnings);
-  const pack = finish({ ...meta, sfx, ui, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
+  const pack = finish({ ...meta, sfx, sounds, cues, ui, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
   return { pack, warnings };
 }
 
@@ -612,7 +674,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'ui', 'crawlers'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -647,6 +709,8 @@ export function deserializePack(data) {
   pack.theme = THEMES.includes(d.theme) ? d.theme : null;
   pack.crawlers = normalizeCrawlersConfig(d.crawlers ?? null);
   pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
+  pack.sounds = Array.isArray(d.sounds) ? d.sounds.filter((x) => isObj(x) && isStr(x.id) && Array.isArray(x.urls)) : [];
+  pack.cues = isObj(d.cues) ? { events: isObj(d.cues.events) ? d.cues.events : {}, groups: isObj(d.cues.groups) ? d.cues.groups : {} } : { events: {}, groups: {} };
   pack.ui = isObj(d.ui) ? structuredClone(d.ui) : null; // already normalized URLs (built by normalizePack)
   pack.items = pack.items.map((it) => ({ tags: [], slot: null, stackable: false, effects: [], attack: null, use: null, source: 'pack', ...it }));
   pack.dir = null;

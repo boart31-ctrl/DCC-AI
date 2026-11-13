@@ -228,3 +228,30 @@ test('boss imageSquare / imageKo: library keeps them, combat uses the square cro
   const plain = pack.library.boss.find((b) => b.id === 'plain');
   assert.ok(!('imageSquare' in plain) && !('imageKo' in plain), 'shape unchanged without the new fields');
 });
+
+test('sounds.json (variants, kinds, tags), cues.json and library sounds / moments; survive the cloud build', () => {
+  const dir = writePack(tmpDir());
+  fs.mkdirSync(path.join(dir, 'audio', 'sounds'), { recursive: true });
+  for (const f of ['bite_1.mp3', 'bite_2.mp3', 'amb.mp3']) fs.writeFileSync(path.join(dir, 'audio', 'sounds', f), 'x');
+  fs.writeFileSync(path.join(dir, 'sounds.json'), JSON.stringify([
+    { id: 'bite', label: 'Bite', kind: 'pad', group: 'Combat', route: 'front', sub: 0.2, tags: ['bite', 'BAD TAG'], files: ['bite_1.mp3', 'bite_2.mp3', 'missing.mp3'] },
+    { id: 'amb', kind: 'ambience', files: ['amb.mp3'], route: 'nowhere' },
+    { id: 'nofile', files: ['nope.mp3'] },
+  ]));
+  fs.writeFileSync(path.join(dir, 'cues.json'), JSON.stringify({ events: { nat20: { sounds: ['bite', 'tag:cheer', 'bad ref!'], chance: 0.5 }, 'BAD EVENT': {} }, groups: { beast: { attack: 'tag:bite, bite' } } }));
+  fs.writeFileSync(path.join(dir, 'monsters.json'), JSON.stringify([{ id: 'rat', name: 'Rat', hpSlots: 2, sounds: { attack: ['bite'], randomEvery: [90, 30], 'Bad Slot': ['x'] }, moments: [{ label: 'Squeak', sounds: ['bite'], chance: 2, on: 'kill' }, { label: 'empty' }] }]));
+  const { pack, warnings } = loadPack(dir);
+  assert.equal(pack.sounds.length, 2);
+  assert.equal(pack.sounds[0].urls.length, 2);
+  assert.deepEqual(pack.sounds[0].tags, ['bite']);
+  assert.equal(pack.sounds[1].route, 'front');
+  assert.ok(warnings.some((w) => /nofile/.test(w)));
+  assert.deepEqual(pack.cues.events.nat20, { sounds: ['bite', 'tag:cheer'], chance: 0.5 });
+  assert.deepEqual(pack.cues.groups.beast.attack, ['tag:bite', 'bite']);
+  const rat = pack.library.monster.find((m) => m.id === 'rat');
+  assert.deepEqual(rat.sounds, { attack: ['bite'], randomEvery: [30, 90] });
+  assert.deepEqual(rat.moments, [{ label: 'Squeak', sounds: ['bite'], text: '', chance: 0, on: 'kill' }]);
+  const again = deserializePack(serializePack(pack));
+  assert.equal(again.sounds[0].urls.length, 2);
+  assert.deepEqual(again.cues.events.nat20.sounds, ['bite', 'tag:cheer']);
+});

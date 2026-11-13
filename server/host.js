@@ -199,6 +199,8 @@ export function createHost(opts) {
     g.access = { edition, legacy, keyLogin: !!gmKey, backups: !!snapshots, maxTvs: L.maxTvs };
     g.tts = tts.gmView();
     g.sfx = pack.sfx ?? [];
+    g.sounds = pack.sounds ?? [];
+    g.cues = pack.cues ?? { events: {}, groups: {} };
     if (!legacy) {
       g.pins = {};
       g.stageUrl = currentUrls().stage;
@@ -332,6 +334,8 @@ export function createHost(opts) {
         audio,
         voice: voiceFor(pack, state.session.voice),
         cue: item.cue ?? null, // id of the event (achievement / announcement) this line belongs to
+        category: item.category ?? null, // sound cues on the desk (web/js/cues.js)
+        source: item.source ?? null, // { kind, id } of the boss / monster / NPC the line is about
         sync: (state.show?.audioDevice ?? 'gm') === 'gm', // the TV waits for `audio.started` (max 3 s)
         tts: silent ? null : tts.playInfo(item, audio),
         ...(silent ? { silent: true } : {}),

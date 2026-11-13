@@ -15,6 +15,7 @@ import { createCombat } from './combat.js';
 import { createScenes } from './gm-scenes.js';
 import { createSound } from './gm-sound.js';
 import { createCombatSfx } from './combat-sfx.js';
+import { createCues } from './cues.js';
 import { createNpcs } from './gm-npcs.js';
 import { createCrawlers } from './gm-crawlers.js';
 
@@ -63,6 +64,7 @@ client.on('view', (v) => { view = v; render(); });
 
 client.on('event', (e) => {
   if (String(e.kind).startsWith('combat.')) combatSfx?.event(e);
+  cues?.event(e);
   if (e.kind === 'roll') {
     const r = e.roll || e;
     if (r.auto) return; // auto-mode mob rolls: the Combat log shows them
@@ -1002,8 +1004,13 @@ const scenes = createScenes({ client, act, getView: () => view });
 scenes.audio.credential = () => ext.credential; // the audio fetches use the desk's login
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
-const combatSfx = createCombatSfx({ board: sound.board, getView: () => view, onChange: () => combat?.update(view) });
-sound.el.append(combatSfx.panel());
+// Sound cues (cues.js): voice lines, boss moments, location ambience; mobs use their own Library sounds.
+const cues = createCues({ board: sound.board, getView: () => view });
+const combatSfx = createCombatSfx({ board: sound.board, getView: () => view, onChange: () => combat?.update(view), mobSound: (slot, uid) => cues.mob(slot, uid) });
+sound.el.append(combatSfx.panel(), cues.panel());
+client.on('play', (m) => { if (scenes.audio.isDevice) cues.line(m); });
+client.on('view', (v) => cues.scene(v));
+window.__cues = cues;
 const openSound = () => {
   showView('show');
   scenes.pick('sound');

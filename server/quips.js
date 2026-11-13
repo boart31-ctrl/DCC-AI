@@ -88,9 +88,12 @@ export class VoiceQueue {
     this.seq = 0;
   }
 
-  _item({ priority, text, quipId = null, crit = false, cue = null, ttsVoice = null, chain = null }) {
+  _item({ priority, text, quipId = null, crit = false, cue = null, ttsVoice = null, chain = null, category = null, source = null }) {
     const at = this.now();
     const item = { id: this.genId('q'), priority, text, quipId, crit: !!crit, createdAt: at, seq: this.seq++ };
+    // Sound cues (web/js/cues.js): the quip category and the library entry a line is about ({ kind, id }).
+    if (category) item.category = category;
+    if (source && typeof source.kind === 'string' && typeof source.id === 'string') item.source = { kind: source.kind, id: source.id };
     // Voice extras (tts-host.js): the event a line belongs to, and an ElevenLabs voice override.
     if (cue) item.cue = cue;
     if (ttsVoice) item.ttsVoice = ttsVoice;

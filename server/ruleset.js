@@ -212,6 +212,12 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
   } else {
     Object.assign(e, { features: idList(raw.features), statBonuses: normalizeEffects(raw.statBonuses, ctx), skills: idList(raw.skills) });
   }
+  if (['boss', 'monster', 'npc', 'location'].includes(kind)) {
+    const snd = soundMap(raw.sounds);
+    if (snd) e.sounds = snd;
+    const mom = moments(raw.moments);
+    if (mom.length) e.moments = mom;
+  }
   if (ctx.unverified.length) e.unverified = ctx.unverified;
   return e;
 }
@@ -261,6 +267,34 @@ function normalizeBossEntry(raw, ctx, opts) {
     dr: intOr(raw, 'dr', -99, 99, 0, ctx),
     attacks: normalizeStatAttacks(raw.attacks, ctx),
   };
+}
+
+// ---------- sounds on library entries (web/js/cues.js) ----------
+const SREF = /^(tag:)?[A-Za-z0-9_-]{1,60}$/;
+const sRefs = (v) => [...new Set((Array.isArray(v) ? v : typeof v === 'string' ? v.split(',') : []).map((x) => (typeof x === 'string' ? x.trim() : '')).filter((x) => SREF.test(x)))].slice(0, 20);
+/** `sounds: { intro, attack, hit, death, ambience, randoms, music, … }` → { slot: [refs] }; plus `randomEvery: [min, max]` s. */
+function soundMap(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    if (k === 'randomEvery' && Array.isArray(v) && v.length === 2 && v.every((n) => Number.isFinite(n) && n >= 5 && n <= 3600)) { out.randomEvery = [Math.min(v[0], v[1]), Math.max(v[0], v[1])]; continue; }
+    if (!/^[a-z0-9_]{1,30}$/.test(k)) continue;
+    const refs = sRefs(v);
+    if (refs.length) out[k] = refs;
+  }
+  return Object.keys(out).length ? out : null;
+}
+/** Situational moments: [{ label, sounds, text?, chance (0..1, 0 = button only), on? (intro|phase|defeat|nat1|nat20|hit|kill) }]. */
+const MOMENT_ON = ['intro', 'phase', 'defeat', 'nat1', 'nat20', 'hit', 'kill', 'attack'];
+function moments(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.slice(0, 12).filter((m) => m && typeof m === 'object').map((m) => ({
+    label: text(m.label, 40) || 'Moment',
+    sounds: sRefs(m.sounds),
+    text: text(m.text, 300),
+    chance: typeof m.chance === 'number' && m.chance >= 0 && m.chance <= 1 ? m.chance : 0,
+    on: MOMENT_ON.includes(m.on) ? m.on : null,
+  })).filter((m) => m.sounds.length || m.text);
 }
 
 function textList(raw, max, len) {
