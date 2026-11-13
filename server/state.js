@@ -65,6 +65,7 @@ export function createState(pack, now = Date.now()) {
     players: [],
     audience: { viewers: pack.audience.startViewers, bumps: [], lastActivity: now, lastDecay: now },
     usedQuips: {},
+    introduced: {}, // `${kind}:${id}` → true: monster / NPC intros already announced this campaign
     feed: [],
     messages: [],
     prepCards: [],
@@ -93,6 +94,7 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.audience = { ...base.audience, ...(raw.audience ?? {}) };
   if (!Array.isArray(s.audience.bumps)) s.audience.bumps = [];
   s.usedQuips = raw.usedQuips && typeof raw.usedQuips === 'object' ? raw.usedQuips : {};
+  s.introduced = raw.introduced && typeof raw.introduced === 'object' && !Array.isArray(raw.introduced) ? raw.introduced : {};
   s.feed = Array.isArray(raw.feed) ? raw.feed.slice(-FEED_SIZE) : [];
   s.messages = Array.isArray(raw.messages) ? raw.messages : [];
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];

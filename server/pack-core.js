@@ -209,7 +209,10 @@ function loadQuips(io, raw, warnings, voices) {
       }
     }
     const generic = assetUrl(io, 'audio', q.audio, Object.keys(audioByVoice).length ? [] : warnings, `quip ${q.id}`);
-    return { id: q.id, category: q.category, text: q.text.trim(), audio: generic, audioByVoice };
+    // "also": extra categories the same line fits (e.g. the cleanup-crew line after a floor AND after a won fight).
+    const also = Array.isArray(q.also) ? [...new Set(q.also.filter((c) => isStr(c) && CATEGORY_RE.test(c) && c !== q.category))] : [];
+    if (Array.isArray(q.also) && also.length !== q.also.length) warnings.push(`quips.json ${q.id}: also has invalid or duplicate categories, kept ${also.length}`);
+    return { id: q.id, category: q.category, text: q.text.trim(), audio: generic, audioByVoice, ...(also.length ? { also } : {}) };
   });
 }
 
@@ -531,8 +534,10 @@ function finish(pack) {
     if (q.audio || Object.keys(q.audioByVoice ?? {}).length) pack.quipsByText.set(voiceKey(q.text), q);
   }
   for (const q of pack.quips) {
-    if (!pack.quipsByCategory.has(q.category)) pack.quipsByCategory.set(q.category, []);
-    pack.quipsByCategory.get(q.category).push(q);
+    for (const c of [q.category, ...(q.also ?? [])]) {
+      if (!pack.quipsByCategory.has(c)) pack.quipsByCategory.set(c, []);
+      pack.quipsByCategory.get(c).push(q);
+    }
   }
   pack.tiersById = new Map(pack.lootTiers.map((t) => [t.id, t]));
   pack.statsById = new Map(pack.stats.map((s) => [s.id, s]));

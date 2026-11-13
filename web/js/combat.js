@@ -445,7 +445,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         h('label.cbt-mini', h('span.mini-l', 'Evade'), field(m.evade, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, evade: Math.round(v) || 0 }) })),
         h('label.cbt-mini', h('span.mini-l', 'DR'), field(m.dr, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, dr: Math.round(v) || 0 }) }))),
       field(m.notes, { cls: 'inp-sm', placeholder: 'Notes for this one (GM only)', attrs: { maxlength: 500, 'aria-label': `Notes for ${m.name}` }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, notes: v }) }),
-      h('div.row-end', h('button.btn.btn-sm.btn-quiet.danger', { type: 'button', onclick: () => act({ t: 'combat.remove', uid: m.uid }, `${m.name} removed.`) }, icon('trash', { size: 14 }), 'Remove'))) : null;
+      h('div.row-end',
+        m.sourceKind === 'monster' && e?.intro ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'The System introduces it again (plays by itself the first time it appears)', onclick: () => act({ t: 'voice.intro', kind: 'monster', id: m.sourceId }, `Intro: ${e.name}.`) }, icon('speaker', { size: 14 }), 'Intro') : null,
+        h('button.btn.btn-sm.btn-quiet.danger', { type: 'button', onclick: () => act({ t: 'combat.remove', uid: m.uid }, `${m.name} removed.`) }, icon('trash', { size: 14 }), 'Remove'))) : null;
     return h('li.cc.cc-mob', { class: `cc cc-mob${m.down ? ' down' : ''}${m.hidden ? ' is-hidden' : ''}${m.sourceKind === 'boss' ? ' is-boss' : ''}`, 'data-uid': m.uid },
       h('div.cc-who',
         artBtn(entryArt({ name: m.name, image: m.image }, { cls: 'cbt-art' }), `Change the art of ${m.name}`, () => pickMobArt(m)),

@@ -385,5 +385,10 @@ export function voiceLines(pack, state, settings = DEFAULT_SETTINGS, { configure
     addLive('boss', `${b.id}:intro`, b.intro);
     addLive('boss', `${b.id}:defeat`, b.defeatLine);
   }
+  for (const kind of ['monster', 'npc']) {
+    for (const e of [...(pack?.library?.[kind] ?? []), ...(Array.isArray(state?.library?.[kind]) ? state.library[kind] : [])]) {
+      if (e && typeof e === 'object' && e.intro) addLive(kind, `${e.id}:intro`, e.intro);
+    }
+  }
   return out;
 }

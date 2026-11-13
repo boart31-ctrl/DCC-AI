@@ -21,8 +21,8 @@ const FIELDS = {
   boss: ['title', 'floor', 'hpSlots', 'evade', 'dr', 'image', 'phases', 'intro', 'defeatLine', 'flavor', 'statAttacks', 'tactics', 'lootHint'],
   location: ['floor', 'image', 'readAloud', 'featureNotes', 'cast'],
   // bestiary: notes / tactics / lootHint / voice / hooks / secrets never leave the GM desk
-  monster: ['title', 'floor', 'group', 'hpSlots', 'evade', 'dr', 'image', 'flavor', 'defeatLine', 'statAttacks', 'lootItems', 'notes', 'tactics', 'lootHint'],
-  npc: ['role', 'floor', 'image', 'personality', 'voice', 'hooks', 'secrets'],
+  monster: ['title', 'floor', 'group', 'hpSlots', 'evade', 'dr', 'image', 'flavor', 'intro', 'defeatLine', 'statAttacks', 'lootItems', 'notes', 'tactics', 'lootHint'],
+  npc: ['role', 'floor', 'image', 'personality', 'intro', 'voice', 'hooks', 'secrets'],
 };
 const GM_ONLY_HINT = 'GM only: never shown on the TV or phones';
 
@@ -37,8 +37,8 @@ function blank(kind, rs) {
   if (kind === 'boss') Object.assign(e, { title: '', floor: '', hpSlots: 10, image: null, phases: [], intro: '', defeatLine: '', flavor: '', tactics: '', lootHint: '' });
   if (kind === 'boss') Object.assign(e, { evade: 0, dr: 0, attacks: [] });
   if (kind === 'location') Object.assign(e, { floor: '', image: null, readAloud: '', features: [], npcs: [], monsters: [], bosses: [] });
-  if (kind === 'monster') Object.assign(e, { title: '', floor: '', group: '', hpSlots: 5, evade: 0, dr: 0, image: null, attacks: [{ name: 'Claw', toHit: 2, damage: '1d4', effects: '', buffs: [] }], flavor: '', defeatLine: '', lootItems: [], notes: '', tactics: '', lootHint: '' });
-  if (kind === 'npc') Object.assign(e, { role: '', floor: '', image: null, personality: '', voice: '', hooks: [], secrets: [] });
+  if (kind === 'monster') Object.assign(e, { title: '', floor: '', group: '', hpSlots: 5, evade: 0, dr: 0, image: null, attacks: [{ name: 'Claw', toHit: 2, damage: '1d4', effects: '', buffs: [] }], flavor: '', intro: '', defeatLine: '', lootItems: [], notes: '', tactics: '', lootHint: '' });
+  if (kind === 'npc') Object.assign(e, { role: '', floor: '', image: null, personality: '', intro: '', voice: '', hooks: [], secrets: [] });
   return e;
 }
 

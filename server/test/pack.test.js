@@ -43,6 +43,20 @@ test('recorded audio is found by quip id, then by matching text (boss intros, an
   assert.ok(!refs.includes('nat1_01') && !refs.includes('b1:intro') && refs.includes('b1:defeat'));
 });
 
+test('a quip with "also" is drawn from its extra categories too, and survives the cloud build', () => {
+  const dir = writePack(tmpDir());
+  const qf = path.join(dir, 'quips.json');
+  const qs = JSON.parse(fs.readFileSync(qf, 'utf8'));
+  qs[0].also = ['combat_victory', 'BAD!', qs[0].category];
+  fs.writeFileSync(qf, JSON.stringify(qs));
+  const { pack, warnings } = loadPack(dir);
+  assert.deepEqual(pack.quipsById.get(qs[0].id).also, ['combat_victory']);
+  assert.ok(warnings.some((w) => /also/.test(w)));
+  assert.ok(pack.quipsByCategory.get('combat_victory').some((q) => q.id === qs[0].id));
+  const again = deserializePack(serializePack(pack));
+  assert.ok(again.quipsByCategory.get('combat_victory').some((q) => q.id === qs[0].id));
+});
+
 test('voiceFor falls back to first voice, then built-in host', () => {
   const { pack } = loadPack(writePack(tmpDir()));
   assert.equal(voiceFor(pack, 'gremlin').id, 'gremlin');

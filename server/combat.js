@@ -23,7 +23,7 @@
 // rounded fraction (exact numbers only with `showMobHp`), never notes / attacks / library GM fields.
 import { bad, notFound } from './errors.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
-import { SCENE_GM } from './scenes.js';
+import { SCENE_GM, introLine } from './scenes.js';
 
 export const DEFAULT_PHASES = ['Crawlers', 'Mobs'];
 export const MAX_COMBATANTS = 40;
@@ -464,6 +464,11 @@ export const COMBAT_GM = {
       C(st).combatants.push(m);
       return m.uid;
     });
+    // Added straight onto the TV (not hidden): the System introduces a monster the first time it appears.
+    if (!hidden && kind === 'monster' && a.intro !== false) {
+      const line = introLine(st, ctx, 'monster', e.id);
+      if (line) out.lines.push(line);
+    }
     out.result = { uids };
   },
 
@@ -551,6 +556,13 @@ export const COMBAT_GM = {
       if (on) shown.push(m);
     }
     if (shown.length) out.emit({ kind: 'combat.reveal', uids: shown.map((m) => m.uid), names: shown.map((m) => m.name) }, 'all');
+    // First sighting of a monster kind this campaign: one intro per reveal (the rest wait for their own turn).
+    if (a.intro !== false) {
+      for (const id of [...new Set(shown.filter((m) => m.sourceKind === 'monster').map((m) => m.sourceId))]) {
+        const line = introLine(st, ctx, 'monster', id);
+        if (line) { out.lines.push(line); break; }
+      }
+    }
     out.result = { changed: list.length };
   },
 

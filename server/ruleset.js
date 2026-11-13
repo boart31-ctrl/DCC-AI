@@ -204,6 +204,7 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
       floor: floorText(raw.floor),
       image: opts.image ? opts.image(raw.image) : homebrewImage(raw.image, ctx),
       personality: text(raw.personality, 1200),
+      intro: text(raw.intro, 600), // the System introduces them the first time they are on the TV
       voice: text(raw.voice, 600), // GM only: how to play them
       hooks: textList(raw.hooks, 20, 400), // GM only
       secrets: textList(raw.secrets, 20, 400), // GM only
@@ -309,6 +310,7 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     dr: intOr(raw, 'dr', -99, 99, 0, ctx),
     attacks: normalizeStatAttacks(raw.attacks, ctx),
     flavor: text(raw.flavor, 1200),
+    intro: text(raw.intro, 600), // the System's announcement the first time it shows up: TV voice
     defeatLine: text(raw.defeatLine, 300),
     lootItems: idList(raw.lootItems, 20),
     notes: text(raw.notes, 3000), // GM only

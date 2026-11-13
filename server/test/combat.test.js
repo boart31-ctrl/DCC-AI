@@ -11,14 +11,14 @@ const MONSTERS = [
     id: 'goblin', name: 'Goblin', title: 'Small, Loud', floor: 1, group: 'humanoid', image: 'goblin.webp',
     hpSlots: 4, evade: 2, dr: 1, art: 'prompt text (ignored)',
     attacks: [{ name: 'Stab', toHit: 3, damage: '1d4', effects: 'Bleeds on 18+', buffs: ['bleeding'] }, { name: 'Taunt', toHit: 0, damage: '0' }],
-    desc: 'Pointy.', flavor: 'It has a tiny hat.', notes: 'SECRET NOTES', tactics: 'SECRET TACTICS', lootHint: 'SECRET LOOT', lootItems: ['duck'],
+    desc: 'Pointy.', flavor: 'It has a tiny hat.', intro: 'Behold the goblin. It is small and loud.', notes: 'SECRET NOTES', tactics: 'SECRET TACTICS', lootHint: 'SECRET LOOT', lootItems: ['duck'],
   },
   { id: 'rat', name: 'Rat', hpSlots: 2, attacks: [{ name: 'Bite', toHit: 'x' }] }, // bad toHit → warning, 0
   { id: 'nameless', hpSlots: 3 }, // skipped
 ];
 const NPCS = [{
   id: 'quill', name: 'Fennimore Quill', role: 'Floor clerk', floor: 0, image: 'quill.webp',
-  personality: 'Polite.', voice: 'SECRET VOICE', hooks: ['SECRET HOOK'], secrets: ['SECRET SECRET'],
+  personality: 'Polite.', intro: 'Please welcome our floor clerk.', voice: 'SECRET VOICE', hooks: ['SECRET HOOK'], secrets: ['SECRET SECRET'],
 }];
 const LOCS = [{ id: 'lobby', name: 'Lobby', floor: 1, readAloud: 'Marble.', features: ['SECRET FEATURE'], monsters: ['goblin', 'rat'], npcs: ['quill'], bosses: ['porter'] }];
 const BOSSES = [{ id: 'porter', name: 'Porter Grim', hpSlots: 20, evade: 2, dr: 2, attacks: [{ name: 'Hurl', toHit: 4, damage: '1d6' }], tactics: 'SECRET BOSS TACTICS' }];
@@ -456,4 +456,26 @@ test('loot from the dead: a downed mob drops its lootItems, the GM hands them ou
   assert.equal(s.drops.length, 1);
   s = gm(s, { t: 'session.new' }).state;
   assert.equal(s.drops.length, 0);
+});
+
+test('monster / NPC intros: once per campaign on reveal, add-live or NPC scene; voice.intro forces it', () => {
+  let { s } = base();
+  const say = (r) => r.lines.filter((l) => /_intro$/.test(l.category)).map((l) => l.text);
+  s = gm(s, { t: 'combat.addMob', kind: 'monster', sourceId: 'goblin', count: 2 }).state; // hidden: no intro yet
+  let r = gm(s, { t: 'combat.reveal', all: true });
+  assert.deepEqual(say(r), ['Behold the goblin. It is small and loud.']);
+  s = r.state;
+  r = gm(s, { t: 'combat.addMob', kind: 'monster', sourceId: 'goblin', hidden: false });
+  assert.deepEqual(say(r), [], 'second sighting is quiet');
+  s = r.state;
+  r = gm(s, { t: 'combat.addMob', kind: 'monster', sourceId: 'rat', hidden: false });
+  assert.deepEqual(say(r), [], 'no intro text, nothing said');
+  r = gm(s, { t: 'voice.intro', kind: 'monster', id: 'goblin' });
+  assert.deepEqual(say(r), ['Behold the goblin. It is small and loud.']);
+  assert.throws(() => gm(s, { t: 'voice.intro', kind: 'monster', id: 'rat' }));
+  r = gm(s, { t: 'scene.set', kind: 'npc', data: { npcId: 'quill' } });
+  assert.deepEqual(say(r), ['Please welcome our floor clerk.']);
+  s = r.state;
+  assert.deepEqual(say(gm(s, { t: 'scene.set', kind: 'npc', data: { npcId: 'quill' } })), []);
+  assert.ok(normalizeState(JSON.parse(JSON.stringify(s)), pack, 0).introduced['npc:quill'], 'remembered across restarts');
 });

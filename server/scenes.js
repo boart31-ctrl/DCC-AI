@@ -402,12 +402,40 @@ function syncBossCombatant(st, d) {
   }
 }
 
+/**
+ * The System's introduction of a library monster / NPC (its `intro`), once per campaign unless forced.
+ * Returns a voice line (or null) and marks it introduced. Recorded audio is matched by text.
+ */
+export function introLine(st, ctx, kind, id, { force = false } = {}) {
+  if ((kind !== 'monster' && kind !== 'npc') || typeof id !== 'string') return null;
+  const e = libraryOf(st, ctx.pack).get(kind, id);
+  if (!e?.intro) return null;
+  const key = `${kind}:${id}`;
+  if (!st.introduced || typeof st.introduced !== 'object') st.introduced = {};
+  if (st.introduced[key] && !force) return null;
+  st.introduced[key] = true;
+  return { priority: 1, text: e.intro, quipId: null, crit: false, category: `${kind}_intro` };
+}
+
 export const SCENE_GM = {
-  'scene.set'(st, a, ctx) {
+  /** GM button: say a monster's / NPC's intro now (again), whatever was announced before. */
+  'voice.intro'(st, a, ctx, out) {
+    if (a.kind !== 'monster' && a.kind !== 'npc') throw bad('kind must be monster or npc');
+    if (typeof a.id !== 'string') throw bad('id required');
+    const line = introLine(st, ctx, a.kind, a.id, { force: true });
+    if (!line) throw notFound(`${a.kind} ${a.id} has no intro`);
+    out.lines.push(line);
+  },
+
+  'scene.set'(st, a, ctx, out) {
     if (!SCENE_KINDS.includes(a.kind)) throw bad(`kind must be one of ${SCENE_KINDS.join(', ')}`);
     const data = mergeData(st, ctx, a.kind, DEFAULTS[a.kind](), a.data ?? {}, true);
     if (a.kind === 'recap' && !data.text) data.text = st.session.recap ?? '';
     setScene(st, ctx, a.kind, data);
+    if (a.kind === 'npc' && a.intro !== false) {
+      const line = introLine(st, ctx, 'npc', a.data?.npcId);
+      if (line) out.lines.push(line);
+    }
   },
 
   /**
@@ -424,10 +452,14 @@ export const SCENE_GM = {
     out.changed = false;
   },
 
-  'scene.update'(st, a, ctx) {
+  'scene.update'(st, a, ctx, out) {
     const sc = st.scene;
     if (a.data === undefined) throw bad('data required');
     sc.data = mergeData(st, ctx, sc.kind, sc.data, a.data, false);
+    if (sc.kind === 'npc' && a.data?.npcId && a.intro !== false) {
+      const line = introLine(st, ctx, 'npc', a.data.npcId);
+      if (line) out.lines.push(line);
+    }
   },
 
   /**

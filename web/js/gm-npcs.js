@@ -69,6 +69,7 @@ export function createNpcs({ act, getView, openInLibrary }) {
           h('p.dim', [n.floor !== '' && n.floor != null ? `Floor ${n.floor}` : '', n.source === 'homebrew' ? 'Homebrew' : 'Pack'].filter(Boolean).join(' · ')),
           h('div.row-start',
             h('button.btn.btn-primary', { type: 'button', onclick: () => act({ t: 'scene.set', kind: 'npc', data: { npcId: n.id } }, `On TV: ${n.name}.`) }, icon('tv', { size: 15 }), live ? 'Show again' : 'Show on TV'),
+            n.intro ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'The System introduces them (plays by itself the first time they are on the TV)', onclick: () => act({ t: 'voice.intro', kind: 'npc', id: n.id }, `Intro: ${n.name}.`) }, icon('speaker', { size: 14 }), 'System intro') : null,
             live && view.scene.data?.line ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'scene.update', data: { line: '' } }) }, 'Clear line') : null,
             openInLibrary ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => openInLibrary('npc', n.id) }, icon('edit', { size: 14 }), 'Edit') : null))),
       h('div.npc-say',
