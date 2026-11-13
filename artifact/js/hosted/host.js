@@ -114,6 +114,9 @@ export class EngineHost extends BaseTransport {
     this.timers.push(setInterval(() => {
       const r = reduce(this.state, { role: 'system', t: 'audience.tick' }, { now: Date.now(), pack: this.pack });
       if (r.changed) { this.state = r.state; this.changed({ views: true, save: true }); }
+      // Crawlers remaining (crawlers.js): organic attrition is baked in about once a minute.
+      const c = reduce(this.state, { role: 'system', t: 'crawlers.tick' }, { now: Date.now(), pack: this.pack });
+      if (c.changed) { this.state = c.state; this.changed({ views: true, save: true }); }
     }, 5000));
     this.timers.push(setInterval(() => this.takeLease(true), LEASE_MS / 3));
     this.scheduleChat();

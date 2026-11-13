@@ -26,6 +26,7 @@ const SCENES = [
   { kind: 'blank', label: 'Stand by', key: 'F8', hint: 'Logo only' },
 ];
 const TOOLS = [
+  { id: 'crawlers', label: 'Crawlers', icon: 'skull', hint: 'Crawlers remaining: announce, events elsewhere, floor collapse, deaths' },
   { id: 'sound', label: 'Sound', icon: 'bolt' },
   { id: 'desk', label: 'Desk', icon: 'chat', hint: 'Quips, comms, audience, recap' },
 ];
@@ -93,11 +94,12 @@ export function createScenes({ client, act, getView }) {
   let bossPick = D('boss').bossId ?? null;
   const pref = { atkTv: store.get('atkTv', true), pv: store.get('pv2', true) };
   const ui = { openAtk: new Set(), bossTarget: null, editOpen: false };
-  const parts = { fight: null, npcs: null, sound: null, desk: null, goLiveFight: null };
+  const parts = { fight: null, npcs: null, sound: null, desk: null, crawlers: null, goLiveFight: null };
 
   /* ---------- shell ---------- */
   const onair = h('button.sh-onair', { type: 'button', onclick: () => { const k = liveChip(); if (k) pick(k); } });
   const soundState = h('span.sc-sound');
+  const barExtra = h('span.sh-bar-extra'); // gm-crawlers.js badge
   const chips = h('div.sh-chips', { role: 'tablist', 'aria-label': 'Show' });
   const head = h('div.sh-head');
   const body = h('div.sh-body');
@@ -107,7 +109,7 @@ export function createScenes({ client, act, getView }) {
   const golive = h('div.sh-golive');
   const panel = h('div.sh-panel', head, h('div.sh-grid', body, pvCol), golive);
   const el = h('section.show2', { 'aria-label': 'Show' },
-    h('div.sh-bar', h('div.sh-bar-top', onair, soundState), chips),
+    h('div.sh-bar', h('div.sh-bar-top', onair, barExtra, soundState), chips),
     panel);
 
   function setDevice(d) {
@@ -729,8 +731,8 @@ export function createScenes({ client, act, getView }) {
   }
 
   // Fixed slots: the desk, sound, fight and NPC panels stay in the page (gm.js renders into them by id).
-  const slots = { scene: h('div.sh-slot'), fight: h('div.sh-slot'), npc: h('div.sh-slot'), sound: h('div.sh-slot'), desk: h('div.sh-slot') };
-  body.append(slots.scene, slots.fight, slots.npc, slots.sound, slots.desk);
+  const slots = { scene: h('div.sh-slot'), fight: h('div.sh-slot'), npc: h('div.sh-slot'), sound: h('div.sh-slot'), desk: h('div.sh-slot'), crawlers: h('div.sh-slot') };
+  body.append(slots.scene, slots.fight, slots.npc, slots.sound, slots.desk, slots.crawlers);
   function drawBody() {
     const id = tab;
     const live = isLive(id);
@@ -740,9 +742,10 @@ export function createScenes({ client, act, getView }) {
     slots.npc.hidden = id !== 'npc';
     slots.sound.hidden = id !== 'sound';
     slots.desk.hidden = id !== 'desk';
+    slots.crawlers.hidden = id !== 'crawlers';
     slots.scene.hidden = isTool(id);
     if (id === 'sound') { drawAudioPanel(); return; }
-    if (id === 'desk') return;
+    if (id === 'desk' || id === 'crawlers') return;
     if (id === 'fight') {
       const sc = view().scene;
       slots.scene.replaceChildren(sc?.kind === 'boss' ? h('p.sh-note', icon('tv', { size: 14 }), 'The TV shows the boss screen. Boss HP, phases and his attacks are on the Boss chip.', h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => pick('boss') }, 'Boss controls')) : '');
@@ -810,6 +813,8 @@ export function createScenes({ client, act, getView }) {
     Object.assign(parts, { fight: p.fight || h('div'), npcs: p.npcs || null, sound: p.sound || h('div'), desk });
     slots.fight.append(parts.fight);
     if (parts.npcs) slots.npc.append(parts.npcs);
+    if (p.crawlers) { parts.crawlers = p.crawlers; slots.crawlers.append(p.crawlers); }
+    if (p.crawlersBadge) barExtra.append(p.crawlersBadge);
     slots.sound.append(audioPanel, parts.sound);
     slots.desk.append(desk);
     section.replaceChildren(el);

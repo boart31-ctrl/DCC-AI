@@ -492,6 +492,41 @@ A custom or edited achievement is rendered on the fly (the desk shows "Rendering
 event whose line follows carries `voiceCue: true` (the line's `play.cue` = the event id). The TV holds the subtitle
 and the takeover until `audio.started` (matching `id` / `cue`) or 3 s, so picture and voice start together.
 
+### 3d. Crawlers remaining (server/crawlers.js)
+
+The worldwide head count (DCC: "there are 412,345,118 crawlers remaining"). Campaign-level `state.crawlers`
+(kept by `session.new`, restores and restarts; numbers from pack.json `crawlers`, CONTENT_PACKS.md). Every view
+carries `crawlers`:
+```json
+"crawlers": { "count": 698230473, "at": 0, "now": 0, "floor": 2, "start": 698230473, "live": true, "running": true, "shown": true,
+              "perHour": 0.1, "min": 700000000, "maxGapMs": 150000, "label": "Crawlers remaining",
+              "last": { "at": 0, "from": 1608682407, "to": 698230473, "reason": "collapse", "label": "Floor 1 collapsed" } | null }
+```
+GM adds `speak`, `history` (last 20 drops `{at, floor, from, to, reason, label}`), `events` (`[{id, label, min, max}]`),
+`nextFloor`, `nextStart`, `floorStart`.
+
+**Live count.** `count` was right at server time `at`. While `live` (attrition `running`, a TV on air, a GM / player action
+in the last 45 min) the count shrinks: `value(t) = min + (count − min) · (1 − perHour) ^ (min(t − at, maxGapMs) / 1 h)`
+(floored; `t` = server time, `now` is the server time the view was built). Clients roll the digits with this formula
+(web/js/crawlers.js); the host re-anchors (`system` action `crawlers.tick`) about once a minute while a TV is connected.
+`maxGapMs` caps one step, so a long pause never costs more than 2.5 minutes of attrition. Every GM action first bakes
+the current value into the anchor.
+
+| `t` | Fields | Effect |
+|-----|--------|--------|
+| `crawlers.set` | any of `count` (0..1e10), `floor` (1..99), `start`, `running`, `shown`, `speak` (booleans) | Quiet edit, no event. `running: false` pauses attrition; `shown: false` hides the TV HUD and the phone counter; `speak: false` = System lead-in only, no number read out |
+| `crawlers.adjust` | `delta` (non-zero integer) | Quiet ± correction (min 0) |
+| `crawlers.drop` | `event` (pack event id) **or** `pct` (0..1] **or** `amount`; `label?`, `announce?` [true] | Kills that share / number (never below the crawlers at the table). Event `crawlers` (`moment: true`), feed line, chat burst `crawlers_drop`, P0 line from the event's quip category, chained number line. Ack `result: {from, to, lost}` |
+| `crawlers.collapse` | `floor?` [floor + 1], `announce?` [true] | Floor collapse: count → that floor's start (±3 %, never up), `floor` advances, attrition resumes. Event `crawlers` (`reason: "collapse"`), quip category `crawlers_collapse`, chat `floor_collapse`. Ack `result: {from, to, floor}` |
+| `crawlers.announce` | — | The System reads out the current count: event `crawlers` (`reason: "announce"`), quip category `crawlers_remaining` + number. Ack `result.count` |
+| `crawlers.death` | `playerId?`, `announce?` [true] | A crawler at the table died for good: −1, feed "Carl died. N crawlers remain", quip category `death` + number, event `crawlers` with `moment: false` (HUD flash only) |
+
+**Voice.** The lead-in is a normal quip line (recorded audio matched by quip id / text) carrying `chain: {text}`;
+the voice queue plays the chained line (`numberLine`, e.g. "698,230,473 crawlers remain.") as soon as the lead-in
+is `audio.done` (or timed out), skipping the queue and mode gates; a P0 that interrupts the lead-in drops it. With
+ElevenLabs the host renders the chained text while the lead-in plays. The lead-in's `cue` is the `crawlers` event id
+(the TV holds the takeover until `audio.started`, like announcements).
+
 ## 4. Player actions
 
 | `t` | Fields | Effect |
@@ -596,6 +631,7 @@ the dice RNG (tests); default Web Crypto.
 | `combat.start` / `combat.end` / `combat.phase` / `combat.reveal` / `combat.auto` / `combat.autoUndo` / `combat.autoSkip` | see §3b | all (`combat.auto`: GM full, others the public copy) |
 | `combat.hit` / `combat.heal` | `uid`, `type`, `name`, `playerId?`, `amount`, `hp`, `max`, `down` | all (gm only for hidden mobs) |
 | `npc.say` | `npcId`, `name`, `image`, `text` | stage, gm |
+| `crawlers` | `reason` (`collapse` / `announce` / `death` / `drop` / a pack event id), `label`, `labelText`, `from`, `to`, `floor`, `moment` (TV takeover: the number counts down from → to), `playerId` (death), `voiceCue` | all (§3d) |
 
 Scene changes arrive as views; `boss.*` events carry `sceneId` and may arrive before the view of their
 scene (views are debounced) — the stage holds them up to 4 s. Countdown ticks are computed on the client.

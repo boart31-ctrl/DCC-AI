@@ -49,7 +49,7 @@ test('normalizeChatLines: old untagged lines still load; tags/weight validated',
   const w2 = [];
   assert.deepEqual(normalizeChatLines({}, w2), []);
   assert.match(w2[0], /must be an array/);
-  assert.equal(CHAT_TAGS.length, 29);
+  assert.equal(CHAT_TAGS.length, 32);
   for (const t of ['mob_hit', 'mob_miss', 'mob_crit', 'crawler_down', 'mob_killed', 'combat_victory', 'combat_defeat', 'combat_runaway', 'combat_truce', 'combat_special', 'combat_sponsor', 'combat_timeout', 'combat_stalemate']) assert.ok(CHAT_TAGS.includes(t), t);
 });
 

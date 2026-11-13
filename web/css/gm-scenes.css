@@ -226,3 +226,53 @@
 .sh-min-add > * { width: auto; flex: none; }
 .sh-min-add > select, .sh-min-add > .sel, .sh-min-add > :first-child { flex: 1 1 220px; min-width: 0; }
 .tool .sh-min-add .sh-cnt { width: 64px; flex: none; }
+
+/* ---------- Crawlers remaining (gm-crawlers.js) ---------- */
+.sh-bar-extra { display: contents; }
+.cr-badge { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 0 12px; color: var(--c-ink); background: var(--c-panel); border: 1px solid var(--c-line); border-radius: var(--r-1); font-family: var(--f-ui); font-size: 13px; cursor: pointer; }
+.cr-badge:hover { border-color: var(--c-line-2); }
+.cr-badge .skull { color: var(--c-bad); flex: none; }
+.cr-badge.live .skull { animation: shpulse 2.4s ease-in-out infinite; }
+.crb-short { display: none; font-size: 14px; }
+.crb-num { font-variant-numeric: tabular-nums; font-size: 14px; }
+.crb-floor { color: var(--c-ink-3); font-size: 12px; font-weight: 600; }
+.cr-badge[hidden] { display: none; }
+
+.crg { display: grid; gap: 14px; max-width: 760px; }
+.crg-hero { display: flex; align-items: center; gap: 14px; padding: 14px 16px; background: color-mix(in srgb, var(--c-bad) 8%, var(--c-panel)); border: 1px solid color-mix(in srgb, var(--c-bad) 40%, var(--c-line)); border-radius: var(--r-1); }
+.crg-ico { color: var(--c-bad); display: grid; }
+.crg-num { font-size: clamp(26px, 4vw, 38px); font-weight: 800; line-height: 1.05; font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+.crg-state { display: flex; flex-wrap: wrap; gap: 4px 12px; color: var(--c-ink-2); font-size: 13px; }
+.crg-floor { font-weight: 700; color: var(--c-ink); }
+.crg-live::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 6px; border-radius: 50%; background: var(--c-ink-3); vertical-align: 1px; }
+.crg-live.on::before { background: var(--c-bad); box-shadow: 0 0 6px var(--c-bad); animation: shpulse 1.6s ease-in-out infinite; }
+.crg-toggles { display: flex; flex-wrap: wrap; gap: 8px; }
+.crg-tg[aria-pressed="false"] { color: var(--c-ink-3); border-style: dashed; }
+.crg-sec { display: grid; gap: 8px; }
+.crg-sec h3 { margin: 0; font-size: 12px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; color: var(--c-ink-3); }
+.crg-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.crg-row .hint { flex: 1 1 220px; margin: 0; }
+.crg-row .inp-sm { width: 9em; }
+.crg-row .crg-floor-inp { width: 5em; }
+.crg { min-width: 0; }
+.crg-events { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(200px, 100%), 1fr)); gap: 8px; }
+.tool .btn.crg-ev { display: grid; justify-items: start; justify-content: stretch; align-content: center; gap: 3px; min-width: 0; height: auto; min-height: 54px; padding-top: 8px; padding-bottom: 8px; text-align: left; white-space: normal; line-height: 1.15; }
+.crg-ev b { overflow-wrap: anywhere; }
+.crg-ev .dim { font-size: 12px; font-weight: 500; }
+.crg-lbl { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--c-ink-2); }
+.crg-fix summary { cursor: pointer; font-size: 13px; color: var(--c-ink-2); }
+.crg-fix[open] summary { margin-bottom: 8px; }
+.crg-history { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13px; }
+.crg-history li { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; padding: 6px 10px; background: var(--c-sunk); border-radius: var(--r-1); }
+.crg-h-num { font-variant-numeric: tabular-nums; color: var(--c-ink-2); }
+@media (max-width: 699px) {
+  .cr-badge { min-height: 40px; padding: 0 10px; }
+  .crb-floor, .crb-num { display: none; }
+  .crb-short { display: inline; }
+  .crg-events { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .crg-row .hint { flex-basis: 100%; }
+  /* the bar top wraps: on-air line first, then the count badge and the sound hint */
+  .sh-bar-top { flex-wrap: wrap; row-gap: 6px; }
+  .sh-bar-top .sh-onair { flex: 1 1 100%; }
+}
+@media (prefers-reduced-motion: reduce) { .cr-badge.live .skull, .crg-live.on::before { animation: none; } }

@@ -35,6 +35,9 @@ body.play { --me: var(--c-accent); padding-bottom: calc(32px + env(safe-area-ins
 .appbar-brand { font-family: var(--f-ui); font-weight: 700; font-size: 15px; white-space: nowrap; }
 .appbar-live { display: inline-flex; align-items: center; gap: 5px; font-family: var(--f-ui); font-size: 13px; color: var(--c-ink-3); }
 .appbar-live b { color: var(--c-ink-2); font-weight: 600; }
+.appbar-crawlers { display: inline-flex; align-items: center; gap: 4px; margin-left: 10px; font-family: var(--f-ui); font-size: 13px; font-variant-numeric: tabular-nums; color: var(--c-ink-2); }
+.appbar-crawlers[hidden] { display: none; }
+.appbar-crawlers .skull, .ph-crawlers .skull { color: var(--c-bad); flex: none; }
 .live-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--c-bad); }
 .app-cols { display: grid; gap: 16px; padding: 12px; }
 .app-sheet { min-width: 0; }

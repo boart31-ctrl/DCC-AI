@@ -204,7 +204,7 @@ body.preview { cursor: default; }
 .ex-feed .g { color: var(--k); width: 1.4rem; text-align: center; flex: none; }
 .ex-feed .k-loot { --k: var(--acid); }
 .ex-feed .k-sponsor { --k: var(--magenta); }
-.ex-feed .k-boss-intro, .ex-feed .k-boss-defeat, .ex-feed .k-boss-phase { --k: var(--alarm); }
+.ex-feed .k-boss-intro, .ex-feed .k-boss-defeat, .ex-feed .k-boss-phase, .ex-feed .k-crawlers { --k: var(--alarm); }
 
 /* ---------- BOSS ---------- */
 

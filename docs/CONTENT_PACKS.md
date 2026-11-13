@@ -70,6 +70,44 @@ Without a ruleset, `stats` become two-part stats (`enhanced`/`unenhanced` = `def
 value itself, and `resources` become pool tracks. `voices` are the System personalities the GM can switch live; pre-rendered audio may
 exist per voice under `audio/<voiceId>/`.
 
+### `crawlers` (optional): crawlers remaining
+
+The worldwide head count the System keeps announcing (server/crawlers.js). It is always on; this block only
+sets the numbers. Without it the engine uses a small generic world (1,000,000, 4 % attrition per hour, three
+generic events).
+
+```json
+"crawlers": {
+  "label": "Crawlers remaining",
+  "numberLine": "{count} crawlers remain.",
+  "collapseKeep": 0.3,
+  "floors": [
+    { "floor": 1, "start": 1700000000, "perHour": 0.12 },
+    { "floor": 2, "start": 690000000, "perHour": 0.1, "min": 700000000 }
+  ],
+  "events": [
+    { "id": "boss_elsewhere", "label": "Bosses fell elsewhere", "min": 0.001, "max": 0.004 },
+    { "id": "massacre", "label": "Ratings massacre", "min": 0.15, "max": 0.3, "line": "crawlers_drop" }
+  ]
+}
+```
+
+| Field | Meaning |
+|-------|---------|
+| `floors[].start` | Count when the floor begins. A floor collapse drops the count to the next floor's `start` (±3 %, never up). Unlisted floors: the last listed `start` × `collapseKeep` per floor (default 0.4). Top-level `start` = floor 1 when `floors` is empty |
+| `floors[].perHour` | Organic attrition while the show is on air: this share of the crawlers *above `min`* dies per hour of play (default top-level `perHour`, 0.04). It slows down near `min` and never crosses it |
+| `floors[].min` | Floor for organic attrition (default: the next floor's start × 1.15, or half this floor's start, whichever is higher). Never below the number of crawlers at the table |
+| `events[]` | GM buttons for big events elsewhere: each kills a random share `min`..`max` of the living (0..1). `line` = quip category of the System's lead-in (default `crawlers_drop`). Max 8 |
+| `numberLine` | What the System says after its lead-in (must contain `{count}`) |
+| `label` | HUD / takeover label |
+
+The count moves only while a TV is on air, the GM has not paused it and someone acted in the last 45 minutes
+(a campaign left alone for a week does not lose millions). Voice: a recorded lead-in from quip category
+`crawlers_remaining` (GM "Announce"), `crawlers_drop` (events) or `crawlers_collapse` (floor collapse), falling back
+to `crawlers_remaining`, then to a built-in line; a death at the table uses `death`. The number itself cannot be
+pre-recorded, so it follows as a chained line (`numberLine`, ElevenLabs / browser voice; the GM can switch it to
+"lead-in only", then the TV shows the number while the recorded line plays).
+
 ## achievements.json
 ```json
 [
@@ -275,6 +313,9 @@ Combat categories the engine plays by itself (P1, also in combat mode): `crawler
 combat ending: `combat_victory`, `combat_defeat`, `combat_runaway`, `combat_truce`, `combat_special`,
 `combat_sponsor`, `combat_timeout`, `combat_stalemate`. Keep them short (≤ 20 words): they land on a TV beat.
 
+Crawlers remaining (see `crawlers` above): `crawlers_remaining`, `crawlers_drop`, `crawlers_collapse` are lead-ins.
+The number is read out right after them, so write them to flow into "<number> crawlers remain."
+
 ## chat.json
 
 Fake audience chat for the TV ticker. Each line: `user` (≤ 40 chars), `text` (≤ 200), optional `tags` and `weight`.
@@ -292,25 +333,28 @@ Fake audience chat for the TV ticker. Each line: `user` (≤ 40 chars), `text` (
   `nat1`, `nat20`, `countdown`, `npc`, `recap`; combat auto mode `mob_hit`, `mob_miss`, `mob_crit`, `crawler_down`
   (falls back to `death`), `mob_killed`; combat endings `combat_victory`, `combat_defeat`, `combat_runaway`,
   `combat_truce`, `combat_special`, `combat_sponsor`, `combat_timeout`, `combat_stalemate`; `finale` (calm chat
-  while a finale is on the TV). Unknown tags are ignored (with a pack warning).
+  while a finale is on the TV); crawlers remaining `crawlers_count` (the System announced the count, falls back to
+  `crawlers_drop`), `crawlers_drop` (a big event elsewhere, falls back to `death`), `floor_collapse` (falls back to
+  `crawlers_drop`). Unknown tags are ignored (with a pack warning).
 - **`weight`** (positive number, default 1): how often the line is picked relative to its neighbours.
 - **Untagged lines** (the old format) are *generic*: they can appear in any calm moment, like `idle`. A pack with
   only untagged lines behaves as before, just without reaction bursts.
 - **Placeholders** in `user` or `text`: `{player}` (the crawler the moment is about, else a random crawler),
   `{boss}` (boss on the TV / in the event), `{mob}` (a revealed, living mob in the fight), `{item}` (the loot
-  item, else something a crawler carries). A line whose placeholder has no value right now is skipped.
+  item, else something a crawler carries), `{count}` (crawlers remaining, e.g. `412,345,118`), `{lost}` (crawlers
+  the event killed; crawler events only). A line whose placeholder has no value right now is skipped.
 
 How the server picks (server/chat.js):
 
 | When | What |
 |------|------|
 | Calm chat, while a TV is on | One line every few seconds for the TV scene: `lobby` 7–14 s, `idle`/blank 9–18 s, `explore` 11–21 s, `combat` 2.6–5.2 s, `boss` 3–5.5 s (`countdown`, `npc`, `loot`, `recap` in between). Lines tagged for the scene are preferred; generic / `idle` lines mix in (about a quarter of the time). Combat on the tracker counts as `combat` in any scene; a defeated boss scene as `boss_defeat`. |
-| Right after a big moment | A burst of quick lines (first within a second, then every 0.6–1.7 s) from that tag only: nat 20 (3–5), nat 1 (3–4), boss intro (`boss`, 3–5), boss phase (2–4), boss defeat (4–6), a crawler going down in the arena (`crawler_down`, else `death`, 3–5), a mob killed (`mob_killed`, 1–3), auto-mode beats timed to the TV cinematic (`mob_hit` 1–2, `mob_miss` 1–3 on a natural 1 or a miss by 5+, `mob_crit` 2–4), a combat ending (`combat_<outcome>`, 4–6), loot / sponsor box (2–3), achievement (2–4), the TV switching to a countdown or recap (1–2), combat start (2–3). Secret rolls never trigger anything. |
+| Right after a big moment | A burst of quick lines (first within a second, then every 0.6–1.7 s) from that tag only: nat 20 (3–5), nat 1 (3–4), boss intro (`boss`, 3–5), boss phase (2–4), boss defeat (4–6), a crawler going down in the arena (`crawler_down`, else `death`, 3–5), a mob killed (`mob_killed`, 1–3), auto-mode beats timed to the TV cinematic (`mob_hit` 1–2, `mob_miss` 1–3 on a natural 1 or a miss by 5+, `mob_crit` 2–4), a combat ending (`combat_<outcome>`, 4–6), loot / sponsor box (2–3), achievement (2–4), the TV switching to a countdown or recap (1–2), combat start (2–3), crawlers remaining: an event elsewhere (`crawlers_drop`, 3–5), a floor collapse (`floor_collapse`, 4–6), the count announced (`crawlers_count`, 1–2), a death at the table (`death`). Secret rolls never trigger anything. |
 | After the burst | For ~45 s calm chat sometimes keeps talking about that moment (fading out). |
 | Always | No repeats inside a recent-history window (60% of the pool, max 80 lines; small pools only block the last few). |
 
 The same moments make the audience react: boss intro +8–14% viewers, boss phase +4–8%, combat start +4–8%,
-a crawler down +5–10%, nat 20 +2–5%, nat 1 +1–3%, hits +0.2–2% (boss defeat, loot and achievements already bump
+a crawler down +5–10%, a floor collapse +8–15%, an event elsewhere +4–9%, nat 20 +2–5%, nat 1 +1–3%, hits +0.2–2% (boss defeat, loot and achievements already bump
 the count). The TV adds a small live wobble to the number, bigger in combat and boss scenes.
 
 Write original lines (no quotes from books or shows). Bursts need at least 4–6 lines per tag to feel varied;

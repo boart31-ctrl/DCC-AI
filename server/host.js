@@ -180,6 +180,7 @@ export function createHost(opts) {
     queue: voice.snapshot(),
     aiAvailable: ai.aiAvailable,
     aiCallsLeft: ai.callsLeft,
+    stageOn: stageOn(), // crawlers.js: the count only moves while a TV is on air
   });
 
   function gmExtras(v) {
@@ -335,6 +336,8 @@ export function createHost(opts) {
         tts: silent ? null : tts.playInfo(item, audio),
         ...(silent ? { silent: true } : {}),
       });
+      // A chained follow-up (crawlers.js: the number after the lead-in) is rendered while this one plays.
+      if (item.chain && !silent && tts.configured) tts.synth(item.chain.text, { voiceId: item.ttsVoice ?? null, priority: 1 }).catch(() => {});
     },
     onStop: () => toStage({ t: 'stop' }),
     onChange: () => {
@@ -355,6 +358,14 @@ export function createHost(opts) {
     return true;
   }
 
+  /** Crawlers remaining (crawlers.js): bake the organic attrition into the anchor about once a minute. */
+  function maybeCrawlersTick() {
+    const r = reduce(state, { role: 'system', t: 'crawlers.tick' }, { now: now(), pack, stageOn: true });
+    if (!r.changed) return false;
+    commit(r.state, { at: now(), by: 'system', action: null, system: true });
+    return true;
+  }
+
   function ensureShowTimers() {
     const stage = [...conns.values()].some((m) => m.role === 'stage');
     if (!stage || closed) {
@@ -366,7 +377,13 @@ export function createHost(opts) {
     if (!audienceTimer) {
       const loop = () => {
         audienceTimer = T.setTimeout(() => {
-          if (maybeAudienceTick()) scheduleViews();
+          let changed = maybeAudienceTick();
+          try {
+            if (maybeCrawlersTick()) changed = true;
+          } catch (e) {
+            log.warn?.(`[crawlers] tick failed: ${e.message}`);
+          }
+          if (changed) scheduleViews();
           loop();
         }, L.audienceTickMs);
       };
@@ -505,7 +522,7 @@ export function createHost(opts) {
   function apply(action, reducer = (st, a, ctx) => reduce(st, a, ctx), by = action.role) {
     const t = now();
     const sceneBefore = state.scene;
-    const r = reducer(state, action, { now: t, rng, pack });
+    const r = reducer(state, action, { now: t, rng, pack, stageOn: stageOn() });
     if (!r.changed) return r;
     const system = action.role === 'system';
     let next = ensureAccess(r.state, L.tokenBytes);

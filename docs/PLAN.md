@@ -41,6 +41,9 @@ lands in the repo — the site needs no API key.
 2. **TV as a directed show** — scene system controlled from the GM desk: Lobby, Exploration,
    **Boss Battle** (intro sting, boss art, name card, HP bar, phases, defeat), Loot,
    Recap, Floor countdown, big dice rolls, announcements. Neon theme switch for GM/phones.
+   *Built:* crawlers remaining (server/crawlers.js): campaign-level worldwide count in the TV HUD and on the phones,
+   slow attrition while on air, GM events elsewhere / floor collapse / deaths at the table, each a TV takeover with a
+   recorded System lead-in + the number read out, and a chat burst. Protocol: PROTOCOL.md §3d.
 3. **Bestiary + combat** — bosses, mobs, NPCs as library kinds (art, stats, HP slots, notes),
    synced combat tracker (replaces the local one), reveal-to-TV button.
    *Built (v2):* phone-first combat cards, per-mob targeting (auto / focus / spread, crawler aggro, don't target),

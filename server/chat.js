@@ -5,7 +5,7 @@
 // The host asks this module two things:
 //   ambient(state)            → the next calm line for what is on the TV right now (+ the delay after it)
 //   react(event, state)       → a burst of quick reactions to something big that just happened
-// Lines may use {player} {boss} {mob} {item}; a line whose placeholder cannot be filled from the
+// Lines may use {player} {boss} {mob} {item} {count} {lost}; a line whose placeholder cannot be filled from the
 // current state / event is skipped. A recent-history window keeps lines from repeating.
 
 export const CHAT_TAGS = [
@@ -16,9 +16,11 @@ export const CHAT_TAGS = [
   // combat endings (combat.end outcome)
   'combat_victory', 'combat_defeat', 'combat_runaway', 'combat_truce', 'combat_special',
   'combat_sponsor', 'combat_timeout', 'combat_stalemate', 'finale',
+  // crawlers remaining (crawlers.js): the System's count, a big drop somewhere, a floor collapse
+  'crawlers_count', 'crawlers_drop', 'floor_collapse',
 ];
 const TAG_SET = new Set(CHAT_TAGS);
-const PLACEHOLDER_RE = /\{(player|boss|mob|item)\}/g;
+const PLACEHOLDER_RE = /\{(player|boss|mob|item|count|lost)\}/g;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const isStr = (v) => typeof v === 'string' && v.trim().length > 0;
 
@@ -102,6 +104,10 @@ export const REACTIONS = {
   ...Object.fromEntries(['victory', 'defeat', 'runaway', 'truce', 'special', 'sponsor', 'timeout', 'stalemate'].map((o) => [
     `combat_${o}`, { tag: `combat_${o}`, alt: o === 'victory' ? 'boss_defeat' : 'combat', burst: [4, 6], viewers: o === 'victory' ? null : [0.03, 0.08] },
   ])),
+  // crawlers.js: the audience loves a body count
+  crawlers_count: { tag: 'crawlers_count', alt: 'crawlers_drop', burst: [1, 2], viewers: [0.01, 0.03] },
+  crawlers_drop: { tag: 'crawlers_drop', alt: 'death', burst: [3, 5], viewers: [0.04, 0.09] },
+  floor_collapse: { tag: 'floor_collapse', alt: 'crawlers_drop', burst: [4, 6], viewers: [0.08, 0.15] },
 };
 
 /**
@@ -137,6 +143,14 @@ export function reactionFor(e) {
     case 'sponsor': return { key: 'loot', fill };
     case 'achievement': return { key: 'achievement', fill };
     case 'npc.say': return { key: 'npc', fill };
+    case 'crawlers': {
+      const n = (x) => Math.max(0, Math.round(Number(x) || 0)).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+      const f = { ...fill, count: n(e.to), lost: e.from > e.to ? n(e.from - e.to) : '' };
+      if (e.reason === 'collapse') return { key: 'floor_collapse', fill: f };
+      if (e.reason === 'announce') return { key: 'crawlers_count', fill: f };
+      if (e.reason === 'death') return { key: 'death', fill: f };
+      return { key: 'crawlers_drop', fill: f };
+    }
     // Host-made cue (combat-auto.js): never delivered to a client, carries its own delay.
     case 'chat.cue': return REACTIONS[e.cue] ? { key: e.cue, fill: { ...fill, ...(isObj(e.fill) ? e.fill : {}) }, delayMs: Number(e.delayMs) || 0 } : null;
     // Host-made pseudo event: the TV switched to another scene.
@@ -174,6 +188,14 @@ export function fillerFor(state, rng, fill = {}) {
       const mobs = (state?.combat?.combatants || []).filter((x) => x.type === 'mob' && !x.hidden && x.name && x.hp > 0);
       return pickOne(rng, mobs)?.name || '';
     },
+    count() {
+      if (fill.count) return fill.count;
+      const c = state?.crawlers?.count;
+      return Number.isFinite(c) ? Math.round(c).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ',') : '';
+    },
+    lost() {
+      return fill.lost || '';
+    },
     item() {
       if (fill.item) return fill.item;
       const p = fill.playerId && players.find((x) => x.id === fill.playerId);
@@ -198,7 +220,7 @@ export function fillText(text, value) {
   return ok ? out : null;
 }
 
-const needs = (line) => /\{(player|boss|mob|item)\}/.test(line.user + line.text);
+const needs = (line) => /\{(player|boss|mob|item|count|lost)\}/.test(line.user + line.text);
 
 // ---------- director ----------
 

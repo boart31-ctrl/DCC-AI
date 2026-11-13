@@ -16,6 +16,7 @@ import { createScenes } from './gm-scenes.js';
 import { createSound } from './gm-sound.js';
 import { createCombatSfx } from './combat-sfx.js';
 import { createNpcs } from './gm-npcs.js';
+import { createCrawlers } from './gm-crawlers.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -129,6 +130,7 @@ function render() {
   combatSfx?.view(view);
   combat.update(view);
   npcs.update(view);
+  crawlers.update(view);
   scenes.update(view);
   sound.update(view);
   rewards.update(view);
@@ -789,7 +791,7 @@ function renderAudience() {
   $('#sponsor-ready').hidden = !(view.gm?.sponsorReady || a.sponsorReady);
 }
 
-const KIND_GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', secret: '✉', stat: '±', level: '▲' };
+const KIND_GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', secret: '✉', stat: '±', level: '▲', crawlers: '☠' };
 function renderFeed() {
   const feed = [...(view.feed || [])].reverse().slice(0, 30);
   $('#feed').replaceChildren(...(feed.length ? feed.map((e) => h('li',
@@ -1015,7 +1017,9 @@ const campaignBox = $('#view-campaign');
 campaignBox.hidden = false;
 campaignBox.classList.remove('gm-view');
 campaignBox.prepend(h('h2.desk-sec', 'Campaign'));
-scenes.mountInto($('#view-show'), { fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox });
+// Crawlers remaining (gm-crawlers.js): a live badge in the Show bar + the Crawlers tool.
+const crawlers = createCrawlers({ act, getView: () => view, open: () => { showView('show'); scenes.pick('crawlers'); } });
+scenes.mountInto($('#view-show'), { fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge });
 const rewards = createRewards();
 $('#view-rewards').append(rewards.el);
 

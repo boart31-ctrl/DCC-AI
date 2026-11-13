@@ -3,6 +3,7 @@
 import { normalizeChatLines } from './chat.js';
 import { STANDARD_CATEGORIES } from './constants.js';
 import { normalizeRuleset, normalizeLibEntry, LIB_KINDS } from './ruleset.js';
+import { normalizeCrawlersConfig } from './crawlers.js';
 
 export { STANDARD_CATEGORIES };
 
@@ -116,6 +117,7 @@ function loadMeta(raw, warnings) {
     systemName: isStr(raw.systemName) ? raw.systemName : 'The System',
     notifyPrefix: isStr(raw.notifyPrefix) ? raw.notifyPrefix.trim().slice(0, 60) : '',
     theme: loadTheme(raw.theme, warnings),
+    crawlers: normalizeCrawlersConfig(raw.crawlers, warnings), // crawlers.js: worldwide head count
     lootTiers,
     audience: { startViewers, sponsorHypeThreshold },
     autoBudget,
@@ -606,7 +608,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'ui'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'ui', 'crawlers'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -639,6 +641,7 @@ export function deserializePack(data) {
   }
   pack.library = lib;
   pack.theme = THEMES.includes(d.theme) ? d.theme : null;
+  pack.crawlers = normalizeCrawlersConfig(d.crawlers ?? null);
   pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
   pack.ui = isObj(d.ui) ? structuredClone(d.ui) : null; // already normalized URLs (built by normalizePack)
   pack.items = pack.items.map((it) => ({ tags: [], slot: null, stackable: false, effects: [], attack: null, use: null, source: 'pack', ...it }));
@@ -657,6 +660,7 @@ export function fallbackPack() {
     notifyPrefix: '',
     theme: null,
     ui: null,
+    crawlers: normalizeCrawlersConfig(null),
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },
     autoBudget: 6,

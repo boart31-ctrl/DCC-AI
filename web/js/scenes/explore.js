@@ -2,7 +2,7 @@
 import { h, partyStrip } from './common.js';
 import { uiOf, floorBg, assetSrc } from '../ui-art.js';
 
-const GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', stat: '±', 'boss.intro': '☠', 'boss.defeat': '✸', 'boss.phase': '▲' };
+const GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', stat: '±', 'boss.intro': '☠', 'boss.defeat': '✸', 'boss.phase': '▲', crawlers: '☠' };
 
 export default function explore(root, sc, env) {
   const bg = h('div.ex-bg');

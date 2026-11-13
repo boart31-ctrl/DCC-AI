@@ -88,12 +88,15 @@ export class VoiceQueue {
     this.seq = 0;
   }
 
-  _item({ priority, text, quipId = null, crit = false, cue = null, ttsVoice = null }) {
+  _item({ priority, text, quipId = null, crit = false, cue = null, ttsVoice = null, chain = null }) {
     const at = this.now();
     const item = { id: this.genId('q'), priority, text, quipId, crit: !!crit, createdAt: at, seq: this.seq++ };
     // Voice extras (tts-host.js): the event a line belongs to, and an ElevenLabs voice override.
     if (cue) item.cue = cue;
     if (ttsVoice) item.ttsVoice = ttsVoice;
+    // A line that follows this one straight away (crawlers.js: recorded lead-in, then the number read out).
+    // It skips the queue and the mode gates; a P0 that interrupts the first line drops it too.
+    if (chain && typeof chain.text === 'string' && chain.text) item.chain = chain;
     return item;
   }
 
@@ -165,8 +168,10 @@ export class VoiceQueue {
   /** Stage finished a line. Unknown/old ids are ignored (returns false). */
   done(id) {
     if (!this.playing || this.playing.id !== id) return false;
+    const chain = this.playing.chain;
     this.playing = null;
-    this._release();
+    if (chain) this._start(this._item({ ...chain, priority: chain.priority ?? 0 }));
+    else this._release();
     this.onChange();
     return true;
   }
@@ -182,7 +187,9 @@ export class VoiceQueue {
     const now = this.now();
     let changed = false;
     if (this.playing && now - this.playing.startedAt > PLAYING_TIMEOUT_MS) {
+      const chain = this.playing.chain;
       this.playing = null;
+      if (chain) this._start(this._item({ ...chain, priority: chain.priority ?? 0 })); // the subtitle still shows it
       changed = true;
     }
     const due = this.pending.filter((p) => p.playsAt <= now);

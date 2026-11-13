@@ -35,3 +35,4 @@ export { evaluate, rollDice, diceText, validateFormula, parseFormula, objectReso
 export { normalizeRuleset, computeSheet, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, LIB_KINDS, EFFECT_WHENS } from './ruleset.js';
 export { PLAYER_EDIT, MAX_ROLLS, VIEW_ROLLS, rollsFor } from './character.js';
 export { genId, makeToken, makeRoomCode, makePin, randInt } from './random.js';
+export { crawlersAt, crawlersLive, crawlersView, decay, floorRule, fmtCount, normalizeCrawlersConfig, TICK_MS as CRAWLERS_TICK_MS } from './crawlers.js';

@@ -12,6 +12,7 @@ import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView
 import { COMBAT_GM, initCombat, normalizeCombat, combatView } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import { LOOT_GM, normalizeDrops } from './loot.js';
+import { CRAWLERS_GM, CRAWLERS_SYSTEM, initCrawlers, normalizeCrawlers, crawlersView } from './crawlers.js';
 import {
   SHEET, SHEET_GM, normalizeLibArt, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS,
@@ -77,6 +78,7 @@ export function createState(pack, now = Date.now()) {
     combatLog: [], // combat-auto.js: one summary per finished fight (this session), for the recap
     drops: [], // loot.js: piles from looted bodies, handed out by the GM
     show: initShow(),
+    crawlers: initCrawlers(pack, now), // crawlers.js: worldwide head count (campaign-level, kept by session.new)
   };
 }
 
@@ -108,6 +110,7 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.show = normalizeShow(raw.show);
   s.combat = normalizeCombat(raw.combat);
   s.drops = normalizeDrops(raw.drops);
+  s.crawlers = normalizeCrawlers(raw.crawlers, pack, now);
   s.combatLog = Array.isArray(raw.combatLog) ? raw.combatLog.filter((x) => x && typeof x === 'object').slice(-MAX_COMBAT_LOG) : [];
   s.players = (Array.isArray(raw.players) ? raw.players : []).map((p, i) => {
     // Pre-messaging saves stored private messages on the player; move them into state.messages.
@@ -592,7 +595,7 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, AUTO_GM, LOOT_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
@@ -619,6 +622,8 @@ const SYSTEM = {
     out.changed = true;
   },
 };
+
+Object.assign(SYSTEM, CRAWLERS_SYSTEM);
 
 export const GM_ACTIONS = Object.keys(GM);
 export const PLAYER_ACTIONS = Object.keys(PLAYER);
@@ -742,7 +747,7 @@ function common(state, pack, opts) {
 
 /**
  * Role-filtered snapshot. opts: { now, connected:Set<playerId>, playerId, urls:{join,stage,gm},
- * queue:{queue,pendingAuto,playing}, aiAvailable, aiCallsLeft }
+ * queue:{queue,pendingAuto,playing}, aiAvailable, aiCallsLeft, stageOn (crawler count interpolation; default true) }
  */
 export function viewFor(state, pack, role, opts = {}) {
   const now = opts.now ?? Date.now();
@@ -751,6 +756,7 @@ export function viewFor(state, pack, role, opts = {}) {
   const library = libraryOf(state, pack);
   v.rolls = rollsFor(state, role, opts.playerId);
   v.combat = combatView(state, pack, role);
+  v.crawlers = crawlersView(state, pack, role, now, opts.stageOn !== false);
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;

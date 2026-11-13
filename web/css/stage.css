@@ -149,6 +149,7 @@ body.stage::before {
 .feed .k-loot { --k: var(--acid); }
 .feed .k-sponsor { --k: var(--magenta); }
 .feed .k-achievement { --k: var(--cyan); }
+.feed .k-crawlers { --k: var(--alarm); }
 @keyframes feedin { from { transform: translateX(-3rem); opacity: 0; } }
 
 /* ---------- Join corner ---------- */
@@ -583,3 +584,63 @@ body.recap-on .subtitle { display: none; } /* the recap text is already on scree
 .lt-items li.taken .lt-nm { opacity: 0.6; }
 .lt-more { margin: 0; font-size: 1.3rem; color: #9a8fb8; }
 @media (prefers-reduced-motion: reduce) { .loot-tray { transition: opacity 0.3s; transform: translate3d(-50%, 0, 0); } }
+
+/* ---------- Crawlers remaining (server/crawlers.js): HUD counter in the bug + takeover ---------- */
+
+.crawlers {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.25rem 1.1rem 0.25rem 0.8rem;
+  border-left: 3px solid var(--alarm);
+  background: linear-gradient(90deg, rgba(255, 36, 72, 0.16), transparent);
+  transform: skewX(var(--slant));
+}
+.crawlers > * { transform: skewX(calc(-1 * var(--slant))); }
+.crawlers[hidden] { display: none; }
+.cr-ico { display: grid; color: var(--alarm); filter: drop-shadow(0 0 10px var(--alarm)); }
+.crawlers.live .cr-ico { animation: crpulse 2.4s ease-in-out infinite; }
+@keyframes crpulse { 50% { opacity: 0.55; } }
+.cr-num {
+  font-family: var(--f-display);
+  font-stretch: condensed;
+  font-weight: 900;
+  font-size: 2.7rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 0 18px rgba(255, 36, 72, 0.55);
+}
+.cr-meta { display: grid; line-height: 1.05; }
+.cr-label { color: var(--ink-dim); font-size: 1.1rem; }
+.cr-floor { font-family: var(--f-mono); font-weight: 800; font-size: 1rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--alarm); }
+.cr-delta { left: auto; right: 0.8rem; top: 100%; margin-top: 0.2rem; font-size: 1.3rem; }
+.crawlers.hit { animation: crhit 0.9s var(--ease-out); }
+.crawlers.hit .cr-num { animation: crflash 0.9s var(--ease-out); }
+@keyframes crhit { 15% { transform: skewX(var(--slant)) translateX(-8px); } 30% { transform: skewX(var(--slant)) translateX(7px); } 45% { transform: skewX(var(--slant)) translateX(-4px); } 60% { transform: skewX(var(--slant)) translateX(2px); } }
+@keyframes crflash { 0%, 40% { color: var(--alarm); text-shadow: 0 0 30px var(--alarm); } }
+/* the bug gets busy with a ten-digit count: the hype bar gives way */
+body.has-crawlers .bug { gap: 1.2rem; }
+body.has-crawlers .hype { width: 20rem; }
+.logo-text, .cr-label { white-space: nowrap; }
+
+.m-crawlers.sys { --sys-accent: var(--alarm); align-items: center; text-align: center; padding: 2.6rem 2.4rem 2.2rem; }
+.crm-label { margin: 0; font-family: var(--f-mono); font-weight: 700; font-size: 1.6rem; letter-spacing: 0.3em; text-transform: uppercase; color: var(--sys-ink); }
+.crm-num {
+  margin: 0.4rem 0 0.2rem;
+  font-family: var(--f-display);
+  font-stretch: condensed;
+  font-weight: 900;
+  font-size: 8.5rem;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+  color: #fff;
+  text-shadow: 0 0 40px var(--glow, var(--alarm)), 4px 4px 0 var(--alarm);
+}
+.crm-num.done { animation: slam 0.45s var(--ease-slam); }
+.crm-loss { margin: 0; min-height: 1.2em; font-family: var(--f-mono); font-weight: 800; font-size: 2.2rem; color: var(--alarm); text-shadow: 0 0 20px var(--alarm); animation: slam 0.45s var(--ease-slam) both; }
+.crm-floor { margin: 1rem 0 0; font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-style: italic; font-size: 3rem; color: var(--acid); text-shadow: 0 0 24px var(--acid); }
+@media (prefers-reduced-motion: reduce) {
+  .crawlers.live .cr-ico, .crawlers.hit, .crawlers.hit .cr-num { animation: none; }
+}

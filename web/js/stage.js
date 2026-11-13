@@ -8,6 +8,7 @@ import { createVoicePlayer, createSubtitleOnly, createCueGate } from './voice.js
 import { createShowAudio } from './show-audio.js';
 import { createTicker } from './ticker.js';
 import { uiOf, uiAsset, artEl, assetSrc, cornerFrame, mascotEl, setSpeaking, slug, preloadFor } from './ui-art.js';
+import { crawlerClock, fmtFull, countDown, skullSvg } from './crawlers.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const client = new TransportHub();
@@ -71,6 +72,7 @@ function render() {
     $('#qr').alt = `QR code: ${url}`;
   }
   setViewers(view.audience?.viewers ?? 0);
+  renderCrawlers();
   maybeRecap(view.recap);
   const hype = Math.max(0, Math.min(1, Number(view.audience?.hype) || 0));
   $('#hype').style.width = `${hype * 100}%`;
@@ -136,6 +138,52 @@ function wobble() {
 }
 setTimeout(wobble, 3000);
 
+/* ---------- crawlers remaining (server/crawlers.js): HUD counter that rolls down live ---------- */
+
+const crClock = crawlerClock();
+let crShown = null;
+let crHold = null; // a takeover is about to count a drop down: the HUD waits for it
+$('#cr-ico').append(skullSvg(30));
+function renderCrawlers() {
+  const c = view.crawlers;
+  crClock.set(c);
+  const box = $('#crawlers');
+  box.hidden = !c || c.shown === false;
+  document.body.classList.toggle('has-crawlers', !box.hidden);
+  if (!c) return;
+  $('#cr-label').textContent = String(c.label || 'Crawlers remaining').toLowerCase();
+  $('#cr-floor').textContent = c.floor ? `Floor ${c.floor}` : '';
+  box.classList.toggle('live', !!c.live);
+  tickCrawlers();
+}
+function tickCrawlers() {
+  if (!view?.crawlers) return;
+  const v = crHold ?? crClock.value();
+  if (v === crShown) return;
+  crShown = v;
+  $('#cr-num').textContent = fmtFull(v);
+}
+setInterval(tickCrawlers, 250);
+/** The HUD takes a hit: red flash, shake, "−N" floating off. */
+function crawlersHit(lost) {
+  const box = $('#crawlers');
+  if (lost > 0) {
+    const el = $('#cr-delta');
+    el.textContent = `−${fmtFull(lost)}`;
+    el.classList.add('neg');
+    el.classList.remove('go'); void el.offsetWidth; el.classList.add('go');
+  }
+  if (reduced) return;
+  box.classList.remove('hit'); void box.offsetWidth; box.classList.add('hit');
+}
+function onCrawlers(e) {
+  if (!e.moment) { crawlersHit(e.from - e.to); if (e.playerId) flashPlayer(e.playerId); return; }
+  if (e.from !== e.to) crHold = e.from;
+  cueGate.hold(e, () => { momentQ.push(e); if (!momentBusy) nextMoment(); }, !audioHere());
+  // Safety: never keep the HUD frozen if the moment never shows (e.g. a long queue).
+  setTimeout(() => { if (crHold === e.from) { crHold = null; tickCrawlers(); } }, 30_000);
+}
+
 let stripSig = '';
 function renderStrip() {
   const ps = view.players || [];
@@ -153,7 +201,7 @@ function renderStrip() {
   )));
 }
 
-const GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', stat: '±' };
+const GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', stat: '±', crawlers: '☠' };
 let feedSig = '';
 function renderFeed() {
   const feed = (view.feed || []).slice(-7);
@@ -213,6 +261,7 @@ function onEvent(e) {
       break;
     case 'stat': flashPlayer(e.playerId); break;
     case 'loot.drop': lootTray(e); break;
+    case 'crawlers': onCrawlers(e); break;
     case 'loot.take': lootTaken(e); break;
     case 'announcement':
       cueGate.hold(e, () => { momentQ.push({ ...e, kind: 'announcement' }); if (!momentBusy) nextMoment(); }, !audioHere());
@@ -311,6 +360,8 @@ function nextMoment() {
       scroll.scrollTop = 0;
       autoScroll(scroll, hold - 700 - typeMs, 1500);
     });
+  } else if (e.kind === 'crawlers') {
+    hold = crawlersMoment(el, e);
   } else if (e.kind === 'announcement') {
     el.style.setProperty('--glow', 'var(--magenta)');
     const text = e.text || '';
@@ -411,6 +462,41 @@ function nextMoment() {
     el.classList.add('out');
     setTimeout(nextMoment, 500);
   }, hold);
+}
+
+/** Crawlers remaining takeover: the number counts down from → to, then the losses. Returns the hold (ms). */
+const CR_HEAD = { collapse: 'FLOOR COLLAPSE', announce: 'CRAWLER COUNT', death: 'CASUALTY' };
+function crawlersMoment(el, e) {
+  const sys = (view?.pack?.systemName || 'The System').toUpperCase();
+  const lost = Math.max(0, e.from - e.to);
+  const big = e.from > 0 && lost / e.from >= 0.05;
+  el.style.setProperty('--glow', e.reason === 'announce' ? 'var(--cyan)' : 'var(--alarm)');
+  const num = h('p.crm-num', fmtFull(e.from));
+  const loss = h('p.crm-loss', lost
+    ? `−${fmtFull(lost)} crawlers${e.from ? ` (−${(lost / e.from * 100).toFixed(lost / e.from < 0.01 ? 2 : 1)} %)` : ''}`
+    : e.reason === 'announce' ? `Floor ${e.floor}` : '');
+  loss.style.visibility = 'hidden';
+  el.replaceChildren(h('div.m-inner',
+    h('p.m-prefix', e.reason === 'collapse' ? e.label : e.reason === 'announce' ? 'Attention, crawlers' : e.label || 'Casualties'),
+    h('div.sys.m-ann.m-crawlers', { 'data-head': `${sys} // ${CR_HEAD[e.reason] || 'CASUALTY REPORT'}` },
+      h('p.crm-label', e.labelText || 'Crawlers remaining'),
+      num,
+      loss,
+      e.reason === 'collapse' ? h('p.crm-floor', `Welcome to floor ${e.floor}`) : null,
+    ),
+    reduced || !big ? null : h('div.m-shock'),
+  ), mascotEl(uiOf(view), 'announcement', 'ua-mascot m-mascot'));
+  if (!reduced && big) el.classList.add('shake');
+  const startAt = reduced ? 0 : 900;
+  const dur = reduced || !lost ? 0 : Math.min(3200, 1400 + Math.log10(lost + 1) * 200);
+  setTimeout(() => countDown(e.from, e.to, dur, (v) => { num.textContent = fmtFull(v); }, () => {
+    loss.style.visibility = '';
+    num.classList.add('done');
+    crHold = null;
+    tickCrawlers();
+    crawlersHit(lost);
+  }), startAt);
+  return startAt + dur + (e.reason === 'collapse' ? 6500 : 5000);
 }
 
 /** Sponsor emblem from ui.json sponsors: key = slug of the sponsor name, or an entry whose name matches. */

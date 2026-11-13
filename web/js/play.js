@@ -7,6 +7,7 @@ import { openBuilder } from './builder.js';
 import { createDiceLog, showRollCard } from './dicelog.js';
 import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme } from './ui.js';
 import { playerEditLevel } from './rules.js';
+import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -259,7 +260,8 @@ const sheet = createSheet({
   onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act, allowOrigins: !!view?.session?.permissions?.allowOrigins }),
   // Phones: app layout (sticky crawler bar, section tabs); the app bar items move into the menu.
   phone: () => phoneMq.matches,
-  top: () => h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
+  top: () => [h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
+    h('span.ph-crawlers.js-crawlers', { 'data-fmt': 'compact', title: 'Crawlers still alive in the dungeon' })],
   moreItems: () => [
     { icon: 'dice', label: 'Dice log', sub: 'Every roll at the table', onClick: () => setLogOpen(true) },
     { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
@@ -307,6 +309,8 @@ function render() {
   document.title = `${me.sheet?.identity?.name || me.name} · ${sysName()}`;
   $('#brand').textContent = sysName();
   $('#viewers').textContent = fmtNum(view.audience?.viewers ?? 0);
+  crClock.set(view.crawlers);
+  tickCrawlers();
   applyAccent(view.pack);
   applyPackTheme(view.pack?.theme);
   drawTheme();
@@ -315,6 +319,24 @@ function render() {
   renderLog();
   renderTicker();
 }
+
+/* ---------- crawlers remaining (server/crawlers.js): small, live, in the app bar ---------- */
+
+const crClock = crawlerClock();
+function tickCrawlers() {
+  const c = crClock.data;
+  const on = !!c && c.shown !== false;
+  const v = on ? crClock.value() : 0;
+  for (const el of document.querySelectorAll('.js-crawlers')) {
+    el.hidden = !on;
+    if (!on) continue;
+    const text = el.dataset.fmt === 'compact' ? `${fmtCompact(v)} left` : `${fmtFull(v)} crawlers left`;
+    if (el.dataset.text === text) continue;
+    el.dataset.text = text;
+    el.replaceChildren(skullSvg(12), text);
+  }
+}
+setInterval(tickCrawlers, 1000);
 
 /* ---------- first visit: friendly start instead of an empty sheet ---------- */
 
