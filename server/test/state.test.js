@@ -273,7 +273,7 @@ test('msg.send to all: group message, event to gm+players, announcement only wit
   assert.deepEqual(r.events[0].to, { roles: ['gm', 'player'] });
   assert.deepEqual(
     (({ at, ...rest }) => rest)(r.events[0].event),
-    { kind: 'message', id: m.id, group: true, from: 'The System', to: 'all' },
+    { kind: 'message', id: m.id, group: true, from: 'The System', fromId: 'gm', to: 'all', thread: 'all' },
   );
   assert.deepEqual(r.events[1].to, { roles: ['stage'] });
   assert.equal(r.events[1].event.text, 'Floor 2 opens');
@@ -328,15 +328,15 @@ test('secret.read marks private and group messages read per player', () => {
   assert.throws(() => reduce(s, { role: 'player', actorId: b, t: 'secret.read', id: pid }, ctx()), (e) => e.code === 'not_found');
 });
 
-test('messages capped at 200 in state, gm view shows last 50', () => {
+test('messages capped at 400 in state, gm view shows last 200', () => {
   const { state, a } = twoPlayers();
   let s = state;
-  for (let i = 0; i < 205; i++) s = gm(s, { t: 'msg.send', to: [a], text: `m${i}` }).state;
-  assert.equal(s.messages.length, 200);
+  for (let i = 0; i < 405; i++) s = gm(s, { t: 'msg.send', to: [a], text: `m${i}` }).state;
+  assert.equal(s.messages.length, 400);
   assert.equal(s.messages[0].text, 'm5');
   const gv = viewFor(s, pack, 'gm', {});
-  assert.equal(gv.gm.messages.length, 50);
-  assert.equal(gv.gm.messages[49].text, 'm204');
+  assert.equal(gv.gm.messages.length, 200);
+  assert.equal(gv.gm.messages[199].text, 'm404');
   assert.deepEqual(gv.gm.messages[0].to, [a]);
 });
 

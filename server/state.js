@@ -24,8 +24,12 @@ export const FEED_SIZE = 30;
 export const MAX_PREP_CARDS = 100;
 export const MAX_RECAP = 4000;
 export const PREP_KINDS = { achievement: 'ach.award', loot: 'loot.open', message: 'msg.send', line: 'say' };
-export const MAX_MESSAGES = 200;
-export const GM_MESSAGES = 50;
+export const MAX_MESSAGES = 400;
+export const GM_MESSAGES = 200;
+export const PLAYER_MESSAGES = 120;
+// Reactions when the pack's ui.json has none: rendered as emoji by the clients.
+export const DEFAULT_REACTIONS = ['like', 'lol', 'love', 'wow', 'sad', 'fire', 'skull', 'party'];
+const MAX_REACTORS = 40;
 export const MAX_PLAYERS = 12;
 export const HYPE_WINDOW_MS = 5 * 60_000;
 export const HYPE_FULL = 0.5; // sum of recent viewer bumps (as fraction) that equals hype 1.0
@@ -128,8 +132,10 @@ export function normalizeState(raw, pack, now = Date.now()) {
       sheet: migrateSheet(p.sheet, { stats, resources }, pack.ruleset),
     };
   });
+  s.messages = s.messages.filter((m) => m && typeof m === 'object' && typeof m.id === 'string').map(normalizeMessage);
   s.messages.sort((a, b) => a.at - b.at);
   s.messages = s.messages.slice(-MAX_MESSAGES);
+  s.session.chatPlayers = s.session.chatPlayers !== false;
   return s;
 }
 
@@ -443,21 +449,41 @@ const GM = {
       id: ctx.genId('m'),
       at: ctx.now,
       from: str(a.from, 'from', 60, { optional: true }) ?? ctx.pack.systemName,
-      text: str(a.text, 'text', 1000),
+      ...msgBody(a, ctx.pack),
       to,
       onStage: !!a.onStage && isGroup(to),
       readBy: [],
+      fromId: 'gm',
+      reactions: {},
+      gmRead: true,
     };
-    st.messages.push(msg);
-    if (st.messages.length > MAX_MESSAGES) st.messages = st.messages.slice(-MAX_MESSAGES);
+    pushMessage(st, msg, out);
     const group = isGroup(to);
-    const recipients = to === 'all' ? { roles: ['gm', 'player'] } : { roles: ['gm'], playerIds: to };
-    out.emit({ kind: 'message', id: msg.id, group, from: msg.from, to }, recipients);
     // The message id doubles as the event envelope id (it is unique per send).
     // Legacy event kept for clients written against the original `secret.send` protocol.
     if (!group) out.emit({ kind: 'secret', playerId: to[0], messageId: msg.id }, { roles: ['gm'], playerId: to[0] });
     if (msg.onStage) out.emit({ kind: 'announcement', messageId: msg.id, from: msg.from, text: msg.text }, { roles: ['stage'] });
     out.result = { id: msg.id };
+  },
+
+  /** Message centre: react (toggle) as the GM. */
+  'msg.react'(st, a, ctx) {
+    toggleReaction(st, ctx, a, 'gm', () => true);
+  },
+  /** The GM has seen a conversation (unread badges on the desk). */
+  'msg.gmRead'(st, a) {
+    if (typeof a.thread !== 'string') throw bad('thread required');
+    for (const m of st.messages) if (!m.gmRead && threadOf(m.to) === a.thread) m.gmRead = true;
+  },
+  'msg.delete'(st, a) {
+    const i = st.messages.findIndex((x) => x.id === a.id);
+    if (i < 0) throw notFound(`no message ${a.id}`);
+    st.messages.splice(i, 1);
+  },
+  /** Can crawlers write (to the GM, the party, each other)? */
+  'msg.players'(st, a) {
+    if (typeof a.on !== 'boolean') throw bad('on must be a boolean');
+    st.session.chatPlayers = a.on;
   },
 
   'secret.send'(st, a, ctx, out) {
@@ -566,6 +592,59 @@ const GM = {
   },
 };
 
+/** Older saves: no author id (the GM wrote them all), no reactions, no sticker. */
+function normalizeMessage(m) {
+  const reactions = {};
+  if (m.reactions && typeof m.reactions === 'object' && !Array.isArray(m.reactions)) {
+    for (const [k, v] of Object.entries(m.reactions)) if (/^[a-z0-9_]{1,40}$/.test(k) && Array.isArray(v) && v.length) reactions[k] = v.filter((x) => typeof x === 'string').slice(0, MAX_REACTORS);
+  }
+  return {
+    ...m,
+    at: Number.isFinite(m.at) ? m.at : 0,
+    text: typeof m.text === 'string' ? m.text : '',
+    to: m.to === 'all' || Array.isArray(m.to) ? m.to : [],
+    readBy: Array.isArray(m.readBy) ? m.readBy : [],
+    fromId: typeof m.fromId === 'string' ? m.fromId : 'gm',
+    icon: typeof m.icon === 'string' ? m.icon : null,
+    reactions,
+    gmRead: m.gmRead !== false,
+  };
+}
+
+/** Conversation key: 'all', or the sorted crawler ids in it (the GM is in every conversation). */
+export function threadOf(to) {
+  return to === 'all' ? 'all' : [...to].sort().join(',');
+}
+function reactionIds(pack) {
+  const r = pack.ui?.reactions;
+  return r && Object.keys(r).length ? Object.keys(r) : DEFAULT_REACTIONS;
+}
+function stickerOk(pack, id) {
+  return id == null || (typeof id === 'string' && !!pack.ui?.stickers && Object.hasOwn(pack.ui.stickers, id));
+}
+function msgBody(a, pack) {
+  const icon = a.icon == null || a.icon === '' ? null : a.icon;
+  if (!stickerOk(pack, icon)) throw bad('unknown sticker');
+  const text = a.text == null ? '' : str(a.text, 'text', 1000, { allowEmpty: true });
+  if (!text.trim() && !icon) throw bad('text or sticker required');
+  return { text, icon };
+}
+function toggleReaction(st, ctx, a, who, canSee) {
+  const m = st.messages.find((x) => x.id === a.id);
+  if (!m || !canSee(m)) throw notFound(`no message ${a.id}`);
+  if (typeof a.r !== 'string' || !reactionIds(ctx.pack).includes(a.r)) throw bad('unknown reaction');
+  const list = m.reactions[a.r] ?? [];
+  m.reactions[a.r] = list.includes(who) ? list.filter((x) => x !== who) : [...list, who].slice(-MAX_REACTORS);
+  if (!m.reactions[a.r].length) delete m.reactions[a.r];
+}
+function pushMessage(st, msg, out) {
+  st.messages.push(msg);
+  if (st.messages.length > MAX_MESSAGES) st.messages = st.messages.slice(-MAX_MESSAGES);
+  const group = isGroup(msg.to);
+  const recipients = msg.to === 'all' ? { roles: ['gm', 'player'] } : { roles: ['gm'], playerIds: msg.to };
+  out.emit({ kind: 'message', id: msg.id, group, from: msg.from, fromId: msg.fromId, to: msg.to, thread: threadOf(msg.to) }, recipients);
+}
+
 // Group = everyone, or more than one named recipient.
 function isGroup(to) {
   return to === 'all' || to.length > 1;
@@ -587,6 +666,32 @@ const PLAYER = {
     const m = st.messages.find((x) => x.id === a.id && addressedTo(x, p.id));
     if (!m) throw notFound(`no message ${a.id}`);
     if (!m.readBy.includes(p.id)) m.readBy.push(p.id);
+  },
+  /**
+   * Message centre, crawler side. to: 'all' (the whole party) or crawler ids; the writer is always in the
+   * conversation and the GM sees every one ([] = just me and the GM).
+   */
+  'msg.post'(st, a, ctx, out) {
+    const p = playerOf(st, a.actorId);
+    if (st.session.chatPlayers === false) throw bad('The GM has paused crawler messages');
+    let to;
+    if (a.to === 'all') to = 'all';
+    else if (Array.isArray(a.to) && a.to.length <= MAX_PLAYERS) to = [...new Set([p.id, ...a.to.map((id) => playerOf(st, id).id)])];
+    else throw bad("to must be 'all' or an array of playerIds");
+    const recent = st.messages.filter((m) => m.fromId === p.id && ctx.now - m.at < 10_000).length;
+    if (recent >= 8) throw bad('Slow down a little');
+    pushMessage(st, { id: ctx.genId('m'), at: ctx.now, from: p.name, ...msgBody(a, ctx.pack), to, onStage: false, readBy: [p.id], fromId: p.id, reactions: {}, gmRead: false }, out);
+    out.result = { id: st.messages[st.messages.length - 1]?.id };
+  },
+  'msg.react'(st, a, ctx) {
+    const p = playerOf(st, a.actorId);
+    toggleReaction(st, ctx, a, p.id, (m) => addressedTo(m, p.id));
+  },
+  /** Marks a whole conversation read. */
+  'msg.read'(st, a) {
+    const p = playerOf(st, a.actorId);
+    if (typeof a.thread !== 'string') throw bad('thread required');
+    for (const m of st.messages) if (addressedTo(m, p.id) && threadOf(m.to) === a.thread && !m.readBy.includes(p.id)) m.readBy.push(p.id);
   },
   'me.notes'(st, a, ctx) {
     requireNotes(st, ctx);
@@ -691,7 +796,11 @@ const categoryLabel = (id) => CATEGORY_LABELS[id] ?? (id.charAt(0).toUpperCase()
 function messagesFor(state, playerId) {
   return state.messages
     .filter((m) => addressedTo(m, playerId))
-    .map((m) => ({ id: m.id, at: m.at, from: m.from, text: m.text, group: isGroup(m.to), read: m.readBy.includes(playerId) }));
+    .slice(-PLAYER_MESSAGES)
+    .map((m) => ({
+      id: m.id, at: m.at, from: m.from, fromId: m.fromId, text: m.text, icon: m.icon, to: m.to, thread: threadOf(m.to),
+      reactions: m.reactions, group: isGroup(m.to), read: m.readBy.includes(playerId),
+    }));
 }
 
 function fullPlayer(state, p, pack, library) {
@@ -704,7 +813,7 @@ function fullPlayer(state, p, pack, library) {
     stats, resources, gold: p.gold, notes: p.notes,
     inventory: enrichInventory(p.inventory, library), achievements: p.achievements,
     sheet,
-    secrets: messages.filter((m) => !m.group).map(({ group, ...m }) => m),
+    secrets: messages.filter((m) => !m.group).map(({ id, at, from, text, read }) => ({ id, at, from, text, read })), // legacy shape
     messages,
   };
 }
@@ -714,7 +823,7 @@ function common(state, pack, opts) {
   return {
     room: state.room,
     session: {
-      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, budgetLeft: s.budgetLeft, voice: s.voice,
+      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, budgetLeft: s.budgetLeft, voice: s.voice, chatPlayers: s.chatPlayers !== false,
       permissions: { playerEdit: s.permissions?.playerEdit ?? 'sheet' },
     },
     pack: {
@@ -775,8 +884,8 @@ export function viewFor(state, pack, role, opts = {}) {
       playersFull: state.players.map((p) => ({ ...fullPlayer(state, p, pack, library), userId: p.userId ?? null })),
       prepCards: state.prepCards,
       messages: state.messages.slice(-GM_MESSAGES).map((m) => ({
-        id: m.id, at: m.at, from: m.from, text: m.text, to: m.to,
-        group: isGroup(m.to), onStage: m.onStage, readBy: m.readBy,
+        id: m.id, at: m.at, from: m.from, fromId: m.fromId, text: m.text, icon: m.icon, to: m.to, thread: threadOf(m.to),
+        group: isGroup(m.to), onStage: m.onStage, readBy: m.readBy, reactions: m.reactions, gmRead: m.gmRead,
       })),
       quipCategories: cats.map((id) => ({
         id,

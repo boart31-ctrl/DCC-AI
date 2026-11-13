@@ -499,6 +499,8 @@ const UI_SECTIONS = {
   empty: 1, // empty-state spots
   avatars: 1, // picker for crawlers without a photo
   anim: 1, // other animations (ambience props, ...)
+  reactions: 1, // message centre: reaction id → icon (+ name); replaces the emoji set
+  stickers: 1, // message centre: sticker id → picture a message can carry
 };
 export const UI_SECTION_NAMES = Object.keys(UI_SECTIONS);
 const UI_MAX = 200;

@@ -253,8 +253,12 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `item.remove` | `playerId`, `uid` | Also clears it from the hotlist |
 | `quip.play` | `category` **or** `quipId` | P0: plays immediately on stage |
 | `say` | `text` | P0: GM typed text, spoken via TTS fallback |
-| `msg.send` | `to`: `"all"` or `[playerId, ...]`, `text` (max 1000), `from?` (default pack `systemName`), `onStage?`: bool | Message to one, several or all players. Event `message` to recipients + gm. If `onStage` and it is a group message, stage also gets event `announcement` (text only, no audio — use `say` for voice) |
+| `msg.send` | `to`: `"all"` or `[playerId, ...]`, `text` (max 1000; may be empty with `icon`), `icon?` (sticker id), `from?` (default pack `systemName`), `onStage?`: bool | Message to one, several or all players. Event `message` to recipients + gm. If `onStage` and it is a group message, stage also gets event `announcement` (text only, no audio — use `say` for voice) |
 | `secret.send` | `playerId`, `text`, `from?` | Alias for `msg.send` with `to: [playerId]` |
+| `msg.react` | `id`, `r` (reaction id: pack `ui.reactions` keys, else `like lol love wow sad fire skull party`) | Toggles the GM's reaction on a message |
+| `msg.gmRead` | `thread` (`"all"` or sorted crawler ids joined by `,`) | Marks a conversation read on the desk |
+| `msg.delete` | `id` | Removes a message for everyone |
+| `msg.players` | `on`: bool | Lets crawlers write in the message centre (default on; `session.chatPlayers`) |
 | `audience.bump` | `delta` (int, may be negative) | Viewers change, hype recalculated |
 | `sponsor.box` | `playerId`, `tier?`, `sponsor?` | Loot box framed as a sponsor gift, event `sponsor` |
 | `session.mode` | `mode`: `roleplay`/`combat`/`quiet` | |
@@ -532,6 +536,9 @@ ElevenLabs the host renders the chained text while the lead-in plays. The lead-i
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `secret.read` | `id` | Marks a message read for this player (private or group) |
+| `msg.post` | `to`: `"all"` or `[playerId, ...]` (the writer is added; `[]` = just me and the GM), `text?` (max 1000), `icon?` (pack `ui.stickers` id); text or sticker required | Message centre: the GM sees every conversation. Max 8 per 10 s. Refused while `session.chatPlayers` is off |
+| `msg.react` | `id`, `r` | Toggles my reaction on a message addressed to me |
+| `msg.read` | `thread` | Marks a whole conversation read |
 | `me.notes` | `text` (max 2000 chars) | Player edits own notes (needs `playerEdit` ≥ `notes`) |
 | `ping` | — | Keepalive, server answers `pong` |
 

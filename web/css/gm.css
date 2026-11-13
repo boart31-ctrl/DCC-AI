@@ -4,6 +4,7 @@
 @import url("sheet.css");
 @import url("gm-scenes.css");
 @import url("gm-combat.css");
+@import url("msgcenter.css");
 
 body.gm { height: 100dvh; overflow: hidden; display: flex; flex-direction: column; }
 .tool kbd { font-family: var(--f-ui); font-size: 11px; font-weight: 600; padding: 0 4px; border: 1px solid var(--c-line-2); border-bottom-width: 2px; border-radius: 3px; color: var(--c-ink-3); background: transparent; }
@@ -308,7 +309,14 @@ body.hosted .links, body.hosted #node-campaign { display: none; }
 }
 #log-toggle { gap: 6px; }
 @media (max-width: 760px) {
-  .gm-bnav { grid-template-columns: repeat(5, 1fr) !important; }
+  .gm-bnav { grid-template-columns: repeat(6, 1fr) !important; }
   #log-toggle .log-l { display: none; }
   #log-toggle { height: 40px; padding: 0 10px; }
 }
+
+/* unread badge on the Messages nav item */
+.nav-badge { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--c-accent); color: var(--c-accent-ink); font: 700 11px/18px var(--f-ui); text-align: center; }
+.nav-badge[hidden] { display: none; }
+.gm-bnav button { position: relative; }
+.gm-bnav .nav-badge { position: absolute; top: 2px; right: calc(50% - 22px); }
+.view-messages .mc { margin-top: 4px; }

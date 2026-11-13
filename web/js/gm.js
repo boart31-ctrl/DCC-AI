@@ -18,6 +18,7 @@ import { createCombatSfx } from './combat-sfx.js';
 import { createCues } from './cues.js';
 import { createNpcs } from './gm-npcs.js';
 import { createCrawlers } from './gm-crawlers.js';
+import { createMsgCenter } from './msgcenter.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -136,6 +137,7 @@ function render() {
   scenes.update(view);
   sound.update(view);
   rewards.update(view);
+  msgCenter.update();
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -328,7 +330,7 @@ function partyRow(p, summary) {
       iconBtn('sparkle', 'Award achievement', () => achievementSheet(p)),
       iconBtn('gift', 'Loot box', () => lootSheet(p, false)),
       iconBtn('star', 'Sponsor box', () => lootSheet(p, true)),
-      iconBtn('log', 'Message', () => { showView('show'); scenes.pick('desk'); requestAnimationFrame(() => openComms([p.id])); }),
+      iconBtn('log', 'Message', () => { showView('messages'); msgCenter.open(p.id); }),
     ),
   );
 }
@@ -874,7 +876,7 @@ $('#new-session').addEventListener('click', async () => {
 
 /* ---------- views, settings, dice log ---------- */
 
-const VIEWS = ['party', 'show', 'library', 'rewards', 'settings'];
+const VIEWS = ['party', 'show', 'library', 'rewards', 'messages', 'settings'];
 // Old section names (links, saved tabs): they live inside Show now.
 const INTO_SHOW = { combat: 'fight', npcs: 'npc', campaign: 'desk' };
 let currentView = 'party';
@@ -887,6 +889,7 @@ function showView(v) {
   }
   for (const id of VIEWS) $(`#view-${id}`).hidden = id !== v;
   document.body.dataset.desk = v; // not data-view: [data-view] means a nav button
+  msgCenter?.setVisible(v === 'messages');
   try { sessionStorage.setItem('system.gmView', v); } catch {}
 }
 // Both navs: the button carries data-view (closest() on the button only, never the page).
@@ -1029,6 +1032,14 @@ const crawlers = createCrawlers({ act, getView: () => view, open: () => { showVi
 scenes.mountInto($('#view-show'), { fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge });
 const rewards = createRewards();
 $('#view-rewards').append(rewards.el);
+// Message centre: every conversation with the crawlers (private lines, groups, everyone); unread badge in the nav.
+var msgCenter = createMsgCenter({
+  role: 'gm',
+  send: (a) => client.send(a),
+  getView: () => view,
+  onUnread: (n) => { for (const id of ['#msg-badge', '#msg-badge-b']) { const b = $(id); if (b) { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); } } },
+});
+$('#view-messages').append(h('div.view-head', h('h1', 'Messages'), h('span.dim', 'Private lines, groups and the whole table. Crawlers can answer, react and write to each other; you see everything.')), msgCenter.el);
 
 /* ---------- keyboard ---------- */
 

@@ -8,6 +8,7 @@ import { createDiceLog, showRollCard } from './dicelog.js';
 import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme } from './ui.js';
 import { playerEditLevel } from './rules.js';
 import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
+import { createMsgCenter } from './msgcenter.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -229,6 +230,7 @@ client.on('view', (v) => {
   me = v.me || null;
   if (!me) return;
   render();
+  msgCenter.update();
   maybeRecap(v.recap);
 });
 
@@ -236,6 +238,11 @@ client.on('event', (e) => {
   if (!me) return;
   if (e.kind === 'roll') { const r = e.roll || e; if (r.playerId === me.id) showRollCard(r, { meId: me.id }); return; }
   if (e.kind === 'stat') return;
+  if (e.kind === 'message' && e.fromId && e.fromId !== 'gm') {
+    // Crawler chatter: no takeover, a nudge unless the conversation is already open.
+    if (e.fromId !== me.id && !msgCenter.el.isConnected) { buzz(12); toast(`${e.from || 'A crawler'} wrote ${e.to === 'all' ? 'to everyone' : 'to you'}`); }
+    return;
+  }
   if (e.kind === 'secret' || e.kind === 'message') {
     // Group messages may target everyone (no playerId, or a list). The text arrives in the next view.
     const forMe = !e.playerId || e.playerId === me.id || (Array.isArray(e.to) && (e.to.includes(me.id) || e.to.includes('all'))) || e.to === 'all' || e.group;
@@ -384,33 +391,14 @@ function renderAchievements() {
 const sysName = () => view?.pack?.systemName || 'The System';
 const myMessages = () => me?.messages || me?.secrets || [];
 const isGroup = (m) => !!(m.group || m.to === 'all' || (Array.isArray(m.to) && m.to.includes('all')));
-const unreadCount = () => myMessages().filter((m) => !m.read).length;
+const unreadCount = () => myMessages().filter((m) => !m.read && m.fromId !== me?.id).length;
 const msgSig = () => JSON.stringify(myMessages().map((m) => [m.id, m.read]));
-
+// Message centre: conversations with the GM and the other crawlers (the Messages tab).
+const msgCenter = createMsgCenter({ role: 'player', send: (a) => client.send(a), getView: () => view });
+msgCenter.setVisible(true);
 function renderMessages() {
-  const list = myMessages();
-  if (!list.length) return h('p.empty-s', 'No messages yet. When the GM or a sponsor writes to you, it lands here.');
-  return h('ul.msg-list', [...list].reverse().map((m) => {
-    const grp = isGroup(m);
-    return h('li',
-      h('button.msg', {
-        type: 'button',
-        class: `msg ${grp ? 'grp' : 'prv'}${m.read ? '' : ' unread'}`,
-        'aria-label': m.read ? null : `Unread ${grp ? 'group' : 'private'} message from ${m.from || sysName()}. Tap to open.`,
-        onclick: (e) => {
-          if (m.read) return;
-          m.read = true;
-          e.currentTarget.classList.remove('unread');
-          buzz(10);
-          client.send({ t: 'secret.read', id: m.id }).catch(() => {});
-        },
-      },
-      h('span.msg-top', h('span.tag', grp ? 'To all crawlers' : 'Private'), h('span.from', m.from || sysName()), h('time', timeAgo(m.at))),
-      h('span.body', m.text),
-      m.read ? null : h('span.msg-hint', 'Tap to read'),
-      ),
-    );
-  }));
+  msgCenter.update();
+  return msgCenter.el;
 }
 
 let tickSig = '';

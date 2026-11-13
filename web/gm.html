@@ -42,6 +42,7 @@
       <button type="button" data-view="show">Show</button>
       <button type="button" data-view="library">Library <kbd>/</kbd></button>
       <button type="button" data-view="rewards">Rewards</button>
+      <button type="button" data-view="messages">Messages <span class="nav-badge" id="msg-badge" hidden></span></button>
       <button type="button" data-view="settings">Settings</button>
     </nav>
 
@@ -65,6 +66,9 @@
 
       <!-- Rewards: loot boxes, gifts and achievements per crawler -->
       <section class="gm-view view-rewards" id="view-rewards" aria-label="Rewards" hidden></section>
+
+      <!-- Messages: the message centre (msgcenter.js) -->
+      <section class="gm-view view-messages" id="view-messages" aria-label="Messages" hidden></section>
 
       <!-- Library -->
       <section class="gm-view view-library" id="view-library" aria-label="Library" hidden></section>
@@ -262,6 +266,7 @@
     <button type="button" data-view="show"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18v12H3zM8 21h8M12 18v3"/></svg><span>Show</span></button>
     <button type="button" data-view="library"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 4h6a3 3 0 0 1 3 3v13a2 2 0 0 0-2-2H4zM20 4h-6a3 3 0 0 0-3 3v13a2 2 0 0 1 2-2h7z"/></svg><span>Library</span></button>
     <button type="button" data-view="rewards"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11h16v9H4zM3 7h18v4H3zM12 7v13M12 7c-2-4-6-3-5 0M12 7c2-4 6-3 5 0"/></svg><span>Rewards</span></button>
+    <button type="button" data-view="messages"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/></svg><span>Messages</span><span class="nav-badge" id="msg-badge-b" hidden></span></button>
     <button type="button" data-view="settings"><svg class="ic" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-1.8-.3 1.6 1.6 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.6 1.6 0 0 0-1-1.5 1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0 .3-1.8 1.6 1.6 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.6 1.6 0 0 0 1.5-1 1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H9a1.6 1.6 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.6 1.6 0 0 0 1 1.5 1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V9a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z"/></svg><span>Settings</span></button>
   </nav>
 
