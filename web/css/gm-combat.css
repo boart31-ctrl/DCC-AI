@@ -54,6 +54,9 @@
 /* ---------- columns ---------- */
 .cbt-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 14px; align-items: start; }
 @media (max-width: 1150px) { .cbt-cols { grid-template-columns: minmax(0, 1fr); } }
+/* Beside the TV mirror the tracker is narrower than the window: go by its own width. */
+.sh-slot { container-type: inline-size; }
+@container (max-width: 900px) { .cbt-cols { grid-template-columns: minmax(0, 1fr); } }
 .cbt-side { display: grid; gap: 14px; }
 .cbt-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 6px; }
 .cbt-mobs-head { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-line); }
@@ -153,8 +156,9 @@
 .cbt-fallen-row s { font-family: var(--f-ui); }
 .cbt-fallen-row .cbt-art { opacity: 0.55; filter: grayscale(1); }
 
-/* wide desk: one row per combatant */
-@media (min-width: 900px) {
+/* wide desk: one row per combatant (by the list's own width, so it also fits beside the TV mirror) */
+.cbt-list { container-type: inline-size; }
+@container (min-width: 560px) {
   .cc {
     grid-template-columns: minmax(150px, 1fr) minmax(200px, 1.5fr) auto;
     grid-template-areas: "who hp dmg" "sub sub sub" "more more more";

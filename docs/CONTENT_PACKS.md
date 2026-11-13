@@ -225,6 +225,9 @@ Optional arrays, library kinds `monster` and `npc` (GM library only; never sent 
 `hpSlots` 1..100 (default 5), `evade`/`dr` integers −99..99, ≤ 12 attacks (`toHit` integer, `damage` dice
 formula or `"0"`, `buffs` = buff ids the attack can apply). The TV only ever shows a revealed mob's name, art,
 HP bar and conditions.
+`variants` (monsters, optional): up to 16 more images of the same species (`["gob_archer.webp", …]`, missing files
+are skipped quietly). When several copies of the monster are on the field, each gets a picture none of its kind is
+wearing: the base `image` first, then the variants at random, then the least used one.
 
 ```json
 [{ "id": "fennimore_quill", "name": "Fennimore Quill", "role": "Guest Relations Liaison", "floor": 0,

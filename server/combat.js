@@ -352,6 +352,28 @@ function mobImage(v) {
   return v;
 }
 
+/**
+ * Image chooser for copies of one library entry: with family variants each copy on the field gets
+ * a picture nobody else of its kind is wearing (the base art first, then the variants at random);
+ * once all are taken, the least used one.
+ */
+function familyPicker(st, ctx, kind, e, sourceKey) {
+  const base = (kind === 'boss' && e.imageSquare) || e.image || null;
+  const pool = [...new Set([base, ...(kind === 'monster' && Array.isArray(e.variants) ? e.variants : [])].filter(Boolean))];
+  if (pool.length < 2) return () => base;
+  const uses = new Map(pool.map((p) => [p, 0]));
+  for (const x of C(st).combatants) if (x.sourceKey === sourceKey && uses.has(x.image)) uses.set(x.image, uses.get(x.image) + 1);
+  const rnd = typeof ctx.rng === 'function' ? ctx.rng : Math.random;
+  return () => {
+    const min = Math.min(...uses.values());
+    let free = pool.filter((p) => uses.get(p) === min);
+    if (free.includes(base)) free = [base];
+    const img = free[Math.floor(rnd() * free.length) % free.length];
+    uses.set(img, uses.get(img) + 1);
+    return img;
+  };
+}
+
 export const COMBAT_GM = {
   'combat.start'(st, a, ctx, out) {
     const c = C(st);
@@ -454,10 +476,11 @@ export const COMBAT_GM = {
     roomFor(st, count);
     const sourceKey = `${kind}:${e.id}`;
     const names = numberedNames(st, e.name, sourceKey, count);
+    const pickImage = familyPicker(st, ctx, kind, e, sourceKey);
     const uids = names.map((name) => {
       const m = {
         uid: ctx.genId('cb'), type: 'mob', sourceKind: kind, sourceId: e.id, sourceKey, name,
-        image: (kind === 'boss' && e.imageSquare) || e.image || null, hp: e.hpSlots ?? 5, hpMax: e.hpSlots ?? 5,
+        image: pickImage(), hp: e.hpSlots ?? 5, hpMax: e.hpSlots ?? 5,
         evade: Number.isInteger(e.evade) ? e.evade : 0, dr: Number.isInteger(e.dr) ? e.dr : 0,
         attacks: cleanAttacks(e.attacks), conditions: [], notes: '', hidden, ...MOB_TARGETING,
       };

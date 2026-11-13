@@ -413,7 +413,8 @@ function loadLibrary(raw, ruleset, warnings, io) {
           const where = `${F} [${i}]`;
           // Boss art (and per-phase art) are pack-relative image paths, like item images.
           const image = ['boss', 'location', 'monster', 'npc'].includes(kind) ? (rel) => assetUrl(io, 'images', rel, warnings, `${kind} ${x?.id ?? i}`) : undefined;
-          pushEntry(normalizeLibEntry(kind, x, { warnings, where, source: 'pack', image }));
+          const imageOptional = kind === 'monster' ? (rel) => (typeof rel === 'string' && !UNSAFE_PATH.test(rel) && io.assetExists('images', rel) ? assetUrl(io, 'images', rel, warnings, `${kind} ${x?.id ?? i}`) : null) : undefined;
+          pushEntry(normalizeLibEntry(kind, x, { warnings, where, source: 'pack', image, imageOptional }));
         });
       }
     }

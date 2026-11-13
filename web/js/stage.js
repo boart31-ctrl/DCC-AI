@@ -689,7 +689,7 @@ if (DRAFT) {
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || !e.data) return;
     if (e.data.t === 'draft.view') { view = e.data.view; render(); }
-    else if (e.data.t === 'draft.event') director.event(e.data.event);
+    else if (e.data.t === 'draft.event') onEvent(e.data.event);
   });
   window.parent?.postMessage({ t: 'draft.ready' }, location.origin);
 } else if (!isHosted()) {

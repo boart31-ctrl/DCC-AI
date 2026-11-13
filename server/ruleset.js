@@ -339,6 +339,9 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     floor: floorText(raw.floor),
     group: text(raw.group, 40),
     image: opts.image ? opts.image(raw.image) : homebrewImage(raw.image, ctx),
+    // Family look-alikes: when several of this monster fight at once, each copy gets a different picture.
+    // Pack: file names under images/ (missing files are skipped quietly, art may still be on its way).
+    variants: monsterVariants(raw.variants, ctx, opts),
     hpSlots: intOr(raw, 'hpSlots', 1, 100, 5, ctx),
     evade: intOr(raw, 'evade', -99, 99, 0, ctx),
     dr: intOr(raw, 'dr', -99, 99, 0, ctx),
@@ -351,6 +354,16 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     tactics: text(raw.tactics, 3000), // GM only
     lootHint: text(raw.lootHint, 300), // GM only
   };
+}
+
+function monsterVariants(v, ctx, opts) {
+  if (v == null) return [];
+  if (!Array.isArray(v)) {
+    problem(ctx, `${ctx.where}: variants must be an array of images`);
+    return [];
+  }
+  const pick = opts.imageOptional ?? opts.image ?? ((x) => homebrewImage(x, ctx));
+  return [...new Set(v.filter(isStr).slice(0, 16).map((x) => pick(x)).filter(Boolean))];
 }
 
 /** Floor as display text: 1 → "1", "B2" → "B2". */

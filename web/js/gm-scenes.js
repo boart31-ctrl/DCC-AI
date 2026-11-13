@@ -105,7 +105,9 @@ export function createScenes({ client, act, getView }) {
   const body = h('div.sh-body');
   const pvBox = h('div.sc-preview');
   const pvToggle = h('button.btn.btn-sm.btn-quiet.sh-pv-toggle', { type: 'button', onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawPanel(); } });
-  const pvCol = h('div.sh-pv', h('div.sh-pv-head', h('span.sh-pv-k', 'Preview'), h('span.dim', 'Not on the TV yet'), h('span.grow'), pvToggle), pvBox);
+  const pvK = h('span.sh-pv-k', 'Preview');
+  const pvSub = h('span.dim', 'Not on the TV yet');
+  const pvCol = h('div.sh-pv', h('div.sh-pv-head', pvK, pvSub, h('span.grow'), pvToggle), pvBox);
   const golive = h('div.sh-golive');
   const panel = h('div.sh-panel', head, h('div.sh-grid', body, pvCol), golive);
   const el = h('section.show2', { 'aria-label': 'Show' },
@@ -302,6 +304,10 @@ export function createScenes({ client, act, getView }) {
   let pvTimer = 0;
   let pvKey = '';
   const pvMsg = h('p.dim.sc-pv-off');
+  client.on('event', (e) => {
+    if (!pvLive || !pvReady || !pvFrame?.contentWindow) return;
+    try { pvFrame.contentWindow.postMessage({ t: 'draft.event', event: JSON.parse(JSON.stringify(e)) }, location.origin); } catch {}
+  });
   window.addEventListener('message', (e) => {
     if (e.origin !== location.origin || !pvFrame || e.source !== pvFrame.contentWindow) return;
     if (e.data?.t === 'draft.ready') { pvReady = true; pvPost(); }
@@ -312,17 +318,21 @@ export function createScenes({ client, act, getView }) {
   }) : null;
   ro?.observe(pvBox);
 
-  /** View for the preview: the GM view with the dry-run scene; hidden (prepared) minions shown as they will be. */
+  /**
+   * View for the preview. Draft: the GM view with the dry-run scene; hidden (prepared) minions shown as they
+   * will be. Live (the picked chip is on the TV, or a tool tab): a mirror of the TV, hidden mobs left out.
+   */
+  let pvLive = false;
   function draftView() {
     const v = view();
     const c = v.combat || {};
-    const shown = (c.combatants || []).map((x) => (x.type === 'mob'
-      ? { ...x, hidden: false, boss: x.sourceKind === 'boss', group: x.sourceId ? `${x.sourceKind}:${x.sourceId}` : null, hpPct: x.hpMax ? x.hp / x.hpMax : 1 }
-      : x));
-    return { ...v, scene: pvScene, combat: { ...c, active: c.active || pvScene?.kind === 'boss', combatants: shown } };
+    const mob = (x) => ({ ...x, hidden: false, boss: x.sourceKind === 'boss', group: x.sourceId ? `${x.sourceKind}:${x.sourceId}` : null, hpPct: x.hpMax ? x.hp / x.hpMax : 1 });
+    const shown = (c.combatants || []).filter((x) => !(pvLive && x.type === 'mob' && x.hidden)).map((x) => (x.type === 'mob' ? mob(x) : x));
+    const scene = pvLive ? v.scene : pvScene;
+    return { ...v, scene, combat: { ...c, active: c.active || scene?.kind === 'boss', combatants: shown } };
   }
   function pvPost() {
-    if (!pvReady || !pvScene || !pvFrame?.contentWindow) return;
+    if (!pvReady || !(pvLive ? view().scene : pvScene) || !pvFrame?.contentWindow) return;
     try { pvFrame.contentWindow.postMessage({ t: 'draft.view', view: JSON.parse(JSON.stringify(draftView())) }, location.origin); } catch (err) { console.error(err); }
   }
   function pvEnsureFrame() {
@@ -342,10 +352,21 @@ export function createScenes({ client, act, getView }) {
   }
   /** Asks the server for the dry-run scene of the picked chip (debounced; the same draft is asked once). */
   function pvRefresh() {
-    const wantPv = pref.pv && !isTool(tab) && !isLive(tab) && el.isConnected && !el.closest('[hidden]');
+    const wantPv = pref.pv && el.isConnected && !el.closest('[hidden]');
+    const live = isTool(tab) || (tab === 'fight' ? fightOnAir() : isLive(tab));
+    if (live !== pvLive) { pvLive = live; pvKey = ''; }
+    pvK.textContent = live ? 'On the TV' : 'Preview';
+    pvSub.textContent = live ? 'Live mirror' : 'Not on the TV yet';
+    pvCol.classList.toggle('is-live', live);
     pvToggle.replaceChildren(icon('tv', { size: 14 }), pref.pv ? 'Hide' : 'Show preview');
     pvCol.classList.toggle('off', !pref.pv);
     if (!wantPv) { pvDrop(); return; }
+    if (live) {
+      pvEnsureFrame();
+      pvMsg.textContent = view().scene ? '' : 'Nothing on the TV right now.';
+      pvPost();
+      return;
+    }
     const kind = sceneKindFor(tab);
     const data = sceneDataFor(tab);
     if (!data) { pvEnsureFrame(); pvMsg.textContent = 'Nothing to preview yet.'; return; }
@@ -736,7 +757,7 @@ export function createScenes({ client, act, getView }) {
   function drawBody() {
     const id = tab;
     const live = isLive(id);
-    pvCol.hidden = isTool(id) || live || id === 'fight';
+    pvCol.hidden = false; // always there: a draft preview, or a mirror of the TV once it is on air
     panel.classList.toggle('no-pv', pvCol.hidden || !pref.pv);
     slots.fight.hidden = id !== 'fight';
     slots.npc.hidden = id !== 'npc';
