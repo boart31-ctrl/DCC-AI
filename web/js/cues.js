@@ -51,8 +51,8 @@ export function createCues({ board, getView, onChange, act = null }) {
   const packCues = () => view().gm?.cues || { events: {}, groups: {} };
   const trace = (globalThis.__cueLog = []); // headless checks
   let randomTimer = null;
-  // Countdown scene: the System calls out 5 min / 1 min / 10 s left (quip categories countdown_300 / _60 / _10).
-  const COUNTDOWN_CALLS = [[300_000, 'countdown_300'], [60_000, 'countdown_60'], [10_000, 'countdown_10']];
+  // Countdown scene: the System calls out 30 / 15 / 10 / 5 / 1 min and 10 s left (quip categories countdown_1800 … countdown_10).
+  const COUNTDOWN_CALLS = [[1_800_000, 'countdown_1800'], [900_000, 'countdown_900'], [600_000, 'countdown_600'], [300_000, 'countdown_300'], [60_000, 'countdown_60'], [10_000, 'countdown_10']];
   let cdSig = '';
   let cdTimers = [];
   function countdownWatch(v) {
