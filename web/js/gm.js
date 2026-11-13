@@ -1005,7 +1005,7 @@ scenes.audio.credential = () => ext.credential; // the audio fetches use the des
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
 // Sound cues (cues.js): voice lines, boss moments, location ambience; mobs use their own Library sounds.
-const cues = createCues({ board: sound.board, getView: () => view });
+const cues = createCues({ board: sound.board, getView: () => view, act: (a) => client.send(a).catch(() => {}) });
 const combatSfx = createCombatSfx({ board: sound.board, getView: () => view, onChange: () => combat?.update(view), mobSound: (slot, uid) => cues.mob(slot, uid) });
 sound.el.append(combatSfx.panel(), cues.panel());
 client.on('play', (m) => { if (scenes.audio.isDevice) cues.line(m); });

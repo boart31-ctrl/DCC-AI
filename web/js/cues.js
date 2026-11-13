@@ -44,13 +44,33 @@ function loadCfg() {
   };
 }
 
-export function createCues({ board, getView, onChange }) {
+export function createCues({ board, getView, onChange, act = null }) {
   const cfg = loadCfg();
   const save = () => { try { localStorage.setItem(KEY, JSON.stringify(cfg)); } catch {} onChange?.(); };
   const view = () => getView() || {};
   const packCues = () => view().gm?.cues || { events: {}, groups: {} };
   const trace = (globalThis.__cueLog = []); // headless checks
   let randomTimer = null;
+  // Countdown scene: the System calls out 5 min / 1 min / 10 s left (quip categories countdown_300 / _60 / _10).
+  const COUNTDOWN_CALLS = [[300_000, 'countdown_300'], [60_000, 'countdown_60'], [10_000, 'countdown_10']];
+  let cdSig = '';
+  let cdTimers = [];
+  function countdownWatch(v) {
+    const sc = v?.scene;
+    const d = sc?.kind === 'countdown' ? sc.data : null;
+    const sig = d && d.running && d.endsAt ? `${sc.id}:${Math.round(d.endsAt / 1000)}` : '';
+    if (sig === cdSig) return;
+    cdSig = sig;
+    for (const t of cdTimers) clearTimeout(t);
+    cdTimers = [];
+    if (!sig || !act) return;
+    const cats = new Set((v.gm?.quipCategories || []).filter((c) => c.total > 0).map((c) => c.id));
+    const srvNow = Number.isFinite(sc.now) ? sc.now : Number.isFinite(v.now) ? v.now : Date.now();
+    const left = d.endsAt - srvNow; // ms left as of this view
+    for (const [at, cat] of COUNTDOWN_CALLS) {
+      if (left > at + 500 && cats.has(cat)) cdTimers.push(setTimeout(() => act({ t: 'quip.play', category: cat }), left - at));
+    }
+  }
   let ambienceFor = null; // location id the ambience belongs to
 
   const lib = (kind, id) => {
@@ -149,6 +169,7 @@ export function createCues({ board, getView, onChange }) {
     },
     /** Ambience + random sounds follow the location on the TV (explore / fight / NPC scenes keep it). */
     scene(v) {
+      countdownWatch(v);
       const sig = JSON.stringify([v?.gm?.cues, board.pads.length]);
       if (sig !== panelSig) { panelSig = sig; draw(); }
       const sc = v?.scene;
