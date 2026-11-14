@@ -464,7 +464,7 @@ export function ask(message, { ok = 'Confirm', cancel = 'Cancel', danger = false
     const dlg = h('dialog.ask-dlg');
     const done = (v) => { try { dlg.close(); } catch {} dlg.remove(); resolve(v); };
     dlg.append(h('form.ask-inner', { method: 'dialog' },
-      h('p.ask-text', message),
+      h(typeof message === 'string' ? 'p.ask-text' : 'div.ask-text', message),
       h('div.ask-row',
         h('button.btn.btn-ghost', { type: 'button', onclick: () => done(false) }, cancel),
         h(`button.btn.${danger ? 'btn-alarm' : 'btn-cyan'}`, { type: 'button', onclick: () => done(true) }, ok),

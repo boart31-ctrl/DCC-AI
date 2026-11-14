@@ -7,11 +7,12 @@
 // "Step" does one mob, "Undo" puts it back; the TV plays it as a cinematic and this desk plays the
 // sounds in step. Endings: "End ▾" picks the outcome (TV finale); victory / defeat are offered by
 // themselves (3 s toast with Cancel) when every revealed mob / every crawler is down.
-import { h, toast, portraitSrc, onPortraits, itemArt } from './client.js';
+import { h, toast, ask, portraitSrc, onPortraits, itemArt } from './client.js';
 import { sheetModel, libraryOf } from './rules.js';
 import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
 import { entryArt } from './portrait.js';
 import { openArtGallery } from './art-gallery.js';
+import { initStrip } from './initiative.js';
 
 const PREF = 'system.combat.ui'; // UI preferences only (builder tab, roll visibility); no game state
 const loadPref = () => { try { return JSON.parse(localStorage.getItem(PREF) || '{}') || {}; } catch { return {}; } };
@@ -92,6 +93,32 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
 
   /* ---------- header ---------- */
 
+  const DEF = () => C().defenseLabel || 'Evade';
+  const hasDr = () => (view?.pack?.ruleset?.combat?.dr ?? 'dr') !== null;
+  const fixedRules = () => (C().rules?.family ?? 'crawler') !== 'crawler';
+
+  /** Turn order + undo/redo of the last player roll (5e / PF2e fights, or turn order switched on). */
+  function initPanel() {
+    const c = C();
+    const I = c.init;
+    const undoN = (view.rolls || []).some((r) => r.vs && !r.void && r.playerId);
+    const strip = initStrip(view, {
+      gm: true,
+      onOrder: (uids) => act({ t: 'combat.order', uids }),
+      onTotal: (uid, total) => act({ t: 'combat.initiative', uid, total }),
+      onTurn: (uid) => act({ t: 'combat.turnSet', uid }),
+    });
+    const rollChips = h('div.cbt-rollchips',
+      h('button.btn.btn-sm', { type: 'button', disabled: !undoN, onclick: () => act({ t: 'roll.undoLast' }).then((r) => r?.result?.label && toast(`Undone: ${r.result.label}`)), title: 'Take back the last player roll that hit or damaged something' }, icon('undo', { size: 14 }), 'Undo roll'),
+      h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'roll.redoLast' }).then((r) => r?.result?.label && toast(`Back: ${r.result.label}`)), title: 'Bring back the last undone roll' }, 'Redo'));
+    if (!c.active || !I?.on) return c.active ? h('section.panel.cbt-ini', h('div.sec-head', h('h2', 'Player rolls'), h('span.grow'), rollChips)) : null;
+    return h('section.panel.cbt-ini',
+      h('div.sec-head', h('h2', 'Turn order'), h('span.dim', I.manual ? 'Your order' : 'Highest first · drag to change'), h('span.grow'),
+        (I.waiting || []).length ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.initRoll' }, 'Rolled for everyone missing.'), title: 'Roll for everyone who has not rolled yet (crawlers use their sheet initiative)' }, icon('dice', { size: 14 }), `Roll missing (${I.waiting.length})`) : null,
+        rollChips),
+      strip);
+  }
+
   function header() {
     const c = C();
     const ph = c.phases || [];
@@ -113,19 +140,22 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
           onclick: () => (goLive ? goLive() : act({ t: 'scene.set', kind: 'combat', data: {} }, 'On TV: the arena.')),
         }, icon('tv', { size: 18 }))),
       h('div.cbt-turn',
-        h('ol.cbt-phases', { 'aria-label': 'Phases' }, ph.map((p, i) => h('li', h('button', {
+        c.init?.on ? h('span.cbt-now', c.phase ? `Now: ${c.phase}` : 'Waiting for initiative') : h('ol.cbt-phases', { 'aria-label': 'Phases' }, ph.map((p, i) => h('li', h('button', {
           type: 'button', 'aria-current': c.active && i === c.phaseIndex ? 'step' : null, disabled: !c.active,
           title: c.active ? `Jump to ${p}` : null,
           onclick: () => act({ t: 'combat.set', phaseIndex: i }),
         }, p)))),
-        c.active
+        c.active && c.init?.on
+          ? h('button.btn.btn-primary.cbt-next', { type: 'button', onclick: () => act({ t: 'combat.next' }), title: 'Next turn (N)' },
+            c.init.turnUid || c.init.turnHidden ? 'Next turn' : 'Start round 1', icon('chevron', { size: 15 }), h('kbd', 'N'))
+          : c.active
           ? h('button.btn.btn-primary.cbt-next', { type: 'button', onclick: () => act({ t: 'combat.next' }), title: 'Next phase (N)' },
             last ? `Round ${c.round + 1}` : `Next: ${ph[c.phaseIndex + 1]}`, icon('chevron', { size: 15 }), h('kbd', 'N'))
           : h('button.btn.btn-primary.cbt-next', { type: 'button', onclick: start }, icon('swords', { size: 15 }), 'Start combat'),
-        c.phasesVerified ? null : h('span.verify', unverifiedBadge('Phase names and order are not checked against the rulebook')),
-        h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(ui.editPhases), onclick: () => { ui.editPhases = !ui.editPhases; redraw(); } }, 'Phases')),
+        c.init?.on || c.phasesVerified ? null : h('span.verify', unverifiedBadge('Phase names and order are not checked against the rulebook')),
+        c.init?.on ? null : h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(ui.editPhases), onclick: () => { ui.editPhases = !ui.editPhases; redraw(); } }, 'Phases')),
       c.active ? h('div.cbt-auto-bar',
-        h('button.btn.cbt-act', { type: 'button', disabled: !canAct, onclick: () => runAuto(), title: q ? 'Resolve the remaining mobs' : 'Every living revealed mob attacks: targets, d20 vs Evade, damage − DR onto the sheets' },
+        h('button.btn.cbt-act', { type: 'button', disabled: !canAct, onclick: () => runAuto(), title: q ? 'Resolve the remaining mobs' : `Every living revealed mob attacks: targets, d20 vs ${DEF()}${hasDr() ? ', damage − DR' : ', damage'} onto the sheets` },
           icon('bolt', { size: 16 }), q ? `Mobs act (${q.uids.length - q.done} left)` : 'Mobs act'),
         h('button.btn.cbt-step', { type: 'button', disabled: !canAct, onclick: () => runStep(), title: 'One mob at a time' }, icon('play', { size: 14 }), 'Step'),
         left > 0 ? h('button.btn.cbt-skip', { type: 'button', onclick: () => act({ t: 'combat.autoSkip' }), title: 'Jump the TV to the end of the cinematic' }, icon('skip', { size: 14 }), 'Skip') : null,
@@ -177,6 +207,12 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
 
   async function endWith(outcome, extra = {}) {
     hideToast();
+    // A finale that contradicts the board is almost always a misclick: ask first.
+    const cbs = C().combatants || [];
+    const standing = cbs.filter((x) => x.type === 'mob' && !x.hidden && !x.down).length;
+    const up = cbs.filter((x) => x.type === 'crawler' && !x.down).length;
+    if (outcome === 'victory' && standing && !(await ask(`${standing} mob${standing === 1 ? ' is' : 's are'} still standing. Show Victory anyway?`, { ok: 'Victory' }))) return;
+    if (outcome === 'defeat' && up && !(await ask(`${up} crawler${up === 1 ? ' is' : 's are'} still up. Show Party wiped anyway?`, { ok: 'Party wiped', danger: true }))) return;
     const a = { t: 'combat.end', outcome };
     if (extra.title?.trim()) a.title = extra.title.trim();
     if (extra.text?.trim()) a.text = extra.text.trim();
@@ -247,7 +283,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       : h('span.cbt-log-res.miss', st.nat1 ? 'NAT 1' : 'MISS');
     return h('li.cbt-log-row', { class: `cbt-log-row${st.hit ? ' is-hit' : ''}${st.down ? ' is-down' : ''}` },
       h('span.cbt-log-who', h('b', st.mob), h('span.dim', ' → '), h('b', st.target)),
-      h('span.cbt-log-math', { title: `${st.attack}: d20 ${st.d20}${st.toHit ? ` ${signed(st.toHit)}` : ''} = ${st.total} vs Evade ${st.evade} (${st.rule})${st.hit && st.damageRoll != null ? `; damage ${st.damageRoll}${st.crit && st.damageRaw !== st.damageRoll ? ` ×2 = ${st.damageRaw}` : ''} − DR ${st.drValue}` : ''}` },
+      h('span.cbt-log-math', { title: `${st.attack}: d20 ${st.d20}${st.toHit ? ` ${signed(st.toHit)}` : ''} = ${st.total} vs ${st.defenseLabel || DEF()} ${st.evade} (${st.rule})${st.hit && st.damageRoll != null ? `; damage ${st.damageRoll}${st.crit && st.damageRaw !== st.damageRoll ? ` ×2 = ${st.damageRaw}` : ''} − DR ${st.drValue}` : ''}` },
         `${st.d20}${st.toHit ? signed(st.toHit) : ''}=${st.total} vs ${st.evade}`),
       res,
       st.buffs?.length ? h('span.cbt-log-cond', st.buffs.join(', ')) : null);
@@ -261,7 +297,18 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const rule = (k, label, ctl) => h('label.cbt-rule', h('span.cbt-rule-l', label, un.has(k) ? unverifiedBadge('Not checked against the rulebook yet') : null), ctl);
     const set = (patch, msg) => act({ t: 'combat.set', settings: patch }, msg);
     const chk = (k, label, hint) => h('label.chk.cbt-rule-chk', { title: hint || null }, h('input', { type: 'checkbox', checked: !!s[k], onchange: (e) => set({ [k]: e.target.checked }) }), h('span', label));
-    const rules = ui.rules ? h('div.cbt-rules',
+    const iniSel = h('label.cbt-rule', h('span.cbt-rule-l', 'Turn order'), select([{ value: '', label: 'As the rules say' }, { value: 'on', label: 'Initiative (turn order)' }, { value: 'off', label: 'Phases' }], s.initiative === true ? 'on' : s.initiative === false ? 'off' : '', { cls: 'inp-sm', label: 'Turn order', onChange: (v) => set({ initiative: v === 'on' ? true : v === 'off' ? false : null }, 'Applies from the next fight.') }));
+    const rules = ui.rules && fixedRules() ? h('div.cbt-rules',
+      h('p.hint', `${view.pack?.ruleset?.system?.label || 'These rules'}: hit when the roll meets ${DEF()}${C().rules?.degrees ? '; beat it by 10 for a critical' : '; natural 20 = critical (double dice)'}.`),
+      iniSel,
+      rule('stepMs', 'TV pace per mob', select([2000, 2800, 3400, 4000].map((ms) => ({ value: String(ms), label: `${(ms / 1000).toFixed(1)} s${ms === 2800 ? ' (default)' : ''}` })), String(s.stepMs ?? 2800), { cls: 'inp-sm', label: 'TV pace', onChange: (v) => set({ stepMs: Number(v) }) })),
+      h('div.cbt-rule-chks',
+        chk('public', 'Rolls in the public dice log'),
+        chk('includeHidden', 'Hidden mobs act too', 'The TV shows them as "something unseen"'),
+        chk('finishDowned', 'Finish them: downed crawlers can be targeted'),
+        chk('autoEnd', 'Offer victory / defeat by itself')))
+      : ui.rules ? h('div.cbt-rules',
+      iniSel,
       rule('hitRule', 'Hit when d20 + to hit', select([{ value: '>=', label: '≥ Evade (tie hits)' }, { value: '>', label: '> Evade (tie misses)' }], s.hitRule, { cls: 'inp-sm', label: 'Hit rule', onChange: (v) => set({ hitRule: v }) })),
       rule('evadeBase', 'Evade base', field(s.evadeBase ?? 0, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 0, max: 30, 'aria-label': 'Added to every Evade' }, onCommit: (v) => set({ evadeBase: Math.max(0, Math.min(30, Math.round(v) || 0)) }) })),
       rule('drMin', 'Damage after DR at least', field(s.drMin ?? 1, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 0, max: 5, 'aria-label': 'Minimum damage' }, onCommit: (v) => set({ drMin: Math.max(0, Math.min(5, Math.round(v) || 0)) }) })),
@@ -280,7 +327,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       la ? h('div.cbt-log',
         h('p.cbt-log-head', la.undone ? h('span.pill', 'Undone') : null, `Last run: ${la.steps.length} mob${la.steps.length === 1 ? '' : 's'}`),
         h('ol.cbt-log-list', la.steps.map(stepLine)))
-        : h('p.hint', 'Mobs act: every living revealed mob picks a target (its mode and the crawlers\' aggro), rolls d20 + to hit against Evade and hits the sheet. Step does one mob at a time.'));
+        : h('p.hint', `Mobs act: every living revealed mob picks a target (its mode and the crawlers' aggro), rolls d20 + to hit against ${DEF()} and hits the sheet. Step does one mob at a time.`));
   }
 
   /* ---------- shared bits ---------- */
@@ -358,8 +405,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     let ev = null; let dr = null; let evDef = null; let drDef = null;
     if (p) {
       const M = sheetModel(view, p);
-      evDef = M.rs.derived.find((d) => /evade|defen/i.test(d.id + d.label)) || M.rs.derived.find((d) => d.roll) || M.rs.derived[0];
-      drDef = M.rs.derived.find((d) => d !== evDef && /(^|[^a-z])dr($|[^a-z])|resist|armou?r/i.test(`${d.id} ${d.label}`));
+      const cr = M.rs.combat || {};
+      evDef = (cr.defense && M.rs.derived.find((d) => d.id === cr.defense)) || M.rs.derived.find((d) => /evade|defen/i.test(d.id + d.label)) || M.rs.derived.find((d) => d.roll) || M.rs.derived[0];
+      drDef = cr.dr === null ? null : (cr.dr && M.rs.derived.find((d) => d.id === cr.dr)) || M.rs.derived.find((d) => d !== evDef && /(^|[^a-z])dr($|[^a-z])|resist|armou?r/i.test(`${d.id} ${d.label}`));
       ev = evDef ? M.computed.derived?.[evDef.id] : null;
       dr = drDef ? M.computed.derived?.[drDef.id] : null;
     }
@@ -376,15 +424,15 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.cc-hp', hpSlots(x.hp, x.hpMax, setHp, x.name)),
       quick(x, true),
       h('button.cc-sub', { type: 'button', 'aria-expanded': String(open), onclick: () => toggle(x.uid) },
-        h('span.cc-stat', `Ev ${ev?.value ?? '—'}`),
-        h('span.cc-stat', `DR ${dr?.value ?? '—'}`),
+        h('span.cc-stat', `${DEF() === 'Evade' ? 'Ev' : DEF()} ${ev?.value ?? '—'}`),
+        drDef ? h('span.cc-stat', `DR ${dr?.value ?? '—'}`) : null,
         x.noTarget ? h('span.cc-flag', 'Not targeted') : aggroDots(x),
         x.conditions.length ? h('span.cc-conds', x.conditions.map((k) => k.name).join(', ')) : null,
         chev(open)),
       open ? h('div.cc-more',
         h('div.cc-more-dmg', h('span.mini-l', 'Damage / heal'), quick(x, true)),
         h('div.cc-more-row',
-          numEl(ev, evDef, evDef?.label || 'Evade'), numEl(dr, drDef, drDef ? 'DR' : 'DR'),
+          numEl(ev, evDef, DEF()), drDef ? numEl(dr, drDef, 'DR') : null,
           h('span.grow'),
           h('span.cc-ctl', h('span.mini-l', 'Aggro'),
             h('button.icon-btn', { type: 'button', 'aria-label': `Lower ${x.name}'s aggro`, disabled: x.aggro <= 1, onclick: () => act({ t: 'combat.target', uid: x.uid, aggro: x.aggro - 1 }) }, icon('down', { size: 14 })),
@@ -442,8 +490,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.cbt-info-row',
         h('label.cbt-mini', h('span.mini-l', 'Name'), field(m.name, { cls: 'inp-sm', attrs: { 'aria-label': 'Name', maxlength: 80 }, onCommit: (v) => v.trim() && act({ t: 'combat.update', uid: m.uid, name: v.trim() }) })),
         h('label.cbt-mini', h('span.mini-l', 'Max HP'), field(m.hpMax, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 1, max: 999 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, hpMax: Math.max(1, Math.min(999, Math.round(v) || 1)) }) })),
-        h('label.cbt-mini', h('span.mini-l', 'Evade'), field(m.evade, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, evade: Math.round(v) || 0 }) })),
-        h('label.cbt-mini', h('span.mini-l', 'DR'), field(m.dr, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, dr: Math.round(v) || 0 }) }))),
+        h('label.cbt-mini', h('span.mini-l', DEF()), field(m.evade, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, evade: Math.round(v) || 0 }) })),
+        hasDr() ? h('label.cbt-mini', h('span.mini-l', 'DR'), field(m.dr, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, dr: Math.round(v) || 0 }) })) : null),
       field(m.notes, { cls: 'inp-sm', placeholder: 'Notes for this one (GM only)', attrs: { maxlength: 500, 'aria-label': `Notes for ${m.name}` }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, notes: v }) }),
       e?.moments?.length ? h('div.row-start.cbt-moments', h('span.mini-l', 'Moments'), ...e.moments.map((mo) => h('button.btn.btn-sm.btn-quiet', { type: 'button', title: `${mo.sounds?.join(', ') || ''}${mo.text ? ` · says: ${mo.text}` : ''}${mo.on ? ` · auto on ${mo.on} (${Math.round(mo.chance * 100)} %)` : ''}`, onclick: () => { window.__cues?.moment(e, mo); if (mo.text) send?.({ t: 'announce', text: mo.text }); } }, icon('speaker', { size: 13 }), mo.label))) : null,
       h('div.row-end',
@@ -463,7 +511,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.cc-hp', hpSlots(m.hp, m.hpMax, setHp, m.name)),
       quick(m, true),
       h('button.cc-sub', { type: 'button', 'aria-expanded': String(open), onclick: () => toggle(m.uid) },
-        h('span.cc-stat', `Ev ${m.evade}`), h('span.cc-stat', `DR ${m.dr}`),
+        h('span.cc-stat', `${DEF() === 'Evade' ? 'Ev' : DEF()} ${m.evade}`), hasDr() ? h('span.cc-stat', `DR ${m.dr}`) : null,
         m.attacks[0] ? h('span.cc-atk', icon('swords', { size: 12 }), m.attacks.length > 1 ? `${m.attacks.length} attacks` : m.attacks[0].name) : null,
         h('span.cc-mode', { class: `cc-mode m-${m.targetMode}` }, icon('target', { size: 12 }), modeLabel),
         m.conditions.length ? h('span.cc-conds', m.conditions.map((k) => k.name).join(', ')) : null,
@@ -594,7 +642,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const linkedHint = kind === 'boss' && view.scene?.kind === 'boss' && view.scene.data?.bossId === e.id ? ' · on TV' : '';
     return h('li.cbt-pick', { class: e.image ? 'cbt-pick' : 'cbt-pick no-art' },
       artBtn(entryArt(e, { cls: 'cbt-pick-art' }), e.image ? `Change the art of ${e.name}` : `${e.name} has no art yet: pick a picture`, () => pickLibArt(kind, e)),
-      h('div.cbt-pick-t', h('b', e.name), h('span.dim', [kind === 'boss' ? 'Boss' : e.group, e.floor !== '' && e.floor != null ? `F${e.floor}` : '', `${e.hpSlots} HP`, `Ev ${e.evade ?? 0}`, `DR ${e.dr ?? 0}`].filter(Boolean).join(' · ') + linkedHint)),
+      h('div.cbt-pick-t', h('b', e.name), h('span.dim', [kind === 'boss' ? 'Boss' : e.group, e.floor !== '' && e.floor != null ? `F${e.floor}` : '', `${e.hpSlots} HP`, `${DEF() === 'Evade' ? 'Ev' : DEF()} ${e.evade ?? 0}`, hasDr() ? `DR ${e.dr ?? 0}` : ''].filter(Boolean).join(' · ') + linkedHint)),
       kind === 'boss' ? h('span') : countStepper(key),
       h('button.btn.btn-sm', { type: 'button', onclick: () => addMob(kind, e, kind === 'boss' ? 1 : countOf(key)), 'aria-label': `Add ${e.name}` }, icon('plus', { size: 13 }), 'Add'));
   }
@@ -641,7 +689,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         title: 'Art for the ad-hoc mob', current: a.image || null, onPick: (u) => { a.image = u; redraw(); },
       })),
       h('label.lbl', h('span.lbl-t', 'Name'), name)),
-    h('div.cbt-info-row', num('hp', 'HP', 1, 999), num('evade', 'Evade', -99, 99), num('dr', 'DR', -99, 99), num('count', 'Count', 1, 20)),
+    h('div.cbt-info-row', num('hp', 'HP', 1, 999), num('evade', DEF(), -99, 99), hasDr() ? num('dr', 'DR', -99, 99) : null, num('count', 'Count', 1, 20)),
     h('div.row-end', h('button.btn.btn-sm.btn-primary', { type: 'submit' }, icon('plus', { size: 13 }), 'Add')));
   }
 
@@ -675,7 +723,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   function draw(force = false) {
     if (!view) return;
     const c = C();
-    const s = JSON.stringify([c, view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait)]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, ui.endMenu, ui.special != null, sfx?.on, playingLeft() > 0]);
+    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait)]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, ui.endMenu, ui.special != null, sfx?.on, playingLeft() > 0]);
     if (!force && s === sig) return;
     if (!force && el.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]), textarea')) return;
     sig = s;
@@ -695,6 +743,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const side = h('div.cbt-side', lootPanel(), c.active ? autoPanel() : null, builder(), lastRollCard());
     el.replaceChildren(...[
       header(),
+      initPanel(),
       ui.editPhases ? phaseEditor() : null,
       finaleBanner(),
       h('div.cbt-cols', list, side),

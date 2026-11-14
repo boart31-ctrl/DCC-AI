@@ -434,6 +434,28 @@ Scene kinds added to §3a: `combat` — `title` [""], `showParty` [true]; the TV
 `line` [""] (≤ 300), `lineAt`. Personality, voice tips, hooks and secrets are never copied into the scene.
 All of these are GM-only actions (players and the stage get `bad_request: unknown action`).
 
+### 3b-2. Turn order, dice entry, campaigns (docs/RULESETS.md)
+
+| t | fields | does |
+|---|---|---|
+| `combat.initRoll` | `uids?` | Rolls initiative for those (default: everyone without a total); crawlers use their sheet |
+| `combat.initiative` | `uid`, `total` | GM types a total |
+| `combat.order` | `uids` | GM drag order (manual from then on) |
+| `combat.turnSet` | `uid` | Makes it that combatant's turn |
+| `combat.next` | | Turn-order fights: next turn (first press starts round 1). Phase fights: next phase |
+| `combat.set` | `settings.initiative`: `true` / `false` / `null` | Turn order on / off / as the ruleset says |
+| `roll.void` / `roll.restore` | `id` | Cancel / bring back a roll (damage it applied goes back / returns) |
+| `roll.undoLast` / `roll.redoLast` | | Undo / redo chips: the last player roll that hit or damaged something |
+| `campaign.list` | | `{ current, campaigns, choices, multi }` |
+| `campaign.new` | `name?`, `ruleset?` | Parks the running campaign, starts a new one with that ruleset (locked) |
+| `campaign.switch` | `id` | Parks the running campaign, runs that one |
+| `campaign.rename` | `name` | |
+| `campaign.delete` | `id` | Parked campaigns only |
+
+`POST /api/import` (X-GM-Key) with an export / backup file restores that campaign. View: `campaign` {id, name,
+ruleset} for everyone; GM `rulesetChoices`, `access.campaigns`. `combat.init` = `{ on, order, turnUid, waiting,
+manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
+
 ### 3c. Sound desk and System voice (ElevenLabs)
 
 The GM's notebook is the audio device (`show.audioDevice: "gm"`, wired to the soundbar); the TV is picture only.
@@ -589,6 +611,12 @@ Dice log entry (`state.rolls`, last 200; views get the last 50) — event `roll`
 `what` = `stat` / `derived` / `skill` / `attack` / `custom` / `rankUp`. Event recipients: everyone, or
 for `secret` the GM + the rolling player (a GM's secret roll is GM-only). `nat1`/`nat20` only when the roll
 has exactly one d20; a non-secret nat 1/20 also queues a P1 voice line from quip category `nat1`/`nat20`.
+
+
+Dice entry (all optional): `entered` (the real die / what the damage dice showed), `adv` (`adv` | `dis`, phone
+rolls), `bonus` (±50), `target` (mob uid: to-hit vs its defence, damage applied to it), `dc`, `after` (to-hit roll
+id before a damage roll). The result adds `hit`, `crit`, `degree`, `applied`. `dice.mode {mode}` (`off` / `enter` /
+`digital`), `roll.undo` (own last roll within 2 minutes). Players and the TV get `vs` without `defense` / `margin`.
 
 ### Hosted edition
 

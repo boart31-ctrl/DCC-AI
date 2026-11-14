@@ -14,7 +14,7 @@ export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'ro
 // combat-auto.js OUTCOMES (kept here too: scenes.js must not import combat-auto.js, which imports combat.js → scenes.js).
 export const FINALE_OUTCOMES = ['victory', 'defeat', 'runaway', 'truce', 'special', 'sponsor', 'timeout', 'stalemate'];
 export const AUDIO_DEVICES = ['gm', 'stage'];
-export const MAX_BOSS_HP = 100;
+export const MAX_BOSS_HP = 9999; // 5e / PF2e bosses have big pools (the TV draws at most 40 segments)
 export const MAX_BOSS_PHASES = 10;
 export const MAX_COUNTDOWN_S = 24 * 3600;
 
@@ -562,7 +562,8 @@ export const SCENE_GM = {
     const d = bossScene(st);
     const n = d.boss.phases.length;
     if (n < 2) throw bad('this boss has no further phases');
-    const index = a.index === undefined ? d.phase + 1 : intIn(a.index, 'index', 0, n - 1);
+    const index = a.back === true ? d.phase - 1 : a.index === undefined ? d.phase + 1 : intIn(a.index, 'index', 0, n - 1);
+    if (index < 0) throw bad('already in the first phase');
     if (index > n - 1) throw bad('already in the last phase');
     d.phase = index;
     const ph = d.boss.phases[index];

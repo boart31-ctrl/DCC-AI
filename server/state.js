@@ -7,15 +7,16 @@
 import { makeToken, makeRoomCode, makePin, randInt, genId } from './random.js';
 import { MODES, pickQuip, markQuipUsed, quipsLeft, categoryPool } from './quips.js';
 import { STANDARD_CATEGORIES } from './constants.js';
+import { packForRuleset, rulesetChoices } from './systems.js';
 import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView, showView } from './scenes.js';
-import { COMBAT_GM, initCombat, normalizeCombat, combatView } from './combat.js';
+import { COMBAT_GM, INIT_GM, initCombat, normalizeCombat, combatView, onSheetRoll, applyMobDamage } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import { LOOT_GM, normalizeDrops } from './loot.js';
 import { CRAWLERS_GM, CRAWLERS_SYSTEM, initCrawlers, normalizeCrawlers, crawlersView } from './crawlers.js';
 import {
   SHEET, SHEET_GM, normalizeLibArt, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
-  sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS,
+  sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
 
 export { genId, ActionError };
@@ -60,9 +61,40 @@ export function defaultVoiceId(pack) {
   return pack.voices[0]?.id ?? 'host';
 }
 
-export function createState(pack, now = Date.now()) {
+/** Campaign identity: name + the ruleset it was created with (locked: one ruleset per campaign). */
+export function newCampaign(pack, now, { name, ruleset } = {}) {
+  const choices = rulesetChoices(pack).map((c) => c.id);
+  return {
+    id: `c_${makeToken(9)}`,
+    name: typeof name === 'string' && name.trim() ? name.trim().slice(0, 60) : 'Campaign',
+    ruleset: choices.includes(ruleset) ? ruleset : pack.ruleset.id,
+    createdAt: now,
+  };
+}
+
+function normalizeCampaign(raw, pack, now) {
+  const base = newCampaign(pack, now);
+  if (!raw || typeof raw !== 'object') return base;
+  const choices = rulesetChoices(pack).map((c) => c.id);
+  return {
+    id: typeof raw.id === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(raw.id) ? raw.id : base.id,
+    name: typeof raw.name === 'string' && raw.name.trim() ? raw.name.trim().slice(0, 60) : base.name,
+    ruleset: choices.includes(raw.ruleset) ? raw.ruleset : pack.ruleset.id,
+    createdAt: Number.isFinite(raw.createdAt) ? raw.createdAt : now,
+  };
+}
+
+/** The pack a state runs with: the campaign's ruleset applied to the base pack (server/systems.js). */
+export function packOf(state, pack) {
+  return packForRuleset(pack, state?.campaign?.ruleset);
+}
+
+export function createState(basePack, now = Date.now(), campaign = {}) {
+  const camp = newCampaign(basePack, now, campaign);
+  const pack = packForRuleset(basePack, camp.ruleset);
   return {
     v: 1,
+    campaign: camp,
     room: makeRoomCode(),
     gmToken: makeToken(),
     stageToken: makeToken(),
@@ -77,6 +109,8 @@ export function createState(pack, now = Date.now()) {
     library: emptyHomebrew(),
     libArt: normalizeLibArt(null),
     rolls: [],
+    rollUndo: [], // roll ids the GM undo chip takes back, newest last (character.js)
+    rollRedo: [],
     scene: initScene(now), // scenes.js
     combat: initCombat(), // combat.js
     combatLog: [], // combat-auto.js: one summary per finished fight (this session), for the recap
@@ -90,10 +124,12 @@ export function createState(pack, now = Date.now()) {
  * Repairs a loaded snapshot against the current pack (pack may have changed between runs):
  * fills missing fields, adds new stats/resources, keeps unknown ones (harmless, hidden by UI).
  */
-export function normalizeState(raw, pack, now = Date.now()) {
-  const base = createState(pack, now);
+export function normalizeState(raw, basePack, now = Date.now()) {
+  const campaign = normalizeCampaign(raw?.campaign, basePack, now);
+  const pack = packForRuleset(basePack, campaign.ruleset);
+  const base = createState(basePack, now, campaign);
   if (!raw || typeof raw !== 'object') return base;
-  const s = { ...base, ...raw };
+  const s = { ...base, ...raw, campaign };
   s.session = { ...base.session, ...(raw.session ?? {}) };
   if (!MODES.includes(s.session.mode)) s.session.mode = 'roleplay';
   if (!pack.voicesById.has(s.session.voice) && s.session.voice !== 'host') s.session.voice = defaultVoiceId(pack);
@@ -110,6 +146,9 @@ export function normalizeState(raw, pack, now = Date.now()) {
   s.library = normalizeHomebrew(raw.library);
   s.libArt = normalizeLibArt(raw.libArt);
   s.rolls = Array.isArray(raw.rolls) ? raw.rolls.filter((r) => r && typeof r === 'object').slice(-MAX_ROLLS) : [];
+  const rollIds = new Set(s.rolls.map((r) => r.id));
+  s.rollUndo = Array.isArray(raw.rollUndo) ? raw.rollUndo.filter((id) => rollIds.has(id)).slice(-30) : [];
+  s.rollRedo = Array.isArray(raw.rollRedo) ? raw.rollRedo.filter((id) => rollIds.has(id)).slice(-30) : [];
   s.scene = normalizeScene(raw.scene, now);
   s.show = normalizeShow(raw.show);
   s.combat = normalizeCombat(raw.combat);
@@ -291,7 +330,7 @@ const GM = {
     };
     // Formula-based track maxima (e.g. "10 + mod.con") start full.
     const { computed } = computeFor(p, ctx.pack, libraryOf(st, ctx.pack));
-    for (const t of ctx.pack.ruleset.tracks) if (t.maxFormula) p.sheet.tracks[t.id] = { cur: computed.tracks[t.id].max, max: computed.tracks[t.id].max };
+    for (const t of ctx.pack.ruleset.tracks) if (t.maxFormula) p.sheet.tracks[t.id] = { cur: t.start === 'empty' ? 0 : computed.tracks[t.id].max, max: computed.tracks[t.id].max };
     st.players.push(p);
     out.result = { playerId: p.id, pin };
   },
@@ -700,7 +739,7 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
@@ -758,9 +797,11 @@ export function reduce(state, action, ctx) {
     genId,
     now: Date.now(),
     ...ctx,
+    // The campaign's ruleset applied to the pack (idempotent when the host already passes it).
+    pack: ctx?.pack ? packOf(state, ctx.pack) : ctx?.pack,
     // Who is acting: never taken from the payload for players (actorId is set by the host).
     actor: { role: action.role, playerId: action.role === 'player' ? action.actorId : null },
-    h: { feedPush, categoryLine, bumpPct },
+    h: { feedPush, categoryLine, bumpPct, onSheetRoll, applyDamage: applyMobDamage },
   };
   const st = structuredClone(state);
   const out = {
@@ -809,7 +850,7 @@ function fullPlayer(state, p, pack, library) {
   const { stats, resources } = legacyStats(p, pack, sheet.computed);
   return {
     id: p.id, name: p.name, color: p.color, level: p.level,
-    title: p.title, klass: p.klass, race: p.race,
+    title: p.title, klass: p.klass, race: p.race, diceMode: DICE_MODES.includes(p.diceMode) ? p.diceMode : 'off',
     stats, resources, gold: p.gold, notes: p.notes,
     inventory: enrichInventory(p.inventory, library), achievements: p.achievements,
     sheet,
@@ -822,6 +863,7 @@ function common(state, pack, opts) {
   const { session: s, audience: a } = state;
   return {
     room: state.room,
+    campaign: state.campaign ? { id: state.campaign.id, name: state.campaign.name, ruleset: state.campaign.ruleset } : null,
     session: {
       id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, budgetLeft: s.budgetLeft, voice: s.voice, chatPlayers: s.chatPlayers !== false,
       permissions: { playerEdit: s.permissions?.playerEdit ?? 'sheet' },
@@ -858,7 +900,8 @@ function common(state, pack, opts) {
  * Role-filtered snapshot. opts: { now, connected:Set<playerId>, playerId, urls:{join,stage,gm},
  * queue:{queue,pendingAuto,playing}, aiAvailable, aiCallsLeft, stageOn (crawler count interpolation; default true) }
  */
-export function viewFor(state, pack, role, opts = {}) {
+export function viewFor(state, basePack, role, opts = {}) {
+  const pack = packOf(state, basePack);
   const now = opts.now ?? Date.now();
   const v = common(state, pack, { ...opts, now });
   const q = opts.queue ?? { queue: [], pendingAuto: [], playing: null };

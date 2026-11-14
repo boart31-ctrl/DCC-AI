@@ -278,3 +278,5 @@
 @media (prefers-reduced-motion: reduce) { .cr-badge.live .skull, .crg-live.on::before { animation: none; } }
 .sh-pv.is-live .sh-pv-k { color: #ff4d6d; }
 .sh-pv.is-live .sh-pv-k::before { content: '● '; }
+.sc-amt-wrap { display: inline-flex; align-items: center; gap: 4px; }
+.sc-amt { width: 72px; }

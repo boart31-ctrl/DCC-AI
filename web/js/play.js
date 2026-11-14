@@ -5,10 +5,11 @@ import {
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
 import { openBuilder } from './builder.js';
 import { createDiceLog, showRollCard } from './dicelog.js';
-import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme } from './ui.js';
+import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme, openDrawer } from './ui.js';
 import { playerEditLevel } from './rules.js';
 import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
+import { createRollPad } from './rollpad.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -236,8 +237,19 @@ client.on('view', (v) => {
 
 client.on('event', (e) => {
   if (!me) return;
-  if (e.kind === 'roll') { const r = e.roll || e; if (r.playerId === me.id) showRollCard(r, { meId: me.id }); return; }
-  if (e.kind === 'stat') return;
+  if (e.kind === 'roll') { const r = e.roll || e; if (r.playerId === me.id && !r.vs && !r.card) showRollCard(r, { meId: me.id }); return; }
+  if (e.kind === 'stat') {
+    // Something hurt me: feel it, and see how much.
+    if (e.playerId === me.id && e.resource && e.to < e.from) { buzz([60, 40, 60]); toast(`−${e.from - e.to} ${labelOfTrack(e.stat)} (${e.to}/${e.max})`, { ms: 3500 }); }
+    return;
+  }
+  if (e.kind === 'combat.hit' && e.type === 'crawler' && e.playerId === me.id) return;
+  if (e.kind === 'combat.start' && e.initiative && inFight()) { initPrompt(); return; }
+  if (e.kind === 'combat.turn') {
+    if (e.current?.playerId === me.id) yourTurn(e);
+    else if (e.next?.playerId === me.id) { buzz(30); toast("You're next", { ms: 3000 }); }
+    return;
+  }
   if (e.kind === 'message' && e.fromId && e.fromId !== 'gm') {
     // Crawler chatter: no takeover, a nudge unless the conversation is already open.
     if (e.fromId !== me.id && !msgCenter.el.isConnected) { buzz(12); toast(`${e.from || 'A crawler'} wrote ${e.to === 'all' ? 'to everyone' : 'to you'}`); }
@@ -257,9 +269,57 @@ client.on('event', (e) => {
 
 /* ---------- render ---------- */
 
+const rollPad = createRollPad({ send: (a) => client.send(a), getView: () => view, getMe: () => me });
+document.body.append(rollPad.el);
+const diceOn = () => (me?.diceMode ?? 'off') !== 'off';
+const DICE_LABEL = { off: 'Off: dice stay at the table', enter: 'Type my real die', digital: 'The phone rolls' };
+const labelOfTrack = (id) => view?.pack?.ruleset?.tracks?.find((t) => t.id === id)?.label || 'HP';
+const inFight = () => !!view?.combat?.active && (view.combat.combatants || []).some((x) => x.type === 'crawler' && x.playerId === me?.id);
+async function setDiceMode(mode) {
+  try { await client.send({ t: 'dice.mode', mode }); toast(`Dice: ${DICE_LABEL[mode]}`); } catch (err) { toast(err.message, { error: true }); }
+}
+function initPrompt() {
+  const id = view?.pack?.ruleset?.combat?.initiative?.derived || 'initiative';
+  buzz([40, 30, 40]);
+  if (diceOn()) rollPad.open({ kind: 'derived', id }, 'Initiative');
+  else toast('Fight! Roll initiative and tell the GM.', { ms: 5000 });
+}
+function yourTurn(e) {
+  buzz([120, 60, 120]);
+  const box = h('div.your-turn', { role: 'alert', onclick: () => box.remove() }, h('b', 'Your turn'), h('span', `Round ${e.round}`), diceOn() ? h('button.btn.btn-primary', { type: 'button', onclick: (ev) => { ev.stopPropagation(); box.remove(); rollPad.openPicker(); } }, 'Roll') : null);
+  document.body.append(box);
+  setTimeout(() => box.remove(), 6000);
+}
+const iniPrompt = h('button.ini-prompt', { type: 'button', hidden: true, onclick: () => initPrompt() }, 'Roll initiative');
+document.body.append(iniPrompt);
+const waitingForMe = () => !!view?.combat?.active && !!view.combat.init?.on && (view.combat.init.waiting || []).some((x) => x.playerId === me?.id);
+/** Rules card: how this game is played (from the campaign's ruleset), plus the licence notice. */
+function openRules() {
+  const rs = view?.pack?.ruleset || {};
+  const cr = rs.combat || {};
+  const def = cr.defenseLabel || 'Defence';
+  const basics = [
+    `Roll a d20 and add the number shown next to what you do. The GM tells you if it worked.`,
+    `Attacks hit when the total reaches the target's ${def}.${cr.degrees ? ' Beat it by 10 for a critical; miss by 10 for a critical failure. A natural 20 or 1 moves the result one step.' : ' A natural 20 is a critical hit; a natural 1 always misses.'}`,
+    cr.advantage ? 'Advantage: roll two d20 and keep the higher. Disadvantage: keep the lower.' : null,
+    cr.initiative?.enabled ? 'Fights go in turn order. Roll initiative when the fight starts; your phone buzzes on your turn.' : 'Fights go in phases the GM calls out.',
+    'Tap a number on your sheet to see how it is made. With dice on this phone, tap to roll or type your real die.',
+  ].filter(Boolean);
+  const body = h('div.rules-card',
+    h('h3', 'Basics'), h('ul', basics.map((t) => h('li', t))),
+    (rs.notes || []).length ? h('details', h('summary', 'More rules'), h('ul', rs.notes.map((t) => h('li', t)))) : null,
+    rs.system?.attribution ? h('details', h('summary', 'Licence'), h('p.hint', rs.system.attribution)) : null);
+  openDrawer({ title: 'Rules', sub: rs.system?.label || '', body });
+}
+
+const rollFab = h('button.roll-fab', { type: 'button', hidden: true, 'aria-label': 'Roll', onclick: () => rollPad.openPicker() }, icon('dice', { size: 26 }), h('span', 'Roll'));
+document.body.append(rollFab);
+
 const sheet = createSheet({
   mode: 'player',
   send: (a) => client.send(a),
+  onRoll: (what, label) => rollPad.open(what, label),
+  rollsOn: diceOn,
   extraTabs: () => (me ? [
     { id: 'ach', label: 'Achievements', count: me.achievements?.length || '', sig: achSig(), render: renderAchievements },
     { id: 'msg', label: 'Messages', badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
@@ -270,7 +330,9 @@ const sheet = createSheet({
   top: () => [h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
     h('span.ph-crawlers.js-crawlers', { 'data-fmt': 'compact', title: 'Crawlers still alive in the dungeon' })],
   moreItems: () => [
+    { icon: 'dice', label: 'Dice on this phone', sub: DICE_LABEL[me?.diceMode ?? 'off'], onClick: () => setDiceMode({ off: 'enter', enter: 'digital', digital: 'off' }[me?.diceMode ?? 'off']) },
     { icon: 'dice', label: 'Dice log', sub: 'Every roll at the table', onClick: () => setLogOpen(true) },
+    { icon: 'book', label: 'Rules', sub: view?.pack?.ruleset?.system?.short || 'How this game is played', onClick: openRules },
     { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
     ext.hosted ? null : { icon: 'x', label: 'Leave on this phone', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
   ].filter(Boolean),
@@ -322,6 +384,9 @@ function render() {
   applyPackTheme(view.pack?.theme);
   drawTheme();
   sheet.update(view, me);
+  rollFab.hidden = !diceOn();
+  iniPrompt.hidden = !(diceOn() && waitingForMe());
+  rollPad.update();
   renderStart();
   renderLog();
   renderTicker();

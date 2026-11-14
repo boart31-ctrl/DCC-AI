@@ -22,6 +22,7 @@
 // Views: the GM sees everything. Players and the TV see crawlers + revealed mobs only, mob HP as a
 // rounded fraction (exact numbers only with `showMobHp`), never notes / attacks / library GM fields.
 import { bad, notFound } from './errors.js';
+import { combatRules } from './outcome.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import { SCENE_GM, introLine } from './scenes.js';
 
@@ -50,6 +51,7 @@ export const AGGRO_DEFAULT = 3;
  */
 export const DEFAULT_SETTINGS = Object.freeze({
   hitRule: '>=', drMin: 1, crit: 'double', evadeBase: 0, public: true, includeHidden: false, finishDowned: false, stepMs: 2800, autoEnd: true, paceV: 2,
+  initiative: null, // null = the ruleset decides (5e / PF2e: turn order; crawler packs: phases)
 });
 export const UNVERIFIED_RULES = ['hitRule', 'drMin', 'crit', 'evadeBase'];
 
@@ -68,6 +70,7 @@ function normalizeSettings(raw) {
     stepMs: Number.isInteger(r.stepMs) && r.stepMs >= 1200 && r.stepMs <= 4000 && !(r.paceV !== 2 && r.stepMs === 2000) ? r.stepMs : d.stepMs,
     autoEnd: typeof r.autoEnd === 'boolean' ? r.autoEnd : d.autoEnd,
     paceV: 2,
+    initiative: typeof r.initiative === 'boolean' ? r.initiative : null,
   };
 }
 
@@ -108,7 +111,23 @@ export function initCombat() {
   return {
     active: false, round: 1, phaseIndex: 0, phases: [...DEFAULT_PHASES], phasesVerified: false, showMobHp: false, combatants: [],
     settings: { ...DEFAULT_SETTINGS }, stats: initStats(), startedAt: null, spreadNext: 0, lastAuto: null, autoQueue: null, id: null,
+    init: initInit(),
   };
+}
+
+/** Turn order: on, order (uids, first acts first), turn (index), totals (uid -> number), manual (GM dragged it). */
+export function initInit() {
+  return { on: false, order: [], turn: 0, totals: {}, manual: false, started: false };
+}
+
+function normalizeInit(raw, uids) {
+  const b = initInit();
+  if (!isObj(raw)) return b;
+  const known = new Set(uids);
+  const totals = {};
+  if (isObj(raw.totals)) for (const [k, v] of Object.entries(raw.totals)) if (known.has(k) && Number.isFinite(v)) totals[k] = v;
+  const order = Array.isArray(raw.order) ? [...new Set(raw.order.filter((u) => known.has(u)))] : [];
+  return { on: raw.on === true, order, turn: Number.isInteger(raw.turn) && raw.turn >= 0 && raw.turn < Math.max(1, order.length) ? raw.turn : 0, totals, manual: raw.manual === true, started: raw.started === true };
 }
 
 /** Repairs a saved combat block (missing in old saves → idle tracker). */
@@ -132,6 +151,7 @@ export function normalizeCombat(raw) {
     autoQueue: isObj(raw.autoQueue) && Array.isArray(raw.autoQueue.uids) ? raw.autoQueue : null,
     id: typeof raw.id === 'string' ? raw.id : null,
   };
+  c.init = normalizeInit(raw.init, c.combatants.map((x) => x.uid));
   c.phaseIndex = Math.min(c.phaseIndex, c.phases.length - 1);
   for (const m of c.combatants) {
     if (m.type === 'crawler') {
@@ -322,6 +342,11 @@ function changeHp(st, a, ctx, out, sign) {
   out.result = { hp: x.hp, max: x.hpMax };
 }
 
+/** Damage from a player's entered / digital damage roll (character.js resolveAgainst). */
+export function applyMobDamage(st, ctx, out, { uid, amount, by }) {
+  changeHp(st, { uid, amount: Math.min(MAX_MOB_HP, Math.max(1, Math.round(amount))), by }, ctx, out, -1);
+}
+
 function libSource(st, ctx, a) {
   if (typeof a.sourceId !== 'string' || !ID_RE.test(a.sourceId)) throw bad('sourceId must be a library id');
   const lib = libraryOf(st, ctx.pack);
@@ -374,6 +399,163 @@ function familyPicker(st, ctx, kind, e, sourceKey) {
   };
 }
 
+// ---------- initiative (turn order) ----------
+
+/** Is this fight run in turn order? Tracker setting first, then the ruleset (5e / PF2e yes, crawler packs no). */
+export function initiativeOn(st, pack) {
+  const s = C(st).settings.initiative;
+  return typeof s === 'boolean' ? s : !!pack.ruleset.combat?.initiative?.enabled;
+}
+
+function initBonusOf(st, ctx, x) {
+  if (x.type === 'mob') return Number.isFinite(x.initiative) ? x.initiative : 0;
+  const p = st.players.find((y) => y.id === x.playerId);
+  if (!p) return 0;
+  const id = ctx.pack.ruleset.combat?.initiative?.derived ?? 'initiative';
+  try {
+    const v = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.derived[id]?.value;
+    if (Number.isFinite(v)) return v;
+    return computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.stats.dex?.mod?.value ?? 0;
+  } catch {
+    return 0;
+  }
+}
+
+/** Sorts the order by totals (highest first). Ties: monsters first in PF2e, players first otherwise. */
+function sortInit(st, ctx) {
+  const c = C(st);
+  const I = c.init;
+  const all = c.combatants.map((x) => x.uid);
+  if (I.manual) {
+    // Keep the GM's order; newcomers with a total slot in by their total, the rest go last.
+    const cur = I.order.filter((u) => all.includes(u));
+    for (const u of all) {
+      if (cur.includes(u) || !Number.isFinite(I.totals[u])) continue;
+      const i = cur.findIndex((v) => !Number.isFinite(I.totals[v]) || I.totals[v] < I.totals[u]);
+      if (i < 0) cur.push(u); else cur.splice(i, 0, u);
+    }
+    I.order = cur;
+    return;
+  }
+  const mobsFirst = ctx.pack.ruleset.system?.family === 'pf2e';
+  const typeOf = new Map(c.combatants.map((x) => [x.uid, x.type]));
+  const current = I.order[I.turn];
+  I.order = all
+    .filter((u) => Number.isFinite(I.totals[u]))
+    .sort((a, b) => I.totals[b] - I.totals[a] || (typeOf.get(a) === typeOf.get(b) ? 0 : (typeOf.get(a) === 'mob') === mobsFirst ? -1 : 1));
+  // Before the first turn starts the top of the order is up; after that the current turn stays put.
+  I.turn = I.started && current ? Math.max(0, I.order.indexOf(current)) : 0;
+}
+
+function rollInit(st, ctx, x) {
+  const d20 = (ctx.rollInt ?? ctx.randInt)(20) + 1;
+  return d20 + initBonusOf(st, ctx, x);
+}
+
+/** Sets one combatant's initiative total and re-sorts. */
+export function setInitiative(st, ctx, out, uid, total) {
+  const c = C(st);
+  if (!c.init.on) return false;
+  c.init.totals[uid] = total;
+  sortInit(st, ctx);
+  out.emit({ kind: 'combat.order', order: c.init.order }, { roles: ['gm'] });
+  return true;
+}
+
+/** Called after any sheet roll: an initiative roll during a turn-order fight sets that crawler's place. */
+export function onSheetRoll(st, ctx, out, rec) {
+  const c = C(st);
+  if (!c.active || !c.init?.on || !rec.playerId || rec.void) return;
+  const id = ctx.pack.ruleset.combat?.initiative?.derived ?? 'initiative';
+  if (rec.what !== 'derived' || rec.whatId !== id) return;
+  const x = c.combatants.find((y) => y.type === 'crawler' && y.playerId === rec.playerId);
+  if (x) setInitiative(st, ctx, out, x.uid, rec.total);
+}
+
+function turnEvent(st, out) {
+  const c = C(st);
+  const I = c.init;
+  const at = (i) => c.combatants.find((x) => x.uid === I.order[i]) ?? null;
+  const cur = at(I.turn);
+  if (!cur) return;
+  // Next living combatant after the current one (downed crawlers still get turns: death saves).
+  let next = null;
+  for (let k = 1; k <= I.order.length; k++) {
+    const y = at((I.turn + k) % I.order.length);
+    if (y && y.uid !== cur.uid && !(y.type === 'mob' && y.hp <= 0)) { next = y; break; }
+  }
+  const pub = (x) => (x ? { uid: x.type === 'mob' && x.hidden ? null : x.uid, name: x.type === 'mob' && x.hidden ? 'Something unseen' : x.name, playerId: x.playerId ?? null, type: x.type } : null);
+  out.emit({ kind: 'combat.turn', round: c.round, current: pub(cur), next: pub(next) }, 'all');
+}
+
+/** Next in the turn order, skipping downed mobs; wrapping starts a new round. */
+function nextTurn(st, ctx, out) {
+  const c = C(st);
+  const I = c.init;
+  if (!I.order.length) throw bad('nobody has rolled initiative yet');
+  for (let k = 1; k <= I.order.length; k++) {
+    const i = (I.turn + k) % I.order.length;
+    if (i <= I.turn) {
+      // wrapped
+    }
+    const x = c.combatants.find((y) => y.uid === I.order[i]);
+    if (!x || (x.type === 'mob' && x.hp <= 0)) continue;
+    if (!I.started) {
+      // First press: the top of the order starts round 1.
+      I.started = true;
+      I.turn = 0;
+      turnEvent(st, out);
+      return;
+    }
+    if (i <= I.turn) c.round += 1;
+    I.turn = i;
+    turnEvent(st, out);
+    return;
+  }
+}
+
+export const INIT_GM = {
+  /** Rolls initiative for `uids` (default: everyone without a total). Crawlers use their sheet's initiative. */
+  'combat.initRoll'(st, a, ctx, out) {
+    const c = C(st);
+    if (!c.init.on) throw bad('this fight is not in turn order');
+    const want = Array.isArray(a.uids) ? a.uids : c.combatants.filter((x) => !Number.isFinite(c.init.totals[x.uid])).map((x) => x.uid);
+    for (const uid of want) {
+      const x = combatantOf(st, uid);
+      c.init.totals[x.uid] = rollInit(st, ctx, x);
+    }
+    sortInit(st, ctx);
+    out.result = { order: c.init.order };
+  },
+  /** GM types a total (e.g. a player's physical roll). */
+  'combat.initiative'(st, a, ctx, out) {
+    const x = combatantOf(st, a.uid);
+    if (!C(st).init.on) throw bad('this fight is not in turn order');
+    setInitiative(st, ctx, out, x.uid, intIn(a.total, 'total', -20, 99));
+  },
+  /** GM drags the order: a list of uids (any not listed keep their place at the end). */
+  'combat.order'(st, a, ctx, out) {
+    const c = C(st);
+    if (!Array.isArray(a.uids)) throw bad('uids must be an array');
+    const known = new Set(c.combatants.map((x) => x.uid));
+    const cur = c.init.order[c.init.turn];
+    const seen = [...new Set(a.uids.filter((u) => known.has(u)))];
+    c.init.order = [...seen, ...c.init.order.filter((u) => !seen.includes(u))];
+    c.init.manual = true;
+    if (cur) c.init.turn = Math.max(0, c.init.order.indexOf(cur));
+    out.emit({ kind: 'combat.order', order: c.init.order }, 'all');
+  },
+  /** Jumps the turn to a combatant. */
+  'combat.turnSet'(st, a, ctx, out) {
+    const c = C(st);
+    const i = c.init.order.indexOf(a.uid);
+    if (i < 0) throw notFound('that combatant is not in the turn order');
+    c.init.turn = i;
+    c.init.started = true;
+    turnEvent(st, out);
+  },
+};
+
 export const COMBAT_GM = {
   'combat.start'(st, a, ctx, out) {
     const c = C(st);
@@ -390,8 +572,16 @@ export const COMBAT_GM = {
     c.round = 1;
     c.phaseIndex = 0;
     for (const p of st.players) addCrawler(st, ctx, p.id);
-    const ev = out.emit({ kind: 'combat.start', round: 1, phaseIndex: 0, phase: c.phases[0] }, 'all');
-    ctx.h.feedPush(st, ev, `Combat! Round 1: ${c.phases[0]}`);
+    const on = initiativeOn(st, ctx.pack);
+    if (!c.init?.on && on) c.init = { ...initInit(), on: true };
+    else if (!on) c.init = initInit();
+    if (on) {
+      // Monsters roll right away; crawlers roll on their phones (or the GM rolls / types for them).
+      for (const x of c.combatants) if (x.type === 'mob' && !Number.isFinite(c.init.totals[x.uid])) c.init.totals[x.uid] = rollInit(st, ctx, x);
+      sortInit(st, ctx);
+    }
+    const ev = out.emit({ kind: 'combat.start', round: 1, phaseIndex: 0, phase: on ? 'Roll initiative' : c.phases[0], initiative: on }, 'all');
+    ctx.h.feedPush(st, ev, on ? 'Combat! Roll initiative.' : `Combat! Round 1: ${c.phases[0]}`);
   },
 
   'combat.end'(st, a, ctx, out) {
@@ -403,6 +593,11 @@ export const COMBAT_GM = {
 
   'combat.next'(st, a, ctx, out) {
     const c = C(st);
+    if (c.init?.on) {
+      nextTurn(st, ctx, out);
+      out.result = { round: c.round, turn: c.init.turn };
+      return;
+    }
     if (c.phaseIndex >= c.phases.length - 1) { c.phaseIndex = 0; c.round += 1; } else c.phaseIndex += 1;
     out.emit({ kind: 'combat.phase', round: c.round, phaseIndex: c.phaseIndex, phase: c.phases[c.phaseIndex] }, 'all');
     out.result = { round: c.round, phaseIndex: c.phaseIndex };
@@ -429,6 +624,7 @@ export const COMBAT_GM = {
         else if (k === 'crit') { if (!['double', 'none'].includes(v)) throw bad('settings.crit must be double or none'); n.crit = v; }
         else if (k === 'stepMs') n.stepMs = intIn(v, 'settings.stepMs', 1200, 4000);
         else if (k === 'evadeBase') n.evadeBase = intIn(v, 'settings.evadeBase', 0, 30);
+        else if (k === 'initiative') { if (v !== null && typeof v !== 'boolean') throw bad('settings.initiative must be true, false or null'); n.initiative = v; }
         else if (['public', 'includeHidden', 'finishDowned', 'autoEnd'].includes(k)) n[k] = flag(v, `settings.${k}`);
         else throw bad(`unknown setting ${k}`);
       }
@@ -484,9 +680,12 @@ export const COMBAT_GM = {
         evade: Number.isInteger(e.evade) ? e.evade : 0, dr: Number.isInteger(e.dr) ? e.dr : 0,
         attacks: cleanAttacks(e.attacks), conditions: [], notes: '', hidden, ...MOB_TARGETING,
       };
+      if (Number.isFinite(e.initiative)) m.initiative = e.initiative;
       C(st).combatants.push(m);
+      if (C(st).active && C(st).init?.on) C(st).init.totals[m.uid] = rollInit(st, ctx, m);
       return m.uid;
     });
+    if (C(st).active && C(st).init?.on) sortInit(st, ctx);
     // Added straight onto the TV (not hidden): the System introduces a monster the first time it appears.
     if (!hidden && kind === 'monster' && a.intro !== false) {
       const line = introLine(st, ctx, 'monster', e.id);
@@ -565,6 +764,12 @@ export const COMBAT_GM = {
   'combat.remove'(st, a) {
     const x = combatantOf(st, a.uid);
     C(st).combatants = C(st).combatants.filter((y) => y !== x);
+    const I = C(st).init;
+    if (I) {
+      const i = I.order.indexOf(x.uid);
+      if (i >= 0) { I.order.splice(i, 1); if (I.turn > i) I.turn -= 1; I.turn = Math.min(I.turn, Math.max(0, I.order.length - 1)); }
+      delete I.totals[x.uid];
+    }
     for (const m of C(st).combatants) if (m.focus === x.uid) { m.focus = null; if (m.targetMode === 'focus') m.targetMode = 'auto'; }
   },
 
@@ -623,10 +828,18 @@ export const COMBAT_ACTIONS = Object.keys(COMBAT_GM);
 /** The sheet values auto mode attacks against: Evade (or Defense) and damage resistance (DR / armour). */
 export function defenseDefs(pack) {
   const d = pack.ruleset.derived;
+  const cr = pack.ruleset.combat;
+  if (cr && (cr.defense || cr.dr !== undefined)) {
+    const evade = cr.defense ? d.find((x) => x.id === cr.defense) ?? null : null;
+    const dr = cr.dr ? d.find((x) => x.id === cr.dr) ?? null : null;
+    if (evade) return { evade: { ...evade, label: cr.defenseLabel || evade.label }, dr };
+  }
   const evade = d.find((x) => /evade|defen/i.test(`${x.id} ${x.label}`)) || d.find((x) => x.roll) || null;
   const dr = d.find((x) => x !== evade && /(^|[^a-z])dr($|[^a-z])|resist|armou?r/i.test(`${x.id} ${x.label}`)) || null;
   return { evade, dr };
 }
+
+export { combatRules, attackOutcome, critFormula, critMultiplier } from './outcome.js';
 export function defenseOf(pack, computed) {
   const { evade, dr } = defenseDefs(pack);
   const val = (def) => (def ? Number(computed?.derived?.[def.id]?.value) || 0 : 0);
@@ -685,7 +898,18 @@ export function combatView(state, pack, role) {
   const head = {
     active: c.active, round: c.round, phaseIndex: c.phaseIndex, phase: c.phases[c.phaseIndex] ?? '',
     phases: c.phases, phasesVerified: c.phasesVerified, showMobHp: c.showMobHp,
+    defenseLabel: pack.ruleset.combat?.defenseLabel || 'Evade',
   };
+  const I = c.init;
+  if (I?.on) {
+    const byUid = new Map(c.combatants.map((x) => [x.uid, x]));
+    const visible = (x) => gm || !(x.type === 'mob' && x.hidden);
+    const order = I.order.map((u) => byUid.get(u)).filter((x) => x && visible(x)).map((x) => ({ uid: x.uid, type: x.type, playerId: x.playerId ?? null, ...(gm ? { total: I.totals[x.uid] } : {}), down: x.type === 'mob' ? x.hp <= 0 : undefined }));
+    const cur = byUid.get(I.order[I.turn]);
+    const waiting = c.combatants.filter((x) => !Number.isFinite(I.totals[x.uid]) && visible(x)).map((x) => ({ uid: x.uid, type: x.type, playerId: x.playerId ?? null }));
+    head.init = { on: true, order, turnUid: cur && visible(cur) ? cur.uid : null, turnHidden: !!cur && !visible(cur), waiting, manual: I.manual };
+    if (cur) head.phase = cur.type === 'mob' && !visible(cur) ? 'Something unseen' : cur.type === 'mob' ? cur.name : state.players.find((p) => p.id === cur.playerId)?.name ?? '';
+  } else head.init = { on: false };
   if (gm) {
     const la = c.lastAuto;
     Object.assign(head, {
@@ -694,6 +918,7 @@ export function combatView(state, pack, role) {
       autoQueue: c.autoQueue ? { id: c.autoQueue.id, uids: c.autoQueue.uids, done: c.autoQueue.done ?? 0 } : null,
       suggestEnd: endSuggestion(state, pack),
       defense: (({ evade, dr }) => ({ evade: evade?.label ?? null, dr: dr?.label ?? null }))(defenseDefs(pack)),
+      rules: (({ family, degrees, crit, hitRule, advantage }) => ({ family, degrees, crit, hitRule, advantage }))(combatRules(pack, c.settings)),
     });
   }
   const combatants = [];

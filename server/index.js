@@ -115,6 +115,37 @@ export function fileSnapshots(dir, keep = KEEP_SNAPSHOTS) {
   };
 }
 
+/** Parked campaigns as files: data/campaigns/<id>.json = { meta, state }. */
+export function fileCampaigns(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  const fileOf = (id) => (/^[A-Za-z0-9_-]{1,40}$/.test(id) ? path.join(dir, `${id}.json`) : null);
+  return {
+    list() {
+      return fs.readdirSync(dir).filter((f) => f.endsWith('.json')).map((f) => {
+        try {
+          return JSON.parse(fs.readFileSync(path.join(dir, f), 'utf8')).meta;
+        } catch {
+          return null;
+        }
+      }).filter(Boolean).sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
+    },
+    load(id) {
+      const f = fileOf(id);
+      if (!f || !fs.existsSync(f)) return null;
+      return JSON.parse(fs.readFileSync(f, 'utf8')).state;
+    },
+    save(id, meta, state) {
+      const f = fileOf(id);
+      if (!f) throw new Error('bad campaign id');
+      writeJsonAtomic(f, { meta, state });
+    },
+    remove(id) {
+      const f = fileOf(id);
+      if (f) fs.rmSync(f, { force: true });
+    },
+  };
+}
+
 /**
  * Starts the server. All options are optional; tests pass port 0 and temp dirs.
  * Returns { port, state, urls, log, host, close() }.
@@ -207,6 +238,7 @@ export async function startServer(opts = {}) {
       else saveNow();
     },
     snapshots: fileSnapshots(path.join(dataDir, 'snapshots')),
+    campaigns: fileCampaigns(path.join(dataDir, 'campaigns')),
     onArchive: (session, eventLog, state) => {
       const file = path.join(dataDir, 'sessions', `${session.id}.json`);
       writeJsonAtomic(file, { session, endedAt: now(), players: state.players.map(({ pin, ...p }) => p), messages: state.messages, log: eventLog });
@@ -291,6 +323,23 @@ export async function startServer(opts = {}) {
         const st = host.state;
         const data = { format: 'the-system-export/1', kind, edition: 'node', exportedAt: now(), pack: { id: pack.id, version: pack.version }, state: st, log: host.log };
         return sendJson(res, 200, data, { 'content-disposition': `attachment; filename="system-${kind}-${new Date(now()).toISOString().slice(0, 10)}.json"` });
+      }
+      if (p === '/api/import' && req.method === 'POST') {
+        if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) return sendJson(res, 403, { error: 'forbidden origin' });
+        const r = host.checkGm({ key: req.headers['x-gm-key'], token: req.headers['x-gm-token'] }, req.socket.remoteAddress ?? '?');
+        if (r !== 'ok') return sendJson(res, r === 'rate_limited' ? 429 : 401, { error: r });
+        const chunks = [];
+        let size = 0;
+        for await (const c of req) {
+          size += c.length;
+          if (size > 20 * 1024 * 1024) return sendJson(res, 413, { error: 'too_big' });
+          chunks.push(c);
+        }
+        try {
+          return sendJson(res, 200, host.importCampaign(JSON.parse(Buffer.concat(chunks).toString('utf8'))));
+        } catch (e) {
+          return sendJson(res, 400, { error: 'bad_request', msg: e.message });
+        }
       }
       if (p.startsWith('/api/')) return notFoundRes(res);
       if (p.startsWith('/pack/')) {

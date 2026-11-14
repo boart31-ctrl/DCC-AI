@@ -82,6 +82,8 @@ listening to the table (local speech-to-text, transcript only, never stored audi
 - [SPEC.md](SPEC.md) — design and principles
 - [docs/PROTOCOL.md](docs/PROTOCOL.md) — WebSocket protocol
 - [docs/CONTENT_PACKS.md](docs/CONTENT_PACKS.md) — content pack format
+- [docs/RULESETS.md](docs/RULESETS.md) — built-in 5e (SRD 5.1 / 5.2) and PF2e (ORC) rules, campaigns, content conversion, dice entry, turn order
+- [docs/PUBLIC_RELEASE.md](docs/PUBLIC_RELEASE.md) — the plan for the public, open-source release
 - [docs/ART_PIPELINE.md](docs/ART_PIPELINE.md) — bulk art sheets → pack (slicing, cut-outs, animations, ui.json)
 
 ## License

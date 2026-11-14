@@ -461,3 +461,42 @@ test('restore(conn, meta) after a rebuild (hibernation): authenticated sockets k
   two.host.restore(stale, { role: 'pairing', code: 'ABCD', codeExpires: two.clock.now() - 1 });
   assert.equal(stale.closed.code, 4002);
 });
+
+test('campaigns: new campaign with another ruleset, switch back, import a backup; TVs and GM stay paired', async () => {
+  const store = new Map();
+  const campaigns = {
+    list: () => [...store.values()].map((x) => x.meta),
+    load: (id) => store.get(id)?.state ?? null,
+    save: (id, meta, state) => store.set(id, { meta, state: JSON.parse(JSON.stringify(state)) }),
+    remove: (id) => store.delete(id),
+  };
+  const { host, gm, gmView } = setup({ host: { campaigns } });
+  const g = gm();
+  await act(g, { t: 'player.add', name: 'Carl' });
+  const first = host.state.campaign;
+  let r = await act(g, { t: 'campaign.list' });
+  assert.equal(r.ok, true);
+  assert.deepEqual(r.result.choices.map((c) => c.id), ['default', 'dnd5e', 'dnd2024', 'pf2e']);
+  r = await act(g, { t: 'campaign.new', name: 'Rise of the Runelords', ruleset: 'pf2e' });
+  assert.equal(r.ok, true, r.msg);
+  assert.equal(host.state.campaign.ruleset, 'pf2e');
+  assert.equal(host.state.players.length, 0);
+  assert.equal(gmView(g).campaign.name, 'Rise of the Runelords');
+  assert.equal(store.size, 1, 'the old campaign is parked');
+  await act(g, { t: 'player.add', name: 'Seoni' });
+  assert.equal(host.state.players[0].sheet.skills.length, 17, 'PF2e sheet');
+  r = await act(g, { t: 'campaign.switch', id: first.id });
+  assert.equal(r.ok, true, r.msg);
+  assert.equal(host.state.campaign.id, first.id);
+  assert.equal(host.state.players[0].name, 'Carl');
+  assert.equal(store.size, 1, 'PF2e campaign parked, the running one is not in the list');
+  assert.equal((await act(g, { t: 'campaign.delete', id: first.id })).ok, false, 'cannot delete the running campaign');
+  assert.equal((await act(g, { t: 'campaign.new', ruleset: 'chess' })).ok, false);
+  // import: a backup of the PF2e campaign comes back as the running one
+  const parked = [...store.values()][0].state;
+  const out = host.importCampaign({ format: 'the-system-export/1', state: parked });
+  assert.equal(out.campaign.ruleset, 'pf2e');
+  assert.equal(host.state.players[0].name, 'Seoni');
+  assert.throws(() => host.importCampaign({ nope: 1 }), /not a campaign file/);
+  assert.equal(g.closed, null, 'the GM stays connected');
+});

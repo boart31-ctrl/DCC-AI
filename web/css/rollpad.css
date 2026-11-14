@@ -1,0 +1,74 @@
+/* Roll pad (web/js/rollpad.js): bottom sheet on the phone. Big targets, one thumb, readable in dim light. */
+.rp[hidden] { display: none; }
+.rp { position: fixed; inset: 0; z-index: 80; display: grid; align-items: end; }
+.rp-scrim { position: absolute; inset: 0; background: rgb(0 0 0 / 0.55); }
+.rp-sheet { position: relative; max-height: 92dvh; display: grid; background: var(--c-panel); border-top: 1px solid var(--c-line-2);
+  border-radius: 14px 14px 0 0; box-shadow: 0 -12px 40px rgb(0 0 0 / 0.45); padding-bottom: env(safe-area-inset-bottom); animation: rp-up 0.18s ease-out; }
+@media (prefers-reduced-motion: reduce) { .rp-sheet { animation: none; } }
+@keyframes rp-up { from { transform: translateY(24px); opacity: 0.4; } }
+@media (min-width: 700px) { .rp { align-items: center; justify-items: center; } .rp-sheet { width: 440px; border-radius: 14px; } }
+.rp-body { display: grid; grid-template-rows: auto minmax(0, 1fr); min-height: 0; }
+.rp-head { display: flex; align-items: flex-start; gap: 10px; padding: 14px 16px 8px; border-bottom: 1px solid var(--c-line); }
+.rp-title { display: grid; gap: 2px; flex: 1; min-width: 0; }
+.rp-title b { font-family: var(--f-ui); font-size: 20px; }
+.rp-sub { font-size: 14px; color: var(--c-ink-2); line-height: 1.3; }
+.rp-x { min-width: 44px; min-height: 44px; }
+.rp-scroll { overflow-y: auto; padding: 12px 16px 16px; display: grid; gap: 14px; align-content: start; }
+.rp-group h3 { margin: 4px 0 8px; font-family: var(--f-ui); font-size: 13px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--c-ink-3); }
+.rp-acts { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.rp-act { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px; text-align: left;
+  font: 600 15px var(--f-ui); color: var(--c-ink); background: var(--c-sunk); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
+.rp-act b { color: var(--c-accent); font-size: 17px; }
+.rp-act:active { border-color: var(--c-accent); }
+.rp-l { font: 600 13px var(--f-ui); color: var(--c-ink-3); text-transform: uppercase; letter-spacing: 0.05em; }
+.rp-targets, .rp-mods { display: grid; gap: 8px; }
+.rp-chips, .rp-adv { display: flex; flex-wrap: wrap; gap: 6px; }
+.rp-chips .chip, .rp-adv .chip { min-height: 40px; padding: 0 14px; font-size: 15px; }
+.rp-mod { font: 600 16px var(--f-ui); color: var(--c-ink-2); }
+.rp-bonus { display: flex; align-items: center; gap: 10px; }
+.rp-bonus .btn { min-width: 44px; min-height: 40px; font-size: 20px; }
+.rp-bonus b { min-width: 3ch; text-align: center; font: 700 18px var(--f-ui); }
+.rp-pad { display: grid; justify-items: center; gap: 10px; }
+.rp-shown { font: 800 48px/1 var(--f-ui); min-height: 56px; color: var(--c-ink); letter-spacing: 0.02em; }
+.rp-keys { grid-template-columns: repeat(3, minmax(72px, 96px)); }
+.rp-keys button { height: 58px; }
+.rp-ok { height: 58px; font: 700 22px var(--f-ui); color: var(--c-accent-ink); background: var(--c-accent); border: 0; border-radius: var(--r-2); }
+.rp-ok:disabled { opacity: 0.4; }
+.rp-digital { min-height: 56px; font-size: 18px; justify-content: center; }
+.rp-alt { display: grid; justify-items: center; }
+.rp-alt summary { min-height: 44px; display: flex; align-items: center; color: var(--c-ink-2); cursor: pointer; }
+.rp-result { display: grid; justify-items: center; gap: 6px; padding: 18px 12px; border-radius: 12px; background: var(--c-sunk); border: 2px solid var(--c-line-2); }
+.rp-total { font: 800 72px/1 var(--f-ui); }
+.rp-verdict { font: 800 28px var(--f-ui); letter-spacing: 0.08em; }
+.rp-result.is-hit { border-color: #38d39f; } .rp-result.is-hit .rp-verdict { color: #38d39f; }
+.rp-result.is-miss { border-color: var(--c-bad); } .rp-result.is-miss .rp-verdict { color: var(--c-bad); }
+.rp-result.is-crit { border-color: #ffb000; box-shadow: 0 0 24px rgb(255 176 0 / 0.35); } .rp-result.is-crit .rp-verdict { color: #ffb000; }
+.rp-applied { font: 700 18px var(--f-ui); color: var(--c-ink-2); }
+.rp-next { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+.rp-next .btn { min-height: 48px; padding: 0 18px; font-size: 16px; }
+
+/* Roll button under the thumb (dice mode on) */
+.roll-fab[hidden] { display: none; }
+.roll-fab { position: fixed; right: 16px; bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 60; display: inline-flex; align-items: center; gap: 8px;
+  min-height: 56px; padding: 0 20px; font: 700 18px var(--f-ui); color: var(--c-accent-ink); background: var(--c-accent); border: 0; border-radius: 28px;
+  box-shadow: 0 8px 24px rgb(0 0 0 / 0.4); }
+body.rp-open .roll-fab { display: none; }
+@media (max-width: 699px) { .roll-fab { bottom: calc(76px + env(safe-area-inset-bottom)); } }
+
+/* "Your turn" takeover */
+.your-turn { position: fixed; inset: 0; z-index: 90; display: grid; place-content: center; justify-items: center; gap: 12px; text-align: center;
+  background: color-mix(in srgb, var(--me, var(--c-accent)) 30%, rgb(0 0 0 / 0.85)); color: #fff; }
+.your-turn b { font: 900 56px/1 var(--f-ui); text-transform: uppercase; letter-spacing: 0.04em; }
+.your-turn span { font: 600 18px var(--f-ui); opacity: 0.85; }
+.your-turn .btn { min-height: 56px; padding: 0 28px; font-size: 20px; }
+
+.rp-need { font: 600 14px var(--f-ui); color: var(--c-accent); }
+.rp-math { font: 500 14px var(--f-ui); color: var(--c-ink-3); }
+.ini-prompt { position: fixed; left: 16px; right: 16px; bottom: calc(150px + env(safe-area-inset-bottom)); z-index: 61; min-height: 52px; font: 700 18px var(--f-ui);
+  color: #fff; background: #c2185b; border: 0; border-radius: 26px; box-shadow: 0 8px 24px rgb(0 0 0 / 0.45); }
+.ini-prompt[hidden] { display: none; }
+@media (min-width: 700px) { .ini-prompt { left: auto; right: 16px; bottom: 90px; padding: 0 22px; } }
+.rules-card { display: grid; gap: 10px; font-size: 16px; line-height: 1.45; }
+.rules-card h3 { margin: 4px 0 0; font-family: var(--f-ui); }
+.rules-card ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.rules-card summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-weight: 600; }

@@ -52,6 +52,8 @@ client.on('status', (s) => {
   const el = $('#conn');
   el.classList.toggle('ok', s.status === 'open');
   el.classList.toggle('bad', s.status === 'closed' || s.status === 'rejected' || (s.status === 'connecting' && s.attempt > 1));
+  // Offline: dim the desk so nothing looks clickable that can't reach the table.
+  document.body.classList.toggle('desk-offline', s.status === 'closed' || (s.status === 'connecting' && s.attempt > 1));
   $('.conn-text', el).textContent = statusText(s);
   if (s.status === 'rejected') {
     $('#gate').hidden = false;
@@ -1056,9 +1058,9 @@ document.addEventListener('keydown', (e) => {
   const t = e.target;
   if (t.closest?.('input, textarea, select, [contenteditable]') || sheet.open || drawerOpen()) return;
   if (e.key === '/') { e.preventDefault(); showView('library'); library.focusSearch(); return; }
-  if (currentView !== 'show') return;
-  if (e.key === 'a' || e.key === 'A') { e.preventDefault(); toggleAuto(); return; }
-  if (e.key === 'm' || e.key === 'M') { e.preventDefault(); openComms(); return; }
+  // Quip number keys work on every view (the show's signature should never be a tab away); A / M stay on Show.
+  if (currentView === 'show' && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); toggleAuto(); return; }
+  if (currentView === 'show' && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); openComms(); return; }
   // Physical keys (e.code) so the number row works on Czech/other layouts; Shift+digits belong to the SFX pads.
   const qDigit = !e.shiftKey && /^(Digit|Numpad)[1-9]$/.test(e.code) ? Number(e.code.slice(-1)) : 0;
   if (qDigit) {

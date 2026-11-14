@@ -644,3 +644,49 @@ body.has-crawlers .hype { width: 20rem; }
 @media (prefers-reduced-motion: reduce) {
   .crawlers.live .cr-ico, .crawlers.hit, .crawlers.hit .cr-num { animation: none; }
 }
+
+/* ---------- turn order strip (5e / PF2e fights) ---------- */
+.ini-tv { position: fixed; top: 6.2rem; left: 50%; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 0.8rem;
+  max-width: 92vw; padding: 0.45rem 0.9rem; background: rgb(8 6 20 / 0.82); border: 1px solid rgb(255 255 255 / 0.12); border-radius: 0.8rem; }
+.ini-tv-k { font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-style: italic; font-size: 1.3rem; color: var(--cyan, #39f3ff); white-space: nowrap; }
+.ini-strip .ini-list { display: flex; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
+.ini-tv .ini { display: flex; align-items: center; gap: 0.45rem; padding: 0.3rem 0.7rem; border-radius: 0.55rem; background: rgb(255 255 255 / 0.06);
+  border: 2px solid transparent; font-family: var(--f-display); font-stretch: condensed; font-weight: 800; font-size: 1.35rem; color: #fff; white-space: nowrap; }
+.ini-tv .ini-n { font-family: var(--f-mono); font-size: 0.9rem; opacity: 0.6; }
+.ini-tv .ini.is-pc .ini-name { color: var(--ini, #fff); }
+.ini-tv .ini.is-mob .ini-name { color: #ff8a8a; }
+.ini-tv .ini.is-cur { border-color: var(--ini, #ffd23f); background: color-mix(in srgb, var(--ini, #ffd23f) 28%, transparent); transform: scale(1.12); }
+.ini-tv .ini.is-next { border-color: rgb(255 255 255 / 0.25); }
+.ini-tv .ini.is-down { opacity: 0.35; text-decoration: line-through; }
+.ini-tv .ini.is-wait { opacity: 0.55; font-style: italic; }
+
+/* ---------- "X's turn" banner ---------- */
+.turn-banner { position: fixed; left: 50%; top: 40%; transform: translate(-50%, -50%); z-index: 70; display: grid; justify-items: center; gap: 0.2rem;
+  padding: 1.2rem 3rem; background: rgb(8 6 20 / 0.9); border: 3px solid var(--rc, var(--cyan, #39f3ff)); border-radius: 1rem;
+  box-shadow: 0 0 60px color-mix(in srgb, var(--rc, #39f3ff) 50%, transparent); animation: tb-in 0.35s ease-out; transition: opacity 0.5s; }
+.turn-banner small { font-family: var(--f-mono); font-size: 1.1rem; opacity: 0.7; }
+.turn-banner b { font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-style: italic; font-size: 4.6rem; line-height: 1; color: var(--rc, #fff); text-transform: uppercase; }
+.turn-banner span { font-size: 1.4rem; opacity: 0.8; }
+.turn-banner.out { opacity: 0; }
+@keyframes tb-in { from { transform: translate(-50%, -50%) scale(0.85); opacity: 0; } }
+
+/* ---------- player roll cards ---------- */
+.roll-cards { position: fixed; right: 2rem; bottom: 14.5rem; z-index: 60; display: grid; gap: 0.7rem; width: 26rem; }
+.roll-card { display: grid; grid-template-columns: 1fr auto; grid-template-areas: "who num" "what num" "verdict verdict"; gap: 0.1rem 1rem;
+  padding: 0.8rem 1.1rem; background: rgb(8 6 20 / 0.92); border-left: 0.5rem solid var(--rc, #39f3ff); border-radius: 0.6rem;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 0.5); animation: rc-in 0.3s ease-out; transition: opacity 0.5s, transform 0.5s; }
+.roll-card.out { opacity: 0; transform: translateX(2rem); }
+.rc-who { grid-area: who; font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-size: 1.6rem; color: var(--rc, #fff); }
+.rc-what { grid-area: what; font-size: 1.15rem; color: rgb(255 255 255 / 0.8); }
+.rc-num { grid-area: num; display: grid; justify-items: end; align-content: center; }
+.rc-num small { font-family: var(--f-mono); font-size: 0.85rem; opacity: 0.65; }
+.rc-num b { font-family: var(--f-display); font-weight: 900; font-size: 3rem; line-height: 1; }
+.rc-verdict { grid-area: verdict; font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-style: italic; font-size: 1.7rem; text-transform: uppercase; letter-spacing: 0.04em; }
+.roll-card.is-hit .rc-verdict { color: #38f39f; }
+.roll-card.is-miss .rc-verdict { color: #ff5470; }
+.roll-card.is-crit { box-shadow: 0 0 40px rgb(255 190 40 / 0.6); }
+.roll-card.is-crit .rc-verdict { color: #ffc23f; }
+.roll-card.is-void { opacity: 0.45; }
+.roll-card.is-void .rc-num b { text-decoration: line-through; }
+@keyframes rc-in { from { transform: translateX(3rem); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .roll-card, .turn-banner { animation: none; } }

@@ -112,7 +112,7 @@ export function openBuilder({ model: M, player, gm, act, allowOrigins = false })
       };
       return h('div.bld-step',
         h('p.bld-lede', gm ? 'Pick from the pack, or type your own. Placeholders are fine; you can change them later.' : 'Pick what you would like to play. Your GM approves it; after that it is locked.'),
-        group('Race', 'race', libOr('race', rs.races)),
+        group(rs.labels?.race || 'Race', 'race', libOr('race', rs.races)),
         group('Class', 'class', libOr('class', rs.classes)),
         rs.backgrounds.length || M.lib.background.length ? group('Background', 'background', libOr('background', rs.backgrounds)) : null,
       );
@@ -135,7 +135,7 @@ export function openBuilder({ model: M, player, gm, act, allowOrigins = false })
         })),
       );
       return h('div.bld-step',
-        h('p.bld-lede', rs.statMod ? `Modifier = ${rs.statMod.formula.replace(/\bx\b/g, rs.statMod.from || 'value')}.${rs.statMod.verify ? ' Not checked against the rulebook yet.' : ''}` : 'Enter each stat.'),
+        h('p.bld-lede', gm && rs.statMod ? `Modifier = ${rs.statMod.formula.replace(/\bx\b/g, rs.statMod.from || 'value')}.${rs.statMod.verify ? ' Not checked against the rulebook yet.' : ''}` : 'Enter each stat. The modifier next to it is what you add to rolls.'),
         table,
       );
     },
@@ -175,7 +175,7 @@ export function openBuilder({ model: M, player, gm, act, allowOrigins = false })
     },
     review() {
       const rows = [
-        ['Name', d.identity.name || '—'], ['Race', d.race || '—'], ['Class', d.class || '—'],
+        ['Name', d.identity.name || '—'], [rs.labels?.race || 'Race', d.race || '—'], ['Class', d.class || '—'],
         ...(rs.backgrounds.length ? [['Background', d.background || '—']] : []),
         ['Level', d.identity.level], ['Stats', rs.stats.map((s) => `${s.abbr} ${Object.values(d.stats[s.id]).join('/')}`).join(', ')],
         ['Skills', [...d.skills].map(([sid, r]) => `${(M.lib.skill.find((x) => x.id === sid) || rs.skills.catalog.find((x) => x.id === sid))?.name || sid} ${r}`).join(', ') || 'None'],

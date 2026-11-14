@@ -1,0 +1,19 @@
+The System — third-party notices
+
+Rulesets in server/rulesets/:
+
+* 5e rules (dnd5e.js, dnd-shared.js): This work includes material taken from the System Reference Document 5.1
+  ("SRD 5.1") by Wizards of the Coast LLC. The SRD 5.1 is licensed under the Creative Commons Attribution 4.0
+  International License (https://creativecommons.org/licenses/by/4.0/legalcode).
+* 5e 2024 rules (dnd2024.js, dnd-shared.js): This work includes material from the System Reference Document 5.2
+  ("SRD 5.2") by Wizards of the Coast LLC, available at https://www.dndbeyond.com/srd. The SRD 5.2 is licensed under
+  the Creative Commons Attribution 4.0 International License (https://creativecommons.org/licenses/by/4.0/legalcode).
+* PF2e remaster rules (pf2e.js): licensed under the ORC License located at the Library of Congress at TX 9-307-067
+  and available online at various locations including paizo.com/orclicense. All warranties are disclaimed as set
+  forth therein. Mechanics from Pathfinder Player Core and Pathfinder GM Core, (c) 2023 Paizo Inc. Reserved
+  Material: the project name, logo, art, sounds, voice recordings, setting names and story text.
+
+Not affiliated with, endorsed or sponsored by Wizards of the Coast or Paizo. "Dungeons & Dragons" and
+"Pathfinder" are trademarks of their owners and are not used as product names here.
+
+Fonts: Barlow family, SIL Open Font License (web/fonts/OFL.txt).

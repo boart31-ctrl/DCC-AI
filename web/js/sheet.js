@@ -26,7 +26,7 @@ const humanize = (id) => String(id || '').replace(/([a-z])([A-Z])/g, '$1 $2').re
  * @param {()=>Array} [o.extraTabs]  [{id,label,badge?,render:()=>Node}] appended after the sheet tabs
  * @param {(model)=>void} [o.onBuilder]  opens the character builder
  */
-export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools, phone = () => false, moreItems = () => [], top = null } = {}) {
+export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools, phone = () => false, moreItems = () => [], top = null, onRoll = null, rollsOn = () => true } = {}) {
   const gm = mode === 'gm';
   const root = h('article.sheet', { class: `sheet sheet-${mode}` });
   const ui = { tab: null, editing: false, openSkill: null, invQuery: '', drawer: null, ptab: 'skills', skillQuery: '', openBoxes: {} };
@@ -41,7 +41,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   function can(what) {
     if (gm) return true;
     const lvl = playerEditLevel(view);
-    if (what === 'roll' || what === 'play') return true; // rolls, casting, using items
+    if (what === 'roll') return rollsOn(); // dice mode off: numbers explain themselves, dice stay at the table
+    if (what === 'play') return true; // casting, using items
     if (what === 'story' || what === 'notes' || what === 'used') return lvl !== 'none';
     if (what === 'sheet' || what === 'tracks') return lvl === 'sheet';
     return false; // gm-only
@@ -103,6 +104,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   const roll = (what, label) => {
     if (!can('roll')) return;
     const w = what.kind === 'custom' ? { ...what, label: what.label || label } : what;
+    // Player phone: the roll pad (targets, typed real dice, hit / miss). Custom formulas roll straight away.
+    if (!gm && onRoll && w.kind !== 'custom') return onRoll(w, label);
     act({ t: 'roll', what: w });
   };
 
@@ -120,7 +123,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       'aria-label': `${title}: ${display}${rollWhat ? '. Tap to roll' : ''}`,
     }, minus(display));
     explain(el, () => whyContent(b, { title, prefix: prefix ? prefix.trim() : '', note: note || (rollWhat ? 'Tap to roll. Hold or hover to explain.' : null) }), rollWhat ? { onTap: () => roll(rollWhat, title) } : {});
-    const uv = !noBadge && hasUnverified(b, M.computed?.warnings, warnKey);
+    // Players never see the rule author's "not checked" markers: that's GM business.
+    const uv = gm && !noBadge && hasUnverified(b, M.computed?.warnings, warnKey);
     if (!uv) return el;
     return h('span.num-wrap', el, unverifiedBadge(typeof uv === 'string' ? uv : undefined));
   }
@@ -194,7 +198,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const oSet = (k) => async (v) => { const r = await act({ t: 'sheet.set', path: `identity.${k}`, value: v }); if (r && !gm && r.result?.pending) toast('Sent to the GM for approval.'); };
     const fields = [
       labeled('Name', field(id.name ?? player.name, { onCommit: set('name'), disabled: !ok })),
-      labeled('Race', M.rs.races.length ? select(opt(M.rs.races, id.race), id.race || '', { onChange: oSet('race'), disabled: !oOk }) : field(id.race, { onCommit: oSet('race'), disabled: !oOk }), oHint('race')),
+      labeled(M.rs.labels?.race || 'Race', M.rs.races.length ? select(opt(M.rs.races, id.race), id.race || '', { onChange: oSet('race'), disabled: !oOk }) : field(id.race, { onCommit: oSet('race'), disabled: !oOk }), oHint('race')),
       labeled('Class', M.rs.classes.length ? select(opt(M.rs.classes, id.class), id.class || '', { onChange: oSet('class'), disabled: !oOk }) : field(id.class, { onCommit: oSet('class'), disabled: !oOk }), oHint('class')),
       labeled('Level', field(id.level ?? player.level ?? 1, { type: 'number', onCommit: set('level'), disabled: !ok, attrs: { min: 0, max: 99, inputmode: 'numeric' } }), { cls: 'lbl-num' }),
       labeled('Floor', field(id.floor ?? '', { type: 'number', onCommit: set('floor'), disabled: !ok, attrs: { min: 0, inputmode: 'numeric' } }), { cls: 'lbl-num' }),
@@ -254,7 +258,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     if (!defs.length) return null;
     const parts = defs[0].parts || [];
     const ok = can('sheet');
-    const uv = sectionUnverified(/^(statMod|stats\b)/);
+    const uv = gm ? sectionUnverified(/^(statMod|stats\b)/) : '';
     return h('section.sh-block.sh-stats', { 'aria-label': 'Stats' },
       uv ? h('p.blk-note', unverifiedBadge(uv), h('span', 'Stat rules not verified')) : null,
       h('div.stats', { style: { '--n': defs.length } }, defs.map((s) => {
@@ -400,7 +404,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     });
     const head = h('div.list-head.skill-head', rs.skills.usedTracking ? h('span', { title: 'Used this session' }, 'Used') : null, h('span', 'Skill'), h('span', 'Stat'), h('span', 'Rank'), h('span', 'Total'));
     return h('section.sh-block.sh-skills', { 'aria-label': 'Skills' },
-      h('h2.blk-t', 'Skills', h('span.blk-n', String(all.length)), (() => { const uv = sectionUnverified(/^skills/) || (rs.skills.rankUp?.note ? `Rank-up: ${rs.skills.rankUp.note}` : ''); return uv ? unverifiedBadge(uv) : null; })()),
+      h('h2.blk-t', 'Skills', h('span.blk-n', String(all.length)), (() => { if (!gm) return null; const uv = sectionUnverified(/^skills/) || (rs.skills.rankUp?.note ? `Rank-up: ${rs.skills.rankUp.note}` : ''); return uv ? unverifiedBadge(uv) : null; })()),
       all.length > 6 || sq ? h('input.inp.inp-search.sk-search', { type: 'search', placeholder: `Search ${all.length} skills`, value: ui.skillQuery || '', 'aria-label': 'Search skills', oninput: (e) => { ui.skillQuery = e.target.value; const sel = e.target.selectionStart; draw(true); const n = root.querySelector('.sk-search'); n?.focus(); n?.setSelectionRange(sel, sel); } }) : null,
       list.length ? h('div.table', head, h('ul.skill-list', rows)) : h('p.empty-s', sq ? 'No skill matches.' : can('sheet') ? 'No skills yet. Add one from the catalog.' : 'No skills yet.'),
       can('sheet') ? addSkillForm() : null,
@@ -897,7 +901,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   function originEntries() {
     const id = M.sheet.identity || {};
     const out = [];
-    for (const [kind, val, label] of [['race', id.race, 'Race'], ['class', id.class, 'Class'], ['background', id.background, 'Background']]) {
+    for (const [kind, val, label] of [['race', id.race, M.rs.labels?.race || 'Race'], ['class', id.class, 'Class'], ['background', id.background, 'Background']]) {
       if (!val) continue;
       const def = (M.lib[kind] || []).find((x) => x.name === val || x.id === val) || (kind === 'race' ? M.rs.races : kind === 'class' ? M.rs.classes : M.rs.backgrounds).find?.((x) => x.name === val || x.id === val) || null;
       out.push({ kind, label, name: val, def });
@@ -1029,7 +1033,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const pend = M.sheet.pending && Object.keys(M.sheet.pending).length ? M.sheet.pending : null;
     const empty = !M.legacy && !id.race && !id.class && !(M.sheet.skills || []).length;
     return h('section.ph-info',
-      h('p.ph-line', line || (gm ? 'No race or class yet' : 'Race and class: ask your GM'), id.floor != null && id.floor !== '' ? h('span', `Floor ${id.floor}`) : null,
+      h('p.ph-line', line || (gm ? `No ${(M.rs.labels?.race || 'race').toLowerCase()} or class yet` : `${M.rs.labels?.race || 'Race'} and class: ask your GM`), id.floor != null && id.floor !== '' ? h('span', `Floor ${id.floor}`) : null,
         pend ? h('span.pill.pill-on', `Asked: ${Object.values(pend).filter(Boolean).join(' ')}`) : null),
       empty && onBuilder && (gm || can('sheet')) ? h('div.callout', h('p', h('b', 'This sheet is empty.'), ' The builder takes you through it.'), h('button.btn.btn-primary', { type: 'button', onclick: () => onBuilder(M, player) }, 'Open the builder')) : null,
       ui.editing ? identityEditor() : null,

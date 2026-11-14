@@ -114,6 +114,23 @@ export function createScenes({ client, act, getView }) {
     h('div.sh-bar', h('div.sh-bar-top', onair, barExtra, soundState), chips),
     panel);
 
+  let defeatArmed = null;
+  let armTimer = 0;
+  /** Damage / heal by any amount (5e / PF2e bosses take 12-30 a hit). */
+  function bossAmount(d, max) {
+    const inp = h('input.inp.inp-sm.sc-amt', { type: 'number', min: 1, max: 9999, placeholder: '#', 'aria-label': 'Amount', inputmode: 'numeric' });
+    const go = (kind) => {
+      const v = Math.round(Number(inp.value));
+      if (!(v >= 1)) { inp.focus(); return; }
+      act({ t: kind, amount: Math.min(9999, v) });
+      inp.value = '';
+    };
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? 'boss.heal' : 'boss.damage'); } });
+    return h('span.sc-amt-wrap', inp,
+      h('button.btn.btn-sm.sc-dmg', { type: 'button', disabled: d.hp <= 0, onclick: () => go('boss.damage'), title: 'Damage this much (Enter)' }, 'Hit'),
+      h('button.btn.btn-sm.sc-heal', { type: 'button', disabled: d.hp >= max, onclick: () => go('boss.heal'), title: 'Heal this much (Shift+Enter)' }, 'Heal'));
+  }
+
   function setDevice(d) {
     act({ t: 'show.audio', device: d }, d === 'gm' ? 'Sound plays on this desk.' : 'Sound plays on the TV.');
   }
@@ -436,8 +453,16 @@ export function createScenes({ client, act, getView }) {
         big('−2', '.sc-dmg', () => send({ t: 'boss.damage', amount: 2 }), { disabled: d.hp <= 0 }),
         big('−3', '.sc-dmg', () => send({ t: 'boss.damage', amount: 3 }), { disabled: d.hp <= 0 }),
         big('+1', '.sc-heal', () => send({ t: 'boss.heal', amount: 1 }), { disabled: d.hp >= max, title: 'Heal 1' }),
+        bossAmount(d, max),
+        d.phase > 0 ? big('◀', '.sc-phase', () => send({ t: 'boss.phase', back: true }, 'Back one phase.'), { title: 'Back one phase' }) : null,
         big(next ? `Phase: ${next.name}` : 'Last phase', '.sc-phase', () => send({ t: 'boss.phase' }, next ? `Phase: ${next.name}.` : null), { disabled: !next }),
-        big(d.defeated ? 'Defeated' : 'Defeat', '.btn-danger.sc-defeat', () => send({ t: 'boss.defeat' }, 'Boss defeated.')),
+        big(d.defeated ? 'Defeated' : defeatArmed === 'defeat' ? 'Sure? Tap again' : 'Defeat', '.btn-danger.sc-defeat', () => {
+          if (d.defeated) return;
+          // Two taps: the defeat cinematic can't be taken back.
+          if (defeatArmed !== 'defeat') { defeatArmed = 'defeat'; clearTimeout(armTimer); armTimer = setTimeout(() => { defeatArmed = null; drawBody(); }, 3000); drawBody(); return; }
+          defeatArmed = null;
+          send({ t: 'boss.defeat' }, 'Boss defeated.');
+        }),
         h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => send({ t: 'boss.intro' }, 'Boss intro.'), title: 'Cinematic + intro line again' }, 'Replay intro')),
       attacks.length ? attackSection(b.name, attacks, fighter, d.bossId, { boss: true }) : null,
       minionSection(true),

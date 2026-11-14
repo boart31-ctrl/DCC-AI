@@ -227,16 +227,16 @@ function normalizeBossEntry(raw, ctx, opts) {
   const img = (v) => (opts.image ? opts.image(v) : homebrewImage(v, ctx));
   let hpSlots = 10;
   if (raw.hpSlots !== undefined) {
-    if (Number.isInteger(raw.hpSlots) && raw.hpSlots >= 1 && raw.hpSlots <= 100) hpSlots = raw.hpSlots;
-    else problem(ctx, `${ctx.where}: hpSlots must be an integer 1..100, using 10`);
+    if (Number.isInteger(raw.hpSlots) && raw.hpSlots >= 1 && raw.hpSlots <= 9999) hpSlots = raw.hpSlots;
+    else problem(ctx, `${ctx.where}: hpSlots must be an integer 1..9999, using 10`);
   }
   const phases = [];
   if (raw.phases != null && !Array.isArray(raw.phases)) problem(ctx, `${ctx.where}: phases must be an array`);
   for (const [i, p] of (Array.isArray(raw.phases) ? raw.phases : []).entries()) {
     if (phases.length >= 10) { problem(ctx, `${ctx.where}: max 10 phases`); break; }
     if (!isObj(p) || !isStr(p.name)) { problem(ctx, `${ctx.where}: phases[${i}] needs a name`); continue; }
-    const atHp = Number.isInteger(p.atHp) && p.atHp >= 0 && p.atHp <= 100 ? p.atHp : null;
-    if (p.atHp != null && atHp === null) problem(ctx, `${ctx.where}: phases[${i}].atHp must be an integer 0..100`);
+    const atHp = Number.isInteger(p.atHp) && p.atHp >= 0 && p.atHp <= 9999 ? p.atHp : null;
+    if (p.atHp != null && atHp === null) problem(ctx, `${ctx.where}: phases[${i}].atHp must be an integer 0..9999`);
     phases.push({ name: text(p.name, 60), text: text(p.text, 300), image: img(p.image), atHp });
   }
   let color = null;
@@ -342,7 +342,7 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     // Family look-alikes: when several of this monster fight at once, each copy gets a different picture.
     // Pack: file names under images/ (missing files are skipped quietly, art may still be on its way).
     variants: monsterVariants(raw.variants, ctx, opts),
-    hpSlots: intOr(raw, 'hpSlots', 1, 100, 5, ctx),
+    hpSlots: intOr(raw, 'hpSlots', 1, 9999, 5, ctx),
     evade: intOr(raw, 'evade', -99, 99, 0, ctx),
     dr: intOr(raw, 'dr', -99, 99, 0, ctx),
     attacks: normalizeStatAttacks(raw.attacks, ctx),
@@ -443,6 +443,62 @@ function statDefault(d, parts) {
  * when the ruleset does not define stats / tracks. Returns a JSON-safe object; idempotent.
  * Inline race/class/background objects are moved to `ruleset.inlineLibrary` (consumed by pack-core).
  */
+export const SYSTEM_FAMILIES = ['crawler', 'dnd', 'pf2e', 'generic'];
+export const CRIT_RULES = ['double', 'dice', 'degrees', 'none'];
+
+/** Which game a ruleset is (drives content conversion, see server/systems.js) + licence attribution. */
+function normalizeSystem(raw, id) {
+  const r = isObj(raw) ? raw : {};
+  // Rulesets written before systems existed (the crawler packs) use the crawler number scale.
+  const family = SYSTEM_FAMILIES.includes(r.family) ? r.family : 'crawler';
+  return {
+    family,
+    edition: text(r.edition, 30),
+    label: text(r.label, 60) || (safeId(id) ? id : 'Custom rules'),
+    short: text(r.short, 20) || text(r.label, 20) || (safeId(id) ? id : 'Custom'),
+    licence: text(r.licence, 40),
+    attribution: text(r.attribution, 1200),
+  };
+}
+
+/** Display names for origin slots (race → "Species" / "Ancestry"). */
+function normalizeLabels(raw) {
+  const out = { race: 'Race', class: 'Class', background: 'Background' };
+  if (isObj(raw)) for (const k of Object.keys(out)) if (isStr(raw[k])) out[k] = text(raw[k], 30);
+  return out;
+}
+
+/**
+ * How attacks resolve (combat tracker, auto mode, entered rolls).
+ *   defense: derived id the attacker must reach (crawler: Evade, d&d / pf2e: AC)
+ *   dr: derived id subtracted from damage, or null
+ *   crit: 'double' (damage x2) | 'dice' (roll damage dice twice) | 'degrees' (pf2e: beat by 10 or nat 20 bump) | 'none'
+ *   initiative: { enabled, derived } turn order instead of phases
+ */
+function normalizeCombatRules(raw, derived, unv) {
+  const r = isObj(raw) ? raw : {};
+  const has = (id) => safeId(id) && derived.some((d) => d.id === id);
+  const fallbackDef = derived.find((x) => /evade|defen|(^|_)ac$/i.test(`${x.id} ${x.label}`)) || derived.find((x) => x.roll) || null;
+  const fallbackDr = derived.find((x) => x !== fallbackDef && /(^|[^a-z])dr($|[^a-z])|resist|armou?r/i.test(`${x.id} ${x.label}`)) || null;
+  const ini = isObj(r.initiative) ? r.initiative : {};
+  const out = {
+    defense: has(r.defense) ? r.defense : fallbackDef?.id ?? null,
+    defenseLabel: text(r.defenseLabel, 20),
+    dr: r.dr === null ? null : has(r.dr) ? r.dr : fallbackDr?.id ?? null,
+    hitRule: r.hitRule === '>' ? '>' : '>=',
+    crit: CRIT_RULES.includes(r.crit) ? r.crit : null, // null = the tracker setting decides (crawler packs)
+    critRange: Number.isInteger(r.critRange) && r.critRange >= 2 && r.critRange <= 20 ? r.critRange : 20,
+    nat1: ['miss', 'degrade', 'none'].includes(r.nat1) ? r.nat1 : 'miss',
+    degrees: r.degrees === true,
+    advantage: r.advantage === true,
+    initiative: { enabled: ini.enabled === true || raw?.initiative === true, derived: has(ini.derived) ? ini.derived : null },
+    hpModel: r.hpModel === 'pool' ? 'pool' : r.hpModel === 'slots' ? 'slots' : null,
+  };
+  if (!out.defenseLabel) out.defenseLabel = derived.find((d) => d.id === out.defense)?.label ?? 'Defence';
+  unverified(r, 'combat', unv);
+  return out;
+}
+
 export function normalizeRuleset(raw, legacy = {}, warnings = []) {
   const ctx = { strict: false, warnings };
   if (raw != null && !isObj(raw)) {
@@ -494,6 +550,8 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
         out.labels = Array.isArray(t.labels) ? t.labels.filter((x) => typeof x === 'string').map((x) => x.slice(0, 20)).slice(0, out.slots) : [];
       }
       if (isStr(t.maxFormula) && formulaOk(t.maxFormula, ctx, `ruleset.json ${w}.maxFormula`)) out.maxFormula = t.maxFormula.trim();
+      // Formula tracks start full on a new character unless `start: "empty"` (temporary HP, focus spent...).
+      if (t.start === 'empty') out.start = 'empty';
       unverified(t, `tracks.${t.id}`, unv);
       return { ...out, ...noteOf(t) };
     }) ?? (legacy.resources ?? []).map((x) => ({ id: x.id, label: x.label, kind: 'pool', color: x.color, default: x.default }));
@@ -539,6 +597,11 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
   const rankMax = Number.isInteger(sk.rankMax) && sk.rankMax >= 1 && sk.rankMax <= 1000 ? sk.rankMax : 20;
   const skills = {
     columns: Array.isArray(sk.columns) ? sk.columns.filter(isStr).slice(0, 10) : ['rank', 'stat', 'checkType'],
+    ...(isObj(sk.columnLabels) ? { columnLabels: Object.fromEntries(Object.entries(sk.columnLabels).filter(([k, v]) => safeId(k) && isStr(v)).map(([k, v]) => [k, text(v, 80)])) } : {}),
+    // Names for rank values (D&D: none / proficient / expertise; PF2e: untrained..legendary).
+    ...(Array.isArray(sk.rankLabels) && sk.rankLabels.every(isStr) ? { rankLabels: sk.rankLabels.slice(0, 30).map((x) => text(x, 30)) } : {}),
+    // Every catalog skill is on a new sheet (rank = rankMin), like a printed character sheet.
+    autoAdd: sk.autoAdd === true,
     rankMin: Number.isInteger(sk.rankMin) && sk.rankMin >= 0 && sk.rankMin <= rankMax ? sk.rankMin : 0,
     rankMax,
     check,
@@ -600,8 +663,20 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     races: lib('races'),
     classes: lib('classes'),
     backgrounds: lib('backgrounds'),
+    system: normalizeSystem(r.system, r.id),
+    labels: normalizeLabels(r.labels),
+    combat: normalizeCombatRules(r.combat, derived, unv),
+    notes: Array.isArray(r.notes) ? r.notes.filter(isStr).slice(0, 60).map((x) => text(x, 600)) : [],
     unverified: unv,
   };
+  // Conditions shipped with the ruleset (buff library entries, tagged "condition").
+  inlineLibrary.buff = [];
+  if (Array.isArray(r.conditions)) {
+    r.conditions.forEach((x, i) => {
+      const e = normalizeLibEntry('buff', x, { warnings, where: `ruleset.json conditions[${i}]`, source: 'pack' });
+      if (e && !inlineLibrary.buff.some((y) => y.id === e.id)) inlineLibrary.buff.push(e);
+    });
+  }
   Object.defineProperty(out, 'inlineLibrary', { value: inlineLibrary, enumerable: false });
   return out;
 }

@@ -3,6 +3,10 @@
 import { ActionError, bad, notFound, forbidden } from './errors.js';
 import { computeSheet, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
+import { combatRules, attackOutcome, critFormula, critMultiplier, nearness } from './outcome.js';
+
+export const DICE_MODES = ['off', 'enter', 'digital'];
+export const MAX_UNDO = 30;
 
 export const MAX_ROLLS = 200;
 export const VIEW_ROLLS = 50;
@@ -50,7 +54,12 @@ function cleanMap(raw, maxLen = 4000) {
 
 /** A new character sheet for `ruleset` (stored as player.sheet). */
 export function freshSheet(ruleset) {
-  return migrateSheet({}, {}, ruleset);
+  const sheet = migrateSheet({}, {}, ruleset);
+  // Printed-sheet rulesets (5e, PF2e): every skill is on a new sheet, untrained.
+  if (ruleset.skills?.autoAdd) {
+    sheet.skills = ruleset.skills.catalog.map((k) => ({ uid: `s_${k.id}`, skillId: k.id, name: k.name, rank: ruleset.skills.rankMin ?? 0, stat: k.stat, checkType: k.checkType || ruleset.skills.checkTypes[0] || '', notes: '', used: false }));
+  }
+  return sheet;
 }
 
 /**
@@ -418,24 +427,41 @@ function trackDelta(p, pack, library, track, delta, out) {
 
 // ---------- rolls ----------
 
+/** What players and the TV may see of a roll: never the target's defence or the margin. */
+export function publicRoll(rec) {
+  if (!rec.vs) return rec;
+  const { defense, margin, ...vs } = rec.vs;
+  return { ...rec, vs };
+}
+
 function pushRoll(st, rec, out, ctx) {
   st.rolls.push(rec);
   if (st.rolls.length > MAX_ROLLS) st.rolls = st.rolls.slice(-MAX_ROLLS);
-  const to = rec.secret ? { roles: ['gm'], ...(rec.by !== 'gm' ? { playerId: rec.by } : {}) } : 'all';
-  out.emit({ kind: 'roll', ...rec }, to);
+  if (rec.secret) out.emit({ kind: 'roll', ...rec }, { roles: ['gm'], ...(rec.by !== 'gm' ? { playerId: rec.by } : {}) });
+  else if (rec.vs) {
+    out.emit({ kind: 'roll', ...rec }, { roles: ['gm'] });
+    out.emit({ kind: 'roll', ...publicRoll(rec) }, { roles: ['player', 'stage'] });
+  } else out.emit({ kind: 'roll', ...rec }, 'all');
+  ctx.h?.onSheetRoll?.(st, ctx, out, rec);
+  const near = rec.vs && !rec.secret ? nearness(rec.vs, rec.natural) : null;
+  if (near && ctx.h?.categoryLine) {
+    const line = ctx.h.categoryLine(st, ctx, near, 1);
+    if (line) out.lines.push(line);
+  }
   if (!rec.secret && (rec.nat1 || rec.nat20) && ctx.h?.categoryLine) {
     const line = ctx.h.categoryLine(st, ctx, rec.nat20 ? 'nat20' : 'nat1', 1);
     if (line) out.lines.push(line);
   }
 }
 
-function rollRecord(r, { ctx, p, by, label, formula, secret, what }) {
+function rollRecord(r, { ctx, p, by, label, formula, secret, what, whatId = null }) {
   return {
     id: ctx.genId('r'),
     at: ctx.now,
     playerId: p?.id ?? null,
     by,
     what,
+    whatId,
     label,
     formula,
     dice: r.dice.flatMap((d) => d.rolls.map((value) => ({ die: `d${d.sides}`, value }))),
@@ -449,7 +475,7 @@ function rollRecord(r, { ctx, p, by, label, formula, secret, what }) {
 
 function doRoll(src, resolve, ctx) {
   try {
-    return rollDice(src, { resolve, randInt: ctx.rollInt ?? ctx.randInt });
+    return rollDice(src, { resolve, randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt });
   } catch (e) {
     if (e instanceof FormulaError) throw bad(`bad roll formula: ${e.message}`);
     throw e;
@@ -463,6 +489,86 @@ function rollWith(dice, bd, label, ctx, source) {
   r.warnings = [...r.warnings, ...(bd.warnings ?? [])];
   const sign = bd.value < 0 ? '-' : '+';
   return { r, formula: bd.value ? `${dice}${sign}${Math.abs(bd.value)}` : dice };
+}
+
+// ---------- rolls against a target (dice entry) ----------
+
+/**
+ * a.target = a combatant uid (attack / check against it) or a.dc = a number (check vs a difficulty).
+ * To-hit rolls resolve against the target's defence (rec.vs: hit / crit / degree; defence + margin GM-only).
+ * Damage rolls with a target are applied to that mob (minus its DR where the game has DR) and can be undone.
+ */
+function resolveAgainst(st, ctx, a, rec, p, out) {
+  const rules = combatRules(ctx.pack, st.combat?.settings);
+  let defense = null;
+  let target = null;
+  if (typeof a.target === 'string') {
+    target = (st.combat?.combatants ?? []).find((x) => x.uid === a.target && x.type === 'mob');
+    if (!target) throw notFound('that monster is not in the fight');
+  }
+  if (rec.part === 'damage') {
+    if (!target) return;
+    const prev = typeof a.after === 'string' ? st.rolls.find((x) => x.id === a.after && x.playerId === p.id) : null;
+    let dmg = rec.total;
+    if (prev?.vs?.crit && rules.crit !== 'dice') dmg *= critMultiplier(rules);
+    dmg = Math.max(0, dmg - (rules.useDr ? Math.max(0, target.dr ?? 0) : 0));
+    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg };
+    if (dmg > 0 && ctx.h?.applyDamage) {
+      const before = target.hp;
+      ctx.h.applyDamage(st, ctx, out, { uid: target.uid, amount: dmg, by: p.id });
+      const after = (st.combat.combatants.find((x) => x.uid === target.uid) ?? target).hp;
+      rec.applied = { uid: target.uid, before, after, delta: after - before };
+      rec.vs.down = after <= 0;
+      undoPush(st, rec);
+    }
+    return;
+  }
+  if (target) defense = Number.isFinite(target.evade) ? target.evade : 0;
+  else if (a.dc !== undefined) defense = int(a.dc, 'dc', -10, 99);
+  else return;
+  const res = attackOutcome(rules, { d20: rec.natural, total: rec.total, target: defense });
+  rec.vs = { ...(target ? { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name } : { dc: true }), hit: res.hit, crit: res.crit, degree: res.degree, degrees: rules.degrees, defense, margin: res.margin };
+  if (target && rec.part === 'hit') undoPush(st, rec);
+}
+
+function undoPush(st, rec) {
+  st.rollUndo = [...(st.rollUndo ?? []), rec.id].slice(-MAX_UNDO);
+  st.rollRedo = [];
+}
+
+/** Cancels a roll: struck through everywhere, its damage put back, its initiative removed. */
+export function voidRoll(st, ctx, out, rec, by) {
+  if (rec.void) return;
+  rec.void = { by, at: ctx.now };
+  if (rec.applied) {
+    const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
+    if (m) m.hp = Math.max(0, Math.min(m.hpMax, m.hp - rec.applied.delta));
+  }
+  const I = st.combat?.init;
+  if (I?.on && rec.what === 'derived' && rec.whatId === (ctx.pack.ruleset.combat?.initiative?.derived ?? 'initiative')) {
+    const x = (st.combat.combatants ?? []).find((y) => y.type === 'crawler' && y.playerId === rec.playerId);
+    if (x && I.totals[x.uid] === rec.total) {
+      delete I.totals[x.uid];
+      I.order = I.order.filter((u) => u !== x.uid);
+      I.turn = Math.min(I.turn, Math.max(0, I.order.length - 1));
+    }
+  }
+  st.rollRedo = [...(st.rollRedo ?? []).filter((id) => id !== rec.id), rec.id].slice(-MAX_UNDO);
+  st.rollUndo = (st.rollUndo ?? []).filter((id) => id !== rec.id);
+  out.emit({ kind: 'roll.void', id: rec.id, playerId: rec.playerId, label: rec.label }, 'all');
+}
+
+function unvoidRoll(st, ctx, out, rec) {
+  if (!rec.void) return;
+  rec.void = null;
+  if (rec.applied) {
+    const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
+    if (m) m.hp = Math.max(0, Math.min(m.hpMax, m.hp + rec.applied.delta));
+  }
+  if (rec.what === 'derived') ctx.h?.onSheetRoll?.(st, ctx, out, rec);
+  st.rollRedo = (st.rollRedo ?? []).filter((id) => id !== rec.id);
+  st.rollUndo = [...(st.rollUndo ?? []), rec.id].slice(-MAX_UNDO);
+  out.emit({ kind: 'roll.restore', id: rec.id, playerId: rec.playerId, label: rec.label }, 'all');
 }
 
 // ---------- actions ----------
@@ -831,12 +937,51 @@ export const SHEET = {
     }
   },
 
-  roll(st, a, ctx, out) {
+  roll(st, a, ctx0, out) {
     const w = a.what;
     if (!isObj(w)) throw bad('what must be an object');
     const secret = bool(a.secret, 'secret', { optional: true }) ?? false;
-    const rs = ctx.pack.ruleset;
-    const by = ctx.actor.role === 'gm' ? 'gm' : ctx.actor.playerId;
+    const rs = ctx0.pack.ruleset;
+    const by = ctx0.actor.role === 'gm' ? 'gm' : ctx0.actor.playerId;
+    // Dice entry: the player rolled a real die and types it (entered), or rolls with advantage (adv / dis).
+    const entered = a.entered === undefined ? null : int(a.entered, 'entered', 1, 1000);
+    const adv = a.adv === undefined || a.adv === null ? null : ['adv', 'dis'].includes(a.adv) ? a.adv : (() => { throw bad('adv must be adv or dis'); })();
+    const bonus = a.bonus === undefined ? 0 : int(a.bonus, 'bonus', -50, 50);
+    const natural = { first: null, kept: null, other: null };
+    const base = ctx0.dieInt ?? ctx0.rollInt ?? ctx0.randInt;
+    const ctx = entered == null && !adv ? ctx0 : {
+      ...ctx0,
+      dieInt: (n) => {
+        if (natural.first == null) {
+          natural.first = n;
+          if (entered != null) {
+            if (entered > n) throw bad(`entered roll ${entered} is higher than d${n}`);
+            natural.kept = entered;
+            return entered - 1;
+          }
+          const x = base(n) + 1;
+          const y = base(n) + 1;
+          natural.kept = adv === 'adv' ? Math.max(x, y) : Math.min(x, y);
+          natural.other = natural.kept === x ? y : x;
+          return natural.kept - 1;
+        }
+        return base(n);
+      },
+    };
+    const finish = (rec) => {
+      if (entered != null) rec.entered = true;
+      if (adv) { rec.adv = adv; rec.otherDie = natural.other; }
+      if (bonus) {
+        rec.total += bonus;
+        rec.formula = `${rec.formula}${bonus > 0 ? '+' : ''}${bonus}`;
+        rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown.parts ?? []), { label: 'Situational', value: bonus, source: 'bonus' }] };
+      }
+      rec.natural = rec.dice.find((d) => d.die === 'd20')?.value ?? null;
+      if (rec.natural !== 20) rec.nat20 = false;
+      if (rec.natural !== 1) rec.nat1 = false;
+      if (ctx0.actor.role === 'player' && a.card !== false) rec.card = true;
+      return rec;
+    };
     if (w.kind === 'custom') {
       const formula = str(w.formula, 'formula', 200);
       const label = str(w.label, 'label', 80, { optional: true }) ?? formula;
@@ -849,8 +994,8 @@ export const SHEET = {
         resolve = sheetResolver(computed, ch, rs);
       }
       const r = doRoll(formula, resolve, ctx);
-      const rec = rollRecord(r, { ctx, p, by, label, formula, secret, what: 'custom' });
-      pushRoll(st, rec, out, ctx);
+      const rec = finish(rollRecord(r, { ctx, p, by, label, formula, secret, what: 'custom' }));
+      pushRoll(st, rec, out, ctx0);
       out.result = { rollId: rec.id, total: rec.total };
       return;
     }
@@ -881,7 +1026,12 @@ export const SHEET = {
         const sk = k.skillUid ? p.sheet.skills.find((s) => s.uid === k.skillUid) : null;
         const stat = k.stat && rs.stats.some((s) => s.id === k.stat) ? k.stat : '';
         formula = tmpl(rs.attack.damage, stat, k.dice);
-        label = `${k.name} damage`;
+        // After a critical hit (a.after = the to-hit roll): the game's crit rule (5e: double dice).
+        const prev = typeof a.after === 'string' ? st.rolls.find((x) => x.id === a.after && x.playerId === p.id) : null;
+        // Entered damage = what the real damage dice showed (already doubled by the player on a 5e crit).
+        if (entered != null) formula = tmpl(rs.attack.damage, stat, String(entered));
+        else if (prev?.vs?.crit) formula = critFormula(formula, combatRules(ctx.pack, st.combat?.settings));
+        label = `${k.name} damage${prev?.vs?.crit ? ' (critical)' : ''}`;
         r = doRoll(formula, sheetResolver(computed, ch, rs, { 'skill.rank': { value: sk?.rank ?? 0, label: 'Skill rank' } }), ctx);
         r.parts = r.parts.filter((x) => !(x.source?.startsWith('buff.') && x.value === 0 && !x.parts?.length));
       } else {
@@ -889,9 +1039,28 @@ export const SHEET = {
         ({ r, formula } = rollWith(rs.attack.roll || rs.dice, computed.attacks.find((x) => x.uid === k.uid).toHit, `${k.name} to hit`, ctx, `attack:${k.uid}`));
       }
     } else throw bad('what.kind must be stat, derived, skill, attack or custom');
-    const rec = rollRecord(r, { ctx, p, by, label, formula, secret, what: w.kind });
-    pushRoll(st, rec, out, ctx);
-    out.result = { rollId: rec.id, total: rec.total };
+    const rec = finish(rollRecord(r, { ctx, p, by, label, formula, secret, what: w.kind, whatId: w.kind === 'stat' || w.kind === 'derived' ? w.id : w.uid ?? null }));
+    if (w.kind === 'attack') rec.part = w.part === 'damage' ? 'damage' : 'hit';
+    resolveAgainst(st, ctx0, a, rec, p, out);
+    pushRoll(st, rec, out, ctx0);
+    out.result = { rollId: rec.id, total: rec.total, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, applied: rec.applied ?? null } : {}) };
+  },
+
+  /** Dice mode for this crawler: off (everything at the table), enter (type the real die), digital (phone rolls). */
+  'dice.mode'(st, a, ctx) {
+    const p = targetOf(st, a, ctx, 'play');
+    if (!DICE_MODES.includes(a.mode)) throw bad(`mode must be ${DICE_MODES.join(', ')}`);
+    p.diceMode = a.mode;
+  },
+
+  /** A player takes back their own last roll (misclick), within two minutes. */
+  'roll.undo'(st, a, ctx, out) {
+    const p = targetOf(st, a, ctx, 'play');
+    const rec = [...(st.rolls ?? [])].reverse().find((r) => r.playerId === p.id && !r.void && !r.auto);
+    if (!rec) throw notFound('no roll to take back');
+    if (ctx.actor.role === 'player' && ctx.now - rec.at > 120_000) throw bad('too late to take it back, ask the GM');
+    voidRoll(st, ctx, out, rec, ctx.actor.role === 'gm' ? 'gm' : p.id);
+    out.result = { voided: rec.id };
   },
 };
 
@@ -949,6 +1118,33 @@ export function setTrack(st, p, a, ctx, out) {
 
 /** GM-only character / library actions. */
 export const SHEET_GM = {
+  /** GM cancels any roll (wrong number typed, rolled the wrong thing). */
+  'roll.void'(st, a, ctx, out) {
+    const rec = (st.rolls ?? []).find((r) => r.id === a.id);
+    if (!rec) throw notFound(`no roll ${a.id}`);
+    voidRoll(st, ctx, out, rec, 'gm');
+  },
+  /** Brings a cancelled roll back (and its damage). */
+  'roll.restore'(st, a, ctx, out) {
+    const rec = (st.rolls ?? []).find((r) => r.id === a.id);
+    if (!rec) throw notFound(`no roll ${a.id}`);
+    unvoidRoll(st, ctx, out, rec);
+  },
+  /** Undo / redo chips: the last roll that hit or damaged something. */
+  'roll.undoLast'(st, a, ctx, out) {
+    const id = (st.rollUndo ?? []).at(-1);
+    const rec = id ? (st.rolls ?? []).find((r) => r.id === id) : null;
+    if (!rec) throw notFound('nothing to undo');
+    voidRoll(st, ctx, out, rec, 'gm');
+    out.result = { voided: rec.id, label: rec.label };
+  },
+  'roll.redoLast'(st, a, ctx, out) {
+    const id = (st.rollRedo ?? []).at(-1);
+    const rec = id ? (st.rolls ?? []).find((r) => r.id === id) : null;
+    if (!rec) throw notFound('nothing to redo');
+    unvoidRoll(st, ctx, out, rec);
+    out.result = { restored: rec.id, label: rec.label };
+  },
   'buff.add'(st, a, ctx, out) {
     const p = targetOf(st, a, ctx, 'gm');
     let buff;
@@ -1119,7 +1315,7 @@ export const SHEET_GM = {
 /** Rolls visible to a role: GM all; player non-secret + own secret; stage non-secret. Last VIEW_ROLLS. */
 export function rollsFor(state, role, playerId) {
   const rolls = Array.isArray(state.rolls) ? state.rolls : [];
-  const vis = role === 'gm' ? rolls : rolls.filter((r) => !r.secret || (role === 'player' && r.by === playerId));
+  const vis = role === 'gm' ? rolls : rolls.filter((r) => !r.secret || (role === 'player' && r.by === playerId)).map(publicRoll);
   return vis.slice(-VIEW_ROLLS);
 }
 

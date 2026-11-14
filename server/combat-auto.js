@@ -18,7 +18,7 @@ import { bad, notFound } from './errors.js';
 import { FINALE_OUTCOMES } from './scenes.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import {
-  C, combatantOf, crawlerHp, hpTrackOf, defenseOf, comboLine, chatCue, initCombat, initStats, endSuggestion,
+  C, combatantOf, crawlerHp, hpTrackOf, defenseOf, combatRules, attackOutcome, critFormula, critMultiplier, comboLine, chatCue, initCombat, initStats, endSuggestion,
 } from './combat.js';
 
 export const OUTCOMES = FINALE_OUTCOMES;
@@ -52,7 +52,8 @@ function crawlerState(st, ctx, x) {
   const { computed } = computeFor(p, ctx.pack, libraryOf(st, ctx.pack));
   const hp = t ? computed.tracks[t.id] : { cur: 0, max: 0 };
   const d = defenseOf(ctx.pack, computed);
-  return { x, p, hp: hp.cur, max: hp.max, ...d, evade: d.evade + (C(st).settings.evadeBase ?? 0) };
+  const rules = combatRules(ctx.pack, C(st).settings);
+  return { x, p, hp: hp.cur, max: hp.max, ...d, dr: rules.useDr ? d.dr : 0, evade: d.evade + rules.evadeBase };
 }
 
 /** Valid targets: in the fight, not "Don't target", standing (or finishDowned), aggro weight > 0. */
@@ -136,8 +137,10 @@ function resolveMob(st, ctx, out, c, m, run, force = {}) {
   const toHit = pick.atk.toHit || 0;
   const rec = quietRoll(st, ctx, out, toHit ? `d20${toHit > 0 ? '+' : ''}${toHit}` : 'd20', `${m.name}: ${pick.atk.name} → ${target.p.name}`, !run.public);
   const d20 = rec.dice.find((d) => d.die === 'd20')?.value ?? rec.total - toHit;
-  const hit = rec.nat20 ? true : rec.nat1 ? false : s.hitRule === '>' ? rec.total > target.evade : rec.total >= target.evade;
-  Object.assign(step, { d20, toHit, total: rec.total, rule: s.hitRule, hit, nat20: !!rec.nat20, nat1: !!rec.nat1, crit: !!rec.nat20 && hit, rollId: rec.id });
+  const rules = combatRules(ctx.pack, s);
+  const res = attackOutcome(rules, { d20, total: rec.total, target: target.evade });
+  const hit = res.hit;
+  Object.assign(step, { d20, toHit, total: rec.total, rule: rules.degrees ? 'degrees' : rules.hitRule, hit, nat20: d20 === 20, nat1: d20 === 1, crit: res.crit, degree: res.degree, rollId: rec.id, defenseLabel: rules.defenseLabel });
   step.margin = rec.total - target.evade;
   step.damage = 0;
   step.hpAfter = target.hp;
@@ -145,10 +148,10 @@ function resolveMob(st, ctx, out, c, m, run, force = {}) {
   if (!hit) return step;
   const dmgFormula = (pick.atk.damage || '').trim();
   if (dmgFormula && !/^0+$/.test(dmgFormula)) {
-    const dr = quietRoll(st, ctx, out, dmgFormula, `${m.name}: ${pick.atk.name} damage`, !run.public);
+    const dr = quietRoll(st, ctx, out, step.crit ? critFormula(dmgFormula, rules) : dmgFormula, `${m.name}: ${pick.atk.name} damage${step.crit ? ' (critical)' : ''}`, !run.public);
     let raw = dr.total;
-    if (step.crit && s.crit === 'double') raw *= 2;
-    const dmg = Math.max(s.drMin, raw - Math.max(0, target.dr));
+    if (step.crit) raw *= critMultiplier(rules);
+    const dmg = Math.max(rules.drMin, raw - Math.max(0, target.dr));
     Object.assign(step, { damageRoll: dr.total, damageRaw: raw, damage: dmg, damageRollId: dr.id });
     const t = hpTrackOf(ctx.pack);
     if (t && dmg > 0) {

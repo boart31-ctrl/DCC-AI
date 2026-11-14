@@ -316,6 +316,25 @@ async function main() {
   assert.equal((await old.next((m) => m.t === 'error')).code, 'bad_auth');
   step('TV unpaired and player relinked: old credentials closed and refused');
 
+  // ---- campaigns: new one with another ruleset, switch back, restore one from an export file ----
+  const first = (await gm2.call({ t: 'campaign.list' })).current;
+  assert.deepEqual((await gm2.call({ t: 'campaign.list' })).choices.map((c) => c.id).slice(1), ['dnd5e', 'dnd2024', 'pf2e']);
+  await gm2.call({ t: 'campaign.new', name: 'Second', ruleset: 'pf2e' });
+  const pv = await gm2.next((m) => m.t === 'view' && m.view.campaign?.name === 'Second', 5000, 'new campaign view');
+  assert.equal(pv.view.campaign.ruleset, 'pf2e');
+  assert.equal(pv.view.gm.playersFull.length, 0);
+  const pfExport = await (await fetch(`${base}/api/export?kind=campaign`, { headers: { 'X-GM-Key': KEY } })).text();
+  const lst = await gm2.call({ t: 'campaign.list' });
+  assert.equal(lst.campaigns.length, 1, 'the first campaign is parked');
+  await gm2.call({ t: 'campaign.switch', id: first.id });
+  await gm2.next((m) => m.t === 'view' && m.view.campaign?.id === first.id, 5000, 'switched back');
+  r = await fetch(`${base}/api/import`, { method: 'POST', headers: { 'X-GM-Key': KEY, 'content-type': 'application/json' }, body: pfExport });
+  assert.equal(r.status, 200, await r.clone().text());
+  await gm2.next((m) => m.t === 'view' && m.view.campaign?.name === 'Second', 5000, 'imported view');
+  r = await fetch(`${base}/api/import`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: pfExport });
+  assert.equal(r.status, 401, 'import needs the GM key');
+  step('campaigns: new PF2e campaign, switch back, restore from an export file (GM key only)');
+
   for (const c of [gm2, dn2]) c.ws.close();
   console.log('e2e (cloud): PASS');
 }

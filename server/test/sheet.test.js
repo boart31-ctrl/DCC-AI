@@ -147,7 +147,8 @@ test('pack loads ruleset + library files; bad effects skipped with warnings', ()
   // legacy pack.stats / resources follow the ruleset
   assert.deepEqual(pack.stats.map((s) => [s.id, s.default]), [['str', 10], ['dex', 16], ['int', 10]]);
   assert.deepEqual(pack.resources.map((r) => [r.id, r.default]), [['hp', 10], ['mana', 6]]);
-  assert.equal(pack.ruleset.combat, undefined, 'unknown keys ignored');
+  assert.equal(pack.ruleset.combat.defense, 'evade', 'combat rules default to the Evade-style derived value');
+  assert.equal(pack.ruleset.system.family, 'crawler', 'rulesets without a system block use the crawler scale');
 });
 
 test('normalizeRuleset: defaults, legacy fallback, idempotent, unverified markers', () => {
@@ -472,7 +473,7 @@ test('roll: stat / derived / skill / attack / custom with breakdowns, events, na
   assert.deepEqual(
     { ...rec, id: 0 },
     {
-      id: 0, at: 1_000_000, playerId: a, by: 'gm', what: 'derived', label: 'Evade', formula: 'd20+3', dice: [{ die: 'd20', value: 20 }], total: 23,
+      id: 0, at: 1_000_000, playerId: a, by: 'gm', what: 'derived', whatId: 'evade', natural: 20, label: 'Evade', formula: 'd20+3', dice: [{ die: 'd20', value: 20 }], total: 23,
       breakdown: { value: 23, warnings: [], parts: [
         { label: '1d20', value: 20, source: 'dice', rolls: [20] },
         { label: 'Evade', value: 3, source: 'derived.evade', parts: [{ label: 'DEX mod', value: 3, source: 'mod.dex' }] },

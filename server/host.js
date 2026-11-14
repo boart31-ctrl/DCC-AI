@@ -21,7 +21,8 @@
 //   gmKey                              GM secret; hello {role:'gm', key}
 //   legacy                             also accept the v1 hello forms (gm/stage token, room + PIN)
 //   urls(base, state) -> { join, stage, gm }, playerUrl(base, token)
-import { normalizeState, reduce, reducePlayerAction, viewFor, genId, ActionError } from './state.js';
+import { normalizeState, createState, reduce, reducePlayerAction, viewFor, genId, ActionError } from './state.js';
+import { rulesetChoices } from './systems.js';
 import { VoiceQueue } from './quips.js';
 import { voiceFor, recordedAudio } from './pack-core.js';
 import { makeToken } from './random.js';
@@ -92,6 +93,9 @@ export function createHost(opts) {
     close: rawClose,
     persist = () => {},
     snapshots = null,
+    // Other campaigns on this server: { list() -> [{id, name, ruleset, savedAt, players}], load(id) -> state|null,
+    // save(id, meta, state), remove(id) }. Missing = one campaign only.
+    campaigns = null,
     onArchive = () => {},
     onMeta = () => {},
     now = Date.now,
@@ -196,7 +200,8 @@ export function createHost(opts) {
     }));
     g.tvWaiting = waiting.filter((m) => m.role === 'pairing').length;
     g.stagesOn = waiting.filter((m) => m.role === 'stage').length; // any TV / stage page on air (paired or GM key)
-    g.access = { edition, legacy, keyLogin: !!gmKey, backups: !!snapshots, maxTvs: L.maxTvs };
+    g.access = { edition, legacy, keyLogin: !!gmKey, backups: !!snapshots, maxTvs: L.maxTvs, campaigns: !!campaigns };
+    g.rulesetChoices = rulesetChoices(pack);
     g.tts = tts.gmView();
     g.sfx = pack.sfx ?? [];
     g.sounds = pack.sounds ?? [];
@@ -736,6 +741,45 @@ export function createHost(opts) {
 
   const ttsCtx = { pushLine: (line) => voice.push(line), lineOf: (id) => recentPlays.get(id) ?? null };
 
+  /** Stores the running campaign among the others (before a switch / new one). */
+  function parkCurrent(t) {
+    snapshot('campaign-switch', state, t);
+    campaigns.save(state.campaign.id, { id: state.campaign.id, name: state.campaign.name, ruleset: state.campaign.ruleset, savedAt: t, players: state.players.length }, state);
+  }
+
+  /** Makes `next` the running campaign. TVs and the GM link stay paired; players get the new campaign's links. */
+  function replaceCampaign(next, msg, t) {
+    const cur = state.host ?? {};
+    const own = next.host ?? {};
+    const merged = {
+      ...next,
+      room: state.room, gmToken: state.gmToken, stageToken: state.stageToken,
+      host: { ...cur, playerTokens: own.playerTokens ?? {}, lastSnapshotAt: t, tts: cur.tts },
+    };
+    commit(ensureAccess(merged, L.tokenBytes), { at: t, by: 'gm', action: sanitizeAction(msg), system: false });
+    logEvent({ at: t, kind: 'action', action: sanitizeAction(msg) });
+    voice.clear();
+    eventLog = [];
+    for (const [c, m] of [...conns]) if (m.role === 'player') dropConn(c, CLOSE.removed, 'campaign changed');
+    scheduleViews();
+  }
+
+  /**
+   * Restores a campaign from a backup / export file (the GM's own copy). The running campaign is parked first
+   * (or kept as a restore point on single-campaign servers). Returns { campaign }.
+   */
+  function importCampaign(data) {
+    const raw = data && typeof data === 'object' ? (data.format === 'the-system-export/1' ? data.state : data.state ?? data) : null;
+    if (!raw || typeof raw !== 'object' || !Array.isArray(raw.players)) throw bad('not a campaign file (export or backup from the GM desk)');
+    const t = now();
+    if (campaigns && raw.campaign?.id !== state.campaign.id) parkCurrent(t);
+    else snapshot('before-import', state, t);
+    const next = normalizeState(JSON.parse(JSON.stringify(raw)), pack, t);
+    replaceCampaign(next, { t: 'campaign.import', id: next.campaign.id }, t);
+    if (campaigns) campaigns.remove(next.campaign.id);
+    return { campaign: state.campaign };
+  }
+
   const HOST_GM = {
     ...Object.fromEntries(Object.entries(tts.handlers).map(([k, fn]) => [k, (msg) => fn(msg, ttsCtx)])),
     'audio.started': audioStarted,
@@ -809,6 +853,48 @@ export function createHost(opts) {
       commitAccess({ ...state, host: { ...state.host, tvs: tvs.filter((tv) => tv.id !== msg.tvId) } }, msg, 'gm');
       for (const [c, m] of [...conns]) if (m.role === 'stage' && m.tvId === msg.tvId) dropConn(c, CLOSE.auth, 'revoked');
       scheduleViews();
+    },
+    /** Campaigns on this server + the rulesets a new one can use. */
+    'campaign.list'() {
+      const cur = state.campaign;
+      const others = campaigns ? campaigns.list().filter((c) => c.id !== cur.id) : [];
+      return { current: { ...cur, players: state.players.length }, campaigns: others, choices: rulesetChoices(pack), multi: !!campaigns };
+    },
+    'campaign.rename'(msg) {
+      const name = typeof msg.name === 'string' ? msg.name.trim().slice(0, 60) : '';
+      if (!name) throw bad('name required');
+      commitAccess({ ...state, campaign: { ...state.campaign, name } }, { t: 'campaign.rename', name }, 'gm');
+      scheduleViews();
+      return { name };
+    },
+    /** Starts a new campaign with a ruleset (locked for it). The current one is kept and can be switched back to. */
+    'campaign.new'(msg) {
+      if (!campaigns) throw bad('this server keeps one campaign; export it first, then start a new session');
+      const choices = rulesetChoices(pack).map((c) => c.id);
+      if (msg.ruleset !== undefined && !choices.includes(msg.ruleset)) throw bad(`unknown ruleset ${msg.ruleset}`);
+      const t = now();
+      parkCurrent(t);
+      const fresh = createState(pack, t, { name: msg.name, ruleset: msg.ruleset });
+      replaceCampaign(fresh, msg, t);
+      return { campaign: state.campaign };
+    },
+    'campaign.switch'(msg) {
+      if (!campaigns) throw bad('this server keeps one campaign');
+      if (typeof msg.id !== 'string' || msg.id === state.campaign.id) throw bad('pick another campaign');
+      const raw = campaigns.load(msg.id);
+      if (!raw) throw notFound(`no campaign ${msg.id}`);
+      const t = now();
+      parkCurrent(t);
+      replaceCampaign(normalizeState(JSON.parse(JSON.stringify(raw)), pack, t), msg, t);
+      campaigns.remove(msg.id);
+      return { campaign: state.campaign };
+    },
+    'campaign.delete'(msg) {
+      if (!campaigns) throw bad('this server keeps one campaign');
+      if (typeof msg.id !== 'string' || msg.id === state.campaign.id) throw bad('you can only delete a campaign that is not running');
+      if (!campaigns.list().some((c) => c.id === msg.id)) throw notFound(`no campaign ${msg.id}`);
+      campaigns.remove(msg.id);
+      return { deleted: msg.id };
     },
     'backup.list'() {
       if (!snapshots) throw bad('restore points are not available on this server');
@@ -1012,6 +1098,7 @@ export function createHost(opts) {
     close,
     checkGm,
     apply,
+    importCampaign,
     has: (conn) => conns.has(conn),
     canAccept: () => conns.size < L.maxSockets,
     setBase(b) {

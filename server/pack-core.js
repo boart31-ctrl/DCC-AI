@@ -306,7 +306,7 @@ function loadAchievements(raw, quipsById, warnings) {
       id: a.id,
       title: a.title,
       desc: typeof a.desc === 'string' ? a.desc : '',
-      reward: isStr(a.reward) ? a.reward.trim() : '',
+      reward: isStr(a.reward) ? a.reward.trim().replace(/^reward\s*:\s*/i, '') : '', // the UI adds its own "Reward:"
       group: isStr(a.group) ? a.group.trim() : '',
       voice,
     };

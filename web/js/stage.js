@@ -9,6 +9,7 @@ import { createShowAudio } from './show-audio.js';
 import { createTicker } from './ticker.js';
 import { uiOf, uiAsset, artEl, assetSrc, cornerFrame, mascotEl, setSpeaking, slug, preloadFor } from './ui-art.js';
 import { crawlerClock, fmtFull, countDown, skullSvg } from './crawlers.js';
+import { initStrip } from './initiative.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const client = new TransportHub();
@@ -80,7 +81,50 @@ function render() {
   renderStrip();
   renderFeed();
   renderLogo();
+  renderInit();
   preloadFor(view);
+}
+
+/* ---------- turn order (5e / PF2e fights): a strip over every scene ---------- */
+let initSig = '';
+function renderInit() {
+  const I = view.combat?.init;
+  const sig = JSON.stringify([view.combat?.active, I, (view.combat?.combatants || []).map((x) => [x.uid, x.down, x.name]), (view.players || []).map((p) => [p.id, p.name, p.color])]);
+  if (sig === initSig) return;
+  initSig = sig;
+  let box = $('#ini-tv');
+  const strip = initStrip(view);
+  if (!strip) { box?.remove(); return; }
+  if (!box) { box = h('div#ini-tv.ini-tv', { 'aria-live': 'polite' }); document.body.append(box); }
+  box.replaceChildren(h('span.ini-tv-k', `Round ${view.combat.round}`), strip);
+}
+
+/* ---------- player roll cards: who did what, and did it work ---------- */
+const cards = new Map();
+function rollCard(e) {
+  if (e.secret || !e.card || e.auto) return;
+  const p = (view?.players || []).find((x) => x.id === e.playerId);
+  const vs = e.vs || null;
+  const rules = view?.pack?.ruleset?.combat || {};
+  const verdict = !vs || vs.damage !== undefined ? null
+    : vs.degree === 3 ? (rules.degrees ? 'Critical success' : 'Critical hit')
+      : vs.hit ? (e.what === 'attack' ? 'Hit' : 'Success')
+        : vs.degree === 0 && rules.degrees ? 'Critical failure' : e.what === 'attack' ? 'Miss' : 'Fail';
+  let tray = $('#roll-cards');
+  if (!tray) { tray = h('div#roll-cards.roll-cards', { 'aria-live': 'polite' }); document.body.append(tray); }
+  const card = h('div.roll-card', { class: `roll-card${vs?.hit ? ' is-hit' : vs && vs.hit === false ? ' is-miss' : ''}${vs?.crit ? ' is-crit' : ''}`, style: p?.color ? { '--rc': p.color } : null },
+    h('span.rc-who', p?.name || 'Someone'),
+    h('span.rc-what', `${e.label}${vs?.name ? ` → ${vs.name}` : ''}`),
+    h('span.rc-num', e.natural != null && e.what !== 'custom' ? h('small', `d20 ${e.natural}${e.entered ? ' (real die)' : ''}`) : null, h('b', String(e.total))),
+    verdict ? h('span.rc-verdict', verdict) : vs?.damage !== undefined ? h('span.rc-verdict', vs.down ? `${vs.damage} damage — down!` : `${vs.damage} damage`) : null);
+  tray.prepend(card);
+  cards.set(e.id, card);
+  while (tray.children.length > 3) tray.lastChild.remove();
+  setTimeout(() => { card.classList.add('out'); setTimeout(() => { card.remove(); cards.delete(e.id); }, 600); }, 7000);
+}
+function rollVoided(e) {
+  const c = cards.get(e.id);
+  if (c) { c.classList.add('is-void'); c.querySelector('.rc-verdict')?.replaceChildren('Cancelled'); }
 }
 
 /** Pack emblem (ui.json logo) in the bug's corner; the ◢ glyph stays when there is none. */
@@ -246,7 +290,12 @@ function onEvent(e) {
     return;
   }
   if (e.kind === 'loot' || e.kind === 'sponsor') director.event(e);
-  if (String(e.kind).startsWith('combat.')) { director.event(e); if (e.kind === 'combat.hit' && e.playerId) flashPlayer(e.playerId); return; }
+  if (String(e.kind).startsWith('combat.')) {
+    director.event(e);
+    if (e.kind === 'combat.hit' && e.playerId) flashPlayer(e.playerId);
+    if (e.kind === 'combat.turn') turnBanner(e);
+    return;
+  }
   if (e.kind === 'npc.say') { if (director.kind === 'npc') director.event(e); else npcSub(e); return; }
   switch (e.kind) {
     case 'chat': addChat(e.user || 'anon', e.text || ''); break;
@@ -260,6 +309,8 @@ function onEvent(e) {
       if (!momentBusy) nextMoment();
       break;
     case 'stat': flashPlayer(e.playerId); break;
+    case 'roll': rollCard(e); break;
+    case 'roll.void': rollVoided(e); break;
     case 'loot.drop': lootTray(e); break;
     case 'crawlers': onCrawlers(e); break;
     case 'loot.take': lootTaken(e); break;
@@ -268,6 +319,14 @@ function onEvent(e) {
       break;
     default: break;
   }
+}
+
+function turnBanner(e) {
+  if (!e.current) return;
+  const p = e.current.playerId ? (view?.players || []).find((x) => x.id === e.current.playerId) : null;
+  const b = h('div.turn-banner', { style: p?.color ? { '--rc': p.color } : null }, h('small', `Round ${e.round}`), h('b', `${e.current.name}'s turn`), e.next ? h('span', `Next: ${e.next.name}`) : null);
+  document.body.append(b);
+  setTimeout(() => { b.classList.add('out'); setTimeout(() => b.remove(), 600); }, 2600);
 }
 
 // "Speak as NPC" over any scene other than the NPC card: a subtitle bar in the NPC's name.

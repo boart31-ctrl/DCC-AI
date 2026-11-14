@@ -52,7 +52,7 @@ body.preview .m-mascot { display: none; }
 /* lobby: emblem + idle mascot */
 .lb-logo { width: 9rem; height: 9rem; margin-bottom: 0.6rem; }
 .lb-logo img { width: 100%; height: 100%; object-fit: contain; }
-.lb-mascot { position: absolute; right: 3vw; bottom: 16vh; }
+.lb-mascot { position: absolute; right: calc(3vw + 25rem); bottom: 18vh; } /* left of the join panel: never over the room code */
 .lb-mascot .ua-mascot { width: min(24vh, 16rem); height: min(24vh, 16rem); }
 
 /* ---------- bug logo ---------- */

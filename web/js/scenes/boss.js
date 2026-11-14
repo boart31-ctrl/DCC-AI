@@ -101,13 +101,19 @@ export default function boss(root, sc, env) {
     root.style.setProperty('--th-rgb', rgb(c));
   }
 
+  // Big HP pools (5e / PF2e bosses): at most 40 segments, each worth max/40 HP.
+  const SEG_MAX = 40;
+  const segCount = () => Math.min(b.hpSlots, SEG_MAX);
+  const segOf = (v) => (b.hpSlots <= SEG_MAX ? v : Math.ceil((Math.max(0, v) / b.hpSlots) * SEG_MAX));
   function drawSegs(n, cur) {
     const max = b.hpSlots;
-    segs.style.setProperty('--n', String(max));
-    segs.classList.toggle('dense', max > 24);
-    if (segs.children.length !== max) segs.replaceChildren(...Array.from({ length: max }, () => h('i')));
+    const count = segCount();
+    segs.style.setProperty('--n', String(count));
+    segs.classList.toggle('dense', count > 24);
+    if (segs.children.length !== count) segs.replaceChildren(...Array.from({ length: count }, () => h('i')));
+    const lit = segOf(cur);
     [...segs.children].forEach((s, i) => {
-      const want = i < cur ? 'on' : 'gone';
+      const want = i < lit ? 'on' : 'gone';
       // Let a running break / heal animation finish (the view lands ~50 ms after the event).
       if ((s.className === 'break' && want === 'gone') || (s.className === 'heal' && want === 'on')) return;
       s.className = want;
@@ -198,15 +204,15 @@ export default function boss(root, sc, env) {
   }
 
   function onHit(e) {
-    const from = Math.min(e.from, b.hpSlots);
     const to = e.hp;
     d = { ...d, hp: to };
     hpShown = to;
     const kids = [...segs.children];
-    for (let i = to; i < from && i < kids.length; i++) {
+    const from = segOf(Math.min(e.from, b.hpSlots));
+    for (let i = segOf(to); i < from && i < kids.length; i++) {
       const s = kids[i];
       s.className = 'break';
-      s.style.setProperty('--k', String(i - to));
+      s.style.setProperty('--k', String(i - segOf(to)));
       T.after(700, () => { if (s.className === 'break') s.className = 'gone'; });
     }
     hpNum.replaceChildren(h('b', String(to)), h('span', ` / ${b.hpSlots}`));
@@ -220,7 +226,7 @@ export default function boss(root, sc, env) {
 
   function onHeal(e) {
     const kids = [...segs.children];
-    for (let i = e.from; i < e.hp && i < kids.length; i++) { kids[i].className = 'heal'; }
+    for (let i = segOf(e.from); i < segOf(e.hp) && i < kids.length; i++) { kids[i].className = 'heal'; }
     d = { ...d, hp: e.hp };
     hpShown = e.hp;
     hpNum.replaceChildren(h('b', String(e.hp)), h('span', ` / ${b.hpSlots}`));

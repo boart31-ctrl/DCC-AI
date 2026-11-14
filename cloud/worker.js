@@ -53,6 +53,12 @@ export default {
     }
 
     if (p.startsWith('/api/')) {
+      // The one write route: restore a campaign file (GM key, same origin when a browser sends it).
+      if (p === '/api/import' && request.method === 'POST') {
+        const origin = request.headers.get('Origin');
+        if (origin && origin !== url.origin) return json(403, { error: 'forbidden origin' }, url);
+        return withHeaders(await campaignStub(env).fetch(request), url, { 'cache-control': 'no-store' });
+      }
       if (request.method !== 'GET') return json(405, { error: 'method not allowed' }, url);
       if (p === '/api/info') return json(200, { edition: 'cloud', legacy: false, keyLogin: true }, url);
       if (p === '/api/health') return json(200, { ok: true }, url);
@@ -122,6 +128,20 @@ export class Campaign extends DurableObject {
         wrote = true;
         this.persist(st, entry);
       },
+      campaigns: {
+        list: () => this.sql.exec('SELECT meta FROM campaigns WHERE part = 0 ORDER BY at DESC').toArray().map((r) => JSON.parse(r.meta)),
+        load: (id) => this.readParts('SELECT json FROM campaigns WHERE id = ? ORDER BY part', String(id)),
+        save: (id, meta, st) => {
+          const body = JSON.stringify(st);
+          this.ctx.storage.transactionSync(() => {
+            this.sql.exec('DELETE FROM campaigns WHERE id = ?', id);
+            for (let i = 0, n = 0; i < body.length || i === 0; i += CHUNK, n++) {
+              this.sql.exec('INSERT INTO campaigns (id, part, at, meta, json) VALUES (?, ?, ?, ?, ?)', id, n, meta.savedAt ?? Date.now(), JSON.stringify(meta), body.slice(i, i + CHUNK));
+            }
+          });
+        },
+        remove: (id) => this.sql.exec('DELETE FROM campaigns WHERE id = ?', String(id)),
+      },
       snapshots: {
         create: (reason, st, at) => this.snapshotCreate(reason, st, at),
         list: () => this.snapshotList(),
@@ -138,6 +158,7 @@ export class Campaign extends DurableObject {
     this.sql.exec(`CREATE TABLE IF NOT EXISTS state (part INTEGER PRIMARY KEY, json TEXT NOT NULL, at INTEGER NOT NULL)`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS log (seq INTEGER PRIMARY KEY AUTOINCREMENT, at INTEGER NOT NULL, by TEXT NOT NULL, action TEXT NOT NULL)`);
     this.sql.exec(`CREATE INDEX IF NOT EXISTS log_at ON log (at)`);
+    this.sql.exec(`CREATE TABLE IF NOT EXISTS campaigns (id TEXT NOT NULL, part INTEGER NOT NULL, at INTEGER NOT NULL, meta TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (id, part))`);
     this.sql.exec(`CREATE TABLE IF NOT EXISTS snapshots (id INTEGER NOT NULL, part INTEGER NOT NULL, at INTEGER NOT NULL, reason TEXT NOT NULL, json TEXT NOT NULL, PRIMARY KEY (id, part))`);
   }
 
@@ -191,6 +212,7 @@ export class Campaign extends DurableObject {
       return new Response(null, { status: 101, webSocket: client });
     }
     if (url.pathname === '/api/export') return this.exportResponse(request, url);
+    if (url.pathname === '/api/import' && request.method === 'POST') return this.importResponse(request);
     if (url.pathname.startsWith('/api/tts/')) return this.ttsResponse(request, url);
     return new Response('not found', { status: 404 });
   }
@@ -204,6 +226,20 @@ export class Campaign extends DurableObject {
     const bytes = m && HASH_RE.test(m[1]) ? this.host.tts.audio(m[1]) : null;
     if (!bytes) return new Response(JSON.stringify({ error: 'not_found' }), { status: 404, headers });
     return new Response(bytes, { headers: { 'content-type': 'audio/mpeg', 'cache-control': 'no-store' } });
+  }
+
+  /** POST /api/import — restore a campaign from the GM's backup file (X-GM-Key). */
+  async importResponse(request) {
+    const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+    const r = this.host.checkGm({ key: request.headers.get('X-GM-Key') ?? '' }, ipOf(request));
+    if (r !== 'ok') return new Response(JSON.stringify({ error: r }), { status: r === 'rate_limited' ? 429 : 401, headers });
+    const text = await request.text();
+    if (text.length > 20 * 1024 * 1024) return new Response(JSON.stringify({ error: 'too_big' }), { status: 413, headers });
+    try {
+      return new Response(JSON.stringify(this.host.importCampaign(JSON.parse(text))), { headers });
+    } catch (e) {
+      return new Response(JSON.stringify({ error: 'bad_request', msg: e.message }), { status: 400, headers });
+    }
   }
 
   exportResponse(request, url) {
