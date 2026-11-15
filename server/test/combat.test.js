@@ -296,7 +296,7 @@ test('combat scene + npc scene: TV-safe data only; npc.say subtitles in the NPC 
   assert.deepEqual(s.scene.data, { title: 'Lobby brawl', showParty: true });
   assert.throws(() => gm(s, { t: 'scene.set', kind: 'combat', data: { mobs: [] } }), /unknown field/);
   s = gm(s, { t: 'scene.set', kind: 'npc', data: { npcId: 'quill' } }).state;
-  assert.deepEqual(s.scene.data.npc, { name: 'Fennimore Quill', role: 'Floor clerk', image: null, floor: '0' });
+  assert.deepEqual(s.scene.data.npc, { name: 'Fennimore Quill', role: 'Floor clerk', image: null, floor: '0', intro: '' });
   for (const v of [viewFor(s, pack, 'stage'), viewFor(s, pack, 'player', { playerId: pid })]) assert.doesNotMatch(JSON.stringify(v), SECRETS);
   const r = gm(s, { t: 'npc.say', text: 'Per policy, welcome.' });
   assert.equal(r.state.scene.data.line, 'Per policy, welcome.');

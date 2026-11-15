@@ -333,3 +333,14 @@
 .ag-cats { margin-top: -4px; }
 .ag-cats[hidden] { display: none; }
 .ag-cats .chip { font-size: 12px; padding: 2px 8px; }
+
+/* 15 Nov review */
+.cbt-rm { width: 30px; height: 30px; color: var(--c-ink-3); }
+.cbt-rm:hover { color: var(--c-bad); }
+.cbt-add { margin: 4px 0 10px; border: 1px dashed var(--c-line-2); border-radius: var(--r-1); }
+.cbt-add > summary { cursor: pointer; display: flex; align-items: center; gap: 6px; padding: 8px 12px; font-family: var(--f-ui); font-weight: 600; color: var(--c-accent); }
+.cbt-add[open] > summary { border-bottom: 1px dashed var(--c-line-2); }
+.cbt-add > .cbt-builder { border: 0; margin: 0; background: none; }
+.cbt-mobs-head { align-items: center; gap: 8px; }
+.cbt-finale.win { box-shadow: 0 0 0 2px var(--c-accent), 0 0 24px -6px var(--c-accent); }
+.cbt-prize .chk { margin-top: 6px; }

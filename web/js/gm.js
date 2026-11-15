@@ -137,6 +137,7 @@ function render() {
   npcs.update(view);
   crawlers.update(view);
   scenes.update(view);
+  { const cb = $('#hud-crawlers'); if (cb) { cb.disabled = !view.crawlers; cb.checked = view.crawlers?.shown !== false && !!view.crawlers; } }
   sound.update(view);
   rewards.update(view);
   msgCenter.update();
@@ -415,13 +416,15 @@ function buffPicker(p, M) {
 function givePicker(p, M, kind = 'item') {
   const kinds = ['item', 'spell', 'skill', 'buff'];
   let q = '';
-  const listEl = h('ul.pick-list');
+  const listEl = h('ul.pick-list.give-list');
   const draw = () => {
     const hits = M.lib[kind].filter((e) => !q || `${e.name} ${(e.tags || []).join(' ')}`.toLowerCase().includes(q)).slice(0, 150);
     listEl.replaceChildren(...(hits.length ? hits.map((e) => h('li', h('button.pick', {
       type: 'button',
       onclick: async () => { if (await act({ t: 'lib.give', playerId: p.id, kind, id: e.id }, `Gave ${e.name} to ${p.name}.`)) closeDrawer(); },
-    }, h('span', h('b', e.name), e.source === 'homebrew' ? h('span.dim', ' homebrew') : null), h('span.dim', e.rarity || e.checkType || ''))))
+    }, kind === 'item' || kind === 'spell' ? itemArt({ ...e, rarity: e.rarity || 'common' }, 'inv-ico') : null,
+    h('span.pick-txt', h('b', e.name, e.source === 'homebrew' ? h('span.dim', ' homebrew') : null), e.desc || e.effects ? h('span.dim.pick-line', typeof e.effects === 'string' ? e.effects : e.desc || '') : null),
+    h('span.dim', e.rarity || e.checkType || ''))))
       : [h('li.empty-s', 'Nothing matches.')]));
   };
   const search = h('input.inp', { type: 'search', placeholder: 'Search the library', oninput: (e) => { q = e.target.value.trim().toLowerCase(); draw(); } });
@@ -834,6 +837,7 @@ function toggleAuto() {
 function stopAll() {
   buzz([20, 30, 20]);
   try { sound?.board?.stopAll(); } catch {}
+  try { cues?.stopAmbience(); } catch {} // stays off until Play in Show → Explore
   act({ t: 'queue.clear' }, 'Stopped: voice queue cleared, pads silenced.');
 }
 
@@ -1011,12 +1015,12 @@ const library = createLibrary({
 $('#view-library').append(library.el);
 // Show = the broadcast switcher (gm-scenes.js): scenes, the fight tracker, NPCs, sound and the old desk.
 // Hoisted use in render() is safe: views arrive after boot.
-const scenes = createScenes({ client, act, getView: () => view });
+const scenes = createScenes({ client, act, getView: () => view, getCues: () => cues });
 scenes.audio.credential = () => ext.credential; // the audio fetches use the desk's login
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
 // Sound cues (cues.js): voice lines, boss moments, location ambience; mobs use their own Library sounds.
-const cues = createCues({ board: sound.board, getView: () => view, act: (a) => client.send(a).catch(() => {}) });
+const cues = createCues({ board: sound.board, getView: () => view, act: (a) => client.send(a).catch(() => {}), onChange: () => scenes.refresh?.() });
 const combatSfx = createCombatSfx({ board: sound.board, getView: () => view, onChange: () => combat?.update(view), mobSound: (slot, uid) => cues.mob(slot, uid) });
 sound.el.append(combatSfx.panel(), cues.panel());
 client.on('play', (m) => { if (scenes.audio.isDevice) cues.line(m); });
@@ -1048,6 +1052,8 @@ var msgCenter = createMsgCenter({
   onUnread: (n) => { for (const id of ['#msg-badge', '#msg-badge-b']) { const b = $(id); if (b) { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); } } },
 });
 $('#view-messages').append(h('div.view-head', h('h1', 'Messages'), h('span.dim', 'Private lines, groups and the whole table. Crawlers can answer, react and write to each other; you see everything.')), msgCenter.el);
+
+$('#hud-crawlers')?.addEventListener('change', (e) => act({ t: 'crawlers.set', shown: e.target.checked }, e.target.checked ? 'Counter on the TV.' : 'Counter hidden.'));
 
 /* ---------- keyboard ---------- */
 

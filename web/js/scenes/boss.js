@@ -130,7 +130,9 @@ export default function boss(root, sc, env) {
       phaseNo.textContent = `Phase ${ROMAN[d.phase] || d.phase + 1}${n > 1 ? ` of ${ROMAN[n - 1] || n}` : ''}`;
       phaseName.textContent = ph.name;
     }
-    phaseText.textContent = ph?.text || b.title || '';
+    // No phase text: no report box (it only repeated the title under the name).
+    phaseText.textContent = ph?.text || '';
+    info.querySelector('.bs-sys').hidden = !phaseText.textContent;
     // Pack phase texts can be long: size the report down and drop the flavor line before overflowing.
     const n2 = phaseText.textContent.length;
     phaseText.classList.toggle('long', n2 > 110 && n2 <= 200);
@@ -152,7 +154,7 @@ export default function boss(root, sc, env) {
     if (sig === minionSig) return;
     minionSig = sig;
     root.classList.toggle('has-minions', groups.length > 0);
-    root.classList.toggle('many-minions', groups.length > 4);
+    root.classList.toggle('many-minions', groups.length > 3);
     minions.replaceChildren(...groups.slice(0, 8).map((g) => {
       if (g.pack) {
         return h('div.bm', { class: `bm pack${g.alive ? '' : ' down'}` },

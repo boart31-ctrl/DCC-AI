@@ -282,6 +282,8 @@ function npcCard(raw) {
     role: raw.role == null ? '' : txt(raw.role, 'npc.role', 120),
     image: imageUrl(raw.image, 'npc.image'),
     floor: raw.floor == null || raw.floor === '' ? '' : txt(String(raw.floor), 'npc.floor', 20),
+    // The System's introduction is public (it is read aloud anyway): it stays on the TV under the name.
+    intro: raw.intro == null ? '' : txt(String(raw.intro).slice(0, 600), 'npc.intro', 600),
   };
 }
 

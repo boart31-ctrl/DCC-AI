@@ -9,9 +9,10 @@
 // Also makes this page the audio device (System voice + stingers).
 //
 // Mounted from gm.js: createScenes({ client, act, getView }) → { update, mountInto(section, parts) }.
-import { h, toast } from './client.js';
+import { h, toast, itemArt } from './client.js';
 import { icon, field, select, labeled } from './ui.js';
 import { createGmAudio } from './gm-audio.js';
+import { uiOf, uiAsset } from './ui-art.js';
 
 const SCENES = [
   { kind: 'lobby', label: 'Lobby', key: 'F1', hint: 'Title card + join QR' },
@@ -82,7 +83,7 @@ export function minionRows(combat) {
   return out;
 }
 
-export function createScenes({ client, act, getView }) {
+export function createScenes({ client, act, getView, getCues = () => null }) {
   const audio = createGmAudio({ client, getView });
   const view = () => getView() || {};
   // Drafts per scene kind (what F-keys / GO LIVE send). Persisted per device.
@@ -224,10 +225,10 @@ export function createScenes({ client, act, getView }) {
   function bossDraftData() {
     const d = D('boss');
     if (d.mode === 'adhoc') {
-      return { boss: { name: d.name || 'Unnamed horror', title: d.title || '', hpSlots: Number(d.hpSlots) || 10, image: d.image || null, color: d.color || null, phases: parsePhases(d.phases), intro: d.intro || '' } };
+      return { boss: { name: d.name || 'Unnamed horror', title: d.title || '', hpSlots: Number(d.hpSlots) || 10, image: d.image || null, color: d.color || null, phases: parsePhases(d.phases), intro: d.intro || '' }, ...(d.lootHint ? { lootHint: d.lootHint } : {}) };
     }
     const id = bossPick || view().library?.boss?.[0]?.id;
-    return id ? { bossId: id } : null;
+    return id ? { bossId: id, ...(d.lootHint ? { lootHint: d.lootHint } : {}) } : null;
   }
   function dataFor(kind) {
     const d = { ...D(kind) };
@@ -235,7 +236,7 @@ export function createScenes({ client, act, getView }) {
     if (kind === 'boss') return bossDraftData();
     if (kind === 'countdown') return { label: d.label || 'Floor collapse in', seconds: Math.max(1, Math.round((Number(d.minutes) || 0) * 60 + (Number(d.seconds) || 0))) || 300, autostart: !!d.autostart };
     if (kind === 'loot') {
-      const pid = d.playerId || v.players?.[0]?.id || null;
+      const pid = (d.playerId && d.playerId !== '*' ? d.playerId : null) || v.players?.[0]?.id || null;
       const tier = d.tier || v.pack?.lootTiers?.[0]?.id || null;
       return { ...(pid ? { playerId: pid } : {}), ...(tier ? { tier } : {}) };
     }
@@ -408,6 +409,40 @@ export function createScenes({ client, act, getView }) {
 
   /* ---------- live controls ---------- */
   let cdTimer = null;
+  /** Explore on air: ambience Play / Stop (Stop at the top keeps it off), and the read-aloud text by voice. */
+  let readSig = '';
+  function exploreLive(sc) {
+    const cues = getCues();
+    const st = cues?.ambienceState?.() || {};
+    const text = String(sc.data.text || '').trim();
+    const unread = text && readSig !== text;
+    return h('div.sc-ex-live',
+      h('p.sc-line', [sc.data.floor, sc.data.location].filter(Boolean).join(', ') || 'Exploring'),
+      h('div.sc-boss-row',
+        h('span.sc-ex-k', icon('bolt', { size: 14 }), st.has ? (st.playing ? `Ambience playing: ${st.name}` : st.stopped ? 'Ambience stopped' : st.enabled === false ? 'Ambience off in Sound cues' : 'Ambience idle') : 'No ambience for this place'),
+        st.has ? (st.playing
+          ? h('button.btn.btn-sm', { type: 'button', onclick: () => cues.stopAmbience() }, icon('x', { size: 13 }), 'Stop')
+          : h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: st.enabled === false, onclick: () => cues.playAmbience() }, icon('play', { size: 13 }), 'Play')) : null),
+      text ? h('div.sc-boss-row',
+        h('span.sc-ex-k', icon('chat', { size: 14 }), unread ? h('b.sc-warn-t', 'Text on the TV not read aloud yet') : 'Read aloud'),
+        h('button.btn.btn-sm', { class: unread ? 'btn btn-sm btn-primary' : 'btn btn-sm', type: 'button', onclick: async () => { if (await act({ t: 'say', text: text.slice(0, 1000) }, 'The System reads it.')) { readSig = text; sig = ''; drawAll(); } } }, icon('speaker', { size: 13 }), unread ? 'Read it now' : 'Read again')) : null);
+  }
+
+  /** NPC on air: what the TV shows (intro + last line), how to play them (GM only) and notes on this device. */
+  function npcLive(sc) {
+    const n = sc.data.npc || {};
+    const lib = (view().library?.npc || []).find((x) => x.id === sc.data.npcId) || {};
+    const key = `npcNote.${sc.data.npcId || n.name}`;
+    const note = h('textarea.inp', { rows: 3, placeholder: 'Your notes for this NPC (kept on this device)…', value: store.get(key, ''), oninput: (e) => store.set(key, e.target.value) });
+    return h('div.sc-ex-live',
+      h('p.sc-line', h('b', n.name || 'NPC'), n.role ? ` · ${n.role}` : ''),
+      sc.data.line ? h('p.sc-npc-said', h('span.dim', 'Said on the TV: '), `“${sc.data.line}”`) : h('p.dim', 'No line yet. Speak as the NPC below.'),
+      n.intro ? h('p.sc-npc-said', h('span.dim', 'Intro on the TV: '), n.intro) : null,
+      (lib.personality || lib.voice) ? h('div.sc-gm-only', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only: how to play them'),
+        lib.personality ? h('p', lib.personality) : null, lib.voice ? h('p', h('b', 'Voice. '), typeof lib.voice === 'string' ? lib.voice : JSON.stringify(lib.voice)) : null) : null,
+      labeled('Notes', note));
+  }
+
   function liveControls(kind) {
     const sc = view().scene;
     clearInterval(cdTimer);
@@ -416,8 +451,8 @@ export function createScenes({ client, act, getView }) {
     if (kind === 'loot') return lootControls(sc);
     if (kind === 'roll') return h('div.sc-live-row', h('p.sc-line', sc.data.total == null ? `Waiting: ${sc.data.name || 'someone'} is up.` : `${sc.data.name} rolled ${sc.data.total}${sc.data.nat20 ? ' (natural 20)' : sc.data.nat1 ? ' (natural 1)' : ''}.`),
       h('button.btn.btn-primary', { type: 'button', onclick: rollOnTv }, icon('dice', { size: 15 }), 'Roll again'));
-    if (kind === 'explore') return h('p.sc-line', [sc.data.floor, sc.data.location].filter(Boolean).join(', ') || 'Exploring');
-    if (kind === 'npc') return h('p.sc-line', `${sc.data.npc?.name || 'NPC'}${sc.data.line ? `: “${sc.data.line}”` : ''}`);
+    if (kind === 'explore') return exploreLive(sc);
+    if (kind === 'npc') return npcLive(sc);
     return h('p.sc-line.dim', 'On the TV now. Change it below and press Update.');
   }
 
@@ -442,12 +477,24 @@ export function createScenes({ client, act, getView }) {
     const tvLoot = field(d.lootHint, { placeholder: 'e.g. Silver crate incoming', onCommit: (v) => send({ t: 'scene.update', data: { lootHint: v } }, 'Loot line set.') });
     const fighter = d.bossId ? bossFighterFor(d.bossId) : null;
     const attacks = fighter?.attacks || lib?.attacks || [];
+    const standing = minionRows(view().combat).flatMap((r) => r.members).filter((m) => !m.down);
+    const zero = d.hp <= 0 && !d.defeated
+      ? h('div.sc-suggest.sc-zero', icon('skull', { size: 18 }), h('span', h('b', `${b.name} is at 0 HP.`), ' Finish him: the defeat cinematic and the loot line play on the TV.'),
+        h('button.btn.btn-danger', { type: 'button', onclick: () => send({ t: 'boss.defeat' }, 'Boss defeated.') }, 'Defeat now'))
+      : null;
+    const after = d.defeated && standing.length
+      ? h('div.sc-suggest', icon('warn', { size: 16 }), h('span', h('b', `${standing.length} minion${standing.length === 1 ? '' : 's'} still standing.`)),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => pick('fight') }, 'Fight on'),
+        h('button.btn.btn-sm', { type: 'button', onclick: async () => { for (const m of standing) await act({ t: 'combat.remove', uid: m.uid }, null); toast('The minions ran for it.'); } }, 'They flee'),
+        h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => act({ t: 'combat.end', outcome: 'victory' }, 'Victory.') }, 'End: victory'))
+      : null;
     return h('div.sc-boss',
       h('div.sc-boss-top',
         h('div', h('div.sc-boss-name', b.name), b.title ? h('div.dim', b.title) : null),
         h('div.sc-boss-hp', h('b', String(d.hp)), h('span.dim', ` / ${max} HP`))),
       hpBar,
-      sug,
+      zero || sug,
+      after,
       h('div.sc-boss-row',
         big('−1', '.sc-dmg', () => send({ t: 'boss.damage', amount: 1 }), { disabled: d.hp <= 0 }),
         big('−2', '.sc-dmg', () => send({ t: 'boss.damage', amount: 2 }), { disabled: d.hp <= 0 }),
@@ -471,6 +518,7 @@ export function createScenes({ client, act, getView }) {
           h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'),
           cur ? h('p', h('b', `Phase ${ROMAN[d.phase] || d.phase + 1}: ${cur.name}. `), cur.text || '') : null,
           lib?.tactics ? h('p', h('b', 'Tactics. '), lib.tactics) : null,
+          (b.intro || lib?.intro) ? h('p', h('b', 'Intro (the System reads it). '), b.intro || lib.intro) : null,
           lib?.lootHint ? h('p', h('b', 'Loot. '), lib.lootHint) : null),
         labeled('Loot line on TV after defeat', tvLoot)),
     );
@@ -494,20 +542,14 @@ export function createScenes({ client, act, getView }) {
 
   /** Attack buttons (max 3 + "more"): tap rolls it for real, ⓘ opens the details. */
   function attackButtons(attacks, ownerKey, roll, { disabled = false } = {}) {
-    const one = (a, i) => {
-      const k = `${ownerKey}:${i}`;
-      const open = ui.openAtk.has(k);
-      return h('div.sh-atk', { class: open ? 'sh-atk open' : 'sh-atk' },
-        h('button.sh-atk-go', { type: 'button', disabled, onclick: () => roll(i), title: `Roll ${a.name}` },
-          h('b', a.name), h('span.sh-atk-s', shortOf(a))),
-        h('button.icon-btn.sh-atk-i', { type: 'button', 'aria-expanded': String(open), 'aria-label': `Details: ${a.name}`, onclick: () => { open ? ui.openAtk.delete(k) : ui.openAtk.add(k); sig = ''; drawAll(); } }, icon(open ? 'up' : 'info', { size: 14 })),
-        open ? h('div.sh-atk-d',
-          h('p.sh-atk-k', `${sign(a.toHit)} to hit${hasDmg(a) ? ` · ${a.damage} damage` : ''}${a.buffs?.length ? ` · ${a.buffs.join(', ')}` : ''}`),
-          a.effects ? h('p', a.effects) : null) : null);
-    };
-    const shown = attacks.slice(0, MAX_ATTACKS).map((a, i) => one(a, i));
+    // Everything at a glance (review 15 Nov): name, numbers and what it does; the whole card rolls it.
+    const one = (a) => h('button.sh-atk.sh-atk-full', { type: 'button', disabled, onclick: () => roll(attacks.indexOf(a)), title: disabled ? a.effects || a.name : `Roll ${a.name}` },
+      h('span.sh-atk-top', h('b', a.name), h('span.sh-atk-k', `${sign(a.toHit)} to hit${hasDmg(a) ? ` · ${a.damage}` : ''}`)),
+      a.effects ? h('span.sh-atk-fx', a.effects) : null,
+      a.buffs?.length ? h('span.sh-atk-k', a.buffs.join(', ')) : null);
+    const shown = attacks.slice(0, MAX_ATTACKS).map(one);
     const rest = attacks.length > MAX_ATTACKS
-      ? h('details.sh-atk-more', h('summary', `${attacks.length - MAX_ATTACKS} more`), h('div.sh-atks', attacks.slice(MAX_ATTACKS).map((a, j) => one(a, j + MAX_ATTACKS))))
+      ? h('details.sh-atk-more', h('summary', `${attacks.length - MAX_ATTACKS} more`), h('div.sh-atks', attacks.slice(MAX_ATTACKS).map(one)))
       : null;
     return h('div.sh-atks', shown, rest);
   }
@@ -567,12 +609,14 @@ export function createScenes({ client, act, getView }) {
       const hpTxt = r.pack ? `${alive.length}/${r.members.length} standing` : `${first.hp}/${first.hpMax} HP`;
       return h('li.sh-min', { class: `sh-min${alive.length ? '' : ' down'}${r.pack ? ' pack' : ''}` },
         h('div.sh-min-top',
+          itemArt({ name: r.name, image: first.image || null, rarity: 'common' }, 'sh-min-art'),
           h('b', r.pack ? `${r.name} ×${r.members.length}` : r.name),
           r.pack ? h('span.pill', 'Pack') : null,
           hidden ? h('span.pill', { title: 'Shown on the TV when you go live or reveal it' }, icon('eyeOff', { size: 12 }), 'hidden') : null,
           h('span.grow'),
           h('span.sh-min-hp', hpTxt),
           h('button.icon-btn.xs', { type: 'button', 'aria-label': `1 damage to ${r.name}`, disabled: !alive.length, onclick: () => hit(r, 1) }, icon('minus', { size: 13 })),
+          r.pack ? h('button.btn.btn-sm.sh-aoe', { type: 'button', disabled: !alive.length, title: 'Area hit: 1 damage to every member still standing', onclick: async () => { for (const m of aliveOf(r)) await act({ t: 'combat.damage', uid: m.uid, amount: 1 }, null); } }, '−1 all') : null,
           h('button.icon-btn.xs', { type: 'button', 'aria-label': `Heal ${r.name} 1`, onclick: () => heal(r) }, icon('plus', { size: 13 })),
           h('button.icon-btn.xs', { type: 'button', 'aria-label': `Remove ${r.name}`, title: 'Remove from the fight', onclick: async () => { for (const m of r.members) await act({ t: 'combat.remove', uid: m.uid }, null); } }, icon('x', { size: 13 }))),
         r.pack ? h('div.sh-pips', r.members.map((m) => h('i', { class: m.down ? 'gone' : '' }))) : h('div.sh-hpbar', h('i', { style: { width: `${first.hpMax ? (first.hp / first.hpMax) * 100 : 0}%` } })),
@@ -620,11 +664,47 @@ export function createScenes({ client, act, getView }) {
   }
 
   function lootControls(sc) {
-    const p = view().players?.find((x) => x.id === sc.data.playerId);
+    const ps = view().players || [];
+    const p = ps.find((x) => x.id === sc.data.playerId);
     const tier = view().pack?.lootTiers?.find((t) => t.id === sc.data.tier);
-    return h('div.sc-boss-row',
-      h('button.btn.btn-primary.sc-big', { type: 'button', disabled: !p || !tier, onclick: () => act({ t: 'loot.open', playerId: p.id, tier: tier.id }, `${p.name} opens the ${tier.name}.`) }, `Open the box${p ? ` for ${p.name}` : ''}`),
-      h('span.dim', tier ? tier.name : 'Pick a tier below'));
+    const all = D('loot').playerId === '*';
+    return h('div.sc-ex-live',
+      h('p.sc-line', tier ? h('b', tier.name) : 'No box', p ? ` for ${all ? 'everyone, starting with ' : ''}${p.name}` : ''),
+      h('div.sc-boss-row',
+        h('button.btn.btn-primary.sc-big', { type: 'button', disabled: !p || !tier, onclick: () => act({ t: 'loot.open', playerId: p.id, tier: tier.id }, `${p.name} opens the ${tier.name}.`) }, `Open it for ${p?.name || '…'}`),
+        all && ps.length > 1 ? h('button.btn.sc-big', { type: 'button', disabled: !tier, onclick: () => openForAll(tier) }, `Open for all ${ps.length}`) : null));
+  }
+  /** One box each, one after another (each opening gets its moment on the TV). */
+  async function openForAll(tier) {
+    const ps = view().players || [];
+    for (let i = 0; i < ps.length; i++) {
+      if (i) await new Promise((r) => setTimeout(r, 7000));
+      await act({ t: 'scene.set', kind: 'loot', data: { playerId: ps[i].id, tier: tier.id } }, null);
+      await act({ t: 'loot.open', playerId: ps[i].id, tier: tier.id }, `${ps[i].name} opens the ${tier.name}.`);
+    }
+  }
+  /** Loot form: crawlers and boxes as tiles (boxes cheapest first, with their crate art). */
+  function lootForm() {
+    const v = view();
+    const ps = v.players || [];
+    const tiers = v.pack?.lootTiers || [];
+    const d = D('loot');
+    if (!d.playerId || (d.playerId !== '*' && !ps.some((p) => p.id === d.playerId))) d.playerId = ps[0]?.id || '';
+    if (!tiers.some((t) => t.id === d.tier)) d.tier = tiers[0]?.id || '';
+    const set = (k, val) => { d[k] = val; saveDraft(); sig = ''; drawAll(); };
+    const crate = (t) => {
+      const a = uiAsset(uiOf(v), 'lootBoxes', [t.id], ['closed', 'idle']);
+      return a ? h('img', { src: a.still || a.src, alt: '', loading: 'lazy' }) : h('i.lt-sw', { style: { background: t.color || 'var(--c-accent)' } });
+    };
+    const who = ps.find((p) => p.id === d.playerId);
+    const tier = tiers.find((t) => t.id === d.tier);
+    return [
+      h('div.span-all', h('p.lbl-t', 'Who gets it'), h('div.lt-who', [
+        ...ps.map((p) => h('button.lt-p', { type: 'button', 'aria-pressed': String(d.playerId === p.id), style: { '--pc': p.color || 'var(--c-accent)' }, onclick: () => set('playerId', p.id) }, p.name)),
+        ps.length > 1 ? h('button.lt-p', { type: 'button', 'aria-pressed': String(d.playerId === '*'), onclick: () => set('playerId', '*') }, 'Everyone (one each)') : null].filter(Boolean))),
+      h('div.span-all', h('p.lbl-t', 'Box'), h('div.lt-boxes', tiers.map((t) => h('button.lt-box', { type: 'button', 'aria-pressed': String(d.tier === t.id), style: { '--tc': t.color || 'var(--c-accent)' }, onclick: () => set('tier', t.id) }, crate(t), h('span', t.name))))),
+      h('p.lt-confirm.span-all', icon('gift', { size: 14 }), tier ? h('b', tier.name) : 'No box', ' → ', h('b', d.playerId === '*' ? 'everyone, one at a time' : who?.name || 'nobody')),
+    ];
   }
 
   /* ---------- per-scene forms (drafts) ---------- */
@@ -674,8 +754,10 @@ export function createScenes({ client, act, getView }) {
     h('span.dim', b.title || ''),
     h('span.sc-bc-meta', `${b.hpSlots} HP`, b.phases?.length ? `, ${b.phases.length} phases` : '', b.floor ? `, floor ${b.floor}` : '', b.source === 'homebrew' ? ', homebrew' : ''),
     )) : h('p.dim', 'No bosses in the pack yet. Add bosses.json, create one in the Library, or switch to Ad hoc.')),
+    h('div.span-all', minionSection(false)),
     picked?.attacks?.length ? h('div.span-all', attackSection(picked.name, picked.attacks, null, picked.id, { boss: true, prep: !isLive('boss') })) : null,
-    picked?.tactics ? h('div.sc-gm-only.span-all', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'), h('p', h('b', 'Tactics. '), picked.tactics)) : null];
+    picked?.tactics ? h('div.sc-gm-only.span-all', h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'), h('p', h('b', 'Tactics. '), picked.tactics)) : null,
+    txt('boss', 'lootHint', 'Loot line on the TV after the defeat', { placeholder: picked?.lootHint ? 'From the library' : 'e.g. Silver crate incoming', max: 160, cls: 'span-all' })];
   }
 
   function locationPicker() {
@@ -709,7 +791,7 @@ export function createScenes({ client, act, getView }) {
     if (kind === 'lobby') return [txt('lobby', 'title', 'Title', { placeholder: v.pack?.systemName || 'The System', max: 80 }), txt('lobby', 'subtitle', 'Subtitle', { placeholder: 'Grab your phone. The show starts soon.', max: 160, cls: 'span-2' }), chk('lobby', 'showQr', 'Show the join QR')];
     if (kind === 'explore') return [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Text on screen (read-aloud)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showFeed', 'Show the event feed')];
     if (kind === 'boss') return bossPicker();
-    if (kind === 'loot') return [crawlerSelect('loot'), labeled('Box', select((v.pack?.lootTiers || []).map((t) => ({ value: t.id, label: t.name })), D('loot').tier || v.pack?.lootTiers?.[0]?.id || '', { onChange: (x) => { D('loot').tier = x; saveDraft(); changed(); } }))];
+    if (kind === 'loot') return lootForm();
     if (kind === 'countdown') {
       return [txt('countdown', 'label', 'Label', { placeholder: 'Floor collapse in', max: 80, cls: 'span-2' }),
         labeled('Minutes', field(D('countdown').minutes ?? 5, { type: 'number', attrs: { min: 0, max: 1440 }, onCommit: (x) => { D('countdown').minutes = x; saveDraft(); changed(); } })),
@@ -804,7 +886,7 @@ export function createScenes({ client, act, getView }) {
       out.push(h('details.sh-edit', { open: ui.editOpen || null, ontoggle: (e) => { ui.editOpen = e.target.open; } }, h('summary', id === 'boss' ? 'Another boss (restarts the boss screen)' : 'Change it'), h('div.sc-form', form,
         id === 'boss' ? h('div.row-end', h('button.btn', { type: 'button', onclick: () => goLiveBoss(bossDraftData()) }, 'Restart with this boss + intro')) : null)));
     } else out.push(h('div.sc-form', form));
-    if (id === 'boss' && !live) out.push(h('div.sc-form', minionSection(false)));
+
     slots.scene.replaceChildren(...out);
   }
 

@@ -1,7 +1,7 @@
 /* Stage — 1920x1080 TV seen from 3 m. Everything sizes from the viewport so 1280x720 scales down. */
 
-html { font-size: clamp(12px, 1.05vw, 22px); }
-@media (min-aspect-ratio: 16/9) { html { font-size: clamp(12px, 1.86vh, 22px); } }
+html { font-size: clamp(5px, 1.05vw, 40px); } /* no 12px floor: a 960x540 TV browser must look like 1920x1080 scaled, not 20% bigger */
+@media (min-aspect-ratio: 16/9) { html { font-size: clamp(5px, 1.86vh, 40px); } }
 
 html { height: 100%; } /* stage.css is only loaded by the TV page */
 body.stage {

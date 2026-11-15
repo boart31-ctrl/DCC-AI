@@ -200,14 +200,31 @@ function renderCrawlers() {
   box.classList.toggle('live', !!c.live);
   tickCrawlers();
 }
-function tickCrawlers() {
+// The TV does not roll the number every second (it pulled the eye off the show): it steps down once
+// every CR_STEP_MS with a short count-down, and at once when the GM changes it or a drop moment lands.
+const CR_STEP_MS = 5 * 60_000;
+let crStepAt = 0;
+let crLastSig = '';
+let crAnim = null;
+function tickCrawlers(force = false) {
   if (!view?.crawlers) return;
-  const v = crHold ?? crClock.value();
+  const c = view.crawlers;
+  const sig = JSON.stringify([c.count, c.floor, c.last?.at, c.running]);
+  if (sig !== crLastSig) { if (crLastSig && c.count !== crShown) force = true; crLastSig = sig; }
+  if (crHold != null) { if (crHold !== crShown) { crAnim?.(); crShown = crHold; $('#cr-num').textContent = fmtFull(crShown); } return; }
+  const due = crShown == null || force || Date.now() - crStepAt >= CR_STEP_MS;
+  if (!due) return;
+  crStepAt = Date.now();
+  const v = crClock.value();
   if (v === crShown) return;
+  const from = crShown;
   crShown = v;
-  $('#cr-num').textContent = fmtFull(v);
+  crAnim?.();
+  if (from == null || reduced) { $('#cr-num').textContent = fmtFull(v); return; }
+  crAnim = countDown(from, v, 2400, (x) => { $('#cr-num').textContent = fmtFull(x); });
+  if (from > v) crawlersHit(from - v);
 }
-setInterval(tickCrawlers, 250);
+setInterval(tickCrawlers, 1000);
 /** The HUD takes a hit: red flash, shake, "−N" floating off. */
 function crawlersHit(lost) {
   const box = $('#crawlers');
@@ -225,7 +242,7 @@ function onCrawlers(e) {
   if (e.from !== e.to) crHold = e.from;
   cueGate.hold(e, () => { momentQ.push(e); if (!momentBusy) nextMoment(); }, !audioHere());
   // Safety: never keep the HUD frozen if the moment never shows (e.g. a long queue).
-  setTimeout(() => { if (crHold === e.from) { crHold = null; tickCrawlers(); } }, 30_000);
+  setTimeout(() => { if (crHold === e.from) { crHold = null; tickCrawlers(true); } }, 30_000);
 }
 
 let stripSig = '';
@@ -552,6 +569,7 @@ function crawlersMoment(el, e) {
     loss.style.visibility = '';
     num.classList.add('done');
     crHold = null;
+    crShown = null; // jump to the new count, no second count-down
     tickCrawlers();
     crawlersHit(lost);
   }), startAt);

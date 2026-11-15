@@ -72,6 +72,7 @@ export function createCues({ board, getView, onChange, act = null }) {
     }
   }
   let ambienceFor = null; // location id the ambience belongs to
+  let ambMuted = null; // location whose ambience the GM stopped (stays off until Play or another location)
 
   const lib = (kind, id) => {
     const k = LIB_KINDS[kind];
@@ -175,7 +176,9 @@ export function createCues({ board, getView, onChange, act = null }) {
       const sc = v?.scene;
       const keep = sc && ['explore', 'combat', 'npc', 'countdown', 'roll', 'loot'].includes(sc.kind);
       const locId = sc?.kind === 'explore' ? sc.data?.locationId || null : keep ? ambienceFor : null;
+      if (locId !== ambMuted) ambMuted = null; // a new location plays again
       if (locId === ambienceFor) return;
+      if (locId && locId === ambMuted) return; // the GM stopped it here
       ambienceFor = locId;
       clearTimeout(randomTimer);
       const loc = lib('location', locId);
@@ -183,7 +186,16 @@ export function createCues({ board, getView, onChange, act = null }) {
       if (amb) board.play(amb, { gain: cfg.ambienceGain }); else board.stopKind('ambience', 2.5);
       if (loc?.sounds?.randoms?.length) scheduleRandom(loc);
     },
-    stopAmbience() { ambienceFor = null; clearTimeout(randomTimer); board.stopKind('ambience', 2); },
+    /** Stop the location loop and keep it off for this location (Stop / Mute); playAmbience() brings it back. */
+    stopAmbience() { ambMuted = ambienceFor || ambMuted; ambienceFor = null; clearTimeout(randomTimer); board.stopKind('ambience', 2); onChange?.(); },
+    playAmbience() { ambMuted = null; ambienceFor = null; api.scene(getView()); onChange?.(); },
+    /** { locId, name, playing, stopped, has } for the explore controls. */
+    ambienceState() {
+      const sc = getView()?.scene;
+      const locId = sc?.kind === 'explore' ? sc.data?.locationId || null : ambienceFor || ambMuted;
+      const loc = lib('location', locId);
+      return { locId, name: loc?.name || null, has: !!loc?.sounds?.ambience?.length, playing: !!ambienceFor && ambienceFor === locId, stopped: !!locId && ambMuted === locId, enabled: cfg.ambience };
+    },
     panel,
   };
 

@@ -8,6 +8,7 @@ export default function npc(root, sc, env) {
   const kicker = h('p.np-k');
   const name = h('h1.np-name');
   const role = h('p.np-role');
+  const intro = h('p.np-intro');
   const who = h('span.np-who');
   const line = h('p.np-line');
   const box = h('div.np-box', who, line);
@@ -15,7 +16,7 @@ export default function npc(root, sc, env) {
     h('div.np-bg', h('i.np-ray')),
     h('div.np-stage',
       h('div.np-frame', art, h('i.c1'), h('i.c2'), h('i.c3'), h('i.c4')),
-      h('div.np-text', kicker, name, role, box)),
+      h('div.np-text', kicker, name, role, intro, box)),
   );
   let img = null;
   let lineAt = null;
@@ -47,6 +48,9 @@ export default function npc(root, sc, env) {
     name.classList.toggle('long', n.name.length > 16);
     role.textContent = n.role || '';
     role.hidden = !n.role;
+    intro.textContent = n.intro || '';
+    intro.hidden = !n.intro;
+    intro.classList.toggle('long', (n.intro || '').length > 260);
     who.textContent = n.name;
     box.hidden = !d.line;
     if (d.line && d.lineAt !== lineAt) {

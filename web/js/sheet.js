@@ -381,8 +381,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const row = h('li.skill', { class: `skill${open ? ' open' : ''}${s.used ? ' used' : ''}` },
         rs.skills.usedTracking ? h('label.used', { title: 'Used this session (rank-up check at the end)' },
           h('input', { type: 'checkbox', checked: !!s.used, disabled: !can('used'), 'aria-label': `${s.name} used this session`, onchange: (e) => act({ t: 'skill.update', uid: s.uid, used: e.target.checked }) })) : null,
-        h('button.skill-n', { type: 'button', 'aria-expanded': String(open), onclick: () => { ui.openSkill = open ? null : s.uid; draw(true); } },
-          h('span.sn', s.name), h('span.sk-meta', s.checkType || '')),
+        h('button.skill-n', { type: 'button', 'aria-expanded': String(open), title: def.desc || '', onclick: () => { ui.openSkill = open ? null : s.uid; draw(true); } },
+          h('span.sn', s.name), h('span.sk-meta', [s.checkType, !open ? def.desc : ''].filter(Boolean).join(' · '))),
         h('span.sk-stat', statAbbr),
         h('span.sk-rank', { title: 'Rank' }, String(s.rank ?? 0)),
         num(c, { title: `${s.name} total`, prefix: ' ', text: signed(c.value), roll: { kind: 'skill', uid: s.uid } }),
@@ -522,7 +522,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const short = have < cost.value;
       const meta = [def.range, def.duration].filter(Boolean);
       return h('li.spell', { class: s.active ? 'spell active' : 'spell' },
-        h('button.spell-n', { type: 'button', onclick: () => spellDrawer(s) }, h('span.sn', def.name), h('span.sp-meta', meta.join(', ') || 'Details')),
+        itemArt({ ...def, rarity: def.rarity || 'common' }, 'inv-ico sp-ico'),
+        h('button.spell-n', { type: 'button', onclick: () => spellDrawer(s), title: def.desc || '' }, h('span.sn', def.name), h('span.sp-meta', [meta.join(', '), def.desc].filter(Boolean).join(' · ') || 'Details')),
         s.active ? h('span.pill.pill-on', 'Active') : null,
         h('div.sp-cost', h('span.mini-l', 'Cost'), num(cost, { title: `${def.name} cost`, text: `${cost.value}${track ? ` ${track.label.toLowerCase()}` : ''}` })),
         h('button.btn.btn-sm', { type: 'button', class: short ? 'btn btn-sm' : 'btn btn-sm btn-primary', disabled: short || !can('play'), title: short ? `Needs ${cost.value}, you have ${have}` : `Spend ${cost.value} and cast`, onclick: () => cast(s, def, cost) }, icon('bolt', { size: 14 }), 'Cast'),
@@ -580,14 +581,14 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const cands = inv.filter((i) => !i.equippedSlot && itemOf(M.lib, i).slot === sl.id);
       if (phone() && !eq.length && !(ok && cands.length)) { idle.push(sl.label); return null; } // phones: one line for empty slots
       const full = eq.length >= (sl.max ?? 1);
-      return h('div.gslot', { class: `gslot${sl.max > 1 ? ' multi' : ''}`, 'data-slot': sl.id },
-        h('div.gslot-h', h('span', sl.label), h('span.cap', { class: full && sl.max > 1 ? 'cap full' : 'cap' }, `${eq.length} / ${sl.max ?? 1}`)),
+      return h('div.gslot', { class: `gslot${sl.max > 1 ? ' multi' : ''}${ok ? ' tap' : ''}`, 'data-slot': sl.id },
+        h('button.gslot-h', { type: 'button', disabled: !ok, title: ok ? `Choose what to wear: ${sl.label}` : null, onclick: () => slotPicker(sl) },
+          h('span', sl.label), h('span.cap', { class: full && sl.max > 1 ? 'cap full' : 'cap' }, sl.max > 1 ? `${eq.length} / ${sl.max}` : ''), ok ? icon('chevron', { size: 13 }) : null),
         eq.length ? h('ul.gslot-items', eq.map((i) => {
           const it = itemOf(M.lib, i);
-          return h('li', h('button.item-link', { type: 'button', class: `item-link r-${rarityOf(it.rarity)}`, onclick: () => itemDrawer(i.uid) }, it.name),
+          return h('li', itemArt(it, 'gs-ico'), h('button.item-link', { type: 'button', class: `item-link r-${rarityOf(it.rarity)}`, onclick: () => itemDrawer(i.uid), title: itemLine(it, i) }, it.name, h('span.gs-line', itemLine(it, i))),
             ok ? h('button.icon-btn', { type: 'button', 'aria-label': `Unequip ${it.name}`, title: 'Unequip', onclick: () => act({ t: 'item.equip', uid: i.uid, slot: null }) }, icon('x', { size: 14 })) : null);
-        })) : h('p.gslot-empty', 'Empty'),
-        ok && !full && cands.length ? select([{ value: '', label: 'Equip…' }, ...cands.map((i) => ({ value: i.uid, label: itemOf(M.lib, i).name }))], '', { label: `Equip to ${sl.label}`, cls: 'inp-sm', onChange: (v) => { if (v) act({ t: 'item.equip', uid: v, slot: sl.id }); } }) : null,
+        })) : h('button.gslot-empty', { type: 'button', disabled: !ok || !cands.length, onclick: () => slotPicker(sl) }, cands.length && ok ? `Empty · ${cands.length} to choose from` : 'Empty'),
       );
     });
     const effs = M.computed.effects || activeEffects(M.rs, M.sheet, M.lib);
@@ -599,6 +600,35 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     );
   }
 
+  /** Everything the crawler carries that fits this slot: icon, line, Equip / Unequip (a full slot swaps the first item out). */
+  function slotPicker(sl) {
+    const draw = () => {
+      const inv = M.sheet.inventory || []; // M is replaced on every view
+      const eq = inv.filter((i) => i.equippedSlot === sl.id);
+      const fits = (M.sheet.inventory || []).filter((i) => itemOf(M.lib, i).slot === sl.id);
+      const full = eq.length >= (sl.max ?? 1);
+      const row = (i) => {
+        const it = itemOf(M.lib, i);
+        const on = i.equippedSlot === sl.id;
+        return h('li.pick-row', { class: on ? 'pick-row on' : 'pick-row' }, itemArt(it, 'inv-ico'),
+          h('div.pick-txt', h('b', it.name, (i.qty ?? 1) > 1 ? h('span.dim', ` ×${i.qty}`) : null), h('span.dim.pick-line', itemLine(it, i) || humanize(rarityOf(it.rarity)))),
+          it.attack ? h('div.pick-nums', weaponNums(it)) : null,
+          on ? h('button.btn.btn-sm', { type: 'button', onclick: async () => { await act({ t: 'item.equip', uid: i.uid, slot: null }); refresh(); } }, 'Unequip')
+            : h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: async () => {
+              if (full && eq[0]) await act({ t: 'item.equip', uid: eq[0].uid, slot: null }, null);
+              await act({ t: 'item.equip', uid: i.uid, slot: sl.id }, `Equipped ${it.name}.`);
+              if ((sl.max ?? 1) <= 1) closeDrawer(); else refresh();
+            } }, full ? 'Swap in' : 'Equip'));
+      };
+      return fits.length ? h('ul.pick-rows', fits.sort((a, b) => (b.equippedSlot === sl.id) - (a.equippedSlot === sl.id)).map(row))
+        : h('p.empty-s', `Nothing in the inventory fits ${sl.label.toLowerCase()}.${gm ? ' Give something from the library.' : ''}`);
+    };
+    const body = h('div.slot-pick', draw());
+    const refresh = () => setTimeout(() => body.replaceChildren(draw()), 250);
+    openDrawer({ title: sl.label, sub: (sl.max ?? 1) > 1 ? `Up to ${sl.max} at once` : 'One at a time', body,
+      actions: gm ? [h('button.btn.btn-quiet', { type: 'button', onclick: () => { closeDrawer(); gmTools?.give?.(player, M); } }, icon('gift', { size: 14 }), 'Give from library')] : [] });
+  }
+
   /* ---------- inventory ---------- */
 
   function inventoryPanel() {
@@ -608,9 +638,11 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const rows = inv.filter((i) => !q || `${itemOf(M.lib, i).name} ${i.notes || ''}`.toLowerCase().includes(q)).map((i) => {
       const it = itemOf(M.lib, i);
       const r = rarityOf(it.rarity);
+      const line = itemLine(it, i);
       return h('li.inv', { class: `inv r-${r}` },
         h('span.rar', { title: r, 'aria-label': r }),
-        h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), i.notes ? h('span.inv-note', i.notes) : null),
+        itemArt(it, 'inv-ico'),
+        h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid), title: it.desc || '' }, h('span.in', it.name), line ? h('span.inv-note', line) : null),
         i.equippedSlot ? h('span.pill', M.rs.slots.find((s) => s.id === i.equippedSlot)?.label || i.equippedSlot) : null,
         hot.has(i.uid) ? h('span.hot-mark', { title: 'On the hotlist', 'aria-label': 'On the hotlist' }, icon('star', { size: 13 })) : null,
         h('span.inv-q', { title: 'Quantity' }, `×${i.qty ?? 1}`),
@@ -619,6 +651,37 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const search = inv.length > 8 ? h('input.inp.inp-search', { type: 'search', placeholder: `Search ${inv.length} items`, value: ui.invQuery, 'aria-label': 'Search inventory', oninput: (e) => { ui.invQuery = e.target.value; const sel = e.target.selectionStart; draw(true); const n = root.querySelector('.inp-search'); n?.focus(); n?.setSelectionRange(sel, sel); } }) : null;
     return h('section.panel-inv', search, inv.length ? h('ul.inv-list', rows) : h('p.empty-s', gm ? 'Empty. Give something from the library.' : 'Empty. The audience has not paid for anything yet.'),
       gm ? h('div.add-row', h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: () => gmTools?.give?.(player, M) }, icon('gift', { size: 14 }), 'Give from library')) : null);
+  }
+
+  /** Weapon numbers for an item with `attack`: to hit (skill rank + stat mod + enhancement) and damage. */
+  function weaponMath(it) {
+    const atk = it.attack;
+    const sk = M.sheet.skills.find((s) => s.skillId === atk.skill);
+    const mod = M.computed.stats?.[atk.stat]?.mod?.value ?? 0;
+    const plus = Number(atk.bonus) || 0; // +N weapon
+    const toHit = { value: (Number(sk?.rank) || 0) + mod + plus, parts: [{ label: sk ? `${sk.name} rank` : 'No skill', value: Number(sk?.rank) || 0, source: 'base' }, { label: `${M.rs.stats.find((s) => s.id === atk.stat)?.abbr || atk.stat} mod`, value: mod, source: 'stat' }, ...(plus ? [{ label: `+${plus} weapon`, value: plus, source: 'item' }] : [])] };
+    const dmg = { value: mod + plus, parts: toHit.parts.slice(1) };
+    const dmgText = diceText([atk.dice], mod + plus);
+    return { toHit, dmg, dmgText };
+  }
+  /** To hit + damage chips that roll on tap (inline rows and the item drawer). */
+  function weaponNums(it) {
+    const { toHit, dmg, dmgText } = weaponMath(it);
+    return [
+      h('div.atk-hit', h('span.mini-l', 'To hit'), num(toHit, { title: `${it.name} to hit`, prefix: ' ', text: signed(toHit.value), roll: { kind: 'custom', formula: `${M.rs.dice}+${toHit.value}`, label: `${it.name} to hit` } })),
+      h('div.atk-dmg', h('span.mini-l', 'Damage'), num(dmg, { title: `${it.name} damage`, text: minus(dmgText), roll: { kind: 'custom', formula: dmgText.replace(/−/g, '-'), label: `${it.name} damage` } })),
+    ];
+  }
+  /** One short line about an item: attack dice, use, slot. */
+  function itemLine(it, inv) {
+    const bits = [];
+    if (it.attack) bits.push(`${it.attack.dice || '?'} ${M.rs.stats.find((s) => s.id === it.attack.stat)?.abbr || ''}`.trim());
+    if (it.use) bits.push(useText(it.use).replace(/\.$/, ''));
+    const fx = (it.effects || []).map((e) => effectText(M.rs, e)).filter(Boolean);
+    if (fx.length) bits.push(fx.slice(0, 2).join(', '));
+    if (!bits.length && it.desc) bits.push(it.desc);
+    if (inv?.notes) bits.push(inv.notes);
+    return bits.join(' · ');
   }
 
   function itemDrawer(uid) {
@@ -646,23 +709,9 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       actions.unshift(h('button.btn.btn-primary', { type: 'button', onclick: async () => { if (await act({ t: 'item.use', uid }, `Used ${it.name}.`)) { if ((inv.qty ?? 1) <= 1 && (it.use.consume ?? it.stackable)) closeDrawer(); } } }, useLabel(it.use)));
     }
     const atk = it.attack;
-    let atkLine = null;
-    if (atk) {
-      const sk = M.sheet.skills.find((s) => s.skillId === atk.skill);
-      const mod = M.computed.stats?.[atk.stat]?.mod?.value ?? 0;
-      const plus = Number(atk.bonus) || 0; // +N weapon
-      const toHit = { value: (Number(sk?.rank) || 0) + mod + plus, parts: [{ label: sk ? `${sk.name} rank` : 'No skill', value: Number(sk?.rank) || 0, source: 'base' }, { label: `${M.rs.stats.find((s) => s.id === atk.stat)?.abbr || atk.stat} mod`, value: mod, source: 'stat' }, ...(plus ? [{ label: `+${plus} weapon`, value: plus, source: 'item' }] : [])] };
-      atkLine = h('div.item-atk',
-        h('h3.sub-t', 'Attack'),
-        h('div.atk-inline',
-          h('span', 'To hit'), num(toHit, { title: `${it.name} to hit`, prefix: ' ', text: signed(toHit.value), roll: { kind: 'custom', formula: `${M.rs.dice}+${toHit.value}`, label: `${it.name} to hit` } }),
-          h('span', 'Damage'), num({ value: mod + plus, parts: toHit.parts.slice(1) }, { title: `${it.name} damage`, text: minus(diceText([atk.dice], mod + plus)), roll: { kind: 'custom', formula: diceText([atk.dice], mod + plus).replace(/−/g, '-'), label: `${it.name} damage` } }),
-        ),
-        atk.effects ? h('p.atk-fx', atk.effects) : null,
-      );
-    }
+    const atkLine = atk ? h('div.item-atk', h('h3.sub-t', 'Attack'), h('div.atk-inline2', weaponNums(it)), atk.effects ? h('p.atk-fx', atk.effects) : null) : null;
     const body = [
-      h('div.item-tags', h('span.pill', { class: `pill rar-${r}` }, r), slot ? h('span.pill', slot.label) : h('span.pill', 'No slot'), inv.equippedSlot ? h('span.pill.pill-on', 'Equipped') : null, (it.tags || []).map((t) => h('span.pill.pill-tag', t))),
+      h('div.item-head', itemArt(it, 'item-art'), h('div.item-tags', h('span.pill', { class: `pill rar-${r}` }, r), slot ? h('span.pill', slot.label) : h('span.pill', 'No slot'), inv.equippedSlot ? h('span.pill.pill-on', 'Equipped') : null, (it.tags || []).map((t) => h('span.pill.pill-tag', t)))),
       it.desc ? h('p.desc', it.desc) : null,
       it.flavor ? h('p.flavor-t', it.flavor) : null,
       it.missing ? h('p.why-warn.unverified', icon('warn', { size: 13 }), 'This item is no longer in the library. Ask the GM.') : null,
@@ -723,8 +772,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         return h('button.hot', { type: 'button', class: 'hot empty', disabled: !ok, onclick: () => pickHot(i), 'aria-label': `Hotlist slot ${i + 1}, empty` }, h('span.hot-i', String((i + 1) % 10)), h('span.hot-n', ok ? 'Add' : 'Empty'));
       }
       const it = itemOf(M.lib, inv);
-      return h('button.hot', { type: 'button', class: `hot r-${rarityOf(it.rarity)}`, onclick: () => itemDrawer(inv.uid), 'aria-label': `Hotlist slot ${i + 1}: ${it.name}` },
-        h('span.hot-i', String((i + 1) % 10)), h('span.hot-n', it.name), h('span.hot-q', `×${inv.qty ?? 1}`), it.attack ? h('span.hot-atk', icon('swords', { size: 12 })) : null);
+      return h('button.hot', { type: 'button', class: `hot r-${rarityOf(it.rarity)}`, onclick: () => itemDrawer(inv.uid), 'aria-label': `Hotlist slot ${i + 1}: ${it.name}`, title: [it.name, itemLine(it, inv)].filter(Boolean).join('\n') },
+        h('span.hot-i', String((i + 1) % 10)), itemArt(it, 'hot-art'), h('span.hot-n', it.name), h('span.hot-q', `×${inv.qty ?? 1}`), it.attack ? h('span.hot-atk', icon('swords', { size: 12 })) : null);
     });
     return h('section.panel-hot', h('div.hots', tiles), h('p.hint', 'Tap a tile for the item. Numbers are the slot keys.'));
   }
@@ -736,7 +785,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       title: `Hotlist slot ${index + 1}`,
       body: cands.length ? h('ul.pick-list', cands.map((i) => {
         const it = itemOf(M.lib, i);
-        return h('li', h('button.pick', { type: 'button', onclick: async () => { if (await act({ t: 'hotlist.set', index, uid: i.uid })) closeDrawer(); } }, h('span', it.name), h('span.dim', `×${i.qty ?? 1}`)));
+        return h('li', h('button.pick.pick-art', { type: 'button', onclick: async () => { if (await act({ t: 'hotlist.set', index, uid: i.uid })) closeDrawer(); } }, itemArt(it, 'inv-ico'), h('span', h('b', it.name), h('span.dim.pick-line', itemLine(it, i))), h('span.dim', `×${i.qty ?? 1}`)));
       })) : h('p.empty-s', 'Everything you carry is already on the hotlist.'),
     });
   }
@@ -849,21 +898,37 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     );
   }
   function usableItems() {
-    const list = (M.sheet.inventory || []).filter((i) => itemOf(M.lib, i).use || itemOf(M.lib, i).attack);
-    if (!list.length) return null;
-    return h('section.sh-block.sh-usable', h('h2.blk-t', 'Items you can use'),
-      h('ul.inv-list', list.map((i) => {
-        const it = itemOf(M.lib, i);
-        return h('li.inv', { class: `inv r-${rarityOf(it.rarity)}` }, h('span.rar'), itemArt(it, 'inv-ico'),
-          h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), h('span.inv-note', it.attack ? 'Attack' : useLabel(it.use))),
-          h('span.inv-q', `×${i.qty ?? 1}`));
-      })));
+    const inv = M.sheet.inventory || [];
+    const weapons = inv.filter((i) => itemOf(M.lib, i).attack).sort((a, b) => (b.equippedSlot ? 1 : 0) - (a.equippedSlot ? 1 : 0));
+    const usable = inv.filter((i) => itemOf(M.lib, i).use && !itemOf(M.lib, i).attack);
+    if (!weapons.length && !usable.length) return null;
+    const play = can('play');
+    const wRow = (i) => {
+      const it = itemOf(M.lib, i);
+      return h('li.wpn', { class: `wpn r-${rarityOf(it.rarity)}${i.equippedSlot ? ' eq' : ''}` },
+        itemArt(it, 'inv-ico'),
+        h('button.wpn-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name),
+          h('span.inv-note', [i.equippedSlot ? 'In hand' : 'Carried', it.attack.effects].filter(Boolean).join(' · '))),
+        ...weaponNums(it));
+    };
+    const uRow = (i) => {
+      const it = itemOf(M.lib, i);
+      return h('li.wpn', { class: `wpn r-${rarityOf(it.rarity)}` },
+        itemArt(it, 'inv-ico'),
+        h('button.wpn-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name, h('span.dim', ` ×${i.qty ?? 1}`)), h('span.inv-note', useText(it.use))),
+        h('button.btn.btn-sm', { type: 'button', disabled: !play, onclick: () => act({ t: 'item.use', uid: i.uid }, `Used ${it.name}.`) }, 'Use'));
+    };
+    return [
+      weapons.length ? h('section.sh-block.sh-usable', h('h2.blk-t', 'Weapons', h('span.blk-n', String(weapons.length))), h('p.hint', 'Tap a number to roll it.'), h('ul.wpn-list', weapons.map(wRow))) : null,
+      usable.length ? h('section.sh-block.sh-usable', h('h2.blk-t', 'Items you can use', h('span.blk-n', String(usable.length))), h('ul.wpn-list', usable.map(uRow))) : null,
+    ];
   }
   function actionsPanel() {
+    const atks = M.sheet.attacks || [];
     return h('div.panel-actions',
-      M.rs.legacy ? null : h('section.sh-block.sh-attacks', h('h2.blk-t', 'Attacks'), attacksPanel()),
-      poolsBlock(),
       usableItems(),
+      M.rs.legacy ? null : h('section.sh-block.sh-attacks', h('h2.blk-t', 'Other attacks'), atks.length || can('sheet') ? attacksPanel() : null),
+      poolsBlock(),
     );
   }
 
@@ -875,7 +940,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return h('li.inv', { class: `inv r-${r}` },
       h('span.rar', { title: r, 'aria-label': r }),
       itemArt(it, 'inv-ico'),
-      h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), i.notes ? h('span.inv-note', i.notes) : null),
+      h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), itemLine(it, i) ? h('span.inv-note', itemLine(it, i)) : null),
       hot.has(i.uid) ? h('span.hot-mark', { title: 'On the hotlist', 'aria-label': 'On the hotlist' }, icon('star', { size: 13 })) : null,
       h('span.inv-q', { title: 'Quantity' }, `×${i.qty ?? 1}`),
     );

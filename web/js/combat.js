@@ -359,7 +359,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('button.btn.btn-sm.cbt-hit', { type: 'button', disabled: x.hp <= 0, onclick: () => dmg(1), 'aria-label': `1 damage to ${x.name}` }, '−1'),
       [2, 3].map((n) => h('button.btn.btn-sm.cbt-hit.cbt-more-dmg', { type: 'button', disabled: x.hp <= 0, onclick: () => dmg(n), 'aria-label': `${n} damage to ${x.name}` }, `−${n}`)),
       h('button.btn.btn-sm.cbt-heal', { type: 'button', disabled: x.hp >= x.hpMax, onclick: () => act({ t: 'combat.heal', uid: x.uid, amount: 1 }), 'aria-label': `Heal ${x.name} 1` }, '+1'),
-      custom);
+      custom,
+      x.type === 'mob' ? h('button.icon-btn.cbt-rm', { type: 'button', title: 'Remove from the fight', 'aria-label': `Remove ${x.name}`, onclick: () => act({ t: 'combat.remove', uid: x.uid }, `${x.name} removed.`) }, icon('x', { size: 15 })) : null);
   }
 
   function conditions(x) {
@@ -564,6 +565,23 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       }));
   }
 
+  /* ---------- victory loot, set up before the fight ---------- */
+
+  function prizePanel() {
+    const ps = view?.players || [];
+    const tiers = view?.pack?.lootTiers || [];
+    if (!ps.length || !tiers.length) return null;
+    const P = { who: 'mvp', tier: tiers[0].id, auto: false, ...(pref.prize || {}) };
+    const save = (k, v) => { setPref('prize', { ...P, [k]: v }); redraw(); };
+    return h('section.panel.cbt-prize',
+      h('div.sec-head', h('h2', 'Victory loot'), h('span.dim', 'ready before the fight')),
+      h('div.cbt-loot',
+        select([{ value: 'mvp', label: 'The MVP' }, ...ps.map((p) => ({ value: p.id, label: p.name }))], P.who, { cls: 'inp-sm', label: 'Who gets it', onChange: (v) => save('who', v) }),
+        select([{ value: '', label: 'No box' }, ...tiers.map((t) => ({ value: t.id, label: t.name }))], P.tier, { cls: 'inp-sm', label: 'Box', onChange: (v) => save('tier', v) })),
+      h('label.chk', h('input', { type: 'checkbox', checked: !!P.auto, onchange: (e) => save('auto', e.target.checked) }), h('span', 'Put it on the TV by itself after a victory')),
+      h('p.hint', 'After a victory it waits ready in the finale bar; you can still change who and which box.'));
+  }
+
   /* ---------- finale follow-up (after combat.end) ---------- */
 
   function finaleBanner() {
@@ -572,11 +590,20 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const o = OUTCOMES.find((x) => x.id === d.outcome);
     const ps = view.players || [];
     const tiers = view.pack?.lootTiers || [];
-    if (!ui.loot) ui.loot = { playerId: d.summary?.mvp?.playerId || ps[0]?.id || '', tier: tiers[0]?.id || '', placed: false };
+    const P = pref.prize || {};
+    const prizeWho = P.who && P.who !== 'mvp' && ps.some((p) => p.id === P.who) ? P.who : null;
+    if (!ui.loot || ui.loot.sceneId !== view.scene.id) {
+      ui.loot = { sceneId: view.scene.id, playerId: prizeWho || d.summary?.mvp?.playerId || ps[0]?.id || '', tier: (P.tier && tiers.some((t) => t.id === P.tier) ? P.tier : tiers[0]?.id) || '', placed: false };
+      // Prepared victory loot goes on the TV by itself once the finale has played.
+      if (P.auto && P.tier && d.outcome === 'victory' && ui.loot.playerId) {
+        const L0 = ui.loot;
+        setTimeout(() => { if (view?.scene?.id === L0.sceneId && !L0.placed) { L0.placed = true; act({ t: 'scene.set', kind: 'loot', data: { playerId: L0.playerId, tier: L0.tier } }, 'Victory loot on the TV.'); } }, 7000);
+      }
+    }
     const L = ui.loot;
     const sum = d.summary;
-    return h('section.panel.cbt-finale',
-      h('div.sec-head', h('h2', `On TV: ${d.title || o?.label || 'Finale'}`), h('span.grow'),
+    return h('section.panel.cbt-finale', { class: `panel cbt-finale${d.outcome === 'victory' ? ' win' : ''}` },
+      h('div.sec-head', h('h2', `On TV: ${d.title || o?.label || 'Finale'}`), d.outcome === 'victory' && !L.placed ? h('span.pill.pill-on', 'Hand out the loot') : null, h('span.grow'),
         h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'scene.set', kind: 'combat', data: {} }, 'Arena on the TV.') }, 'Back to arena')),
       sum ? h('p.dim', `${sum.rounds} round${sum.rounds === 1 ? '' : 's'} · ${sum.dealt} dealt · ${sum.taken} taken · ${sum.mobsDefeated}/${sum.mobsTotal} mobs · ${sum.downs} down${sum.mvp ? ` · MVP ${sum.mvp.name}` : ''}`) : null,
       ps.length && tiers.length ? h('div.cbt-loot',
@@ -735,12 +762,19 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const list = h('section.panel.cbt-list-panel',
       h('div.sec-head', h('h2', 'Crawlers'), h('span.dim', c.active ? `Now: ${c.phase || ''}` : 'Join when combat starts')),
       crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', c.active ? 'No crawlers in the fight.' : 'Start combat to bring the whole party in.'),
-      h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : '')),
+      h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), h('span.grow'),
+        hiddenN ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, 'Every mob revealed.') }, icon('eye', { size: 13 }), 'Reveal all') : null,
+        mobs.length ? h('button.btn.btn-sm.btn-quiet.danger', { type: 'button', onclick: async () => {
+          if (!(await ask(`Remove all ${mobs.length} mobs from the fight?`, { ok: 'Remove all', danger: true }))) return;
+          for (const m of mobs) await act({ t: 'combat.remove', uid: m.uid }, null);
+          toast('Board cleared.');
+        } }, icon('trash', { size: 13 }), 'Remove all') : null),
+      h('details.cbt-add', { open: ui.addOpen ?? !mobs.length, ontoggle: (e) => { ui.addOpen = e.target.open; } }, h('summary', icon('plus', { size: 14 }), 'Add mobs'), builder()),
       living.length ? h('ul.cbt-list', living.map(mobCard)) : h('p.empty-s', mobs.length ? 'Every mob is down.' : 'No mobs yet. Add them below.'),
       dead.length ? h('details.cbt-fallen', { open: ui.fallenOpen || null, ontoggle: (e) => { ui.fallenOpen = e.target.open; } },
         h('summary', `Defeated (${dead.length})`), h('ul.cbt-list', dead.map(fallenRow))) : null,
     );
-    const side = h('div.cbt-side', lootPanel(), c.active ? autoPanel() : null, builder(), lastRollCard());
+    const side = h('div.cbt-side', lootPanel(), view?.scene?.kind === 'finale' ? null : prizePanel(), c.active ? autoPanel() : null, lastRollCard());
     el.replaceChildren(...[
       header(),
       initPanel(),

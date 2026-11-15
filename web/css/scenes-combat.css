@@ -416,3 +416,8 @@ body.stage[data-scene="finale"][data-finale="runaway"] .bug { padding: 0.3rem 1r
   .ar-card.enter, .ar-card.hit, .ar-card.ko, .ar-card.crit, .ar-card.dodge, .ar-card.fumble, .ar-pips i.brk, .ar-d20-spin, .np-frame, .np-text, .np-box.go, .ar-scan { animation: none; }
   .ar-card.lunge { transition: none; }
 }
+/* the System's introduction stays under the name plate (15 Nov) */
+.np-text { align-content: start; padding-top: 2rem; }
+.np-intro { margin: 0.6rem 0 0; max-width: 58rem; font-family: var(--f-mono); font-size: 1.75rem; line-height: 1.45; color: var(--sys-ink, #cfe9ff); text-shadow: 0 0 1.2rem rgba(0, 0, 0, 0.9); border-left: 0.3rem solid var(--th); padding-left: 1.2rem; }
+.np-intro.long { font-size: 1.45rem; }
+.np-intro[hidden] { display: none; }

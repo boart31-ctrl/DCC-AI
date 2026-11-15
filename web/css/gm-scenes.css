@@ -146,7 +146,7 @@
 .sh-edit > .sc-form { border: 0; }
 .sc-live-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
 /* GO LIVE: sticky at the bottom of the panel */
-.sh-golive { position: sticky; bottom: 0; z-index: 4; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 -20px; padding: 10px 20px; background: var(--c-bg); border-top: 1px solid var(--c-line-2); box-shadow: 0 -8px 20px -12px rgba(0,0,0,0.6); }
+.sh-golive { position: sticky; bottom: -40px; /* the scroll box has 40px bottom padding; sticky offsets count from inside it */ z-index: 4; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 -20px; padding: 10px 20px; background: var(--c-bg); border-top: 1px solid var(--c-line-2); box-shadow: 0 -8px 20px -12px rgba(0,0,0,0.6); }
 .sh-golive[hidden] { display: none; }
 .sh-golive.is-live { position: static; margin: 0; padding: 0; background: none; border: 0; backdrop-filter: none; }
 .sh-golive-h { font-size: 13px; }
@@ -197,7 +197,7 @@
 /* phones */
 @media (max-width: 1100px) {
   .sh-bar { margin: -14px -14px 0; padding: 22px 14px 8px; top: -14px; }
-  .sh-golive { margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+  .sh-golive { bottom: -14px; margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
 }
 @media (max-width: 900px) {
   .sh-grid { grid-template-columns: minmax(0, 1fr); }
@@ -280,3 +280,28 @@
 .sh-pv.is-live .sh-pv-k::before { content: '● '; }
 .sc-amt-wrap { display: inline-flex; align-items: center; gap: 4px; }
 .sc-amt { width: 72px; }
+/* attacks fully visible (15 Nov review) */
+.sh-atk.sh-atk-full { display: grid; grid-template-columns: minmax(0, 1fr); gap: 4px; align-content: start; padding: 8px 10px; text-align: left; color: var(--c-ink); cursor: pointer; }
+.sh-atk.sh-atk-full:hover:not(:disabled) { background: color-mix(in srgb, var(--c-bad) 12%, var(--c-panel)); border-color: var(--c-bad); }
+.sh-atk.sh-atk-full:disabled { cursor: default; opacity: 1; }
+.sh-atk-top { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.sh-atk-top b { font-family: var(--f-ui); font-size: 15px; }
+.sh-atk-fx { font-size: 12.5px; line-height: 1.35; color: var(--c-ink-2); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.sc-zero { border-color: var(--c-bad); background: color-mix(in srgb, var(--c-bad) 14%, var(--c-panel)); }
+.sc-ex-live { display: grid; gap: 8px; }
+.sc-ex-k { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--c-ink-2); }
+.sc-warn-t { color: var(--c-warn, #e3a33b); }
+.sh-min-art { width: 34px; height: 34px; flex: none; border-radius: 5px; border-width: 1px; }
+.sh-mins { border-color: color-mix(in srgb, var(--c-bad) 45%, var(--c-line)); }
+.sh-mins > .sc-batk-head b { font-size: 16px; }
+.lbl-t { margin: 0 0 6px; font-family: var(--f-ui); font-weight: 600; font-size: 13px; color: var(--c-ink-2); }
+.lt-who { display: flex; flex-wrap: wrap; gap: 6px; }
+.lt-p { min-height: 40px; padding: 0 16px; font-family: var(--f-ui); font-weight: 600; color: var(--c-ink); background: var(--c-panel); border: 1px solid var(--c-line-2); border-left: 4px solid var(--pc, var(--c-line-2)); border-radius: var(--r-1); }
+.lt-p[aria-pressed="true"] { border-color: var(--c-accent); box-shadow: inset 0 0 0 1px var(--c-accent); }
+.lt-boxes { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+.lt-box { display: grid; justify-items: center; gap: 6px; padding: 8px; font-size: 12.5px; font-weight: 600; line-height: 1.2; text-align: center; color: var(--c-ink); background: var(--c-panel); border: 1px solid var(--c-line-2); border-bottom: 3px solid var(--tc); border-radius: var(--r-1); }
+.lt-box img { width: 72px; height: 72px; object-fit: contain; }
+.lt-sw { width: 56px; height: 56px; border-radius: 8px; }
+.lt-box[aria-pressed="true"] { border-color: var(--tc); box-shadow: 0 0 0 2px var(--tc); }
+.lt-confirm { display: flex; align-items: center; gap: 6px; margin: 0; padding: 8px 12px; background: var(--c-raised); border-radius: var(--r-1); }
+.sc-npc-said { margin: 0; font-size: 14px; line-height: 1.45; }

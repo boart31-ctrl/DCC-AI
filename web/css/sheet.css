@@ -420,3 +420,52 @@
 .sheet.phone .ph-hot .hots { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 4px; }
 .sheet.phone .ph-hot .hot { min-height: 56px; }
 .sheet.phone .ph-hot .hot.empty { min-height: 48px; }
+
+/* ---------- 15 Nov review: icons everywhere, weapons inline, gear picker ---------- */
+.spell { grid-template-columns: 2.4rem minmax(0, 1fr) auto auto auto; }
+.sp-ico.ph span { font-size: 1em; }
+.wpn-list { list-style: none; margin: 0; padding: 0; }
+.wpn { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--c-line); }
+.wpn:has(> .btn) { grid-template-columns: 2.4rem minmax(0, 1fr) auto; }
+.wpn-n { display: grid; text-align: left; background: none; border: 0; padding: 2px 0; color: var(--c-ink); min-width: 0; }
+.wpn-n .in { font-weight: 600; }
+.wpn-n:hover .in { text-decoration: underline; text-underline-offset: 3px; }
+.wpn.eq { background: color-mix(in srgb, var(--c-accent) 6%, transparent); }
+.wpn .atk-hit, .wpn .atk-dmg, .pick-nums .atk-hit, .pick-nums .atk-dmg { display: grid; justify-items: center; min-width: 64px; }
+.atk-inline2 { display: flex; gap: 18px; }
+.item-head { display: flex; align-items: center; gap: 12px; }
+.item-head .item-art { width: 64px; height: 64px; flex: none; border-radius: 8px; }
+.inv .inv-note, .wpn .inv-note { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gslot-h { width: 100%; align-items: center; gap: 6px; padding: 0; background: none; border: 0; text-align: left; }
+.gslot-h > span:first-child { flex: 1; }
+.gslot.tap .gslot-h:hover { color: var(--c-ink); }
+.gslot.tap:hover { border-color: var(--c-line-2); }
+.gslot-items { flex-direction: column; flex-wrap: nowrap; }
+.gslot-items li { width: 100%; gap: 6px; }
+.gslot-items .item-link { display: grid; text-align: left; min-width: 0; flex: 1; }
+.gs-line { font-size: 11.5px; font-weight: 400; color: var(--c-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gs-ico { width: 2rem; height: 2rem; flex: none; border-radius: 5px; border-width: 1px; }
+button.gslot-empty { text-align: left; padding: 6px 0; background: none; border: 0; cursor: pointer; }
+button.gslot-empty:disabled { cursor: default; }
+button.gslot-empty:not(:disabled) { color: var(--c-accent); }
+.pick-rows { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.pick-row { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto auto; gap: 10px; align-items: center; padding: 8px; background: var(--c-raised); border: 1px solid var(--c-line); border-radius: var(--r-1); }
+.pick-row.on { border-color: var(--c-accent); }
+.pick-txt { display: grid; min-width: 0; }
+.pick-line { font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.pick-nums { display: flex; gap: 8px; }
+.pick.pick-art { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto; gap: 10px; align-items: center; }
+.pick.pick-art > span:nth-child(2) { display: grid; min-width: 0; text-align: left; }
+.hot-art { width: 2.2rem; height: 2.2rem; border-radius: 5px; border-width: 1px; }
+.hot { grid-template-columns: auto minmax(0, 1fr); column-gap: 8px; align-items: center; }
+.hot .hot-i { grid-column: 1 / -1; }
+.hot .hot-q, .hot .hot-atk { grid-column: 2; }
+.hot.empty { grid-template-columns: 1fr; }
+@media (max-width: 560px) {
+  .wpn { grid-template-columns: 2.4rem minmax(0, 1fr) auto auto; gap: 6px; }
+  .wpn .atk-hit, .wpn .atk-dmg { min-width: 52px; }
+  .pick-row { grid-template-columns: 2.4rem minmax(0, 1fr) auto; }
+  .pick-row .pick-nums { grid-column: 2 / -1; }
+}
+.give-list .pick { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; }
+.give-list .pick:not(:has(.art)) { grid-template-columns: minmax(0, 1fr) auto; }

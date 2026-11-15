@@ -21,9 +21,12 @@ export default function recap(root, sc, env) {
     crawl.classList.remove('go');
     if (env.reduced) return;
     requestAnimationFrame(() => {
-      const dist = plane.clientHeight * 0.62 + crawl.offsetHeight;
+      // Starts below the bottom edge (the first line comes up first) and runs until the last line has
+      // left the top. Speed = the old crawl's minus 25 % (it was too quick to read on the TV).
+      const oldDist = plane.clientHeight * 0.62 + crawl.offsetHeight;
+      const dist = plane.clientHeight + crawl.offsetHeight;
       crawl.style.setProperty('--dist', `${-dist}px`);
-      crawl.style.animationDuration = `${dur}s`;
+      crawl.style.animationDuration = `${(dur * (dist / oldDist)) / 0.75}s`;
       void crawl.offsetWidth;
       crawl.classList.add('go');
     });
