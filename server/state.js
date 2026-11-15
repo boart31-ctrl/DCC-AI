@@ -18,6 +18,7 @@ import {
   SHEET, SHEET_GM, normalizeLibArt, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
+import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 
 export { genId, ActionError };
 
@@ -445,8 +446,21 @@ const GM = {
     const item = libraryOf(st, ctx.pack).get('item', a.itemId);
     if (!item) throw notFound(`unknown item ${a.itemId}`);
     const qty = int(a.qty, 'qty', 1, 9999, { optional: true }) ?? 1;
-    const inv = giveItem(p, item, ctx, qty);
+    const inv = giveItem(p, item, ctx, qty, int(a.bonus, 'bonus', 0, MAX_ENHANCE, { optional: true }) ?? 0);
     out.result = { uid: inv.uid };
+  },
+
+  /** Make a copy +N (0 = plain again): name, rarity, to hit / damage or armour follow (ruleset enhanceItem). */
+  'item.enhance'(st, a, ctx) {
+    const p = playerOf(st, a.playerId);
+    const inv = p.inventory.find((i) => i.uid === a.uid);
+    if (!inv) throw notFound(`no item ${a.uid}`);
+    const bonus = int(a.bonus, 'bonus', 0, MAX_ENHANCE);
+    const def = libraryOf(st, ctx.pack).get('item', inv.itemId);
+    if (!def) throw notFound(`item ${inv.itemId} is not in the library`);
+    if (def.stackable && (inv.qty ?? 1) > 1) throw bad('split the stack first: only single items can be enhanced');
+    const e = enhanceItem(def, bonus);
+    Object.assign(inv, { bonus, name: e.name, rarity: e.rarity });
   },
 
   'item.remove'(st, a) {
@@ -937,7 +951,8 @@ export function viewFor(state, basePack, role, opts = {}) {
         total: categoryPool(pack, id).length,
       })),
       achievementsCatalog: pack.achievements.map(({ id, title, desc, reward, group }) => ({ id, title, desc, reward, group })),
-      itemsCatalog: library.list('item').map(({ id, name, rarity, desc, flavor, slot, stackable, source }) => ({ id, name, rarity, desc, flavor, slot, stackable, source })),
+      iconLib: pack.iconLib ?? [], // icon library for the custom-item picker
+      itemsCatalog: library.list('item').map(({ id, name, rarity, desc, flavor, slot, stackable, source, attack, effects }) => ({ id, name, rarity, desc, flavor, slot, stackable, source, enhanceable: !!attack || (effects ?? []).some((e) => e.target === 'armor') })),
       pendingAuto: q.pendingAuto,
       queue: q.queue,
       playing: q.playing,

@@ -1,7 +1,7 @@
 // Character sheet (RULESET.md §5), shared by the player phone and the GM desk.
 // Every computed number explains itself (hover / long-press) and rolls when tapped.
 // The engine is authoritative: this component only renders `sheet` + `computed` and sends actions.
-import { h, toast, buzz, timeAgo, rarityOf } from './client.js';
+import { h, toast, buzz, timeAgo, rarityOf, itemArt } from './client.js';
 import {
   sheetModel, itemOf, libGet, evaluate, activeEffects, effectText, playerEditLevel, rollFormula, diceText, validateFormula,
 } from './rules.js';
@@ -650,12 +650,13 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     if (atk) {
       const sk = M.sheet.skills.find((s) => s.skillId === atk.skill);
       const mod = M.computed.stats?.[atk.stat]?.mod?.value ?? 0;
-      const toHit = { value: (Number(sk?.rank) || 0) + mod, parts: [{ label: sk ? `${sk.name} rank` : 'No skill', value: Number(sk?.rank) || 0, source: 'base' }, { label: `${M.rs.stats.find((s) => s.id === atk.stat)?.abbr || atk.stat} mod`, value: mod, source: 'stat' }] };
+      const plus = Number(atk.bonus) || 0; // +N weapon
+      const toHit = { value: (Number(sk?.rank) || 0) + mod + plus, parts: [{ label: sk ? `${sk.name} rank` : 'No skill', value: Number(sk?.rank) || 0, source: 'base' }, { label: `${M.rs.stats.find((s) => s.id === atk.stat)?.abbr || atk.stat} mod`, value: mod, source: 'stat' }, ...(plus ? [{ label: `+${plus} weapon`, value: plus, source: 'item' }] : [])] };
       atkLine = h('div.item-atk',
         h('h3.sub-t', 'Attack'),
         h('div.atk-inline',
           h('span', 'To hit'), num(toHit, { title: `${it.name} to hit`, prefix: ' ', text: signed(toHit.value), roll: { kind: 'custom', formula: `${M.rs.dice}+${toHit.value}`, label: `${it.name} to hit` } }),
-          h('span', 'Damage'), num({ value: mod, parts: [toHit.parts[1]] }, { title: `${it.name} damage`, text: minus(diceText([atk.dice], mod)), roll: { kind: 'custom', formula: diceText([atk.dice], mod).replace(/−/g, '-'), label: `${it.name} damage` } }),
+          h('span', 'Damage'), num({ value: mod + plus, parts: toHit.parts.slice(1) }, { title: `${it.name} damage`, text: minus(diceText([atk.dice], mod + plus)), roll: { kind: 'custom', formula: diceText([atk.dice], mod + plus).replace(/−/g, '-'), label: `${it.name} damage` } }),
         ),
         atk.effects ? h('p.atk-fx', atk.effects) : null,
       );
@@ -680,6 +681,13 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         labeled('Quantity', stepper(inv.qty ?? 1, { min: 0, label: 'Quantity', disabled: !ok, onChange: (v) => act({ t: 'item.qty', uid, qty: v }) })),
         inv.notes ? labeled('Notes', h('p.desc', inv.notes), { cls: 'span-2' }) : null,
       ),
+      // GM: make it +1 / +2 / +3 (D&D style; weapons hit and hurt harder, armour gives more DR)
+      gm && (it.attack || (it.effects || []).some((e) => e.target === 'armor')) && !(it.stackable && (inv.qty ?? 1) > 1)
+        ? h('div.lbl', h('span.lbl-t', 'Enhancement'), h('div.chips', [0, 1, 2, 3].map((n) => h('button.chip', {
+          type: 'button', 'aria-pressed': String((inv.bonus || 0) === n), class: `chip r-${['common', 'uncommon', 'rare', 'epic'][n]}`,
+          onclick: () => act({ t: 'item.enhance', uid, bonus: n }, n ? `Now +${n}.` : 'Back to plain.'),
+        }, n ? `+${n}` : 'Plain'))), h('span.lbl-hint', '+1 uncommon (green), +2 rare (blue), +3 epic'))
+        : null,
       gm ? h('div.row-end', h('button.btn.btn-quiet.btn-sm.danger', { type: 'button', onclick: async () => { if (await act({ t: 'item.remove', uid }, `Removed ${it.name}.`)) closeDrawer(); } }, icon('trash', { size: 14 }), 'Remove from inventory')) : null,
     ];
     ui.drawer = { kind: 'item', uid };
@@ -846,7 +854,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return h('section.sh-block.sh-usable', h('h2.blk-t', 'Items you can use'),
       h('ul.inv-list', list.map((i) => {
         const it = itemOf(M.lib, i);
-        return h('li.inv', { class: `inv r-${rarityOf(it.rarity)}` }, h('span.rar'),
+        return h('li.inv', { class: `inv r-${rarityOf(it.rarity)}` }, h('span.rar'), itemArt(it, 'inv-ico'),
           h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), h('span.inv-note', it.attack ? 'Attack' : useLabel(it.use))),
           h('span.inv-q', `×${i.qty ?? 1}`));
       })));
@@ -866,6 +874,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const r = rarityOf(it.rarity);
     return h('li.inv', { class: `inv r-${r}` },
       h('span.rar', { title: r, 'aria-label': r }),
+      itemArt(it, 'inv-ico'),
       h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), i.notes ? h('span.inv-note', i.notes) : null),
       hot.has(i.uid) ? h('span.hot-mark', { title: 'On the hotlist', 'aria-label': 'On the hotlist' }, icon('star', { size: 13 })) : null,
       h('span.inv-q', { title: 'Quantity' }, `×${i.qty ?? 1}`),

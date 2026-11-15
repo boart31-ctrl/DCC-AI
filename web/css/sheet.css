@@ -128,7 +128,7 @@
 .spell-n:hover .sn { text-decoration: underline; text-underline-offset: 3px; }
 .spell.active { box-shadow: inset 3px 0 0 var(--c-accent); padding-left: 10px; }
 
-.inv { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--c-line); }
+.inv { display: grid; grid-template-columns: 10px 2.4rem minmax(0, 1fr) auto auto auto; gap: 8px; align-items: center; padding: 6px 4px; border-bottom: 1px solid var(--c-line); }
 .rar { width: 8px; height: 8px; border-radius: 2px; background: var(--c-r-common); transform: rotate(45deg); }
 .inv.r-uncommon .rar { background: var(--c-r-uncommon); } .inv.r-rare .rar { background: var(--c-r-rare); } .inv.r-epic .rar { background: var(--c-r-epic); } .inv.r-legendary .rar { background: var(--c-r-legendary); }
 .inv-n { display: grid; text-align: left; background: none; border: 0; padding: 2px 0; color: var(--c-ink); min-width: 0; }
@@ -396,7 +396,7 @@
 .sheet.phone .skill .used { min-height: 44px; }
 .sheet.phone .skill .used input { width: 22px; height: 22px; }
 .sheet.phone .skill-n { min-height: 44px; }
-.sheet.phone .inv { min-height: 52px; grid-template-columns: 10px minmax(0, 1fr) auto auto; }
+.sheet.phone .inv { min-height: 52px; grid-template-columns: 10px 2.4rem minmax(0, 1fr) auto auto; }
 .sheet.phone .inv-n { min-height: 44px; }
 .sheet.phone .inv .pill { display: none; }
 .sheet.phone .gslots { grid-template-columns: minmax(0, 1fr); }

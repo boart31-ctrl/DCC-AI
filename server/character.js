@@ -1,7 +1,7 @@
 // Character sheets (RULESET v2): storage shape, migration, sheet/roll/library actions, sheet views.
 // Browser-safe. See docs/RULESET.md and docs/PROTOCOL.md.
 import { ActionError, bad, notFound, forbidden } from './errors.js';
-import { computeSheet, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
+import { computeSheet, enhanceItem, MAX_ENHANCE, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
 import { combatRules, attackOutcome, critFormula, critMultiplier, nearness } from './outcome.js';
 
@@ -109,6 +109,7 @@ export function migrateInventory(inv, ruleset) {
     notes: typeof i.notes === 'string' ? i.notes : '',
     equippedSlot: typeof i.equippedSlot === 'string' && slots.has(i.equippedSlot) ? i.equippedSlot : null,
     containerUid: typeof i.containerUid === 'string' ? i.containerUid : null,
+    bonus: Number.isInteger(i.bonus) && i.bonus > 0 ? Math.min(MAX_ENHANCE, i.bonus) : 0,
   }));
 }
 
@@ -131,17 +132,18 @@ export function invItem(item, ctx) {
 }
 
 /** Adds an item to a player's inventory; stackable items merge into an existing stack. */
-export function giveItem(p, item, ctx, qty = 1) {
+export function giveItem(p, item, ctx, qty = 1, bonus = 0) {
   if (item.stackable) {
-    const stack = p.inventory.find((i) => i.itemId === item.id);
+    const stack = p.inventory.find((i) => i.itemId === item.id && (i.bonus || 0) === bonus);
     if (stack) {
       stack.qty += qty;
       return stack;
     }
   }
   if (p.inventory.length >= MAX_INVENTORY) throw bad(`max ${MAX_INVENTORY} inventory entries`);
-  const inv = invItem(item, ctx);
+  const inv = invItem(enhanceItem(item, bonus), ctx);
   inv.qty = qty;
+  inv.bonus = bonus;
   p.inventory.push(inv);
   return inv;
 }
@@ -228,7 +230,7 @@ export const isContainer = (def) => !!def && (def.container === true || (def.tag
 
 export function enrichInventory(inv, library) {
   return inv.map((i) => {
-    const def = library.get('item', i.itemId);
+    const def = enhanceItem(library.get('item', i.itemId), i.bonus);
     if (!def) return { ...i, slot: null, stackable: false, effects: [], attack: null, use: null, source: null, missing: true };
     return {
       ...i,
@@ -1271,7 +1273,7 @@ export const SHEET_GM = {
     if (a.kind === 'item') {
       const def = library.get('item', a.id);
       if (!def) throw notFound(`unknown item ${a.id}`);
-      out.result = { uid: giveItem(p, def, ctx, int(a.qty, 'qty', 1, 9999, { optional: true }) ?? 1).uid };
+      out.result = { uid: giveItem(p, def, ctx, int(a.qty, 'qty', 1, 9999, { optional: true }) ?? 1, int(a.bonus, 'bonus', 0, MAX_ENHANCE, { optional: true }) ?? 0).uid };
     } else if (a.kind === 'spell') {
       out.result = { uid: learnSpell(st, p, a.id, a.rank, ctx).uid };
     } else if (a.kind === 'skill') {

@@ -38,7 +38,12 @@ export function collectArt(view) {
       add(own, e.name, k);
     }
   }
+  // The pack's icon library (GM view): every icon by category, also the generic ones for custom items.
+  const catOf = new Map();
+  for (const c of view?.gm?.iconLib || []) for (const i of c.icons || []) catOf.set(toUrl(i.url), c.name);
+  for (const c of view?.gm?.iconLib || []) for (const i of c.icons || []) add(i.url, i.name, 'icon');
   for (const it of lib.item || []) add(it.image, prettyFile(toUrl(it.image) || ''), 'icon');
+  for (const a of seen.values()) if (a.group === 'icon') a.cat = catOf.get(a.url) || 'Other';
   const walk = (v, depth) => {
     if (depth > 4 || v == null) return;
     if (typeof v === 'string') { if (IMG_RE.test(v) && !/_strip\./.test(v)) add(v, null, 'fx'); return; }
@@ -57,18 +62,26 @@ export function collectArt(view) {
  * Opens the gallery. opts: { title, current, onPick(url|null), allowClear, clearLabel, extra } — onPick(null)
  * means "no art" (or "back to the pack's own" when clearLabel says so).
  */
-export function openArtGallery(view, { title = 'Choose art', sub, current = null, onPick, allowClear = true, clearLabel = 'No art (silhouette)' } = {}) {
+export function openArtGallery(view, { title = 'Choose art', sub, current = null, onPick, allowClear = true, clearLabel = 'No art (silhouette)', group = null } = {}) {
   const all = collectArt(view);
-  const st = { group: all.some((a) => a.group === 'monster') ? 'monster' : 'all', q: '' };
+  const st = { group: group && all.some((a) => a.group === group) ? group : all.some((a) => a.group === 'monster') ? 'monster' : 'all', q: '', cat: 'all' };
+  const cats = h('div.chips.ag-chips.ag-cats');
   const grid = h('div.ag-grid', { role: 'listbox', 'aria-label': 'Pictures' });
   const count = h('span.dim.ag-count');
   const chips = h('div.chips.ag-chips');
   const pick = (url) => { closeDrawer(true); onPick?.(url); };
   const draw = () => {
     const q = st.q.trim().toLowerCase();
-    const list = all.filter((a) => (st.group === 'all' || a.group === st.group) && (!q || `${a.name} ${a.url}`.toLowerCase().includes(q)));
+    const inCat = (a) => st.group !== 'icon' || st.cat === 'all' || a.cat === st.cat;
+    const list = all.filter((a) => (st.group === 'all' || a.group === st.group) && inCat(a) && (!q || `${a.name} ${a.url} ${a.cat || ''}`.toLowerCase().includes(q)));
+    // Item icons: a second row by category (Swords, Potions, Generic …) so 500 icons stay browsable.
+    const catNames = st.group === 'icon' ? [...new Set(all.filter((a) => a.group === 'icon').map((a) => a.cat))] : [];
+    cats.hidden = !catNames.length;
+    cats.replaceChildren(...(catNames.length ? ['all', ...catNames] : []).map((c) => h('button.chip.chip-sm', {
+      type: 'button', 'aria-pressed': String(st.cat === c), onclick: () => { st.cat = c; draw(); },
+    }, c === 'all' ? 'All icons' : c)));
     chips.replaceChildren(...GROUPS.filter(([id]) => id === 'all' || all.some((a) => a.group === id)).map(([id, label]) => h('button.chip', {
-      type: 'button', 'aria-pressed': String(st.group === id), onclick: () => { st.group = id; draw(); },
+      type: 'button', 'aria-pressed': String(st.group === id), onclick: () => { st.group = id; st.cat = 'all'; draw(); },
     }, `${label} ${id === 'all' ? all.length : all.filter((a) => a.group === id).length}`)));
     count.textContent = `${list.length} shown`;
     grid.replaceChildren(...(list.length ? list.map((a) => h('button.ag-tile', {
@@ -83,7 +96,7 @@ export function openArtGallery(view, { title = 'Choose art', sub, current = null
   draw();
   openDrawer({
     title, sub, wide: true,
-    body: h('div.ag', h('div.ag-bar', search, count), chips, grid,
+    body: h('div.ag', h('div.ag-bar', search, count), chips, cats, grid,
       h('div.ag-url', url, h('button.btn.btn-sm', { type: 'button', onclick: useUrl }, 'Use URL'))),
     actions: allowClear ? h('button.btn.btn-sm.btn-ghost', { type: 'button', onclick: () => pick(null) }, icon('x', { size: 13 }), clearLabel) : null,
   });

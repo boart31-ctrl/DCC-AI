@@ -563,13 +563,17 @@ function lootSheet(p, sponsor) {
   const catalog = view.gm?.itemsCatalog || [];
   if (!sponsor && catalog.length) {
     const sel = h('select.field', catalog.map((it) => h('option', { value: it.id }, `${it.name} (${rarityOf(it.rarity)})`)));
+    const plus = h('select.field.give-plus', { 'aria-label': 'Enhancement' }, ['Plain', '+1', '+2', '+3'].map((l, n) => h('option', { value: n }, l)));
+    const syncPlus = () => { const it = catalog.find((x) => x.id === sel.value); plus.disabled = !it?.enhanceable; if (plus.disabled) plus.value = '0'; };
+    sel.addEventListener('change', syncPlus); syncPlus();
     body.push(
       h('div.divider', 'or give a specific item, no animation'),
-      h('div.say-row', sel, h('button.btn.btn-ghost', {
+      h('div.say-row', sel, plus, h('button.btn.btn-ghost', {
         type: 'button',
         onclick: async () => {
           const it = catalog.find((x) => x.id === sel.value);
-          if (await act({ t: 'item.give', playerId: p.id, itemId: sel.value }, `Gave ${it?.name || 'item'}.`)) closeSheet();
+          const bonus = Number(plus.value) || 0;
+          if (await act({ t: 'item.give', playerId: p.id, itemId: sel.value, ...(bonus ? { bonus } : {}) }, `Gave ${it?.name || 'item'}${bonus ? ` +${bonus}` : ''}.`)) closeSheet();
         },
       }, 'Give')),
     );

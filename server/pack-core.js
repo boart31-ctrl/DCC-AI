@@ -315,7 +315,7 @@ function loadAchievements(raw, quipsById, warnings) {
 
 /** icons.json: { fallback, categories: [{ id, base, variants: [{ id }] }] } → lookups for item art. */
 function loadIcons(raw, warnings) {
-  const out = { base: new Map(), fallback: null };
+  const out = { base: new Map(), fallback: null, raw: null };
   if (raw === undefined) return out;
   if (!isObj(raw)) {
     warnings.push('icons.json must be an object, ignoring');
@@ -324,6 +324,25 @@ function loadIcons(raw, warnings) {
   if (isStr(raw.fallback) && ID_RE.test(raw.fallback)) out.fallback = raw.fallback;
   for (const c of Array.isArray(raw.categories) ? raw.categories : []) {
     if (isObj(c) && isStr(c.id) && isStr(c.base) && ID_RE.test(c.base)) out.base.set(c.id, c.base);
+  }
+  out.raw = raw;
+  return out;
+}
+
+/**
+ * The icon library for pickers (custom items): categories with every icon whose file exists, as URLs.
+ * [{ id, name, icons: [{ id, name, url }] }]
+ */
+function iconLibrary(io, icons) {
+  const out = [];
+  for (const c of Array.isArray(icons.raw?.categories) ? icons.raw.categories : []) {
+    if (!isObj(c) || !isStr(c.id)) continue;
+    const list = [];
+    for (const v of [{ id: c.base, name: `${c.name ?? c.id} (generic)` }, ...(Array.isArray(c.variants) ? c.variants : [])]) {
+      if (!isObj(v) || !isStr(v.id) || !ID_RE.test(v.id) || !io.assetExists('images', `${v.id}.webp`)) continue;
+      list.push({ id: v.id, name: isStr(v.name) ? v.name : v.id, url: assetUrl(io, 'images', `${v.id}.webp`, [], 'icon') });
+    }
+    if (list.length) out.push({ id: c.id, name: isStr(c.name) ? c.name : c.id, icons: list });
   }
   return out;
 }
@@ -656,7 +675,9 @@ export function normalizePack(raw, opts = {}) {
   const quips = loadQuips(io, raw.quips, warnings, meta.voices);
   const quipsById = new Map(quips.map((q) => [q.id, q]));
   const achievements = loadAchievements(raw.achievements, quipsById, warnings);
-  const items = loadItems(io, raw.items, warnings, loadIcons(raw.icons, warnings));
+  const iconSet = loadIcons(raw.icons, warnings);
+  const items = loadItems(io, raw.items, warnings, iconSet);
+  const iconLib = iconLibrary(io, iconSet);
   const itemsById = new Map(items.map((i) => [i.id, i]));
   const loot = loadLoot(raw.loot, meta.lootTiers, itemsById, warnings);
   const chat = loadChat(raw.chat, warnings);
@@ -667,7 +688,7 @@ export function normalizePack(raw, opts = {}) {
   const sounds = loadSounds(io, raw.sounds, warnings);
   const cues = loadCues(raw.cues, warnings);
   const ui = loadUi(io, raw.ui, warnings);
-  const pack = finish({ ...meta, sfx, sounds, cues, ui, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
+  const pack = finish({ ...meta, sfx, sounds, cues, ui, iconLib, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
   return { pack, warnings };
 }
 
@@ -677,7 +698,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -715,6 +736,7 @@ export function deserializePack(data) {
   pack.sounds = Array.isArray(d.sounds) ? d.sounds.filter((x) => isObj(x) && isStr(x.id) && Array.isArray(x.urls)) : [];
   pack.cues = isObj(d.cues) ? { events: isObj(d.cues.events) ? d.cues.events : {}, groups: isObj(d.cues.groups) ? d.cues.groups : {} } : { events: {}, groups: {} };
   pack.ui = isObj(d.ui) ? structuredClone(d.ui) : null; // already normalized URLs (built by normalizePack)
+  pack.iconLib = Array.isArray(d.iconLib) ? structuredClone(d.iconLib) : [];
   pack.items = pack.items.map((it) => ({ tags: [], slot: null, stackable: false, effects: [], attack: null, use: null, source: 'pack', ...it }));
   pack.dir = null;
   return finish(pack);

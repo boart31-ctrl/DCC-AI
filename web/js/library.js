@@ -9,7 +9,7 @@ import { entryArt, imageRef } from './portrait.js';
 import { openArtGallery } from './art-gallery.js';
 
 const FIELDS = {
-  item: ['rarity', 'slot', 'stackable', 'flavor', 'effects', 'attack'],
+  item: ['rarity', 'slot', 'stackable', 'image', 'flavor', 'effects', 'attack'],
   spell: ['cost', 'costTrack', 'range', 'duration', 'dice', 'rankScaling', 'effects', 'attack', 'flavor'],
   skill: ['stat', 'checkType', 'upgrades'],
   buff: ['duration', 'external', 'effects'],
@@ -384,7 +384,7 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     const draw = () => {
       box.replaceChildren(entryArt({ name: d.name || '?', image: d.image, color: d.color }, { cls: 'img-pv-art' }));
       const img = box.querySelector('img');
-      msg.textContent = !d.image ? 'No art yet: the TV draws a silhouette.' : 'Checking…';
+      msg.textContent = !d.image ? (kind === 'item' ? 'No icon yet: pick one in Gallery (Item icons → Generic for custom things).' : 'No art yet: the TV draws a silhouette.') : 'Checking…';
       msg.className = 'lbl-hint';
       if (img) {
         img.addEventListener('load', () => { msg.textContent = 'Found.'; });
@@ -392,7 +392,7 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
       }
     };
     const inp = field(d.image || '', {
-      disabled: ro, cls: 'mono-in', attrs: { spellcheck: 'false' }, placeholder: `${kind === 'npc' ? 'quill' : 'goblin'}.webp, /pack/images/… or https://…`,
+      disabled: ro, cls: 'mono-in', attrs: { spellcheck: 'false' }, placeholder: `${kind === 'npc' ? 'quill' : kind === 'item' ? 'icon_potion_red' : 'goblin'}.webp, /pack/images/… or https://…`,
       onCommit: (v) => { d.image = imageRef(v); inp.value = d.image || ''; markDirty(); draw(); },
     });
     // Gallery: homebrew entries take the picture into the draft (saved with the entry); read-only pack entries
@@ -406,15 +406,16 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
         sub: packPick ? 'Pack entry: the pick replaces its picture everywhere (GM, TV, new combatants) until you reset it.' : 'Any picture the pack ships. Saved with the entry.',
         current: d.image,
         allowClear: packPick ? !!d.artPick : true,
+        group: kind === 'item' ? 'icon' : null,
         clearLabel: packPick ? 'Back to the pack art' : 'No art (silhouette)',
         onPick: async (u) => {
           if (packPick) { await act({ t: 'lib.art', kind, id: st.sel.id, image: u }, u ? 'Art set.' : 'Pack art restored.'); return; }
           d.image = u; inp.value = u || ''; markDirty(); draw();
         },
       }),
-    }, icon('sparkle', { size: 13 }), packPick ? (d.artPick ? 'Change art' : 'Choose art') : 'Gallery');
+    }, icon('sparkle', { size: 13 }), packPick ? (d.artPick ? 'Change art' : 'Choose art') : kind === 'item' ? 'Choose icon' : 'Gallery');
     draw();
-    return h('div.lbl.span-all.img-field', h('span.lbl-t', 'Image'), h('div.img-row', box, h('div.img-in', h('div.img-inrow', inp, galleryBtn), msg,
+    return h('div.lbl.span-all.img-field', h('span.lbl-t', kind === 'item' ? 'Icon' : 'Image'), h('div.img-row', box, h('div.img-in', h('div.img-inrow', inp, galleryBtn), msg,
       packPick && d.artPick ? h('span.lbl-hint', 'GM art pick (the pack has none of its own here or you replaced it).') : null)));
   }
 
@@ -588,13 +589,20 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
 
   function giveTo(kind, d) {
     const players = view.players || [];
+    // +1 / +2 / +3 copies of weapons and armour (D&D style)
+    const canPlus = kind === 'item' && (!!d.attack || (d.effects || []).some((e) => e.target === 'armor'));
+    let bonus = 0;
+    const plusRow = canPlus ? h('div.chips.give-plus', [0, 1, 2, 3].map((n) => h('button.chip', {
+      type: 'button', 'aria-pressed': String(n === 0), class: `chip r-${['common', 'uncommon', 'rare', 'epic'][n]}`,
+      onclick: (e) => { bonus = n; for (const b of e.currentTarget.parentElement.children) b.setAttribute('aria-pressed', String(b === e.currentTarget)); },
+    }, n ? `+${n}` : 'Plain'))) : null;
     openDrawer({
       title: `Give ${d.name}`,
-      sub: 'Pick a crawler. It lands on their sheet right away.',
-      body: players.length ? h('ul.pick-list', players.map((p) => h('li', h('button.pick', {
+      sub: canPlus ? 'Plain or enhanced (+1 green, +2 blue, +3 epic), then pick a crawler.' : 'Pick a crawler. It lands on their sheet right away.',
+      body: players.length ? h('div', plusRow, h('ul.pick-list', players.map((p) => h('li', h('button.pick', {
         type: 'button',
-        onclick: async () => { if (await act({ t: 'lib.give', playerId: p.id, kind, id: d.id }, `Gave ${d.name} to ${p.name}.`)) closeDrawer(); },
-      }, h('span', h('b', p.name)), h('span.dim', p.connected ? 'online' : 'offline'))))) : h('p.empty-s', 'No crawlers yet.'),
+        onclick: async () => { if (await act({ t: 'lib.give', playerId: p.id, kind, id: d.id, ...(bonus ? { bonus } : {}) }, `Gave ${d.name}${bonus ? ` +${bonus}` : ''} to ${p.name}.`)) closeDrawer(); },
+      }, h('span', h('b', p.name)), h('span.dim', p.connected ? 'online' : 'offline')))))) : h('p.empty-s', 'No crawlers yet.'),
     });
   }
 

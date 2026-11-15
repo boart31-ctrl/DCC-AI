@@ -7,6 +7,22 @@ export const EFFECT_WHENS = ['equipped', 'carried', 'active', 'always'];
 export const RANKUP_RULES = ['gt', 'gte', 'lt', 'lte'];
 export const FIELD_TYPES = ['number', 'text', 'longtext'];
 export const RARITIES = ['common', 'uncommon', 'rare', 'epic', 'legendary'];
+export const MAX_ENHANCE = 3;
+
+/**
+ * A "+N" copy of a library item (D&D style: +1 uncommon, +2 rare, +3 epic). Weapons: +N to hit and damage
+ * (attack.bonus); armour, shields and helmets (an 'armor' effect): +N to that. Rarity never goes down.
+ */
+export function enhanceItem(def, bonus) {
+  const n = Number.isInteger(bonus) ? Math.max(0, Math.min(MAX_ENHANCE, bonus)) : 0;
+  if (!def || !n) return def;
+  const rarity = RARITIES[Math.max(RARITIES.indexOf(def.rarity), n)] ?? def.rarity;
+  const out = { ...def, name: `${def.name} +${n}`, rarity, bonus: n };
+  if (def.attack) out.attack = { ...def.attack, bonus: n };
+  const armor = (def.effects ?? []).find((e) => e.target === 'armor' && e.op === 'add');
+  if (armor) out.effects = [...def.effects, { target: 'armor', op: 'add', value: n, when: armor.when || 'equipped', label: `${def.name} +${n}` }];
+  return out;
+}
 const DEFAULT_WHEN = { item: 'equipped', spell: 'active', buff: 'active', feature: 'always', race: 'always', class: 'always', background: 'always' };
 
 export const ID_RE = /^[A-Za-z0-9_-]{1,64}$/;
@@ -747,7 +763,7 @@ export function collectEffects(ch, library, warnings) {
     for (const e of effects ?? []) if (applies(e)) out.push({ ...e, label: e.label || src.name, source: src });
   };
   for (const inv of ch.inventory ?? []) {
-    const def = library.get('item', inv.itemId);
+    const def = enhanceItem(library.get('item', inv.itemId), inv.bonus);
     if (!def) {
       if (inv.itemId) warnings.push({ kind: 'missing', ref: `item:${inv.itemId}`, msg: `item "${inv.name ?? inv.itemId}" is not in the library` });
       continue;

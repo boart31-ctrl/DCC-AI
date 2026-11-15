@@ -324,3 +324,19 @@ textarea.field { resize: vertical; min-height: 88px; }
 .ask-inner { padding: 18px; display: grid; gap: 16px; }
 .ask-text { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
 .ask-row { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+
+/* Item icons on a rarity tile. Cut-out (transparent) icons sit on the tile; the older icons with their own
+   violet background cover it. common = the violet of the icon set, +1 uncommon green, +2 rare blue, +3 epic. */
+.art { background: radial-gradient(circle at 50% 42%, #2b2140 0%, #0e0b14 72%); }
+.art.r-uncommon { background: radial-gradient(circle at 50% 42%, #2f8a45 0%, #0f3018 58%, #08140c 100%); }
+.art.r-rare { background: radial-gradient(circle at 50% 42%, #2f6fd1 0%, #10285a 58%, #070f22 100%); }
+.art.r-epic { background: radial-gradient(circle at 50% 42%, #8a3fd1 0%, #2c1150 58%, #120720 100%); }
+.art.r-legendary { background: radial-gradient(circle at 50% 42%, #d1782a 0%, #5a2a0c 58%, #200e05 100%); }
+.art img { object-fit: contain; }
+/* small icon in inventory rows */
+.inv .inv-ico { width: 2.4rem; height: 2.4rem; flex: none; border-width: 1px; border-radius: 6px; }
+.inv .inv-ico.ph span { font-size: 1.1em; }
+.give-plus { display: flex; gap: 6px; margin: 0 0 10px; }
+.chip.r-uncommon[aria-pressed="true"] { background: var(--r-uncommon); color: #04130a; }
+.chip.r-rare[aria-pressed="true"] { background: var(--r-rare); color: #fff; }
+.chip.r-epic[aria-pressed="true"] { background: var(--r-epic); color: #fff; }

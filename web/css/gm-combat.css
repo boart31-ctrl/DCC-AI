@@ -330,3 +330,6 @@
 .cbt-drop-to { display: flex; flex-wrap: wrap; gap: 4px; }
 .cbt-drop-to .btn { height: 24px; padding: 0 8px; font-size: 12px; }
 .cbt-looted { font-size: 12px; }
+.ag-cats { margin-top: -4px; }
+.ag-cats[hidden] { display: none; }
+.ag-cats .chip { font-size: 12px; padding: 2px 8px; }

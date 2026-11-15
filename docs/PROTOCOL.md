@@ -249,7 +249,8 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `player.remove` | `playerId` | |
 | `ach.award` | `playerId`, `achId` **or** `title`+`desc?`+`reward?` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
 | `loot.open` | `playerId`, `tier` | Rolls pack loot table for tier, adds item, event `loot` |
-| `item.give` | `playerId`, `itemId`, `qty?` | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack (`qty` added) |
+| `item.give` | `playerId`, `itemId`, `qty?`, `bonus?` (0-3) | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack with the same bonus (`qty` added). `bonus` = a +N copy: name `+N`, rarity at least uncommon/rare/epic, weapons +N to hit and damage (`attack.bonus`), armour +N to its `armor` effect |
+| `item.enhance` | `playerId`, `uid`, `bonus` (0-3) | Make an inventory copy +N (0 = plain). Not for a stack of more than one |
 | `item.remove` | `playerId`, `uid` | Also clears it from the hotlist |
 | `quip.play` | `category` **or** `quipId` | P0: plays immediately on stage |
 | `say` | `text` | P0: GM typed text, spoken via TTS fallback |
@@ -286,7 +287,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `skills.rankUp` | `playerId?` (all players if omitted) | For every skill with `used: true`: rolls `skills.rankUp.roll`, compares (`gt`/`gte`/`lt`/`lte`) with `target` (number or formula; `rank` = the skill's rank), on success `rank += amount` (default 1, capped at `rankMax`). Clears `used`. Every roll goes to the dice log with `rankUp: {skillUid, name, rule, target, success, from, to}`. Ack `result.results: [{playerId, uid, name, roll, target, success, from, to, rollId}]` |
 | `lib.upsert` | `kind` (`item`/`spell`/`skill`/`buff`/`feature`/`race`/`class`/`background`), `entry` | Create/update homebrew (validated like pack files; strict: any invalid part is an error). `entry.id` optional (generated `hb_...`). Ids of pack entries are refused (duplicate under a new id). Ack `result: {id, created}` |
 | `lib.remove` | `kind`, `id` | Homebrew only (pack entries are read-only → `not_found`) |
-| `lib.give` | `playerId`, `kind` (`item`/`spell`/`skill`/`buff`), `id`, `qty?` / `rank?` | Item → inventory, spell → learned, skill → added, buff → `buff.add` |
+| `lib.give` | `playerId`, `kind` (`item`/`spell`/`skill`/`buff`), `id`, `qty?` / `rank?`, `bonus?` (items) | Item → inventory, spell → learned, skill → added, buff → `buff.add` |
 
 The GM may also send every action in [§4 Sheet actions](#sheet-actions) (with `playerId` required, except
 `roll` with `kind: "custom"`), without permission checks.
