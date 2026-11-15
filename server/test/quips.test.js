@@ -140,14 +140,18 @@ test('deterministic pick with injected rng', () => {
   assert.equal(r2.quip.id, 'nat1_03');
 });
 
-test('a category with recordings only picks recorded lines; without any it uses every line', async () => {
+test('a category with enough own recordings only picks recorded lines; otherwise every line', async () => {
   const { pickQuip: pick, quipsLeft: left } = await import('../quips.js');
-  const q = (id, audio) => ({ id, category: 'loot', text: id, ...(audio ? { audio } : {}) });
-  const pack = { quipsByCategory: new Map([['loot', [q('a', '/pack/audio/a.mp3'), q('b'), q('c', '/pack/audio/c.mp3')]], ['trap', [q('x'), q('y')]]]) };
+  const q = (id, audio, category = 'loot') => ({ id, category, text: id, ...(audio ? { audio } : {}) });
+  const rec = ['a', 'c', 'd', 'e'].map((id) => q(id, `/pack/audio/${id}.mp3`));
+  const pack = { quipsByCategory: new Map([['loot', [...rec, q('b')]], ['trap', [q('x'), q('y')]],
+    // one recorded Easter egg (own category 'nerd') must not take over a category of unrecorded lines
+    ['mob_killed', [q('k1'), q('k2'), q('k3'), q('egg', '/pack/audio/egg.mp3', 'nerd')]]]) };
   let used = {};
   const seen = new Set();
-  for (let i = 0; i < 6; i++) { const r = pick(pack, used, 'loot'); used = r.used; seen.add(r.quip.id); }
-  assert.deepEqual([...seen].sort(), ['a', 'c']);
-  assert.equal(left(pack, {}, 'loot'), 2);
+  for (let i = 0; i < 12; i++) { const r = pick(pack, used, 'loot'); used = r.used; seen.add(r.quip.id); }
+  assert.deepEqual([...seen].sort(), ['a', 'c', 'd', 'e']);
+  assert.equal(left(pack, {}, 'loot'), 4);
   assert.equal(left(pack, {}, 'trap'), 2);
+  assert.equal(left(pack, {}, 'mob_killed'), 4);
 });

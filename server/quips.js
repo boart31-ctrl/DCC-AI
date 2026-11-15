@@ -18,13 +18,16 @@ export function modeAllows(mode, priority, crit = false) {
 const isRecorded = (q) => !!(q.audio || Object.keys(q.audioByVoice ?? {}).length);
 
 /**
- * The quips a category draws from: once any line in it has a recording, only recorded lines are picked
- * (a half-recorded category never falls back to the robot voice). No recordings → every line.
+ * The quips a category draws from: once it has MIN_RECORDED own recorded lines, only recorded lines are picked
+ * (a half-recorded category never falls back to the robot voice). Fewer → every line, so nothing repeats.
  */
+export const MIN_RECORDED = 4;
 export function categoryPool(pack, category) {
   const all = pack.quipsByCategory?.get(category) ?? [];
-  const rec = all.filter(isRecorded);
-  return rec.length ? rec : all;
+  // Only the category's own recorded lines decide (an Easter egg joining via `also` never takes it over),
+  // and only once there are enough of them to rotate; below that every line plays (recorded or TTS).
+  const own = all.filter((q) => q.category === category && isRecorded(q));
+  return own.length >= MIN_RECORDED ? all.filter(isRecorded) : all;
 }
 
 /** How many unused quips are left in a category this session. */

@@ -208,7 +208,7 @@ test('views are role-filtered', () => {
   assert.equal(gv.gm.pins[id], '1234');
   assert.deepEqual(gv.pack.stats, [{ id: 'str', label: 'Strength', abbr: 'STR' }]);
   assert.equal(gv.pack.voices.length, 2);
-  assert.ok(gv.gm.quipCategories.find((c) => c.id === 'nat1').left === 1); // nat1_01 is recorded, so the category only draws from it
+  assert.ok(gv.gm.quipCategories.find((c) => c.id === 'nat1').left === 3); // only 1 recorded nat1 line (< MIN_RECORDED): every line stays in the pool
 });
 
 test('normalizeState adds new pack stats to old saves', () => {
