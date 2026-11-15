@@ -5,7 +5,7 @@ import {
   libraryOf, normalizeRuleset, effectTargets, effectText, validateFormula, knownIdentifiers, WHEN, LIB_KINDS, RARITIES, slugId,
 } from './rules.js';
 import { icon, field, select, labeled, openDrawer, closeDrawer, signed } from './ui.js';
-import { entryArt, imageRef } from './portrait.js';
+import { entryArt, imageRef, pickPortrait } from './portrait.js';
 import { openArtGallery } from './art-gallery.js';
 
 const FIELDS = {
@@ -391,9 +391,9 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
         img.addEventListener('error', () => { msg.textContent = 'Not found: the TV draws a silhouette.'; msg.className = 'lbl-hint bad'; });
       }
     };
-    const inp = field(d.image || '', {
+    const inp = field(String(d.image || '').startsWith('data:') ? '(uploaded picture)' : d.image || '', {
       disabled: ro, cls: 'mono-in', attrs: { spellcheck: 'false' }, placeholder: `${kind === 'npc' ? 'quill' : kind === 'item' ? 'icon_potion_red' : 'goblin'}.webp, /pack/images/… or https://…`,
-      onCommit: (v) => { d.image = imageRef(v); inp.value = d.image || ''; markDirty(); draw(); },
+      onCommit: (v) => { if (v === '(uploaded picture)') return; d.image = imageRef(v); inp.value = d.image || ''; markDirty(); draw(); },
     });
     // Gallery: homebrew entries take the picture into the draft (saved with the entry); read-only pack entries
     // get a GM art pick on the server (lib.art), which replaces their picture everywhere until reset.
@@ -414,8 +414,19 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
         },
       }),
     }, icon('sparkle', { size: 13 }), packPick ? (d.artPick ? 'Change art' : 'Choose art') : kind === 'item' ? 'Choose icon' : 'Gallery');
+    // Own picture from this device: shrunk to a small square (state and views carry it), saved like a gallery pick.
+    const uploadBtn = ro && !packPick ? null : h('button.btn.btn-sm', {
+      type: 'button', title: 'Upload a picture from this device (cropped to a square, made small)',
+      onclick: async () => {
+        let u;
+        try { u = await pickPortrait({ maxSide: 320, maxChars: 78_000 }); } catch (err) { toast(err.message, { error: true }); return; }
+        if (!u) return;
+        if (packPick) { await act({ t: 'lib.art', kind, id: st.sel.id, image: u }, 'Picture uploaded.'); return; }
+        d.image = u; inp.value = '(uploaded picture)'; markDirty(); draw();
+      },
+    }, icon('plus', { size: 13 }), 'Upload');
     draw();
-    return h('div.lbl.span-all.img-field', h('span.lbl-t', kind === 'item' ? 'Icon' : 'Image'), h('div.img-row', box, h('div.img-in', h('div.img-inrow', inp, galleryBtn), msg,
+    return h('div.lbl.span-all.img-field', h('span.lbl-t', kind === 'item' ? 'Icon' : 'Image'), h('div.img-row', box, h('div.img-in', h('div.img-inrow', inp, galleryBtn, uploadBtn), msg,
       packPick && d.artPick ? h('span.lbl-hint', 'GM art pick (the pack has none of its own here or you replaced it).') : null)));
   }
 

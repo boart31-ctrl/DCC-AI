@@ -1,6 +1,6 @@
 // Step-by-step character builder: Identity → Origins → Stats → Skills → Starting gear → Review.
 // Nothing is sent until Review; then the builder sends the same actions a hand edit would.
-import { h, toast, ask } from './client.js';
+import { h, toast, ask, itemArt } from './client.js';
 import { evaluate } from './rules.js';
 import { icon, signed, field, select, labeled } from './ui.js';
 
@@ -157,20 +157,28 @@ export function openBuilder({ model: M, player, gm, act, allowOrigins = false })
       );
     },
     gear() {
-      const items = M.lib.item.slice().sort((a, b) => a.name.localeCompare(b.name));
+      // Players pick from plain starter kit (common, buyable things), up to PLAYER_PICKS; the GM sees all.
+      const PLAYER_PICKS = 6;
+      const starter = (it) => (it.rarity || 'common') === 'common' && !(it.tags || []).some((t) => /quest|legendary|unique|boss|sponsor/i.test(t));
+      const items = M.lib.item.filter((it) => gm || starter(it)).sort((a, b) => (a.slot || 'zz').localeCompare(b.slot || 'zz') || a.name.localeCompare(b.name));
       const q = h('input.inp.inp-search', { type: 'search', placeholder: `Search ${items.length} items`, 'aria-label': 'Search items' });
+      const count = h('p.bld-count');
       const list = h('ul.bld-gear');
+      const paintCount = () => { count.textContent = gm ? `${d.gear.size} picked` : `${d.gear.size} of ${PLAYER_PICKS} picked`; };
       const drawList = () => {
         const t = q.value.trim().toLowerCase();
-        list.replaceChildren(...items.filter((it) => !t || `${it.name} ${(it.tags || []).join(' ')}`.toLowerCase().includes(t)).slice(0, 120).map((it) => h('li',
-          h('label.chk', h('input', { type: 'checkbox', checked: d.gear.has(it.id), onchange: (e) => { e.target.checked ? d.gear.add(it.id) : d.gear.delete(it.id); } }),
-            h('span', h('b', it.name), h('span.dim', ` ${it.rarity || 'common'}${it.slot ? `, ${it.slot}` : ''}`))))));
+        const full = !gm && d.gear.size >= PLAYER_PICKS;
+        list.replaceChildren(...items.filter((it) => !t || `${it.name} ${it.slot || ''} ${(it.tags || []).join(' ')}`.toLowerCase().includes(t)).slice(0, 150).map((it) => h('li',
+          h('label.chk.bld-item', h('input', { type: 'checkbox', checked: d.gear.has(it.id), disabled: full && !d.gear.has(it.id), onchange: (e) => { e.target.checked ? d.gear.add(it.id) : d.gear.delete(it.id); paintCount(); drawList(); } }),
+            itemArt(it, 'bld-ico'),
+            h('span', h('b', it.name), h('span.dim', ` ${[it.slot, it.attack ? `${it.attack.dice} dmg` : '', gm ? it.rarity : ''].filter(Boolean).join(', ')}`), it.desc ? h('span.bld-desc', it.desc) : null)))));
       };
       q.addEventListener('input', drawList);
+      paintCount();
       drawList();
       return h('div.bld-step',
-        h('p.bld-lede', gm ? 'Pick what they start with. Items go straight into their inventory.' : 'Pick what you would like to start with. The list goes to your GM in your notes; the GM hands the items out.'),
-        items.length ? [q, list] : h('p.dim', 'The library has no items yet.'),
+        h('p.bld-lede', gm ? 'Pick what they start with. Items go straight into their inventory.' : `Pick up to ${PLAYER_PICKS} things you would like to start with: plain gear, no treasure. The list goes to your GM, who hands the items out.`),
+        items.length ? [count, q, list] : h('p.dim', 'The library has no items yet.'),
       );
     },
     review() {

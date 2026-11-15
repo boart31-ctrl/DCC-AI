@@ -461,3 +461,16 @@ test('normalizeState fills hosted-edition fields on old saves', () => {
   assert.deepEqual(s.prepCards, []);
   assert.equal(s.session.recap, '');
 });
+
+test('loot.peek rolls without giving; loot.open itemId keeps the peeked roll (must be on the table)', () => {
+  const { state, id } = withPlayer();
+  const r = gm(state, { t: 'loot.peek', tier: 'bronze' }, { rng: seq(0.9) });
+  assert.equal(r.changed, false);
+  assert.equal(r.state, state);
+  const itemId = r.result.item.id;
+  assert.ok(pack.loot.bronze.some((x) => x.item === itemId));
+  const o = gm(state, { t: 'loot.open', playerId: id, tier: 'bronze', itemId }, { rng: seq(0.01) });
+  assert.equal(o.state.players[0].inventory.at(-1).itemId, itemId);
+  const other = [...pack.itemsById.values()].find((x) => !pack.loot.bronze.some((y) => y.item === x.id));
+  if (other) assert.throws(() => gm(state, { t: 'loot.open', playerId: id, tier: 'bronze', itemId: other.id }), /not in the bronze table/);
+});

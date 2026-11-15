@@ -248,7 +248,8 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `player.resource` | `playerId`, `res`, `cur?`, `max?`, `delta?` | Changes hp/mana etc. (clamped 0..max) |
 | `player.remove` | `playerId` | |
 | `ach.award` | `playerId`, `achId` **or** `title`+`desc?`+`reward?` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
-| `loot.open` | `playerId`, `tier` | Rolls pack loot table for tier, adds item, event `loot` |
+| `loot.peek` | `tier` | GM preview: rolls the tier's table, gives nothing. Ack `result.item {id, name, rarity, image, desc}` |
+| `loot.open` | `playerId`, `tier`, `itemId?` | Rolls pack loot table for tier (or takes the peeked `itemId`, which must be on that table), adds item, event `loot` |
 | `item.give` | `playerId`, `itemId`, `qty?`, `bonus?` (0-3) | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack with the same bonus (`qty` added). `bonus` = a +N copy: name `+N`, rarity at least uncommon/rare/epic, weapons +N to hit and damage (`attack.bonus`), armour +N to its `armor` effect |
 | `item.enhance` | `playerId`, `uid`, `bonus` (0-3) | Make an inventory copy +N (0 = plain). Not for a stack of more than one |
 | `item.remove` | `playerId`, `uid` | Also clears it from the hotlist |
@@ -274,7 +275,8 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `auto.veto` | `id` | Cancels a pending P2 line |
 | `queue.clear` | — | Stop everything: drops queue, sends `stop` to stage |
 | `session.recap` | `text` (max 4000) | Sets `session.recap` ("Previously on…"), shown to everyone as top-level `recap` in every view. Cleared by `session.new` |
-| `prep.card.add` | `kind`: `achievement`/`loot`/`message`/`line`, `payload` (object), `label?` | Stores a prepared one-tap card; ack `result.id`. Payload = the fields of `ach.award` / `loot.open` / `msg.send` / `say` |
+| `combat.addEncounter` | `mobs` [{`kind?`, `sourceId`, `count?`}] (1..20), `hidden?` [true] | Adds a saved group like `combat.addMob`; unknown ids skipped. Ack `result {uids, skipped}` |
+| `prep.card.add` | `kind`: `achievement`/`loot`/`message`/`line`/`encounter`, `payload` (object), `label?` | Stores a prepared one-tap card; ack `result.id`. Payload = the fields of `ach.award` / `loot.open` / `msg.send` / `say` |
 | `prep.card.remove` | `id` | |
 | `prep.card.fire` | `id`, `playerId?`, `to?` | Runs the card's action with its payload (`playerId`/`to` override it), marks the card `used`. Same events/voice lines as the underlying action |
 | `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories + homebrew + permissions; clears the dice log) |
@@ -385,7 +387,7 @@ reach phones or the TV. Crawler HP is read from the sheet (track `hp`, else the 
 | `combat.addCrawler` | `playerId` | Adds a player that joined late |
 | `combat.update` | `uid` (mob), `name?`, `hp?`, `hpMax?`, `evade?`, `dr?`, `notes?`, `hidden?` | Crawlers → `bad_request` (edit the sheet) |
 | `combat.damage` / `combat.heal` | `uid`, `amount?` [1] (1..999) | Crawler: `track.set` delta on the sheet (`stat` event as usual). Mob: clamp 0..hpMax; a boss combatant whose boss is on the TV (`scene.kind boss`, same `bossId`) also runs `boss.damage`/`boss.heal`. Event `combat.hit` / `combat.heal` `{uid, type, name, playerId?, amount, hp, max, down}` — to the GM only for a hidden mob, else to all. Ack `result {hp, max}` |
-| `combat.condition` | `uid`, `buffId` **or** `name` (≤ 40), `on` | Mob: condition chip (no duplicates, max 12). Crawler: `buff.add` / `buff.remove` on the sheet |
+| `combat.condition` | `uid`, `buffId` **or** `name` (≤ 40), `on`, `rounds?` (1..99) | Mob: condition chip (no duplicates, max 12). Crawler: `buff.add` / `buff.remove` on the sheet. `rounds`: counts down at each new round (phase wrap or initiative wrap) and wears off at 0 (feed line) |
 | `combat.remove` | `uid` | |
 | `combat.reveal` | `uid` **or** `all: true`, `on?` [true] | Shows (or hides) mobs on the TV and phones. Event `combat.reveal {uids, names}` |
 | `combat.mobRoll` | `uid`, `attackIndex?` [0], `public?` [false] | Rolls `d20+toHit` and then the attack's damage dice (skipped for empty / `0`) through `roll` → dice log, secret (GM only) unless `public`. Labels `"<mob>: <attack>"`. Ack `result {rollId, total, nat1, nat20, damageRollId, damage, effects, buffs, public}` |
@@ -594,6 +596,7 @@ the connection. The "player needs" column is the minimum `session.permissions.pl
 | `pool.add` | `name`, `max`, `cur?`, `desc?` | `sheet` | Counter on the sheet (`sheet.pools[]`: `{uid, name, cur, max, desc}`, max 20), e.g. Lay on Hands |
 | `pool.update` | `uid`, `name?`, `max?`, `desc?` | `sheet` | |
 | `pool.set` | `uid`, `delta` or `cur` | own character (like rolling) | Spend / regain, clamped 0..max |
+| `rest` | `playerId` (GM), `kind` (`short`/`long`), `heal?` | Long: every track to max, every counter refilled. Short: counters with `reset: "short"` refilled, plus `heal` health. Ack `result.restored` (labels). `pool.add` / `pool.update` take `reset?` (`short`/`long`) |
 | `pool.remove` | `uid` | `sheet` | |
 | `sheet.set` `identity.race` / `class` / `background` | `value` | — | Players: without `allowOrigins` → `forbidden` (re-sending the current value is a no-op). With it the value goes to `sheet.pending` (event `originsRequest {playerId, name, pending}` to the GM) until `origins.approve`; after approval → `forbidden` until the GM unlocks |
 | `roll` | `what`, `secret?` | `play` | `what`: `{kind:"stat", id}` → `dice + mod`; `{kind:"derived", id}` → `derived.roll + value`; `{kind:"skill", uid, markUsed?}` → `skills.check.roll + total`, marks the skill used; `{kind:"attack", uid, part?: "toHit"|"damage"}`; `{kind:"custom", formula, label?}` (formula may use sheet identifiers; GM may omit `playerId`). Server RNG (Web Crypto). Ack `result: {rollId, total}` |

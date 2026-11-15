@@ -668,10 +668,22 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     const p = ps.find((x) => x.id === sc.data.playerId);
     const tier = view().pack?.lootTiers?.find((t) => t.id === sc.data.tier);
     const all = D('loot').playerId === '*';
+    // GM peek: roll the table privately, re-roll until it fits the story, then open with that item.
+    const pk = ui.peek && ui.peek.tier === tier?.id ? ui.peek : null;
+    const peek = async () => {
+      try { const r = await client.send({ t: 'loot.peek', tier: tier.id }); ui.peek = { tier: tier.id, item: r?.result?.item }; sig = ''; drawAll(); } catch (err) { toast(err.message, { error: true }); }
+    };
+    const open = async () => {
+      if (await act({ t: 'loot.open', playerId: p.id, tier: tier.id, ...(pk?.item ? { itemId: pk.item.id } : {}) }, `${p.name} opens the ${tier.name}.`)) { ui.peek = null; sig = ''; drawAll(); }
+    };
     return h('div.sc-ex-live',
       h('p.sc-line', tier ? h('b', tier.name) : 'No box', p ? ` for ${all ? 'everyone, starting with ' : ''}${p.name}` : ''),
+      tier ? h('div.sc-peek', icon('lock', { size: 13 }), pk?.item
+        ? [itemArt(pk.item, 'sc-peek-art'), h('span', 'Inside: ', h('b', pk.item.name), h('span.dim', ` (${pk.item.rarity})`)), h('button.btn.btn-sm', { type: 'button', onclick: peek }, 'Re-roll'), h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => { ui.peek = null; sig = ''; drawAll(); } }, 'Forget')]
+        : [h('span.dim', 'Only you: see what is inside before the reveal.'), h('button.btn.btn-sm', { type: 'button', onclick: peek }, 'Peek')]) : null,
       h('div.sc-boss-row',
-        h('button.btn.btn-primary.sc-big', { type: 'button', disabled: !p || !tier, onclick: () => act({ t: 'loot.open', playerId: p.id, tier: tier.id }, `${p.name} opens the ${tier.name}.`) }, `Open it for ${p?.name || '…'}`),
+        p ? h('button.btn.btn-primary.sc-big', { type: 'button', disabled: !tier, onclick: open }, `Open it for ${p.name}${pk?.item ? ` (${pk.item.name})` : ''}`)
+          : ps.map((x) => h('button.btn.btn-primary', { type: 'button', disabled: !tier, onclick: async () => { if (await act({ t: 'loot.open', playerId: x.id, tier: tier.id, ...(pk?.item ? { itemId: pk.item.id } : {}) }, `${x.name} opens the ${tier.name}.`)) { ui.peek = null; sig = ''; drawAll(); } } }, `Open for ${x.name}`)),
         all && ps.length > 1 ? h('button.btn.sc-big', { type: 'button', disabled: !tier, onclick: () => openForAll(tier) }, `Open for all ${ps.length}`) : null));
   }
   /** One box each, one after another (each opening gets its moment on the TV). */

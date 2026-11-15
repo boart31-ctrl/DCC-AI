@@ -469,3 +469,10 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 }
 .give-list .pick { display: grid; grid-template-columns: 2.4rem minmax(0, 1fr) auto; gap: 10px; align-items: center; text-align: left; }
 .give-list .pick:not(:has(.art)) { grid-template-columns: minmax(0, 1fr) auto; }
+.bld-item { display: grid; grid-template-columns: auto 2.2rem minmax(0, 1fr); align-items: center; gap: 8px; }
+.bld-ico { width: 2.2rem; height: 2.2rem; border-radius: 5px; border-width: 1px; }
+.bld-item > span:last-child { display: grid; min-width: 0; }
+.bld-desc { font-size: 12px; color: var(--c-ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bld-count { margin: 0 0 6px; font-weight: 600; color: var(--c-ink-2); }
+.rest-row { display: flex; align-items: center; gap: 6px; margin-bottom: 10px; }
+.pool-reset { font-weight: 400; font-size: 12px; }

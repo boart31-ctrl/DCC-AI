@@ -148,3 +148,29 @@ test('views: me.sheet carries pools, pending origins and the lock', () => {
   const g = viewFor(t.st, t.pack, 'gm', { now: 1000 });
   assert.deepEqual(g.gm.playersFull[0].sheet.pending, { class: 'Brawler' });
 });
+
+test('rest: long refills tracks and every counter; short refills short-reset counters and heals', async () => {
+  const { loadPack } = await import('../pack.js');
+  const { createState, reduce, reducePlayerAction } = await import('../state.js');
+  const { tmpDir, writePack, seq } = await import('./fixtures.js');
+  const { pack } = loadPack(writePack(tmpDir()));
+  let n = 0;
+  const ctx = { now: 1_000_000, rng: seq(0.5), genId: (p) => `${p}_${++n}`, pack };
+  let s = createState(pack, 0);
+  let r = reduce(s, { role: 'gm', t: 'player.add', name: 'Carl', pin: '1234' }, ctx);
+  s = r.state;
+  const pid = r.result.playerId;
+  const hp = pack.ruleset.tracks[0];
+  s = reduce(s, { role: 'gm', t: 'pool.add', playerId: pid, name: 'Second Wind', max: 1, reset: 'short' }, ctx).state;
+  s = reduce(s, { role: 'gm', t: 'pool.add', playerId: pid, name: 'Rage', max: 3 }, ctx).state;
+  for (const pl of s.players[0].sheet.pools) s = reduce(s, { role: 'gm', t: 'pool.set', playerId: pid, uid: pl.uid, cur: 0 }, ctx).state;
+  s = reduce(s, { role: 'gm', t: 'track.set', playerId: pid, track: hp.id, delta: -3 }, ctx).state;
+  r = reducePlayerAction(s, { t: 'rest', kind: 'short', heal: 1 }, { ...ctx, playerId: pid });
+  const pools = (st) => Object.fromEntries(st.players[0].sheet.pools.map((p) => [p.name, p.cur]));
+  assert.deepEqual(pools(r.state), { 'Second Wind': 1, Rage: 0 });
+  assert.ok(r.result.restored.includes('Second Wind'));
+  r = reduce(r.state, { role: 'gm', t: 'rest', playerId: pid, kind: 'long' }, ctx);
+  assert.deepEqual(pools(r.state), { 'Second Wind': 1, Rage: 3 });
+  assert.ok(r.result.restored.includes(hp.label));
+  assert.throws(() => reduce(s, { role: 'gm', t: 'rest', playerId: pid, kind: 'nap' }, ctx), /short or long/);
+});

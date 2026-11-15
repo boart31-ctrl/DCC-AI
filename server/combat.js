@@ -368,6 +368,34 @@ function conditionOf(st, ctx, a) {
   return { id: null, name: txt(a.name, 'name', 40) };
 }
 
+/** A new round: timed conditions tick down (mobs: condition.rounds, crawlers in the fight: buff.roundsLeft). */
+function tickConditions(st, ctx) {
+  const ended = [];
+  for (const x of C(st).combatants) {
+    if (x.type === 'mob') {
+      x.conditions = x.conditions.filter((k) => {
+        if (!k.rounds) return true;
+        k.rounds -= 1;
+        if (k.rounds > 0) return true;
+        ended.push(`${k.name} on ${x.name}`);
+        return false;
+      });
+    } else if (x.playerId) {
+      const p = st.players.find((y) => y.id === x.playerId);
+      if (!p) continue;
+      p.sheet.buffs = p.sheet.buffs.filter((b) => {
+        if (!b.roundsLeft) return true;
+        b.roundsLeft -= 1;
+        if (b.roundsLeft > 0) { b.until = `${b.roundsLeft} round${b.roundsLeft === 1 ? '' : 's'}`; return true; }
+        ended.push(`${b.name} on ${p.name}`);
+        return false;
+      });
+    }
+  }
+  if (ended.length && ctx.h?.feedPush) ctx.h.feedPush(st, { id: ctx.genId('ev'), kind: 'combat.condEnd', at: ctx.now }, `Worn off: ${ended.join(', ')}`);
+  return ended;
+}
+
 const sameCond = (c, k) => (k.id ? c.id === k.id : c.name.toLowerCase() === k.name.toLowerCase());
 
 /** Mob art: a /pack/ image or an http(s) URL (the GM art gallery), or null for the generated silhouette. */
@@ -507,7 +535,7 @@ function nextTurn(st, ctx, out) {
       turnEvent(st, out);
       return;
     }
-    if (i <= I.turn) c.round += 1;
+    if (i <= I.turn) { c.round += 1; tickConditions(st, ctx); }
     I.turn = i;
     turnEvent(st, out);
     return;
@@ -598,7 +626,7 @@ export const COMBAT_GM = {
       out.result = { round: c.round, turn: c.init.turn };
       return;
     }
-    if (c.phaseIndex >= c.phases.length - 1) { c.phaseIndex = 0; c.round += 1; } else c.phaseIndex += 1;
+    if (c.phaseIndex >= c.phases.length - 1) { c.phaseIndex = 0; c.round += 1; tickConditions(st, ctx); } else c.phaseIndex += 1;
     out.emit({ kind: 'combat.phase', round: c.round, phaseIndex: c.phaseIndex, phase: c.phases[c.phaseIndex] }, 'all');
     out.result = { round: c.round, phaseIndex: c.phaseIndex };
   },
@@ -742,10 +770,14 @@ export const COMBAT_GM = {
     const x = combatantOf(st, a.uid);
     const on = flag(a.on, 'on');
     const k = conditionOf(st, ctx, a);
+    // Optional duration: counts down at every new round, gone at 0 (null / 0 = until removed).
+    const rounds = a.rounds == null || a.rounds === 0 ? null : intIn(a.rounds, 'rounds', 1, 99);
     if (x.type === 'crawler') {
       const { p } = crawlerHp(st, ctx, x);
       if (on) {
         SHEET_GM['buff.add'](st, k.id ? { playerId: p.id, buffId: k.id } : { playerId: p.id, name: k.name }, ctx, out);
+        const b = p.sheet.buffs.find((y) => y.uid === out.result?.uid);
+        if (b && rounds) { b.roundsLeft = rounds; b.until = `${rounds} round${rounds === 1 ? '' : 's'}`; }
       } else {
         const b = p.sheet.buffs.find((y) => (k.id ? y.buffId === k.id : y.name.toLowerCase() === k.name.toLowerCase()));
         if (!b) throw notFound(`${p.name} does not have ${k.name}`);
@@ -754,11 +786,34 @@ export const COMBAT_GM = {
       return;
     }
     if (on) {
-      if (!x.conditions.some((c) => sameCond(c, k))) {
+      const had = x.conditions.find((c) => sameCond(c, k));
+      if (had) { if (rounds) had.rounds = rounds; else delete had.rounds; } else {
         if (x.conditions.length >= MAX_CONDITIONS) throw bad(`max ${MAX_CONDITIONS} conditions`);
-        x.conditions.push(k);
+        x.conditions.push(rounds ? { ...k, rounds } : k);
       }
     } else x.conditions = x.conditions.filter((c) => !sameCond(c, k));
+  },
+
+  /**
+   * A saved encounter (prep card kind "encounter"): `mobs` [{kind?, sourceId, count?}] from the library,
+   * added like combat.addMob (hidden unless `hidden: false`). Unknown ids are skipped, not fatal.
+   */
+  'combat.addEncounter'(st, a, ctx, out) {
+    if (!Array.isArray(a.mobs) || !a.mobs.length || a.mobs.length > 20) throw bad('mobs must be 1..20 entries');
+    const hidden = a.hidden === undefined ? true : flag(a.hidden, 'hidden');
+    const uids = [];
+    const skipped = [];
+    for (const m of a.mobs) {
+      if (!isObj(m) || typeof m.sourceId !== 'string') throw bad('each mob needs a sourceId');
+      const sub = { ...out, result: null };
+      try {
+        COMBAT_GM['combat.addMob'](st, { kind: m.kind, sourceId: m.sourceId, count: m.count ?? 1, hidden }, ctx, sub);
+        uids.push(...(sub.result?.uids ?? []));
+      } catch (err) {
+        if (err?.code === 'not_found') skipped.push(m.sourceId); else throw err;
+      }
+    }
+    out.result = { uids, skipped };
   },
 
   'combat.remove'(st, a) {
@@ -857,7 +912,7 @@ function crawlerRow(state, pack, library, x, gm) {
   const row = {
     uid: x.uid, type: 'crawler', playerId: p.id, name: p.name, color: p.color,
     hp: hp.cur, hpMax: hp.max, down: hp.max > 0 && hp.cur <= 0,
-    conditions: gm ? buffs.map((b) => ({ uid: b.uid, id: b.buffId ?? null, name: b.name })) : buffs.map((b) => ({ id: b.buffId ?? null, name: b.name })),
+    conditions: gm ? buffs.map((b) => ({ uid: b.uid, id: b.buffId ?? null, name: b.name, ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })) : buffs.map((b) => ({ id: b.buffId ?? null, name: b.name, ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })),
   };
   if (gm) {
     const d = defenseOf(pack, computed);
@@ -938,7 +993,7 @@ export function combatView(state, pack, role) {
       uid: x.uid, type: 'mob', name: x.name, image: x.image ?? null, boss: x.sourceKind === 'boss',
       group: x.sourceKey ?? null, // same library monster → one pack on the TV
       hpPct: hpFraction(x.hp, x.hpMax), down: x.hp <= 0,
-      conditions: (x.conditions ?? []).map((k) => ({ id: k.id ?? null, name: k.name })),
+      conditions: (x.conditions ?? []).map((k) => ({ id: k.id ?? null, name: k.name, ...(k.rounds ? { rounds: k.rounds } : {}) })),
     };
     if (c.showMobHp) Object.assign(row, { hp: x.hp, hpMax: x.hpMax });
     combatants.push(row);

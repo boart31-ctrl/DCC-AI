@@ -233,6 +233,7 @@ client.on('view', (v) => {
   render();
   msgCenter.update();
   maybeRecap(v.recap);
+  replayMissed(v);
 });
 
 client.on('event', (e) => {
@@ -264,8 +265,41 @@ client.on('event', (e) => {
     return;
   }
   if (e.playerId !== me.id) return;
-  if (['achievement', 'loot', 'sponsor'].includes(e.kind)) enqueueTakeover(e);
+  if (['achievement', 'loot', 'sponsor'].includes(e.kind)) {
+    if (e.id && seenLoad()?.has(e.id)) return; // the view got here first and already played it
+    markSeen(e.id);
+    enqueueTakeover(e);
+  }
 });
+
+/* Missed takeovers: the feed carries recent loot / achievement / sponsor moments (with `replay`). Any of mine
+   this phone has not shown yet (it was reloading or asleep) plays now. A phone's first visit only remembers. */
+const SEEN_KEY = () => `system.seenTakeovers.${me?.id}`;
+const REPLAY_MS = 2 * 3600_000;
+let seenSet = null;
+function seenLoad() {
+  if (seenSet) return seenSet;
+  try { const raw = localStorage.getItem(SEEN_KEY()); seenSet = raw ? new Set(JSON.parse(raw)) : null; } catch { seenSet = null; }
+  return seenSet;
+}
+function markSeen(id) {
+  if (!id || !me) return;
+  const set = seenLoad() || (seenSet = new Set());
+  set.add(id);
+  try { localStorage.setItem(SEEN_KEY(), JSON.stringify([...set].slice(-60))); } catch {}
+}
+function replayMissed(v) {
+  if (!me) return;
+  const mine = (v.feed || []).filter((f) => f.playerId === me.id && f.replay && ['achievement', 'loot', 'sponsor'].includes(f.kind));
+  if (!seenLoad()) { for (const f of mine) markSeen(f.id); if (!mine.length) markSeen('_init'); return; }
+  const now = v.now || Date.now();
+  for (const f of mine) {
+    if (seenSet.has(f.id)) continue;
+    markSeen(f.id);
+    if (now - f.at > REPLAY_MS) continue;
+    enqueueTakeover({ id: f.id, kind: f.kind, playerId: me.id, ...f.replay, replayed: true });
+  }
+}
 
 /* ---------- render ---------- */
 

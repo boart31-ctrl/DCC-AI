@@ -625,7 +625,7 @@ function createRewards() {
 
 /* ---------- prepared cards (prep.card.*) ---------- */
 
-const PREP_GLYPH = { achievement: '✦', loot: '▣', message: '✉', line: '❝' };
+const PREP_GLYPH = { achievement: '✦', loot: '▣', message: '✉', line: '❝', encounter: '⚔' };
 function cardNeedsPlayer(c) {
   return (c.kind === 'achievement' || c.kind === 'loot') && !c.payload?.playerId;
 }
@@ -635,18 +635,19 @@ function cardDetail(c) {
   if (c.kind === 'achievement') return [p.title || p.achId, who && `for ${who}`].filter(Boolean).join(' ');
   if (c.kind === 'loot') return [(view.pack?.lootTiers?.find((t) => t.id === p.tier)?.name || p.tier), who && `for ${who}`].filter(Boolean).join(' ');
   if (c.kind === 'message') return p.to === 'all' ? `To all: ${p.text}` : `${p.text}`;
+  if (c.kind === 'encounter') return (p.mobs || []).map((m) => `${m.count || 1}× ${(view.library?.[m.kind || 'monster'] || []).find((e) => e.id === m.sourceId)?.name || m.sourceId}`).join(', ');
   return p.text || '';
 }
 let prepSig = '';
 function renderPrep() {
   const cards = view.gm?.prepCards || [];
   const wrap = $('#prep');
-  wrap.hidden = !cards.length;
+  wrap.hidden = false;
   const sig = JSON.stringify([cards, view.players?.map((p) => [p.id, p.name])]);
   if (sig === prepSig) return;
   prepSig = sig;
   const open = cards.filter((c) => !c.used).length;
-  $('#prep-count').textContent = `${open} ready${cards.length > open ? `, ${cards.length - open} used` : ''}`;
+  $('#prep-count').textContent = cards.length ? `${open} ready${cards.length > open ? `, ${cards.length - open} used` : ''}` : 'Get rewards and lines ready before the session';
   $('#prep-cards').replaceChildren(...[...cards].sort((a, b) => Number(a.used) - Number(b.used)).map((c) => h('div.pcardx', { class: `pcardx k-${c.kind}${c.used ? ' used' : ''}` },
     h('button.pc-fire', {
       type: 'button',
@@ -664,6 +665,41 @@ function renderPrep() {
     }, '✕'),
   )));
 }
+/** New prepared card: achievement, loot box, message, a System line (encounters are saved from Fight). */
+function newPrepCard() {
+  const kinds = [['achievement', 'Achievement'], ['loot', 'Loot box'], ['message', 'Message'], ['line', 'System line']];
+  let kind = 'achievement';
+  const ps = view.players || [];
+  const tiers = view.pack?.lootTiers || [];
+  const label = field('', { placeholder: 'Short name on the card' });
+  const title = field('', { placeholder: 'Achievement title' });
+  const desc = field('', { multiline: true, rows: 2, placeholder: 'What they did (read aloud)' });
+  const text = field('', { multiline: true, rows: 3, placeholder: 'The text' });
+  const who = select([{ value: '', label: 'Pick when firing' }, ...ps.map((p) => ({ value: p.id, label: p.name }))], '');
+  const toAll = select([{ value: 'all', label: 'Everyone' }, ...ps.map((p) => ({ value: p.id, label: p.name }))], 'all');
+  const tier = select(tiers.map((t) => ({ value: t.id, label: t.name })), tiers[0]?.id || '');
+  const body = h('div.form-grid');
+  const seg = h('div.seg.span-all', kinds.map(([id, l]) => h('button', { type: 'button', 'aria-pressed': String(id === kind), onclick: () => { kind = id; for (const b of seg.children) b.setAttribute('aria-pressed', String(b.dataset.k === kind)); draw(); }, 'data-k': id }, l)));
+  const draw = () => body.replaceChildren(seg, labeled('Card name', label, { cls: 'span-all' }),
+    ...(kind === 'achievement' ? [labeled('Title', title), labeled('For', who), labeled('Description', desc, { cls: 'span-all' })]
+      : kind === 'loot' ? [labeled('Box', tier), labeled('For', who)]
+        : kind === 'message' ? [labeled('To', toAll), labeled('Text', text, { cls: 'span-all' })]
+          : [labeled('The System says', text, { cls: 'span-all' })]));
+  draw();
+  openDrawer({ title: 'New prepared card', sub: 'One tap fires it during the session.', body,
+    actions: [h('button.btn.btn-primary', { type: 'button', onclick: async () => {
+      const pid = who.value || undefined;
+      const payload = kind === 'achievement' ? { title: title.value.trim(), desc: desc.value.trim(), ...(pid ? { playerId: pid } : {}) }
+        : kind === 'loot' ? { tier: tier.value, ...(pid ? { playerId: pid } : {}) }
+          : kind === 'message' ? { to: toAll.value === 'all' ? 'all' : [toAll.value], text: text.value.trim() }
+            : { text: text.value.trim() };
+      if ((kind === 'achievement' && !payload.title) || ((kind === 'message' || kind === 'line') && !payload.text)) { toast('Fill in the text first.', { error: true }); return; }
+      const name = label.value.trim() || payload.title || (kind === 'loot' ? tiers.find((t) => t.id === payload.tier)?.name : payload.text?.slice(0, 40)) || kind;
+      if (await act({ t: 'prep.card.add', kind, label: name.slice(0, 80), payload }, 'Card ready.')) closeDrawer();
+    } }, 'Save card')] });
+}
+$('#prep-new')?.addEventListener('click', newPrepCard);
+
 function fireCard(c) {
   if (!cardNeedsPlayer(c)) { act({ t: 'prep.card.fire', id: c.id }, `Fired: ${c.label}.`); return; }
   const players = view.players || [];

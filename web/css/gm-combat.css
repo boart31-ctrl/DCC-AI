@@ -344,3 +344,8 @@
 .cbt-mobs-head { align-items: center; gap: 8px; }
 .cbt-finale.win { box-shadow: 0 0 0 2px var(--c-accent), 0 0 24px -6px var(--c-accent); }
 .cbt-prize .chk { margin-top: 6px; }
+.cond-r { margin-left: 4px; padding: 0 5px; border-radius: 8px; font-size: 11px; background: var(--c-ink-3); color: var(--c-bg); }
+.cbt-cond-rl { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; }
+.tool .cbt-cond-r { width: 52px; }
+.cbt-encs { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 4px 0 8px; }
+.cbt-enc { display: inline-flex; align-items: center; gap: 2px; }

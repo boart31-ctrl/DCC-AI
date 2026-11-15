@@ -25,7 +25,7 @@ export { genId, ActionError };
 export const FEED_SIZE = 30;
 export const MAX_PREP_CARDS = 100;
 export const MAX_RECAP = 4000;
-export const PREP_KINDS = { achievement: 'ach.award', loot: 'loot.open', message: 'msg.send', line: 'say' };
+export const PREP_KINDS = { achievement: 'ach.award', loot: 'loot.open', message: 'msg.send', line: 'say', encounter: 'combat.addEncounter' };
 export const MAX_MESSAGES = 400;
 export const GM_MESSAGES = 200;
 export const PLAYER_MESSAGES = 120;
@@ -305,8 +305,12 @@ function quipLine(st, quip, priority) {
 
 // ---------- reducers ----------
 
+// Phone takeovers a crawler may miss (reload, phone asleep): the feed keeps what the phone needs to replay them.
+const REPLAY_KINDS = { achievement: ['achId', 'title', 'desc', 'reward', 'group'], loot: ['tier', 'item'], sponsor: ['sponsor', 'tier', 'item'] };
 function feedPush(st, ev, text) {
-  st.feed.push({ id: ev.id, at: ev.at, kind: ev.kind, playerId: ev.playerId, text });
+  const keep = REPLAY_KINDS[ev.kind];
+  const replay = keep && ev.playerId ? Object.fromEntries(keep.filter((k) => ev[k] !== undefined).map((k) => [k, ev[k]])) : null;
+  st.feed.push({ id: ev.id, at: ev.at, kind: ev.kind, playerId: ev.playerId, text, ...(replay ? { replay } : {}) });
   if (st.feed.length > FEED_SIZE) st.feed = st.feed.slice(-FEED_SIZE);
 }
 
@@ -415,9 +419,23 @@ const GM = {
     out.lines.push(line);
   },
 
+  /** GM peek: rolls the tier's table without giving anything. Ack `result.item` {id, name, rarity, image}. Re-roll = call again. */
+  'loot.peek'(st, a, ctx, out) {
+    const item = libraryOf(st, ctx.pack).get('item', lootRoll(st, ctx, a.tier).id);
+    out.result = { item: { id: item.id, name: item.name, rarity: item.rarity ?? 'common', image: item.image ?? null, desc: item.desc ?? '' } };
+    out.changed = false;
+  },
+
   'loot.open'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
-    const item = libraryOf(st, ctx.pack).get('item', lootRoll(st, ctx, a.tier).id);
+    // itemId: the GM peeked and keeps this roll (must be on the tier's table).
+    let picked = null;
+    if (a.itemId !== undefined) {
+      if (typeof a.tier !== 'string' || !ctx.pack.tiersById.has(a.tier)) throw notFound(`unknown loot tier ${a.tier}`);
+      if (!(ctx.pack.loot[a.tier] ?? []).some((r) => r.item === a.itemId)) throw bad(`${a.itemId} is not in the ${a.tier} table`);
+      picked = a.itemId;
+    }
+    const item = libraryOf(st, ctx.pack).get('item', picked ?? lootRoll(st, ctx, a.tier).id);
     const inv = giveItem(p, item, ctx);
     const ev = out.emit({ kind: 'loot', playerId: p.id, tier: a.tier, item: inv }, 'all');
     feedPush(st, ev, `${p.name} opened a ${ctx.pack.tiersById.get(a.tier).name}: ${item.name}`);

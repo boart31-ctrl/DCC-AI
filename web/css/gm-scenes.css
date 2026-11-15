@@ -305,3 +305,5 @@
 .lt-box[aria-pressed="true"] { border-color: var(--tc); box-shadow: 0 0 0 2px var(--tc); }
 .lt-confirm { display: flex; align-items: center; gap: 6px; margin: 0; padding: 8px 12px; background: var(--c-raised); border-radius: var(--r-1); }
 .sc-npc-said { margin: 0; font-size: 14px; line-height: 1.45; }
+.sc-peek { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; font-size: 13px; background: var(--c-raised); border: 1px dashed var(--c-line-2); border-radius: var(--r-1); }
+.sc-peek-art { width: 36px; height: 36px; border-radius: 6px; border-width: 1px; }

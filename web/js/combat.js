@@ -369,25 +369,28 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const chips = x.conditions.map((k) => {
       const def = k.id ? buffs.find((b) => b.id === k.id) : null;
       const neg = (def?.tags || []).includes('debuff');
-      return h('span.cond', { class: neg ? 'cond neg' : 'cond', title: def?.desc || k.name },
-        k.name,
+      return h('span.cond', { class: neg ? 'cond neg' : 'cond', title: `${def?.desc || k.name}${k.rounds ? `\n${k.rounds} round${k.rounds === 1 ? '' : 's'} left` : ''}` },
+        k.name, k.rounds ? h('b.cond-r', { 'aria-label': `${k.rounds} rounds left` }, String(k.rounds)) : null,
         h('button.cond-x', { type: 'button', 'aria-label': `Remove ${k.name} from ${x.name}`, onclick: () => act({ t: 'combat.condition', uid: x.uid, ...(k.id ? { buffId: k.id } : { name: k.name }), on: false }) }, icon('x', { size: 11 })));
     });
     const opts = buffs.filter((b) => !have.has(b.id)).sort((a, b) => a.name.localeCompare(b.name));
+    // How long the next condition lasts: empty = until removed; it counts down at each new round.
+    const rounds = () => { const n = Math.round(Number(ui.condRounds) || 0); return n >= 1 && n <= 99 ? { rounds: n } : {}; };
+    const dur = h('input.inp.inp-sm.cbt-cond-r', { type: 'number', min: 1, max: 99, placeholder: '∞', value: ui.condRounds || '', title: 'Rounds (empty = until removed)', 'aria-label': 'Rounds the condition lasts', oninput: (e) => { ui.condRounds = e.target.value; } });
     const add = select([{ value: '', label: '+ Condition' }, ...opts.map((b) => ({ value: b.id, label: b.name })), { value: '__custom', label: 'Other…' }], '', {
       cls: 'inp-sm cbt-addcond', label: `Add a condition to ${x.name}`,
       onChange: (v) => {
         if (!v) return;
         if (v === '__custom') {
           const name = prompt('Condition name')?.trim();
-          if (name) act({ t: 'combat.condition', uid: x.uid, name: name.slice(0, 40), on: true });
+          if (name) act({ t: 'combat.condition', uid: x.uid, name: name.slice(0, 40), on: true, ...rounds() });
           else redraw();
           return;
         }
-        act({ t: 'combat.condition', uid: x.uid, buffId: v, on: true });
+        act({ t: 'combat.condition', uid: x.uid, buffId: v, on: true, ...rounds() });
       },
     });
-    return h('div.cbt-conds', chips, add);
+    return h('div.cbt-conds', chips, add, h('label.cbt-cond-rl', dur, h('span.dim', 'rounds')));
   }
 
   /* ---------- cards ---------- */
@@ -563,6 +566,29 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
                 onclick: () => act({ t: 'loot.take', dropId: d.id, key: it.key, playerId: p.id }, `${p.name} takes ${it.name}.`),
               }, p.name)))))));
       }));
+  }
+
+  /* ---------- saved encounters (prep cards of kind "encounter") ---------- */
+
+  async function saveEncounter() {
+    const by = new Map();
+    for (const m of C().combatants.filter((x) => x.type === 'mob' && x.sourceId)) {
+      const k = `${m.sourceKind}:${m.sourceId}`;
+      by.set(k, { kind: m.sourceKind, sourceId: m.sourceId, count: (by.get(k)?.count || 0) + 1 });
+    }
+    const mobs = [...by.values()].slice(0, 20);
+    const names = mobs.map((m) => `${m.count > 1 ? `${m.count}× ` : ''}${(lib()[m.kind] || []).find((e) => e.id === m.sourceId)?.name || m.sourceId}`);
+    const label = prompt('Name this encounter', names.slice(0, 2).join(' + '))?.trim();
+    if (!label) return;
+    act({ t: 'prep.card.add', kind: 'encounter', label: label.slice(0, 80), payload: { mobs } }, `Saved "${label}". Load it from Fight → Encounters.`);
+  }
+  function encounterChips() {
+    const cards = (view?.gm?.prepCards || []).filter((c) => c.kind === 'encounter');
+    if (!cards.length) return null;
+    return h('div.cbt-encs', h('span.mini-l', 'Encounters'), cards.map((c) => h('span.cbt-enc',
+      h('button.btn.btn-sm', { type: 'button', title: (c.payload?.mobs || []).map((m) => `${m.count || 1}× ${(lib()[m.kind || 'monster'] || []).find((e) => e.id === m.sourceId)?.name || m.sourceId}`).join(', '),
+        onclick: () => act({ t: 'prep.card.fire', id: c.id }, `${c.label}: added (hidden).`) }, icon('plus', { size: 12 }), c.label),
+      h('button.icon-btn.xs', { type: 'button', 'aria-label': `Delete encounter ${c.label}`, onclick: async () => { if (await ask(`Delete the encounter "${c.label}"?`, { ok: 'Delete', danger: true })) act({ t: 'prep.card.remove', id: c.id }); } }, icon('x', { size: 12 })))));
   }
 
   /* ---------- victory loot, set up before the fight ---------- */
@@ -750,7 +776,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   function draw(force = false) {
     if (!view) return;
     const c = C();
-    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait)]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, ui.endMenu, ui.special != null, sfx?.on, playingLeft() > 0]);
+    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait)]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, ui.endMenu, ui.special != null, (view.gm?.prepCards || []).filter((x) => x.kind === 'encounter').map((x) => [x.id, x.label]), view.players?.length, view.pack?.lootTiers?.length, sfx?.on, playingLeft() > 0]);
     if (!force && s === sig) return;
     if (!force && el.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]), textarea')) return;
     sig = s;
@@ -764,11 +790,13 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', c.active ? 'No crawlers in the fight.' : 'Start combat to bring the whole party in.'),
       h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), h('span.grow'),
         hiddenN ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, 'Every mob revealed.') }, icon('eye', { size: 13 }), 'Reveal all') : null,
+        mobs.some((m) => m.sourceId) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Keep these mobs as a one-tap encounter for later', onclick: saveEncounter }, icon('plus', { size: 13 }), 'Save as encounter') : null,
         mobs.length ? h('button.btn.btn-sm.btn-quiet.danger', { type: 'button', onclick: async () => {
           if (!(await ask(`Remove all ${mobs.length} mobs from the fight?`, { ok: 'Remove all', danger: true }))) return;
           for (const m of mobs) await act({ t: 'combat.remove', uid: m.uid }, null);
           toast('Board cleared.');
         } }, icon('trash', { size: 13 }), 'Remove all') : null),
+      encounterChips(),
       h('details.cbt-add', { open: ui.addOpen ?? !mobs.length, ontoggle: (e) => { ui.addOpen = e.target.open; } }, h('summary', icon('plus', { size: 14 }), 'Add mobs'), builder()),
       living.length ? h('ul.cbt-list', living.map(mobCard)) : h('p.empty-s', mobs.length ? 'Every mob is down.' : 'No mobs yet. Add them below.'),
       dead.length ? h('details.cbt-fallen', { open: ui.fallenOpen || null, ontoggle: (e) => { ui.fallenOpen = e.target.open; } },

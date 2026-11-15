@@ -89,11 +89,11 @@ export function migrateSheet(sheet, legacy, ruleset) {
     attacks: arr(s.attacks).map((k) => ({ uid: k.uid, name: k.name ?? '', skillUid: k.skillUid ?? null, stat: k.stat ?? '', dice: k.dice ?? '', effects: k.effects ?? '' })),
     spells: arr(s.spells).map((k) => ({ uid: k.uid, spellId: k.spellId, rank: finite(k.rank, 1), active: !!k.active })),
     hotlist: hot,
-    buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0) })),
+    buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0), ...(Number.isInteger(b.roundsLeft) && b.roundsLeft > 0 ? { roundsLeft: b.roundsLeft } : {}) })),
     story: cleanMap(s.story),
     portrait: typeof s.portrait === 'string' ? s.portrait : null,
     // Counters like "Lay on Hands": { uid, name, cur, max, desc } (player-trackable, GM/sheet-editable).
-    pools: arr(s.pools).slice(0, MAX_POOLS).map((k) => ({ uid: String(k.uid ?? ''), name: String(k.name ?? 'Pool').slice(0, 60), cur: Math.max(0, finite(k.cur, 0)), max: Math.max(0, finite(k.max, 0)), desc: String(k.desc ?? '').slice(0, 1000) })).filter((k) => k.uid),
+    pools: arr(s.pools).slice(0, MAX_POOLS).map((k) => ({ uid: String(k.uid ?? ''), name: String(k.name ?? 'Pool').slice(0, 60), cur: Math.max(0, finite(k.cur, 0)), max: Math.max(0, finite(k.max, 0)), desc: String(k.desc ?? '').slice(0, 1000), ...(k.reset === 'short' ? { reset: 'short' } : {}) })).filter((k) => k.uid),
     // Race / class / background the player asked for (allowOrigins), waiting for the GM; locked once approved.
     pending: isObj(s.pending) ? Object.fromEntries(ORIGIN_KEYS.filter((k) => typeof s.pending[k] === 'string').map((k) => [k, s.pending[k].slice(0, 40)])) : {},
     originsLocked: !!s.originsLocked,
@@ -681,6 +681,7 @@ export const SHEET = {
     if (p.sheet.pools.length >= MAX_POOLS) throw bad(`max ${MAX_POOLS} pools`);
     const max = int(a.max, 'max', 0, 9999);
     const pool = { uid: ctx.genId('pl'), name: str(a.name, 'name', 60), cur: int(a.cur, 'cur', 0, 9999, { optional: true }) ?? max, max, desc: str(a.desc, 'desc', 1000, { optional: true, allowEmpty: true }) ?? '' };
+    if (a.reset === 'short') pool.reset = 'short';
     pool.cur = Math.min(pool.cur, pool.max);
     p.sheet.pools.push(pool);
     out.result = { uid: pool.uid };
@@ -695,6 +696,33 @@ export const SHEET = {
     if (name !== undefined) pool.name = name;
     if (desc !== undefined) pool.desc = desc;
     if (max !== undefined) { pool.max = max; pool.cur = Math.min(pool.cur, max); }
+    if (a.reset !== undefined) { if (a.reset === 'short') pool.reset = 'short'; else delete pool.reset; }
+  },
+
+  /**
+   * Rest. long: every track (health, mana…) back to max, every counter refilled.
+   * short: counters marked reset "short" refilled, plus `heal` health if given (5e hit dice rolled at the table).
+   */
+  'rest'(st, a, ctx, out) {
+    const p = targetOf(st, a, ctx, 'play');
+    if (a.kind !== 'short' && a.kind !== 'long') throw bad('kind must be short or long');
+    const rs = ctx.pack.ruleset;
+    const heal = a.heal === undefined ? 0 : int(a.heal, 'heal', 0, 9999);
+    const done = [];
+    if (a.kind === 'long') {
+      const c = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed;
+      for (const t of rs.tracks) {
+        const tr = c.tracks[t.id];
+        if (tr && tr.cur < tr.max) { setTrack(st, p, { track: t.id, cur: tr.max }, ctx, out); done.push(t.label); }
+      }
+    } else if (heal) {
+      const hp = rs.tracks.find((t) => t.id === (rs.hpTrack ?? 'hp')) ?? rs.tracks[0];
+      if (hp) { setTrack(st, p, { track: hp.id, delta: heal }, ctx, out); done.push(`${hp.label} +${heal}`); }
+    }
+    for (const pl of p.sheet.pools) {
+      if ((a.kind === 'long' || pl.reset === 'short') && pl.cur < pl.max) { pl.cur = pl.max; done.push(pl.name); }
+    }
+    out.result = { restored: done };
   },
 
   /** Spend / regain from a pool: always allowed for the own character (like rolling), clamped 0..max. */
@@ -1247,7 +1275,9 @@ export const SHEET_GM = {
     const before = st.libArt[a.kind][a.id] ?? packArt;
     if (a.image == null || a.image === '') delete st.libArt[a.kind][a.id];
     else {
-      if (typeof a.image !== 'string' || !ART_URL.test(a.image)) throw bad('image must be a /pack/ path or an http(s) URL');
+      // An uploaded picture comes as a small data:image URL (the desk shrinks it to ≤ 320 px, ≤ 80 KB).
+      const upload = typeof a.image === 'string' && /^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=]+$/.test(a.image) && a.image.length <= 80_000;
+      if (typeof a.image !== 'string' || (!upload && !ART_URL.test(a.image))) throw bad('image must be a /pack/ path, an http(s) URL or a small uploaded picture');
       if (!(a.id in st.libArt[a.kind]) && Object.keys(st.libArt[a.kind]).length >= MAX_ART_PER_KIND) throw bad('too many art picks');
       st.libArt[a.kind][a.id] = a.image;
     }

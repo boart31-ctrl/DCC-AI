@@ -1,7 +1,7 @@
 // Character sheet (RULESET.md §5), shared by the player phone and the GM desk.
 // Every computed number explains itself (hover / long-press) and rolls when tapped.
 // The engine is authoritative: this component only renders `sheet` + `computed` and sends actions.
-import { h, toast, buzz, timeAgo, rarityOf, itemArt } from './client.js';
+import { h, toast, ask, buzz, timeAgo, rarityOf, itemArt } from './client.js';
 import {
   sheetModel, itemOf, libGet, evaluate, activeEffects, effectText, playerEditLevel, rollFormula, diceText, validateFormula,
 } from './rules.js';
@@ -873,7 +873,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const ok = can('sheet');
     if (!pools.length && !ok) return null;
     const rows = pools.map((pl) => h('li.pool-row',
-      h('div.pool-main', h('b.pool-n', pl.name), pl.desc ? h('p.pool-d', pl.desc) : null),
+      h('div.pool-main', h('b.pool-n', pl.name, h('span.dim.pool-reset', pl.reset === 'short' ? ' · short rest' : ' · long rest')), pl.desc ? h('p.pool-d', pl.desc) : null),
       h('div.pool-ctl',
         h('button.icon-btn', { type: 'button', disabled: pl.cur <= 0, 'aria-label': `${pl.name} minus 1`, onclick: () => act({ t: 'pool.set', uid: pl.uid, delta: -1 }) }, icon('minus', { size: 16 })),
         h('span.pool-v', h('b', String(pl.cur)), `/${pl.max}`),
@@ -884,14 +884,28 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const name = field('', { placeholder: 'e.g. Lay on Hands' });
       const max = field(3, { type: 'number', attrs: { min: 0, inputmode: 'numeric' } });
       const desc = field('', { multiline: true, rows: 2, placeholder: 'What it does (optional)' });
+      const reset = select([{ value: 'long', label: 'Long rest' }, { value: 'short', label: 'Short rest' }], 'long', { label: 'Refills on' });
       openDrawer({
         title: 'Add a counter',
         sub: 'Uses per day, charges, a pool of healing: anything you tick down and refill.',
-        body: h('div.form-grid', labeled('Name', name, { cls: 'span-2' }), labeled('Max', max), labeled('What it does', desc, { cls: 'span-all' })),
-        actions: [h('button.btn.btn-primary', { type: 'button', onclick: async () => { if (!name.value.trim()) { name.focus(); return; } if (await act({ t: 'pool.add', name: name.value.trim(), max: Math.max(0, Number(max.value) || 0), desc: desc.value.trim() }, 'Counter added.')) closeDrawer(); } }, 'Add counter')],
+        body: h('div.form-grid', labeled('Name', name, { cls: 'span-2' }), labeled('Max', max), labeled('Refills on', reset), labeled('What it does', desc, { cls: 'span-all' })),
+        actions: [h('button.btn.btn-primary', { type: 'button', onclick: async () => { if (!name.value.trim()) { name.focus(); return; } if (await act({ t: 'pool.add', name: name.value.trim(), max: Math.max(0, Number(max.value) || 0), desc: desc.value.trim(), ...(reset.value === 'short' ? { reset: 'short' } : {}) }, 'Counter added.')) closeDrawer(); } }, 'Add counter')],
       });
     };
+    const rest = async (kind) => {
+      let heal;
+      if (kind === 'short') {
+        const v = prompt('Short rest: how much health do they get back? (hit dice rolled at the table; empty = none)', '');
+        if (v === null) return;
+        heal = Math.max(0, Math.round(Number(v) || 0));
+      } else if (!(await ask(`Long rest for ${player.name}? Health and every resource back to full, every counter refilled.`, { ok: 'Long rest' }))) return;
+      const r = await act({ t: 'rest', kind, ...(heal ? { heal } : {}) }, null);
+      if (r) toast(r.result?.restored?.length ? `${kind === 'long' ? 'Long' : 'Short'} rest: ${r.result.restored.join(', ')}.` : 'Rested. Nothing needed refilling.');
+    };
     return h('section.sh-block.sh-pools',
+      can('play') ? h('div.rest-row', h('span.mini-l', 'Rest'),
+        h('button.btn.btn-sm', { type: 'button', title: 'Counters marked "short rest" refill; optional health back', onclick: () => rest('short') }, 'Short rest'),
+        h('button.btn.btn-sm', { type: 'button', title: 'Health, mana and every counter back to full', onclick: () => rest('long') }, 'Long rest')) : null,
       h('h2.blk-t', 'Limited uses'),
       pools.length ? h('ul.pool-list', rows) : h('p.empty-s', 'No counters yet.'),
       ok ? h('div.add-row', h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: add }, icon('plus', { size: 14 }), 'Add a counter')) : null,

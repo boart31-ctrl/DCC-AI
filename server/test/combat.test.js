@@ -511,3 +511,39 @@ test('a boss back on the TV mid-fight keeps his HP, phase and reveal', () => {
   assert.equal(s.scene.data.revealed, true);
   assert.equal(mobs(s)[0].hp, 11);
 });
+
+test('combat.condition rounds: mob and crawler conditions tick down each round and wear off', () => {
+  let { s, pid } = base();
+  s = gm(s, { t: 'combat.addMob', sourceId: 'goblin', hidden: false }).state;
+  s = gm(s, { t: 'combat.start' }).state;
+  const gob = mobs(s)[0];
+  const carl = s.combat.combatants.find((x) => x.playerId === pid);
+  s = gm(s, { t: 'combat.condition', uid: gob.uid, buffId: 'prone', on: true, rounds: 2 }).state;
+  s = gm(s, { t: 'combat.condition', uid: gob.uid, name: 'Dazed', on: true }).state;
+  s = gm(s, { t: 'combat.condition', uid: carl.uid, buffId: 'bleeding', on: true, rounds: 1 }).state;
+  assert.equal(mobs(s)[0].conditions.find((k) => k.id === 'prone').rounds, 2);
+  assert.equal(s.players.find((p) => p.id === pid).sheet.buffs[0].roundsLeft, 1);
+  const pub = viewFor(s, pack, 'stage').combat.combatants;
+  assert.equal(pub.find((x) => x.name === 'Goblin').conditions.find((k) => k.id === 'prone').rounds, 2);
+  s = gm(s, { t: 'combat.next' }).state; // phase 2, same round
+  assert.equal(mobs(s)[0].conditions.length, 2);
+  s = gm(s, { t: 'combat.next' }).state; // round 2: prone 1 left, bleeding gone
+  assert.equal(s.combat.round, 2);
+  assert.equal(mobs(s)[0].conditions.find((k) => k.id === 'prone').rounds, 1);
+  assert.equal(s.players.find((p) => p.id === pid).sheet.buffs.length, 0);
+  s = gm(gm(s, { t: 'combat.next' }).state, { t: 'combat.next' }).state; // round 3: prone gone, Dazed stays
+  assert.deepEqual(mobs(s)[0].conditions.map((k) => k.name), ['Dazed']);
+  assert.ok(s.feed.some((f) => /Worn off: Prone on Goblin/.test(f.text)));
+  assert.throws(() => gm(s, { t: 'combat.condition', uid: gob.uid, name: 'X', on: true, rounds: 500 }), /rounds/);
+});
+
+test('encounter prep card: saved mobs are added hidden on fire; unknown ids are skipped', () => {
+  let { s } = base();
+  let r = gm(s, { t: 'prep.card.add', kind: 'encounter', label: 'Goblin ambush', payload: { mobs: [{ sourceId: 'goblin', count: 2 }, { sourceId: 'porter', kind: 'boss' }, { sourceId: 'gone' }] } });
+  s = r.state;
+  r = gm(s, { t: 'prep.card.fire', id: r.result.id });
+  s = r.state;
+  assert.deepEqual(mobs(s).map((m) => [m.name, m.hidden]), [['Goblin 1', true], ['Goblin 2', true], ['Porter Grim', true]]);
+  assert.deepEqual(r.result.skipped, ['gone']);
+  assert.throws(() => gm(s, { t: 'combat.addEncounter', mobs: [] }), /mobs/);
+});
