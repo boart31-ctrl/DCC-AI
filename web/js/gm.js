@@ -1100,6 +1100,13 @@ document.addEventListener('keydown', (e) => {
     stopAll();
     return;
   }
+  // Ctrl+Z / Cmd+Z: take back the newest hand edit in the fight (damage, heal, condition, reveal, remove).
+  if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyZ' && !e.target.closest?.('input, textarea, select, [contenteditable]')) {
+    if (!view?.combat?.manualUndo) { toast('Nothing to undo in the fight.'); return; }
+    e.preventDefault();
+    act({ t: 'combat.undo' }).then((r) => r?.result?.undone && toast(`Undone: ${r.result.undone}`));
+    return;
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   const t = e.target;
   if (t.closest?.('input, textarea, select, [contenteditable]') || sheet.open || drawerOpen()) return;

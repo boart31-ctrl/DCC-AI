@@ -160,11 +160,22 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         h('button.btn.cbt-step', { type: 'button', disabled: !canAct, onclick: () => runStep(), title: 'One mob at a time' }, icon('play', { size: 14 }), 'Step'),
         left > 0 ? h('button.btn.cbt-skip', { type: 'button', onclick: () => act({ t: 'combat.autoSkip' }), title: 'Jump the TV to the end of the cinematic' }, icon('skip', { size: 14 }), 'Skip') : null,
         c.lastAuto?.canUndo ? h('button.btn.btn-quiet.cbt-undo', { type: 'button', onclick: undo, title: 'Put back the HP and conditions the last auto run changed' }, icon('undo', { size: 14 }), 'Undo') : null,
+        c.manualUndo ? h('button.btn.btn-sm.btn-quiet.cbt-undo-hand', { type: 'button', onclick: () => act({ t: 'combat.undo' }).then((r) => r?.result?.undone && toast(`Undone: ${r.result.undone}`)), title: `Take back: ${c.manualUndo.label} (Ctrl+Z)` }, icon('undo', { size: 14 }), `Undo: ${c.manualUndo.label}`) : null,
         h('span.grow'),
         hidden ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, `${hidden} revealed.`), title: 'Show every hidden mob on the TV and phones' }, icon('eye', { size: 14 }), `Reveal all (${hidden})`) : null,
         endButton()) : (c.combatants.length ? h('div.cbt-auto-bar', h('span.grow'), endButton()) : null),
       ui.endMenu ? endMenu() : null,
     );
+  }
+
+  /** Players who joined after the fight started (or were left out): one tap brings them in. */
+  function lateJoin(c, crawlers) {
+    if (!c.active) return null;
+    const inFight = new Set(crawlers.map((x) => x.playerId));
+    const out = (view.players || []).filter((p) => !inFight.has(p.id));
+    if (!out.length) return null;
+    return h('div.cbt-late', h('span.mini-l', 'Not in the fight'),
+      out.map((p) => h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.addCrawler', playerId: p.id }, `${p.name} joins the fight.`), title: `Add ${p.name} to this fight` }, icon('plus', { size: 13 }), p.name)));
   }
 
   function soundButton() {
@@ -303,7 +314,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       iniSel,
       rule('stepMs', 'TV pace per mob', select([2000, 2800, 3400, 4000].map((ms) => ({ value: String(ms), label: `${(ms / 1000).toFixed(1)} s${ms === 2800 ? ' (default)' : ''}` })), String(s.stepMs ?? 2800), { cls: 'inp-sm', label: 'TV pace', onChange: (v) => set({ stepMs: Number(v) }) })),
       h('div.cbt-rule-chks',
-        chk('public', 'Rolls in the public dice log'),
+        chk('public', 'Mob rolls on TV (Boss and Fight too)'),
         chk('includeHidden', 'Hidden mobs act too', 'The TV shows them as "something unseen"'),
         chk('finishDowned', 'Finish them: downed crawlers can be targeted'),
         chk('autoEnd', 'Offer victory / defeat by itself')))
@@ -315,7 +326,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       rule('crit', 'Natural 20', select([{ value: 'double', label: 'Double damage' }, { value: 'none', label: 'Just a hit' }], s.crit, { cls: 'inp-sm', label: 'Natural 20 rule', onChange: (v) => set({ crit: v }) })),
       rule('stepMs', 'TV pace per mob', select([2000, 2800, 3400, 4000].map((ms) => ({ value: String(ms), label: `${(ms / 1000).toFixed(1)} s${ms === 2800 ? ' (default)' : ''}` })), String(s.stepMs ?? 2800), { cls: 'inp-sm', label: 'TV pace', onChange: (v) => set({ stepMs: Number(v) }) })),
       h('div.cbt-rule-chks',
-        chk('public', 'Rolls in the public dice log'),
+        chk('public', 'Mob rolls on TV (Boss and Fight too)'),
         chk('includeHidden', 'Hidden mobs act too', 'The TV shows them as "something unseen"'),
         chk('finishDowned', 'Finish them: downed crawlers can be targeted'),
         chk('autoEnd', 'Offer victory / defeat by itself'))) : null;
@@ -348,12 +359,13 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   /** Quick −1 / +1 always; −2 −3 and a typed amount on wide screens or in the open line. */
   function quick(x, wide) {
     const dmg = (n) => act({ t: 'combat.damage', uid: x.uid, amount: n });
-    const custom = h('input.inp.inp-sm.cbt-amt', { type: 'number', min: 1, max: 999, placeholder: '#', 'aria-label': `Damage amount for ${x.name} (Shift+Enter heals)`, inputmode: 'numeric' });
+    const custom = h('input.inp.inp-sm.cbt-amt', { type: 'number', min: 1, max: 999, placeholder: x.dr ? `#−${x.dr}` : '#', title: x.dr ? `Rolled damage; DR ${x.dr} comes off. Shift+Enter heals.` : 'Damage (Enter) · Shift+Enter heals', 'aria-label': `Damage amount for ${x.name} (Shift+Enter heals)`, inputmode: 'numeric' });
     custom.addEventListener('keydown', (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
       const n = Math.round(Number(custom.value));
-      if (n >= 1) { (e.shiftKey ? act({ t: 'combat.heal', uid: x.uid, amount: n }) : dmg(Math.min(999, n))); custom.value = ''; custom.blur(); }
+      // Typed number = the rolled damage: the target's DR comes off on the server (Shift+Enter heals exactly).
+      if (n >= 1) { (e.shiftKey ? act({ t: 'combat.heal', uid: x.uid, amount: n }) : act({ t: 'combat.damage', uid: x.uid, amount: Math.min(999, n), dr: true }, x.dr ? `${x.name}: ${n} − DR ${x.dr}` : null)); custom.value = ''; custom.blur(); }
     });
     return h('div.cbt-dmg', { class: wide ? 'cbt-dmg wide' : 'cbt-dmg' },
       h('button.btn.btn-sm.cbt-hit', { type: 'button', disabled: x.hp <= 0, onclick: () => dmg(1), 'aria-label': `1 damage to ${x.name}` }, '−1'),
@@ -452,11 +464,11 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   async function mobRoll(m, i) {
     const atk = m.attacks[i];
     try {
-      const r = await send({ t: 'combat.mobRoll', uid: m.uid, attackIndex: i, public: !!pref.publicRolls });
+      const r = await send({ t: 'combat.mobRoll', uid: m.uid, attackIndex: i, public: C().settings?.public !== false });
       const res = r?.result || {};
       ui.lastRoll = { at: Date.now(), name: m.name, uid: m.uid, attack: atk, ...res };
       const nat = res.nat20 ? ' (natural 20!)' : res.nat1 ? ' (natural 1)' : '';
-      toast(`${m.name}, ${atk.name}: ${res.total} to hit${nat}${res.damage != null ? `, ${res.damage} damage` : ''}${pref.publicRolls ? '' : ' (secret)'}`, { ms: 5000 });
+      toast(`${m.name}, ${atk.name}: ${res.total} to hit${nat}${res.damage != null ? `, ${res.damage} damage` : ''}${C().settings?.public !== false ? '' : ' (secret)'}`, { ms: 5000 });
       redraw();
     } catch (err) { toast(err.message, { error: true }); }
   }
@@ -749,7 +761,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   function lastRollCard() {
     const r = ui.lastRoll;
     const vis = h('label.chk.cbt-pub', { title: 'Public rolls show in everyone\'s dice log and can trigger the nat 20 / nat 1 lines' },
-      h('input', { type: 'checkbox', checked: !!pref.publicRolls, onchange: (e) => { setPref('publicRolls', e.target.checked); redraw(); } }), h('span', 'Mob rolls are public'));
+      h('input', { type: 'checkbox', checked: C().settings?.public !== false, onchange: (e) => act({ t: 'combat.set', settings: { public: e.target.checked } }, e.target.checked ? 'Mob rolls on the TV (Boss and Fight).' : 'Mob rolls GM only (Boss and Fight).') }), h('span', 'Mob rolls on TV'));
     if (!r) return h('section.panel.cbt-last', h('div.sec-head', h('h2', 'Mob attacks'), h('span.grow'), vis), h('p.dim', 'Press an attack on a mob row: d20 + to hit, then damage, straight into the dice log (secret unless public).'));
     const crawlers = C().combatants.filter((x) => x.type === 'crawler');
     const bufs = (r.buffs || []).map((id) => (lib().buff || []).find((b) => b.id === id)).filter(Boolean);
@@ -788,6 +800,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const list = h('section.panel.cbt-list-panel',
       h('div.sec-head', h('h2', 'Crawlers'), h('span.dim', c.active ? `Now: ${c.phase || ''}` : 'Join when combat starts')),
       crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', c.active ? 'No crawlers in the fight.' : 'Start combat to bring the whole party in.'),
+      lateJoin(c, crawlers),
       h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), h('span.grow'),
         hiddenN ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, 'Every mob revealed.') }, icon('eye', { size: 13 }), 'Reveal all') : null,
         mobs.some((m) => m.sourceId) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Keep these mobs as a one-tap encounter for later', onclick: saveEncounter }, icon('plus', { size: 13 }), 'Save as encounter') : null,

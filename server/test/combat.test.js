@@ -547,3 +547,37 @@ test('encounter prep card: saved mobs are added hidden on fire; unknown ids are 
   assert.deepEqual(r.result.skipped, ['gone']);
   assert.throws(() => gm(s, { t: 'combat.addEncounter', mobs: [] }), /mobs/);
 });
+
+test('Ctrl+Z: hand edits undo newest first (damage, condition, remove), crawler HP back relatively; typed damage minus DR', () => {
+  let { s, pid } = base();
+  s = gm(s, { t: 'combat.addMob', sourceId: 'goblin', hidden: false }).state; // 4 HP, DR 1
+  s = gm(s, { t: 'combat.start' }).state;
+  const g = mobs(s)[0];
+  // DR: typed 3 → 2 off; typed 1 → minimum stays (rules drMin)
+  let r = gm(s, { t: 'combat.damage', uid: g.uid, amount: 3, dr: true });
+  s = r.state;
+  assert.equal(r.result.drApplied, 1);
+  assert.equal(mobs(s)[0].hp, 2);
+  s = gm(s, { t: 'combat.condition', uid: g.uid, name: 'Prone', on: true }).state;
+  s = gm(s, { t: 'combat.remove', uid: g.uid }).state;
+  assert.equal(mobs(s).length, 0);
+  assert.equal(viewFor(s, pack, 'gm').combat.manualUndo.label, 'Removed Goblin');
+  s = gm(s, { t: 'combat.undo' }).state;
+  assert.equal(mobs(s).length, 1);
+  assert.equal(mobs(s)[0].conditions.length, 1);
+  s = gm(s, { t: 'combat.undo' }).state;
+  assert.equal(mobs(s)[0].conditions.length, 0);
+  s = gm(s, { t: 'combat.undo' }).state;
+  assert.equal(mobs(s)[0].hp, 4);
+  assert.throws(() => gm(s, { t: 'combat.undo' }), /nothing to undo/);
+  // crawler: hit 2, then a heal of 1 by other means stays after the undo of the hit
+  const cr = s.combat.combatants.find((x) => x.type === 'crawler' && x.playerId === pid);
+  const hp = () => viewFor(s, pack, 'gm').combat.combatants.find((x) => x.uid === cr.uid).hp;
+  const full = hp();
+  s = gm(s, { t: 'combat.damage', uid: cr.uid, amount: 3 }).state;
+  s = gm(s, { t: 'track.set', playerId: pid, track: 'hp', delta: 1 }).state;
+  const u = s.combat.manualUndo.length;
+  s = gm(s, { t: 'combat.undo' }).state;
+  assert.equal(s.combat.manualUndo.length, u - 1);
+  assert.equal(hp(), full); // +3 back on top of the later +1, clamped at max
+});

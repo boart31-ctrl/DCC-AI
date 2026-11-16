@@ -112,7 +112,7 @@ function quietRoll(st, ctx, out, formula, label, secret) {
 function remember(undo, st, ctx, s) {
   if (undo.crawlers[s.p.id]) return;
   const t = hpTrackOf(ctx.pack);
-  undo.crawlers[s.p.id] = { cur: s.hp, track: t?.id ?? null, buffs: [] };
+  undo.crawlers[s.p.id] = { cur: s.hp, track: t?.id ?? null, buffs: [], taken: 0 };
 }
 
 /** One mob's turn. Mutates the state; returns the step record. */
@@ -159,6 +159,7 @@ function resolveMob(st, ctx, out, c, m, run, force = {}) {
       const after = crawlerState(st, ctx, target.x);
       step.hpAfter = after.hp;
       const taken = target.hp - after.hp;
+      if (taken > 0) run.undo.crawlers[target.p.id].taken = (run.undo.crawlers[target.p.id].taken ?? 0) + taken;
       if (taken > 0) c.stats.taken[target.p.id] = (c.stats.taken[target.p.id] ?? 0) + taken;
       if (target.hp > 0 && after.hp <= 0) {
         step.down = true;
@@ -350,7 +351,8 @@ export const AUTO_GM = {
     for (const [pid, u] of Object.entries(la.undo.crawlers)) {
       const p = st.players.find((x) => x.id === pid);
       if (!p) continue;
-      if (t && u.track === t.id) setTrack(st, p, { track: t.id, cur: u.cur }, ctx, out);
+      // Relative: give back only what this run took, so heals made after it stay (old runs: absolute).
+      if (t && u.track === t.id) setTrack(st, p, u.taken !== undefined ? { track: t.id, delta: u.taken } : { track: t.id, cur: u.cur }, ctx, out);
       const drop = new Set(u.buffs);
       p.sheet.buffs = p.sheet.buffs.filter((b) => !drop.has(b.uid));
       restored.push(p.name);

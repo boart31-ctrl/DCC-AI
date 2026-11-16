@@ -30,6 +30,7 @@ export const DEFAULT_PHASES = ['Crawlers', 'Mobs'];
 export const MAX_COMBATANTS = 40;
 export const MAX_MOB_HP = 999;
 export const MAX_CONDITIONS = 12;
+const MANUAL_UNDO_MAX = 20; // Ctrl+Z stack of the GM's hand edits
 export const MAX_PHASES = 8;
 export const TARGET_MODES = ['auto', 'focus', 'spread'];
 export const ATTACK_MODES = ['first', 'random'];
@@ -150,6 +151,7 @@ export function normalizeCombat(raw) {
     lastAuto: isObj(raw.lastAuto) ? raw.lastAuto : null,
     autoQueue: isObj(raw.autoQueue) && Array.isArray(raw.autoQueue.uids) ? raw.autoQueue : null,
     id: typeof raw.id === 'string' ? raw.id : null,
+    ...(Array.isArray(raw.manualUndo) && raw.manualUndo.length ? { manualUndo: raw.manualUndo.filter(isObj).slice(-MANUAL_UNDO_MAX) } : {}),
   };
   c.init = normalizeInit(raw.init, c.combatants.map((x) => x.uid));
   c.phaseIndex = Math.min(c.phaseIndex, c.phases.length - 1);
@@ -302,8 +304,23 @@ export function chatCue(out, cue, fill = {}, delayMs = 0) {
 function changeHp(st, a, ctx, out, sign) {
   const c = C(st);
   const x = combatantOf(st, a.uid);
-  const amount = a.amount === undefined ? 1 : intIn(a.amount, 'amount', 1, MAX_MOB_HP);
+  let amount = a.amount === undefined ? 1 : intIn(a.amount, 'amount', 1, MAX_MOB_HP);
   const kind = sign < 0 ? 'combat.hit' : 'combat.heal';
+  // a.dr === true: `amount` is the rolled damage, the target's DR comes off (never below the rules' minimum).
+  let drApplied = 0;
+  if (sign < 0 && a.dr === true) {
+    let dr = 0;
+    if (x.type === 'mob') dr = x.dr || 0;
+    else {
+      const p = st.players.find((y) => y.id === x.playerId);
+      try { dr = defenseOf(ctx.pack, computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed).dr; } catch { dr = 0; }
+    }
+    const min = combatRules(ctx.pack, c.settings).drMin ?? 0;
+    const after = Math.max(min, amount - Math.max(0, dr));
+    drApplied = amount - after;
+    amount = after;
+    if (amount <= 0) { out.result = { hp: x.hp ?? null, blocked: true, dr }; out.changed = false; return; }
+  }
   if (x.type === 'crawler') {
     // Sheets stay the single source of truth: same path as the sheet's own track.set.
     const { p, t } = crawlerHp(st, ctx, x);
@@ -319,7 +336,7 @@ function changeHp(st, a, ctx, out, sign) {
       const line = a.line === false ? null : comboLine(st, ctx, 'crawler_down', 900);
       if (line) out.lines.push(line);
     }
-    out.result = { hp: cur.cur, max: cur.max };
+    out.result = { hp: cur.cur, max: cur.max, amount, drApplied };
     return;
   }
   const from = x.hp;
@@ -339,7 +356,7 @@ function changeHp(st, a, ctx, out, sign) {
     }
   }
   if (linkedBoss(st, x)) SCENE_GM[sign < 0 ? 'boss.damage' : 'boss.heal'](st, { amount }, ctx, out);
-  out.result = { hp: x.hp, max: x.hpMax };
+  out.result = { hp: x.hp, max: x.hpMax, amount, drApplied };
 }
 
 /** Damage from a player's entered / digital damage roll (character.js resolveAgainst). */
@@ -969,6 +986,7 @@ export function combatView(state, pack, role) {
     const la = c.lastAuto;
     Object.assign(head, {
       id: c.id, startedAt: c.startedAt, settings: c.settings, unverified: UNVERIFIED_RULES, stats: c.stats,
+      manualUndo: (state.combat?.manualUndo ?? []).length ? { label: state.combat.manualUndo.at(-1).label, count: state.combat.manualUndo.length } : null,
       lastAuto: la ? { id: la.id, at: la.at, steps: la.steps, canUndo: !!la.undo && !la.undone, undone: !!la.undone, startAt: la.startAt, stepMs: la.stepMs } : null,
       autoQueue: c.autoQueue ? { id: c.autoQueue.id, uids: c.autoQueue.uids, done: c.autoQueue.done ?? 0 } : null,
       suggestEnd: endSuggestion(state, pack),
@@ -1000,3 +1018,72 @@ export function combatView(state, pack, role) {
   }
   return { ...head, combatants };
 }
+
+/* ---------- Ctrl+Z for the GM's own hand edits ---------- */
+
+const UNDO_LABEL = {
+  'combat.damage': (a, n) => `Damage to ${n}`, 'combat.heal': (a, n) => `Heal on ${n}`,
+  'combat.condition': (a, n) => `${a.on === false ? 'Removed' : 'Added'} condition on ${n}`,
+  'combat.reveal': (a, n) => (a.all ? (a.on === false ? 'Hide all' : 'Reveal all') : `${a.on === false ? 'Hide' : 'Reveal'} ${n}`),
+  'combat.remove': (a, n) => `Removed ${n}`, 'combat.update': (a, n) => `Edit ${n}`,
+};
+
+/** What an undo needs to put back: the touched mobs as they were (+ their place), a crawler's HP and buffs. */
+function undoSnapshot(st, ctx, type, a) {
+  const c = C(st);
+  const list = type === 'combat.reveal' && a.all === true ? c.combatants.filter((x) => x.type === 'mob') : c.combatants.filter((x) => x.uid === a.uid);
+  if (!list.length) return null;
+  const snap = { mobs: [], crawler: null, init: type === 'combat.remove' ? structuredClone(c.init) : null };
+  for (const x of list) {
+    if (x.type === 'mob') { snap.mobs.push({ idx: c.combatants.indexOf(x), obj: structuredClone(x) }); continue; }
+    const { p, t } = crawlerHp(st, ctx, x);
+    const hp = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.tracks[t.id].cur;
+    snap.crawler = { playerId: p.id, track: t.id, hp, buffs: structuredClone(p.sheet.buffs ?? []) };
+  }
+  return snap;
+}
+
+for (const type of Object.keys(UNDO_LABEL)) {
+  const run = COMBAT_GM[type];
+  COMBAT_GM[type] = function undoable(st, a, ctx, out) {
+    let snap = null;
+    try { snap = isObj(a) ? undoSnapshot(st, ctx, type, a) : null; } catch { snap = null; }
+    const r = run(st, a, ctx, out);
+    if (!snap || out.changed === false) return r;
+    if (snap.crawler) {
+      const p = st.players.find((y) => y.id === snap.crawler.playerId);
+      try { snap.crawler.after = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.tracks[snap.crawler.track].cur; } catch { snap.crawler.after = snap.crawler.hp; }
+    }
+    const who = snap.mobs[0]?.obj.name ?? st.players.find((y) => y.id === snap.crawler?.playerId)?.name ?? '?';
+    const c = C(st);
+    c.manualUndo = [...(c.manualUndo ?? []), { id: ctx.genId('mu'), at: ctx.now, type, label: UNDO_LABEL[type](a, who), snap }].slice(-MANUAL_UNDO_MAX);
+    return r;
+  };
+}
+
+/** Takes back the GM's newest hand edit (damage, heal, condition, reveal / hide, remove, edit). */
+COMBAT_GM['combat.undo'] = function combatUndo(st, a, ctx, out) {
+  const c = C(st);
+  const e = (c.manualUndo ?? []).pop();
+  if (!e) throw bad('nothing to undo');
+  const { mobs, crawler, init } = e.snap;
+  for (const { idx, obj } of mobs) {
+    const i = c.combatants.findIndex((x) => x.uid === obj.uid);
+    const now = i >= 0 ? c.combatants[i] : null;
+    if (now) c.combatants[i] = obj; else c.combatants.splice(Math.min(idx, c.combatants.length), 0, obj);
+    // A boss linked to the TV follows its combatant's HP.
+    const diff = obj.hp - (now ? now.hp : obj.hp);
+    if (diff && linkedBoss(st, obj)) SCENE_GM[diff > 0 ? 'boss.heal' : 'boss.damage'](st, { amount: Math.abs(diff) }, ctx, out);
+  }
+  if (init) c.init = normalizeInit(init, c.combatants.map((x) => x.uid));
+  if (crawler) {
+    const p = st.players.find((y) => y.id === crawler.playerId);
+    if (p) {
+      const back = crawler.hp - (crawler.after ?? crawler.hp); // relative: later heals / hits stay
+      if (back) setTrack(st, p, { track: crawler.track, delta: back }, ctx, out);
+      p.sheet.buffs = crawler.buffs;
+    }
+  }
+  out.emit({ kind: 'combat.undo', label: e.label }, { roles: ['gm'] });
+  out.result = { undone: e.label, left: c.manualUndo.length };
+};

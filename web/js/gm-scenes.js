@@ -93,7 +93,9 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   let tab = store.get('tab2', 'lobby');
   if (![...SCENES.map((s) => s.kind), ...TOOLS.map((t) => t.id)].includes(tab)) tab = 'lobby';
   let bossPick = D('boss').bossId ?? null;
-  const pref = { atkTv: store.get('atkTv', true), pv: store.get('pv2', true) };
+  const pref = { pv: store.get('pv2', true) };
+  // One switch for every mob roll (Boss screen, Fight attack buttons, Mobs act): the fight's `public` setting.
+  const atkTv = () => view().combat?.settings?.public !== false;
   const ui = { openAtk: new Set(), bossTarget: null, editOpen: false };
   const parts = { fight: null, npcs: null, sound: null, desk: null, crawlers: null, goLiveFight: null };
 
@@ -527,8 +529,8 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   /** Rolls go to the TV (cinematic + public dice) or stay with the GM: one switch for every attack button. */
   function tvSwitch() {
     return h('label.sh-tvsw', { title: 'On: the TV plays the attack and everyone sees the dice. Off: only you see the roll; the damage still lands on the sheet.' },
-      h('input', { type: 'checkbox', checked: pref.atkTv, onchange: (e) => { pref.atkTv = e.target.checked; store.set('atkTv', pref.atkTv); sig = ''; drawAll(); } }),
-      h('span', pref.atkTv ? 'Rolls on TV' : 'Rolls GM only'));
+      h('input', { type: 'checkbox', checked: atkTv(), onchange: (e) => { act({ t: 'combat.set', settings: { public: e.target.checked } }, null).then(() => { sig = ''; drawAll(); }); } }),
+      h('span', atkTv() ? 'Rolls on TV' : 'Rolls GM only'));
   }
 
   function targetSeg() {
@@ -574,7 +576,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       }
       if (!uid) return;
       if (!view().combat?.active && !(await act({ t: 'combat.start' }, null))) return;
-      const r = await act({ t: 'combat.mobAct', uid, attackIndex: i, tv: pref.atkTv, ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
+      const r = await act({ t: 'combat.mobAct', uid, attackIndex: i, tv: atkTv(), ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
       attackToast(attacks[i].name, r);
     };
     return h('div.sc-batk',
@@ -596,7 +598,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       const m = alive[Math.floor(Math.random() * alive.length)]; // a pack: whoever is in front
       if (!view().combat?.active && !(await act({ t: 'combat.start' }, null))) return;
       if (m.hidden) await act({ t: 'combat.reveal', uid: m.uid }, null);
-      const res = await act({ t: 'combat.mobAct', uid: m.uid, attackIndex: i, tv: pref.atkTv, ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
+      const res = await act({ t: 'combat.mobAct', uid: m.uid, attackIndex: i, tv: atkTv(), ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
       attackToast(`${m.name}: ${m.attacks[i].name}`, res);
     };
     // A pack takes damage at the front: the first living member.
