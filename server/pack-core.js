@@ -4,6 +4,7 @@ import { normalizeChatLines } from './chat.js';
 import { STANDARD_CATEGORIES } from './constants.js';
 import { normalizeRuleset, normalizeLibEntry, LIB_KINDS } from './ruleset.js';
 import { normalizeCrawlersConfig } from './crawlers.js';
+import { normalizePrepConfig } from './prep.js';
 
 export { STANDARD_CATEGORIES };
 
@@ -182,6 +183,7 @@ function loadMeta(raw, warnings) {
     notifyPrefix: isStr(raw.notifyPrefix) ? raw.notifyPrefix.trim().slice(0, 60) : '',
     theme: loadTheme(raw.theme, warnings),
     crawlers: normalizeCrawlersConfig(raw.crawlers, warnings), // crawlers.js: worldwide head count
+    prep: normalizePrepConfig(raw.prep, warnings), // prep.js: session-prep templates
     lootTiers,
     audience: { startViewers, sponsorHypeThreshold },
     autoBudget,
@@ -698,7 +700,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib', 'prep'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -732,6 +734,7 @@ export function deserializePack(data) {
   pack.library = lib;
   pack.theme = THEMES.includes(d.theme) ? d.theme : null;
   pack.crawlers = normalizeCrawlersConfig(d.crawlers ?? null);
+  pack.prep = normalizePrepConfig(d.prep ?? null);
   pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
   pack.sounds = Array.isArray(d.sounds) ? d.sounds.filter((x) => isObj(x) && isStr(x.id) && Array.isArray(x.urls)) : [];
   pack.cues = isObj(d.cues) ? { events: isObj(d.cues.events) ? d.cues.events : {}, groups: isObj(d.cues.groups) ? d.cues.groups : {} } : { events: {}, groups: {} };
@@ -754,6 +757,7 @@ export function fallbackPack() {
     theme: null,
     ui: null,
     crawlers: normalizeCrawlersConfig(null),
+    prep: normalizePrepConfig(null),
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },
     autoBudget: 6,

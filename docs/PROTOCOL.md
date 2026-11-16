@@ -280,6 +280,19 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.card.add` | `kind`: `achievement`/`loot`/`message`/`line`/`encounter`, `payload` (object), `label?` | Stores a prepared one-tap card; ack `result.id`. Payload = the fields of `ach.award` / `loot.open` / `msg.send` / `say` |
 | `prep.card.remove` | `id` | |
 | `prep.card.fire` | `id`, `playerId?`, `to?` | Runs the card's action with its payload (`playerId`/`to` override it), marks the card `used`. Same events/voice lines as the underlying action |
+| `prep.adventure.add` | `title`, `template?` | Příprava: new adventure (neighbourhood, quest, dungeon) from an adventure template (default: the pack's flagged one, else built-in `adventure`); ack `result.id`. GM-only data in `view.gm.prep` |
+| `prep.session.add` | `title?`, `template?`, `adventureId?`, `carryFrom?` | New session plan from a session template (default: pack's, else `lazy_session`). Unfinished items of `carry` sections are copied from `carryFrom` (default: current session); inherits its adventure unless `adventureId` is given (`null` = none). Becomes current. Ack `result {id, carried}` |
+| `prep.session.current` | `id` (session) or `null` | Marks tonight's plan (drives "Within reach" on the Show tab) |
+| `prep.doc.update` | `id`, `title?`, `adventureId?` (sessions only, `null` unlinks) | |
+| `prep.doc.copy` | `id` | Duplicate with fresh item ids; ack `result.id` |
+| `prep.doc.remove` | `id` | Sessions linked to a removed adventure are unlinked; current falls back to the newest session |
+| `prep.section.update` | `id`, `key`, `text?`, `label?`, `hidden?` | |
+| `prep.section.add` | `id`, `label`, `kind` (`text`/`list`/`refs`/`parts`), `carry?` | Extra section on one doc; ack `result.key` |
+| `prep.section.remove` | `id`, `key` | Only sections the GM added (template sections can be hidden) |
+| `prep.item.add` | `id`, `key`, `title?`, `text?`, `ref? {kind, id}`, `pin?` | `refs` sections need `ref` (kinds limited by the section, no duplicates); other sections need `title` or `text`. Ack `result.itemId` |
+| `prep.item.update` | `id`, `key`, `itemId`, `title?`, `text?`, `done?`, `pin?`, `ref?` | `pin` = shown in "Within reach" |
+| `prep.item.remove` | `id`, `key`, `itemId` | |
+| `prep.item.move` | `id`, `key`, `itemId`, `to` (index) | |
 | `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories + homebrew + permissions; clears the dice log) |
 | `session.permissions` | `playerEdit?`: `"none"` / `"notes"` / `"sheet"`, `allowOrigins?`: boolean (one or both) | What players may change on their own sheet (default `sheet`). `allowOrigins` (default off): players may *request* race / class / background (see `origins.*`) |
 | `origins.approve` | `playerId` | Applies the player's `sheet.pending` race / class / background and sets `sheet.originsLocked` (the player can no longer change them; the GM still can) |

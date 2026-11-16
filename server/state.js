@@ -19,6 +19,7 @@ import {
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
+import { PREP_GM, initPrep, normalizePrep, prepView } from './prep.js';
 
 export { genId, ActionError };
 
@@ -107,6 +108,7 @@ export function createState(basePack, now = Date.now(), campaign = {}) {
     feed: [],
     messages: [],
     prepCards: [],
+    prep: initPrep(), // prep.js: adventures + session plans (GM only)
     library: emptyHomebrew(),
     libArt: normalizeLibArt(null),
     rolls: [],
@@ -141,6 +143,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.feed = Array.isArray(raw.feed) ? raw.feed.slice(-FEED_SIZE) : [];
   s.messages = Array.isArray(raw.messages) ? raw.messages : [];
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
+  s.prep = normalizePrep(raw.prep);
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.session.aiMute = s.session.aiMute === true;
   s.session.hold = s.session.hold === true;
@@ -780,7 +783,7 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 Object.assign(PLAYER, INIT_PLAYER);
 
@@ -968,6 +971,7 @@ export function viewFor(state, basePack, role, opts = {}) {
       pins: Object.fromEntries(state.players.map((p) => [p.id, p.pin])),
       playersFull: state.players.map((p) => ({ ...fullPlayer(state, p, pack, library), userId: p.userId ?? null })),
       prepCards: state.prepCards,
+      prep: prepView(state, pack),
       messages: state.messages.slice(-GM_MESSAGES).map((m) => ({
         id: m.id, at: m.at, from: m.from, fromId: m.fromId, text: m.text, icon: m.icon, to: m.to, thread: threadOf(m.to),
         group: isGroup(m.to), onStage: m.onStage, readBy: m.readBy, reactions: m.reactions, gmRead: m.gmRead,
