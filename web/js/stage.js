@@ -55,10 +55,40 @@ client.on('message', (m) => {
 });
 client.on('stop', () => stopAll());
 
+/* ---------- panic hold + wake lock ---------- */
+
+/** Panic (GM): a stand-by card over everything, audio stopped. The scene underneath stays as it was. */
+const holdCard = h('div.hold-card', { hidden: true, 'aria-live': 'assertive' },
+  h('div.hold-in', h('b', 'Please stand by'), h('span', 'The show will continue shortly')));
+document.body.append(holdCard);
+let held = false;
+function syncHold(on) {
+  if (on === held) return;
+  held = on;
+  holdCard.hidden = !on;
+  document.body.classList.toggle('held', on);
+  if (on) { try { stopAll(); } catch {} }
+}
+
+/** The TV must not fall asleep mid-show: keep the screen on while this page is visible. */
+let wake = null;
+async function keepAwake() {
+  try {
+    if ('wakeLock' in navigator && document.visibilityState === 'visible' && !wake) {
+      wake = await navigator.wakeLock.request('screen');
+      wake.addEventListener('release', () => { wake = null; });
+    }
+  } catch { wake = null; }
+}
+document.addEventListener('visibilitychange', keepAwake);
+['pointerdown', 'keydown'].forEach((ev) => document.addEventListener(ev, keepAwake, { passive: true }));
+keepAwake();
+
 /* ---------- render ---------- */
 
 function render() {
   document.body.classList.toggle('ai-muted', !!view.session?.aiMute); // Mute AI: no audience chat strip
+  syncHold(!!view.session?.hold);
   director.render(view);
   showAudio.view(view);
   syncCurtain();

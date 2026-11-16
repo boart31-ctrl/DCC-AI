@@ -33,8 +33,10 @@
     </button>
     <button class="btn btn-quiet btn-sm" id="log-toggle" type="button" aria-controls="gm-log" aria-expanded="true" title="Dice log: every roll this session">Dice log</button>
     <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme (dark, light, neon)"></button>
+    <button class="btn btn-sm hold-btn" id="hold" type="button" aria-pressed="false" title="Panic: freeze the TV on a stand-by card, stop all sound, pause the countdown, AUTO off (Shift+Esc). Press again to go back.">Hold</button>
     <button class="btn btn-danger stop" id="stop" type="button" title="Stop all audio and clear the queue (Esc)">Stop <kbd>Esc</kbd></button>
   </header>
+  <div id="pending" class="pending pending-top" aria-live="assertive"></div>
 
   <div class="gm-shell">
     <nav class="gm-nav" id="gm-nav" aria-label="Desk sections">
@@ -96,7 +98,6 @@
 
         <div class="show-cols">
           <div class="col col-show">
-            <div id="pending" class="pending" aria-live="assertive"></div>
 
             <section class="prep" id="prep" aria-labelledby="h-prep">
               <div class="col-head"><h2 id="h-prep">Prepared</h2><span class="dim" id="prep-count"></span><button type="button" class="btn btn-sm btn-quiet" id="prep-new">+ New card</button></div>

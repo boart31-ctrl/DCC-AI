@@ -241,7 +241,11 @@ client.on('event', (e) => {
   if (e.kind === 'roll') { const r = e.roll || e; if (r.playerId === me.id && !r.vs && !r.card) showRollCard(r, { meId: me.id }); return; }
   if (e.kind === 'stat') {
     // Something hurt me: feel it, and see how much.
-    if (e.playerId === me.id && e.resource && e.to < e.from) { buzz([60, 40, 60]); toast(`−${e.from - e.to} ${labelOfTrack(e.stat)} (${e.to}/${e.max})`, { ms: 3500 }); }
+    if (e.playerId === me.id && e.resource && e.to < e.from) {
+      buzz([60, 40, 60]); hitFlash();
+      toast(`−${e.from - e.to} ${labelOfTrack(e.stat)} (${e.to}/${e.max})`, { ms: 3500 });
+      if (e.to <= 0 && e.from > 0 && isHpTrack(e.stat)) downTakeover();
+    }
     return;
   }
   if (e.kind === 'combat.hit' && e.type === 'crawler' && e.playerId === me.id) return;
@@ -317,6 +321,27 @@ function initPrompt() {
   buzz([40, 30, 40]);
   if (diceOn()) rollPad.open({ kind: 'derived', id }, 'Initiative');
   else toast('Fight! Roll initiative and tell the GM.', { ms: 5000 });
+}
+/** A hit: the whole screen flashes red for a moment. */
+function hitFlash() {
+  const f = h('div.hit-flash', { 'aria-hidden': 'true' });
+  document.body.append(f);
+  setTimeout(() => f.remove(), 700);
+}
+const isHpTrack = (id) => id === 'hp' || /^(hp|health|hit ?points)$/i.test(String(labelOfTrack(id) || ''));
+/** 0 HP: a full-screen DOWN with one line of what it means in this campaign's rules. Tap to close. */
+function downTakeover() {
+  document.querySelector('.down-takeover')?.remove();
+  const rs = view?.pack?.ruleset || {};
+  const sys = rs.system?.id || '';
+  const line = rs.combat?.downRule
+    || (sys.startsWith('dnd') ? 'You are unconscious. On your turn roll a death save: d20, 10+ is a success, 3 successes and you stabilise, 3 failures and you die. A natural 20 brings you back with 1 HP.'
+      : sys === 'pf2e' ? 'You are dying 1 (more on a critical hit) and unconscious. Each turn roll a recovery check, flat DC 10 + your dying value. Dying 4 and you die.'
+        : 'You are down. You can\'t act until someone heals you. Tell the GM what you do with your last breath.');
+  buzz([300, 100, 300, 100, 600]);
+  const box = h('div.down-takeover', { role: 'alert', onclick: () => box.remove() },
+    h('b', 'DOWN'), h('p', line), h('span.hint', 'Tap to close'));
+  document.body.append(box);
 }
 function yourTurn(e) {
   buzz([120, 60, 120]);

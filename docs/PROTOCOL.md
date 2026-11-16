@@ -270,6 +270,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `loot.take` | `dropId`, `key`, `playerId` | Hand one item of a pile to a crawler (a dead crawler's own item moves). Event `loot.take` to all |
 | `loot.clear` | `dropId` | Forget a pile |
 | `session.aiMute` | `on`: bool | Mute AI: System lines go out as text only (`play` gets `silent: true`, no audio/TTS), the audience chat stops, AUTO turns off and cannot be turned on while muted. Kept across `session.new` |
+| `session.hold` | `on`: bool | Panic. On: `session.hold` true in every view (the TV shows a stand-by card over the scene and stops its audio), a running countdown pauses, AUTO turns off, pending auto lines are dropped. Off: the TV shows the scene again (countdown stays paused, AUTO stays off) |
 | `session.budget` | `value` | Set remaining auto budget |
 | `session.voice` | `voice` (id from pack `voices`) | Switches the System voice live; stage applies it to the next line |
 | `auto.veto` | `id` | Cancels a pending P2 line |

@@ -581,3 +581,19 @@ test('Ctrl+Z: hand edits undo newest first (damage, condition, remove), crawler 
   assert.equal(s.combat.manualUndo.length, u - 1);
   assert.equal(hp(), full); // +3 back on top of the later +1, clamped at max
 });
+
+test('session.hold: panic holds the TV, pauses a running countdown, AUTO off; off resumes the scene', () => {
+  let { s } = base();
+  s = gm(s, { t: 'session.auto', on: true }).state;
+  s = gm(s, { t: 'scene.set', kind: 'countdown', data: { seconds: 60 } }).state;
+  s = gm(s, { t: 'countdown.start' }).state;
+  assert.notEqual(s.scene.data.startedAt, null);
+  s = gm(s, { t: 'session.hold', on: true }).state;
+  assert.equal(viewFor(s, pack, 'stage').session.hold, true);
+  assert.equal(s.scene.data.startedAt, null);
+  assert.equal(s.session.auto, false);
+  s = gm(s, { t: 'session.hold', on: false }).state;
+  assert.equal(viewFor(s, pack, 'stage').session.hold, false);
+  assert.equal(s.scene.kind, 'countdown');
+  assert.throws(() => gm(s, { t: 'session.hold', on: 'yes' }), /boolean/);
+});

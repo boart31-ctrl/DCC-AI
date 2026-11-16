@@ -690,3 +690,10 @@ body.has-crawlers .hype { width: 20rem; }
 .roll-card.is-void .rc-num b { text-decoration: line-through; }
 @keyframes rc-in { from { transform: translateX(3rem); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .roll-card, .turn-banner { animation: none; } }
+
+/* Panic hold: stand-by card over the whole show */
+.hold-card { position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center; background: repeating-linear-gradient(0deg, rgb(255 255 255 / 0.03) 0 2px, transparent 2px 4px), radial-gradient(ellipse at center, #1a1a22, #000); color: #fff; text-align: center; }
+.hold-card[hidden] { display: none; }
+.hold-in { display: grid; gap: 1rem; }
+.hold-in b { font: 900 7rem/1 var(--f-ui, sans-serif); text-transform: uppercase; letter-spacing: 0.08em; }
+.hold-in span { font: 600 2.4rem var(--f-ui, sans-serif); opacity: 0.7; }

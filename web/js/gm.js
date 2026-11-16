@@ -103,6 +103,10 @@ function render() {
   $('.auto-state', auto).textContent = s.auto ? 'On' : 'Off';
   auto.disabled = !!s.aiMute;
   auto.title = s.aiMute ? 'AI is muted: unmute it to use AUTO' : 'Toggle AUTO (A)';
+  const hold = $('#hold');
+  hold.setAttribute('aria-pressed', String(!!s.hold));
+  hold.textContent = s.hold ? 'Resume' : 'Hold';
+  document.body.classList.toggle('on-hold', !!s.hold);
   const mute = $('#ai-mute');
   if (mute.dataset.on !== String(!!s.aiMute)) {
     mute.dataset.on = String(!!s.aiMute);
@@ -883,6 +887,13 @@ $('#ai-mute').addEventListener('click', () => {
   act({ t: 'session.aiMute', on }, on ? 'AI muted: text only, no chat, AUTO off.' : 'AI is back on.');
 });
 $('#stop').addEventListener('click', stopAll);
+/** Panic: TV on stand-by, all sound off, countdown paused, AUTO off. Same key / button again resumes. */
+function toggleHold() {
+  const on = !view?.session?.hold;
+  if (on) stopAll();
+  act({ t: 'session.hold', on }, on ? 'HOLD: TV on stand-by, sound off, countdown paused, AUTO off.' : 'Back on air.');
+}
+$('#hold').addEventListener('click', toggleHold);
 $('#mode').addEventListener('click', (e) => {
   const b = e.target.closest('button[data-mode]');
   if (b) act({ t: 'session.mode', mode: b.dataset.mode }, `Mode: ${b.textContent}.`);
@@ -1094,6 +1105,7 @@ $('#hud-crawlers')?.addEventListener('change', (e) => act({ t: 'crawlers.set', s
 /* ---------- keyboard ---------- */
 
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && e.shiftKey) { e.preventDefault(); toggleHold(); return; }
   if (e.key === 'Escape') {
     if (sheet.open || drawerOpen() || document.querySelector('dialog[open]')) return; // dialogs close first
     e.preventDefault();

@@ -143,6 +143,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.session.aiMute = s.session.aiMute === true;
+  s.session.hold = s.session.hold === true;
   if (!PLAYER_EDIT.includes(s.session.permissions?.playerEdit)) s.session.permissions = { playerEdit: 'sheet' };
   s.library = normalizeHomebrew(raw.library);
   s.libArt = normalizeLibArt(raw.libArt);
@@ -591,6 +592,14 @@ const GM = {
     }
   },
 
+  /** Panic: the TV holds on a stand-by card (scene stays underneath), a running countdown pauses. Off = back as it was. */
+  'session.hold'(st, a, ctx, out) { // AUTO goes off too: nothing plays by itself while held
+    if (typeof a.on !== 'boolean') throw bad('on must be a boolean');
+    st.session.hold = a.on;
+    if (a.on && st.scene?.kind === 'countdown' && st.scene.data?.startedAt != null) SCENE_GM['countdown.pause'](st, {}, ctx, out);
+    if (a.on) { st.session.auto = false; out.effects.push({ type: 'clearPending' }); }
+  },
+
   'session.budget'(st, a) {
     st.session.budgetLeft = int(a.value, 'value', 0, 999);
   },
@@ -897,7 +906,7 @@ function common(state, pack, opts) {
     room: state.room,
     campaign: state.campaign ? { id: state.campaign.id, name: state.campaign.name, ruleset: state.campaign.ruleset } : null,
     session: {
-      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, budgetLeft: s.budgetLeft, voice: s.voice, chatPlayers: s.chatPlayers !== false,
+      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, hold: !!s.hold, budgetLeft: s.budgetLeft, voice: s.voice, chatPlayers: s.chatPlayers !== false,
       permissions: { playerEdit: s.permissions?.playerEdit ?? 'sheet' },
     },
     pack: {

@@ -72,3 +72,14 @@ body.rp-open .roll-fab { display: none; }
 .rules-card h3 { margin: 4px 0 0; font-family: var(--f-ui); }
 .rules-card ul { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .rules-card summary { cursor: pointer; min-height: 40px; display: flex; align-items: center; font-weight: 600; }
+
+/* Hit flash and 0 HP takeover on the phone */
+.hit-flash { position: fixed; inset: 0; z-index: 95; pointer-events: none; background: radial-gradient(ellipse at center, rgb(255 0 0 / 0.05), rgb(220 0 0 / 0.55)); animation: hitflash 0.7s ease-out forwards; }
+@keyframes hitflash { 0% { opacity: 1; } 100% { opacity: 0; } }
+.down-takeover { position: fixed; inset: 0; z-index: 96; display: grid; place-content: center; justify-items: center; gap: 16px; padding: 24px; text-align: center;
+  background: radial-gradient(ellipse at center, rgb(90 0 0 / 0.92), rgb(10 0 0 / 0.97)); color: #fff; animation: downin 0.5s ease-out; }
+.down-takeover b { font: 900 84px/1 var(--f-ui); letter-spacing: 0.08em; color: #ff3b3b; text-shadow: 0 0 24px rgb(255 0 0 / 0.6); }
+.down-takeover p { max-width: 30ch; font: 600 18px/1.4 var(--f-ui); margin: 0; }
+.down-takeover .hint { opacity: 0.6; font-size: 13px; }
+@keyframes downin { from { transform: scale(1.15); opacity: 0; } to { transform: none; opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .hit-flash, .down-takeover { animation: none; } }
