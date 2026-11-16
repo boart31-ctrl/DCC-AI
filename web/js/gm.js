@@ -17,6 +17,7 @@ import { createSound } from './gm-sound.js';
 import { createCombatSfx } from './combat-sfx.js';
 import { createCues } from './cues.js';
 import { createNpcs } from './gm-npcs.js';
+import { createPrep } from './gm-prep.js';
 import { createCrawlers } from './gm-crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
 
@@ -139,6 +140,7 @@ function render() {
   combatSfx?.view(view);
   combat.update(view);
   npcs.update(view);
+  prep?.update(view);
   crawlers.update(view);
   scenes.update(view);
   { const cb = $('#hud-crawlers'); if (cb) { cb.disabled = !view.crawlers; cb.checked = view.crawlers?.shown !== false && !!view.crawlers; } }
@@ -935,7 +937,7 @@ $('#new-session').addEventListener('click', async () => {
 
 /* ---------- views, settings, dice log ---------- */
 
-const VIEWS = ['party', 'show', 'library', 'rewards', 'messages', 'settings'];
+const VIEWS = ['party', 'prep', 'show', 'library', 'rewards', 'messages', 'settings'];
 // Old section names (links, saved tabs): they live inside Show now.
 const INTO_SHOW = { combat: 'fight', npcs: 'npc', campaign: 'desk' };
 let currentView = 'party';
@@ -1088,7 +1090,10 @@ campaignBox.classList.remove('gm-view');
 campaignBox.prepend(h('h2.desk-sec', 'Campaign'));
 // Crawlers remaining (gm-crawlers.js): a live badge in the Show bar + the Crawlers tool.
 const crawlers = createCrawlers({ act, getView: () => view, open: () => { showView('show'); scenes.pick('crawlers'); } });
-scenes.mountInto($('#view-show'), { fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge });
+// Příprava (gm-prep.js): adventures + session plans; pinned items wait "within reach" in the Show bar.
+const prep = createPrep({ act, getView: () => view, scenes, showView: (v) => showView(v), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
+$('#view-prep').append(prep.el);
+scenes.mountInto($('#view-show'), { fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge, reach: prep.reach });
 const rewards = createRewards();
 $('#view-rewards').append(rewards.el);
 // Message centre: every conversation with the crawlers (private lines, groups, everyone); unread badge in the nav.

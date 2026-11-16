@@ -103,6 +103,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   const onair = h('button.sh-onair', { type: 'button', onclick: () => { const k = liveChip(); if (k) pick(k); } });
   const soundState = h('span.sc-sound');
   const barExtra = h('span.sh-bar-extra'); // gm-crawlers.js badge
+  const reachSlot = h('div.sh-reach-slot'); // gm-prep.js: "Within reach" strip (tonight's pinned prep)
   const chips = h('div.sh-chips', { role: 'tablist', 'aria-label': 'Show' });
   const head = h('div.sh-head');
   const body = h('div.sh-body');
@@ -114,7 +115,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   const golive = h('div.sh-golive');
   const panel = h('div.sh-panel', head, h('div.sh-grid', body, pvCol), golive);
   const el = h('section.show2', { 'aria-label': 'Show' },
-    h('div.sh-bar', h('div.sh-bar-top', onair, barExtra, soundState), chips),
+    h('div.sh-bar', h('div.sh-bar-top', onair, barExtra, soundState), chips, reachSlot),
     panel);
 
   let defeatArmed = null;
@@ -967,6 +968,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     if (parts.npcs) slots.npc.append(parts.npcs);
     if (p.crawlers) { parts.crawlers = p.crawlers; slots.crawlers.append(p.crawlers); }
     if (p.crawlersBadge) barExtra.append(p.crawlersBadge);
+    if (p.reach) reachSlot.append(p.reach);
     slots.sound.append(audioPanel, parts.sound);
     slots.desk.append(desk);
     section.replaceChildren(el);
@@ -976,6 +978,29 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     new MutationObserver(() => { sig = ''; if (!section.hidden) update(view()); else pvDrop(); }).observe(section, { attributes: true, attributeFilter: ['hidden'] });
   }
 
-  const api = { el, update, audio, mountInto, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
+  /**
+   * Loads library content into a scene draft and opens its chip (preview only, never live):
+   * `explore` {locationId} · `npc` {npcId} · `boss` {bossId}. Used by Příprava's "Within reach".
+   */
+  function loadDraft(kind, data = {}) {
+    const lib = view().library || {};
+    if (kind === 'explore') {
+      const l = (lib.location || []).find((x) => x.id === data.locationId);
+      if (!l) return false;
+      Object.assign(D('explore'), { locationId: l.id, location: l.name, floor: l.floor !== '' && l.floor != null ? `Floor ${l.floor}` : '', image: l.image || '', text: l.readAloud || '', locationTouched: false, floorTouched: false, textTouched: false });
+    } else if (kind === 'npc') {
+      if (!(lib.npc || []).some((x) => x.id === data.npcId)) return false;
+      D('npc').npcId = data.npcId;
+    } else if (kind === 'boss') {
+      if (!(lib.boss || []).some((x) => x.id === data.bossId)) return false;
+      bossPick = data.bossId;
+      Object.assign(D('boss'), { bossId: data.bossId, mode: 'library' });
+    } else return false;
+    saveDraft();
+    pick(kind);
+    return true;
+  }
+
+  const api = { el, update, audio, mountInto, loadDraft, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
   return api;
 }
