@@ -328,6 +328,17 @@ body.hosted .links, body.hosted #node-campaign { display: none; }
 .camp-state { margin: 6px 0; font-size: 14px; }
 .camp-state .bad { color: var(--c-bad); }
 .camp-att summary { cursor: pointer; color: var(--c-ink-3); font-size: 13px; }
+.camp-chip { display: inline-flex; align-items: baseline; gap: 6px; max-width: 34vw; padding: 4px 10px; border: 1px solid var(--c-line-2); border-radius: 999px; background: var(--c-sunk); color: var(--c-ink); font-family: var(--f-ui); font-size: 13px; cursor: pointer; white-space: nowrap; overflow: hidden; }
+.camp-chip:hover, .camp-chip:focus-visible { border-color: var(--c-accent); }
+.camp-chip-n { font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.camp-chip-r { color: var(--c-ink-3); }
+.camp-chip-r::before { content: '· '; }
+.ask-dlg.camp-pick { width: min(560px, 94vw); }
+.camp-pick-h { margin: 0 0 8px; font-family: var(--f-ui); font-size: 20px; }
+.camp-pick-row { display: flex; align-items: center; gap: 10px; }
+.camp-pick-row.cur { border-left: 3px solid var(--c-accent); padding-left: 8px; }
+.camp-pick-row .pill { margin-left: 8px; font-size: 11px; }
+@media (max-width: 760px) { .camp-chip-r { display: none; } .camp-chip { max-width: 40vw; } }
 .camp-new { display: grid; gap: 10px; min-width: min(420px, 80vw); }
 .camp-new label { display: grid; gap: 4px; }
 .pill.ok { border-color: #38d39f; color: #38d39f; }

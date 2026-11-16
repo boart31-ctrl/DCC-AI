@@ -452,8 +452,8 @@ All of these are GM-only actions (players and the stage get `bad_request: unknow
 | `roll.void` / `roll.restore` | `id` | Cancel / bring back a roll (damage it applied goes back / returns) |
 | `roll.undoLast` / `roll.redoLast` | | Undo / redo chips: the last player roll that hit or damaged something |
 | `campaign.list` | | `{ current, campaigns, choices, multi }` |
-| `campaign.new` | `name?`, `ruleset?` | Parks the running campaign, starts a new one with that ruleset (locked) |
-| `campaign.switch` | `id` | Parks the running campaign, runs that one |
+| `campaign.new` | `name?`, `ruleset?`, `force?` | Parks the running campaign, starts a new one with that ruleset (locked). Refused mid-fight / on Hold unless `force: true` |
+| `campaign.switch` | `id`, `force?` | Parks the running campaign, runs that one. Refused mid-fight / on Hold unless `force: true` |
 | `campaign.rename` | `name` | |
 | `campaign.delete` | `id` | Parked campaigns only |
 

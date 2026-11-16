@@ -747,6 +747,12 @@ export function createHost(opts) {
     campaigns.save(state.campaign.id, { id: state.campaign.id, name: state.campaign.name, ruleset: state.campaign.ruleset, savedAt: t, players: state.players.length }, state);
   }
 
+  /** Switching campaigns mid-fight or on Panic Hold loses the moment: refused unless the GM forces it. */
+  function notMidGame(msg) {
+    if (msg.force === true) return;
+    if (state.combat?.active) throw bad('a fight is running: end it first (or force the switch)');
+    if (state.session?.hold) throw bad('Hold is on: release it first (or force the switch)');
+  }
   /** Makes `next` the running campaign. TVs and the GM link stay paired; players get the new campaign's links. */
   function replaceCampaign(next, msg, t) {
     const cur = state.host ?? {};
@@ -855,6 +861,7 @@ export function createHost(opts) {
       scheduleViews();
     },
     /** Campaigns on this server + the rulesets a new one can use. */
+    // (switch / new refuse mid-fight or on Hold unless {force:true}: see notMidGame)
     'campaign.list'() {
       const cur = state.campaign;
       const others = campaigns ? campaigns.list().filter((c) => c.id !== cur.id) : [];
@@ -870,6 +877,7 @@ export function createHost(opts) {
     /** Starts a new campaign with a ruleset (locked for it). The current one is kept and can be switched back to. */
     'campaign.new'(msg) {
       if (!campaigns) throw bad('this server keeps one campaign; export it first, then start a new session');
+      notMidGame(msg);
       const choices = rulesetChoices(pack).map((c) => c.id);
       if (msg.ruleset !== undefined && !choices.includes(msg.ruleset)) throw bad(`unknown ruleset ${msg.ruleset}`);
       const t = now();
@@ -881,6 +889,7 @@ export function createHost(opts) {
     'campaign.switch'(msg) {
       if (!campaigns) throw bad('this server keeps one campaign');
       if (typeof msg.id !== 'string' || msg.id === state.campaign.id) throw bad('pick another campaign');
+      notMidGame(msg);
       const raw = campaigns.load(msg.id);
       if (!raw) throw notFound(`no campaign ${msg.id}`);
       const t = now();

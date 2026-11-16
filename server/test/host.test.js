@@ -500,3 +500,29 @@ test('campaigns: new campaign with another ruleset, switch back, import a backup
   assert.throws(() => host.importCampaign({ nope: 1 }), /not a campaign file/);
   assert.equal(g.closed, null, 'the GM stays connected');
 });
+
+test('campaigns: switch / new refused mid-fight and on Hold unless forced', async () => {
+  const store = new Map();
+  const campaigns = {
+    list: () => [...store.values()].map((x) => x.meta),
+    load: (id) => store.get(id)?.state ?? null,
+    save: (id, meta, state) => store.set(id, { meta, state: JSON.parse(JSON.stringify(state)) }),
+    remove: (id) => store.delete(id),
+  };
+  const { host, gm } = setup({ host: { campaigns } });
+  const g = gm();
+  const first = host.state.campaign.id;
+  assert.equal((await act(g, { t: 'campaign.new', name: 'B' })).ok, true);
+  host.state.combat.active = true;
+  let r = await act(g, { t: 'campaign.switch', id: first });
+  assert.equal(r.ok, false);
+  assert.match(r.msg, /fight is running/);
+  assert.equal((await act(g, { t: 'campaign.new', name: 'C' })).ok, false);
+  host.state.combat.active = false;
+  host.state.session.hold = true;
+  r = await act(g, { t: 'campaign.switch', id: first });
+  assert.match(r.msg, /Hold is on/);
+  r = await act(g, { t: 'campaign.switch', id: first, force: true });
+  assert.equal(r.ok, true, r.msg);
+  assert.equal(host.state.campaign.id, first);
+});

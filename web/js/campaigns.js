@@ -1,4 +1,5 @@
-// GM desk → Settings → Campaigns & backup.
+// GM desk → Settings → Campaigns & backup, plus the header chip "Campaign · rules" and the picker it opens
+//   (also shown once per browser tab right after the GM signs in, when the server keeps more than one campaign).
 //   Campaigns: several per server, each with its own ruleset (picked when it is created, then locked), players,
 //   library, history. Switch, rename, delete parked ones.
 //   Backup: the GM's own copy of the campaign. Every few minutes (and when the desk is closed) the desk downloads the
@@ -198,11 +199,79 @@ async function newCampaign() {
   if (r) refresh();
 }
 
-async function switchTo(c) {
-  if (!(await ask(`Switch to "${c.name}" (${rulesetLabel(c.ruleset)})? The running campaign is kept and backed up. Players need the links of the other campaign.`, { ok: 'Switch' }))) return;
-  await backupNow('before switch');
-  if (await act({ t: 'campaign.switch', id: c.id }, `Now running: ${c.name}.`)) refresh();
+/** Mid-fight / on Hold the server refuses; the GM may force it after a second, explicit yes. */
+function midGame() {
+  return view?.combat?.active ? 'A fight is running.' : view?.session?.hold ? 'Hold is on.' : '';
 }
+async function switchTo(c, { confirm = true } = {}) {
+  const mid = midGame();
+  if (mid && !(await ask(`${mid} Switching now drops this moment. Switch to "${c.name}" anyway?`, { ok: 'Switch anyway', danger: true }))) return false;
+  if (!mid && confirm && !(await ask(`Switch to "${c.name}" (${rulesetLabel(c.ruleset)})? The running campaign is kept and backed up. Players need the links of the other campaign.`, { ok: 'Switch' }))) return false;
+  await backupNow('before switch');
+  const ok = await act({ t: 'campaign.switch', id: c.id, ...(mid ? { force: true } : {}) }, `Now running: ${c.name}.`);
+  if (ok) refresh();
+  return !!ok;
+}
+
+/* ---------- header chip + picker ---------- */
+
+const PICKED = 'system.campaignPicked';
+function sysLabel() { return view?.pack?.ruleset?.system?.short || view?.pack?.ruleset?.system?.label || rulesetLabel(view?.campaign?.ruleset); }
+function drawChip() {
+  const chip = $('#camp-chip');
+  if (!chip || !view?.campaign) return;
+  chip.hidden = false;
+  const name = view.campaign.name || 'Campaign';
+  const rules = sysLabel() || '';
+  const txt = `${name}${rules ? ` · ${rules}` : ''}`;
+  if (chip.dataset.sig === txt) return;
+  chip.dataset.sig = txt;
+  chip.replaceChildren(h('span.camp-chip-n', name), rules ? h('span.camp-chip-r', rules) : null);
+  chip.title = `Running campaign: ${txt}. Click to switch.`;
+}
+function goSettings() { document.querySelector('#gm-nav [data-view="settings"]')?.click(); }
+
+/** The picker: continue the running campaign, play another one, or start a new one. */
+async function openPicker({ start = false } = {}) {
+  if (!view?.gm?.access?.campaigns || isHosted()) { goSettings(); return; }
+  if (!list) await refresh();
+  const cur = view.campaign;
+  const others = [...(list?.campaigns || [])].sort((a, b) => (b.savedAt || 0) - (a.savedAt || 0));
+  const dlg = h('dialog.ask-dlg.camp-pick');
+  const close = () => { try { dlg.close(); } catch {} dlg.remove(); try { sessionStorage.setItem(PICKED, '1'); } catch {} };
+  const row = (c, running) => h('li.camp-pick-row' + (running ? '.cur' : ''),
+    h('div.grow',
+      h('div.dev-name', c.name, running ? h('span.pill.ok', 'running') : null),
+      h('div.dev-sub', `${rulesetLabel(c.ruleset)} · ${(running ? view.players?.length : c.players) ?? 0} players${running ? '' : ` · last played ${timeAgo(c.savedAt)}`}`)),
+    running
+      ? h('button.btn.btn-sm.btn-cyan', { type: 'button', onclick: close }, start ? 'Continue' : 'Stay')
+      : h('button.btn.btn-sm', { type: 'button', onclick: async () => { close(); await switchTo(c, { confirm: false }); } }, 'Play this'));
+  const mid = midGame();
+  dlg.append(h('div.ask-inner',
+    h('h2.camp-pick-h', start ? 'Which campaign tonight?' : 'Campaign'),
+    mid ? h('p.hint.bad', `${mid} Switching now is possible but drops the moment.`) : null,
+    h('ul.dev-list', row({ ...cur }, true), others.map((o) => row(o, false))),
+    h('div.ask-row',
+      h('button.btn.btn-ghost', { type: 'button', onclick: () => { close(); goSettings(); } }, 'Manage & backup…'),
+      h('button.btn.btn-sm', { type: 'button', onclick: () => { close(); newCampaign(); } }, 'New campaign…'))));
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  document.body.append(dlg);
+  dlg.showModal();
+  dlg.querySelector('.camp-pick-row.cur button')?.focus();
+}
+
+/** Right after sign-in (once per browser tab): ask which campaign, when there is a choice and no fight is on. */
+let startChecked = false;
+async function maybeStartPicker() {
+  if (startChecked || !view?.gm?.access?.campaigns || isHosted()) return;
+  startChecked = true;
+  try { if (sessionStorage.getItem(PICKED)) return; } catch { return; }
+  if (!list) await refresh();
+  if (!(list?.campaigns || []).length || view?.combat?.active || view?.session?.hold) { try { sessionStorage.setItem(PICKED, '1'); } catch {} return; }
+  openPicker({ start: true });
+}
+$('#camp-chip')?.addEventListener('click', () => openPicker());
+ext.afterRender.push((v) => { view = v; drawChip(); maybeStartPicker(); });
 async function remove(c) {
   if (!(await ask(`Delete "${c.name}" from this server for good? Backups in your browser and folder stay.`, { ok: 'Delete', danger: true }))) return;
   if (await act({ t: 'campaign.delete', id: c.id }, 'Deleted.')) refresh();
