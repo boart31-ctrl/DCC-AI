@@ -10,7 +10,7 @@ import { STANDARD_CATEGORIES } from './constants.js';
 import { packForRuleset, rulesetChoices } from './systems.js';
 import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView, showView } from './scenes.js';
-import { COMBAT_GM, INIT_GM, initCombat, normalizeCombat, combatView, onSheetRoll, applyMobDamage } from './combat.js';
+import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, combatView, onSheetRoll, applyMobDamage } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import { LOOT_GM, normalizeDrops } from './loot.js';
 import { CRAWLERS_GM, CRAWLERS_SYSTEM, initCrawlers, normalizeCrawlers, crawlersView } from './crawlers.js';
@@ -782,6 +782,7 @@ const PLAYER = {
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
 Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
+Object.assign(PLAYER, INIT_PLAYER);
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
 const SYSTEM = {

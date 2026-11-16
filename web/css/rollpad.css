@@ -83,3 +83,11 @@ body.rp-open .roll-fab { display: none; }
 .down-takeover .hint { opacity: 0.6; font-size: 13px; }
 @keyframes downin { from { transform: scale(1.15); opacity: 0; } to { transform: none; opacity: 1; } }
 @media (prefers-reduced-motion: reduce) { .hit-flash, .down-takeover { animation: none; } }
+
+/* initiative-only pad (physical dice, no dice entry): tap the face of the real d20 */
+.ini-pad .ask-inner { gap: 12px; }
+.ini-pad-h { margin: 0; font: 700 22px var(--f-ui); }
+.ini-pad-sub { margin: 0; color: var(--c-ink-2, inherit); }
+.ini-pad-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
+.ini-pad-n { min-width: 0; min-height: 52px; padding: 0; font: 700 20px var(--f-ui); }
+.ini-pad .ask-inner > * { min-width: 0; }

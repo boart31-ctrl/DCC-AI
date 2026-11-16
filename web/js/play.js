@@ -249,7 +249,8 @@ client.on('event', (e) => {
     return;
   }
   if (e.kind === 'combat.hit' && e.type === 'crawler' && e.playerId === me.id) return;
-  if (e.kind === 'combat.start' && e.initiative && inFight()) { initPrompt(); return; }
+  // The event can land before the view that puts me in the fight: open the pad on the next render instead.
+  if (e.kind === 'combat.start' && e.initiative) { if (waitingForMe()) initPrompt(); else initWanted = Date.now(); return; }
   if (e.kind === 'combat.turn') {
     if (e.current?.playerId === me.id) yourTurn(e);
     else if (e.next?.playerId === me.id) { buzz(30); toast("You're next", { ms: 3000 }); }
@@ -320,7 +321,37 @@ function initPrompt() {
   const id = view?.pack?.ruleset?.combat?.initiative?.derived || 'initiative';
   buzz([40, 30, 40]);
   if (diceOn()) rollPad.open({ kind: 'derived', id }, 'Initiative');
-  else toast('Fight! Roll initiative and tell the GM.', { ms: 5000 });
+  else initPad(id);
+}
+/**
+ * Physical dice, no dice entry on this phone: a one-tap pad for initiative only. The crawler rolls the real d20
+ * and taps the face; the server adds the sheet bonus, logs the roll and slots them into the turn order.
+ */
+function initPad(id) {
+  if (document.querySelector('.ini-pad')) return;
+  const sides = Number(String(view?.pack?.ruleset?.dice || 'd20').replace(/^d/, '')) || 20;
+  const cmp = me?.sheet?.computed;
+  const bonus = cmp?.derived?.[id]?.value ?? cmp?.stats?.dex?.mod?.value ?? 0;
+  const sign = (n) => (n < 0 ? `- ${-n}` : `+ ${n}`);
+  const dlg = h('dialog.ask-dlg.ini-pad');
+  const close = () => { try { dlg.close(); } catch {} dlg.remove(); };
+  const pick = async (face) => {
+    close();
+    try {
+      const r = (await client.send({ t: 'init.mine', die: face }))?.result || {};
+      const tot = r.total ?? face + bonus;
+      const b = r.bonus ?? bonus;
+      toast(`Initiative ${tot}${b ? ` (${face} ${sign(b)})` : ''}${r.place ? ` · you are ${r.place}. of ${r.of}` : ''}`, { ms: 4500 });
+    } catch (err) { toast(err.message || 'Refused', { error: true }); }
+  };
+  dlg.append(h('div.ask-inner',
+    h('h2.ini-pad-h', 'Roll initiative'),
+    h('p.ini-pad-sub', `Roll your d${sides} and tap what it shows.${bonus ? ` Your ${sign(bonus)} is added for you.` : ''}`),
+    h('div.ini-pad-grid', Array.from({ length: sides }, (_, i) => h('button.btn.ini-pad-n', { type: 'button', onclick: () => pick(i + 1) }, String(i + 1)))),
+    h('div.ask-row', h('button.btn.btn-ghost', { type: 'button', onclick: close }, 'Later'))));
+  dlg.addEventListener('cancel', (e) => { e.preventDefault(); close(); });
+  document.body.append(dlg);
+  dlg.showModal();
 }
 /** A hit: the whole screen flashes red for a moment. */
 function hitFlash() {
@@ -349,6 +380,7 @@ function yourTurn(e) {
   document.body.append(box);
   setTimeout(() => box.remove(), 6000);
 }
+let initWanted = 0;
 const iniPrompt = h('button.ini-prompt', { type: 'button', hidden: true, onclick: () => initPrompt() }, 'Roll initiative');
 document.body.append(iniPrompt);
 const waitingForMe = () => !!view?.combat?.active && !!view.combat.init?.on && (view.combat.init.waiting || []).some((x) => x.playerId === me?.id);
@@ -444,7 +476,9 @@ function render() {
   drawTheme();
   sheet.update(view, me);
   rollFab.hidden = !diceOn();
-  iniPrompt.hidden = !(diceOn() && waitingForMe());
+  iniPrompt.hidden = !waitingForMe();
+  if (initWanted && waitingForMe()) { initWanted = 0; initPrompt(); } else if (initWanted && Date.now() - initWanted > 10_000) initWanted = 0;
+  if (!waitingForMe()) document.querySelector('.ini-pad')?.remove();
   rollPad.update();
   renderStart();
   renderLog();

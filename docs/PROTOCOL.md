@@ -449,6 +449,8 @@ All of these are GM-only actions (players and the stage get `bad_request: unknow
 | `combat.turnSet` | `uid` | Makes it that combatant's turn |
 | `combat.next` | | Turn-order fights: next turn (first press starts round 1). Phase fights: next phase |
 | `combat.set` | `settings.initiative`: `true` / `false` / `null` | Turn order on / off / as the ruleset says |
+| `combat.set` | `settings.groupInit`: boolean (default `true`) | Mobs from the same library entry share one initiative roll and sit together |
+| *(player)* `init.mine` | `die` (1..dice sides) | Phone initiative pad (physical dice, no dice entry): the face of the real die; the server adds the sheet initiative (else DEX mod), slots the crawler in, returns `{total, die, bonus, place, of}` |
 | `roll.void` / `roll.restore` | `id` | Cancel / bring back a roll (damage it applied goes back / returns) |
 | `roll.undoLast` / `roll.redoLast` | | Undo / redo chips: the last player roll that hit or damaged something |
 | `campaign.list` | | `{ current, campaigns, choices, multi }` |

@@ -264,3 +264,49 @@ test('auto mode against a 5e sheet uses AC and no DR', () => {
     assert.equal(st.evade, 10, 'unarmoured AC 10');
   }
 });
+
+test('initiative: identical monsters share one roll and sit together; groupInit off rolls each', () => {
+  const run = (groupInit) => {
+    let k = 0;
+    const faces = [2, 17, 11, 5, 14];
+    const cx = () => ({ now: 1, rng: seq(0.5), genId: (x) => `${x}_${++n}`, pack, rollInt: () => faces[k++ % faces.length] });
+    const g = (s, a) => reduce(s, { role: 'gm', ...a }, cx());
+    let s = createState(pack, 0, { ruleset: 'dnd5e' });
+    s = g(s, { t: 'combat.addMob', sourceId: 'gob', count: 3, hidden: false }).state;
+    s = g(s, { t: 'combat.addMob', sourceId: 'brute', count: 1, hidden: false }).state;
+    if (!groupInit) s = g(s, { t: 'combat.set', settings: { groupInit: false } }).state;
+    s = g(s, { t: 'combat.start' }).state;
+    const v = viewFor(s, pack, 'gm', {}).combat;
+    const src = new Map(v.combatants.map((x) => [x.uid, x.name]));
+    return v.init.order.map((x) => [src.get(x.uid), x.total]);
+  };
+  const grouped = run(true);
+  const gobs = grouped.filter(([nm]) => /Goblin/.test(nm));
+  assert.equal(gobs.length, 3);
+  assert.equal(new Set(gobs.map((x) => x[1])).size, 1, 'one total for all goblins');
+  const idx = grouped.map(([nm], i) => (/Goblin/.test(nm) ? i : -1)).filter((i) => i >= 0);
+  assert.equal(idx[2] - idx[0], 2, 'goblins sit together');
+  const solo = run(false).filter(([nm]) => /Goblin/.test(nm));
+  assert.ok(new Set(solo.map((x) => x[1])).size > 1, 'each goblin rolls');
+});
+
+test('initiative: init.mine — a crawler taps the die face, the server adds the bonus; only for yourself', () => {
+  let { s, a, b } = fight('dnd5e');
+  const r = pl(s, a, { t: 'init.mine', die: 15 });
+  s = r.state;
+  assert.equal(r.result.die, 15);
+  assert.equal(r.result.total, 15 + r.result.bonus);
+  const v = viewFor(s, pack, 'gm', {}).combat;
+  const mine = v.combatants.find((x) => x.playerId === a).uid;
+  assert.equal(v.init.order.find((x) => x.uid === mine).total, r.result.total);
+  assert.equal(r.result.place, v.init.order.findIndex((x) => x.uid === mine) + 1);
+  assert.throws(() => pl(s, b, { t: 'init.mine', die: 21 }), /die/);
+  // crawler pack with turn order switched on: no "initiative" on the sheet, DEX (or 0) is used
+  let c = fight('crawl').s;
+  const pid = c.players[0].id;
+  assert.throws(() => pl(c, pid, { t: 'init.mine', die: 5 }), /turn order/);
+  c = gm(c, { t: 'combat.end' }).state;
+  c = gm(c, { t: 'combat.set', settings: { initiative: true } }).state;
+  c = gm(c, { t: 'combat.start' }).state;
+  assert.equal(Number.isFinite(pl(c, pid, { t: 'init.mine', die: 5 }).result.total), true);
+});

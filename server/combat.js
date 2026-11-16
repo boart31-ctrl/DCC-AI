@@ -53,6 +53,7 @@ export const AGGRO_DEFAULT = 3;
 export const DEFAULT_SETTINGS = Object.freeze({
   hitRule: '>=', drMin: 1, crit: 'double', evadeBase: 0, public: true, includeHidden: false, finishDowned: false, stepMs: 2800, autoEnd: true, paceV: 2,
   initiative: null, // null = the ruleset decides (5e / PF2e: turn order; crawler packs: phases)
+  groupInit: true, // identical monsters (same library entry) share one initiative roll and sit together
 });
 export const UNVERIFIED_RULES = ['hitRule', 'drMin', 'crit', 'evadeBase'];
 
@@ -72,6 +73,7 @@ function normalizeSettings(raw) {
     autoEnd: typeof r.autoEnd === 'boolean' ? r.autoEnd : d.autoEnd,
     paceV: 2,
     initiative: typeof r.initiative === 'boolean' ? r.initiative : null,
+    groupInit: typeof r.groupInit === 'boolean' ? r.groupInit : d.groupInit,
   };
 }
 
@@ -484,15 +486,27 @@ function sortInit(st, ctx) {
   }
   const mobsFirst = ctx.pack.ruleset.system?.family === 'pf2e';
   const typeOf = new Map(c.combatants.map((x) => [x.uid, x.type]));
+  const groupOf = new Map(c.combatants.map((x) => [x.uid, initGroup(x) ?? '']));
   const current = I.order[I.turn];
   I.order = all
     .filter((u) => Number.isFinite(I.totals[u]))
-    .sort((a, b) => I.totals[b] - I.totals[a] || (typeOf.get(a) === typeOf.get(b) ? 0 : (typeOf.get(a) === 'mob') === mobsFirst ? -1 : 1));
+    .sort((a, b) => I.totals[b] - I.totals[a] || (typeOf.get(a) === typeOf.get(b) ? groupOf.get(a).localeCompare(groupOf.get(b)) : (typeOf.get(a) === 'mob') === mobsFirst ? -1 : 1));
   // Before the first turn starts the top of the order is up; after that the current turn stays put.
   I.turn = I.started && current ? Math.max(0, I.order.indexOf(current)) : 0;
 }
 
+/** Mobs from the same library entry form one initiative group (DMG: identical monsters roll once, act together). */
+function initGroup(x) {
+  return x.type === 'mob' && x.sourceId ? `${x.sourceKind || 'monster'}:${x.sourceId}` : null;
+}
+
 function rollInit(st, ctx, x) {
+  const c = C(st);
+  const g = c.settings.groupInit !== false ? initGroup(x) : null;
+  if (g) {
+    const mate = c.combatants.find((y) => y.uid !== x.uid && initGroup(y) === g && Number.isFinite(c.init.totals[y.uid]));
+    if (mate) return c.init.totals[mate.uid];
+  }
   const d20 = (ctx.rollInt ?? ctx.randInt)(20) + 1;
   return d20 + initBonusOf(st, ctx, x);
 }
@@ -601,6 +615,26 @@ export const INIT_GM = {
   },
 };
 
+/**
+ * Crawler side: the face of my real die; the server adds my initiative bonus (sheet initiative, else DEX)
+ * and slots me into the turn order. Works without dice entry on the phone and in rulesets with no
+ * "initiative" number on the sheet (turn order switched on for a crawler pack).
+ */
+export const INIT_PLAYER = {
+  'init.mine'(st, a, ctx, out) {
+    const c = C(st);
+    if (!c.active || !c.init?.on) throw bad('no fight in turn order right now');
+    const x = c.combatants.find((y) => y.type === 'crawler' && y.playerId === a.actorId);
+    if (!x) throw notFound('you are not in this fight');
+    const sides = Number(String(ctx.pack.ruleset.dice || 'd20').replace(/^d/, '')) || 20;
+    const die = intIn(a.die, 'die', 1, sides);
+    const bonus = initBonusOf(st, ctx, x);
+    const total = die + bonus;
+    setInitiative(st, ctx, out, x.uid, total);
+    out.result = { total, die, bonus, place: c.init.order.indexOf(x.uid) + 1, of: c.init.order.length };
+  },
+};
+
 export const COMBAT_GM = {
   'combat.start'(st, a, ctx, out) {
     const c = C(st);
@@ -670,7 +704,7 @@ export const COMBAT_GM = {
         else if (k === 'stepMs') n.stepMs = intIn(v, 'settings.stepMs', 1200, 4000);
         else if (k === 'evadeBase') n.evadeBase = intIn(v, 'settings.evadeBase', 0, 30);
         else if (k === 'initiative') { if (v !== null && typeof v !== 'boolean') throw bad('settings.initiative must be true, false or null'); n.initiative = v; }
-        else if (['public', 'includeHidden', 'finishDowned', 'autoEnd'].includes(k)) n[k] = flag(v, `settings.${k}`);
+        else if (['public', 'includeHidden', 'finishDowned', 'autoEnd', 'groupInit'].includes(k)) n[k] = flag(v, `settings.${k}`);
         else throw bad(`unknown setting ${k}`);
       }
       c.settings = n;
