@@ -21,6 +21,7 @@ import {
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, initPrep, normalizePrep, prepView } from './prep.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView } from './maps.js';
+import { REACTION_GM, REACTION_PLAYER, reactionView } from './reaction.js';
 
 export { genId, ActionError };
 
@@ -786,9 +787,9 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM, REACTION_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
-Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER);
+Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER, REACTION_PLAYER);
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
 const SYSTEM = {
@@ -956,6 +957,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   const library = libraryOf(state, pack);
   v.rolls = rollsFor(state, role, opts.playerId);
   v.combat = combatView(state, pack, role);
+  if (v.combat) v.combat.rx = reactionView(state, role);
   v.crawlers = crawlersView(state, pack, role, now, opts.stageOn !== false);
   v.maps = mapsView(state, role);
   if (role === 'player') {

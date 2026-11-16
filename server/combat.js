@@ -154,6 +154,7 @@ export function normalizeCombat(raw) {
     autoQueue: isObj(raw.autoQueue) && Array.isArray(raw.autoQueue.uids) ? raw.autoQueue : null,
     id: typeof raw.id === 'string' ? raw.id : null,
     ...(Array.isArray(raw.manualUndo) && raw.manualUndo.length ? { manualUndo: raw.manualUndo.filter(isObj).slice(-MANUAL_UNDO_MAX) } : {}),
+    ...(isObj(raw.rx) && Array.isArray(raw.rx.decls) ? { rx: raw.rx } : {}), // reaction.js round state
   };
   c.init = normalizeInit(raw.init, c.combatants.map((x) => x.uid));
   c.phaseIndex = Math.min(c.phaseIndex, c.phases.length - 1);

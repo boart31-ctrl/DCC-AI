@@ -497,6 +497,25 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `map.token.remove` | `id`, `tokenId` | |
 | *(player)* `map.token.move` | `id`, `tokenId`, `x`, `y` | Own crawler's token only, only while `tokensOn` |
 
+### 3b-4. Reaction rounds (server/reaction.js) — games where the GM never rolls a d20
+
+Round = `declare` → `react` → `resolve` → `act` → `cleanup`. Each crawler has 2 actions a round; interrupts come out of the same 2. `view.combat.rx` = `{round, step, steps, decls, acts {uid: left}, evading [uid], intervene [uid], log}`; decl = `{id, mobUid, mob, attack, area, targetUid, caught, taunted, result (evaded/half/hit), damage, evade {degree, label, die, helped}}`, GM also `dc`, `damageDice`, `evadeTotal`. Players never see the difficulty or hidden mobs' attacks. Degrees: crit · amazing (beat by 10+) · success · near (miss by 1–2) · fail · major (miss by 10+) · critfail. Evade difficulty = attack `dc` if the content has one, else 10 + `toHit`.
+
+| Action | Payload | Notes |
+|---|---|---|
+| `rx.start` | | Starts / re-syncs rounds for the running fight (step declare, 2 actions each) |
+| `rx.declare` | `mobUid`, `attackIndex?`, `targetUid` | Declare step only; ack `result.declId` |
+| `rx.undeclare` | `declId` | |
+| `rx.suggest` | | Replaces declarations: revealed living mobs 1 attack each spread evenly (focus respected), elites / bosses one per crawler; ack `result.count` |
+| `rx.step` | `to` (step), `force?` | `resolve` resolves every attack (refused while an evading crawler's roll is missing, unless `force`): success → no damage (area: half), major fail → +floor, crit fail → double; damage rolled, DR applied through `combat.damage`. Events `rx.react`, `rx.resolved` |
+| `rx.round` | | Next round: declare, actions reset, timed mob conditions count down. Event `rx.round` |
+| `rx.evade` | `declId`, `die` (1..20) | GM enters a crawler's physical roll (same rules as the player action) |
+| `rx.actions` | `uid`, `delta` (−3..3) | AI Favor extra action, a debuff, a house rule |
+| *(player)* `rx.interrupt` | `kind` (`evade`/`intervene`/`catcher`/`heal`/`taunt`), `declId?` (catcher, taunt), `total?` (taunt check) | Spends 1 action. React step (heal / intervene also in act). Catcher retargets the attack to me (cannot be evaded); taunt retargets on total ≥ 10 + mob Int mod + floor. Event `rx.interrupt` |
+| *(player)* `rx.evade` | `declId`, `die` | My Evade roll (after the Evade interrupt): die + sheet Evade vs the difficulty; ack `{degree, label, near}`. Event `rx.evade` |
+| *(player)* `rx.intervene` | `declId`, `d6` | After spending Intervene: +d6 to an ally's open Evade roll; ack the new degree |
+| *(player)* `rx.spend` | `n?` (1 or 2) | An action used in the act step (attack via the sheet, move, item) |
+
 ### 3c. Sound desk and System voice (ElevenLabs)
 
 The GM's notebook is the audio device (`show.audioDevice: "gm"`, wired to the soundbar); the TV is picture only.

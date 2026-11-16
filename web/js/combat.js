@@ -8,6 +8,7 @@
 // sounds in step. Endings: "End ▾" picks the outcome (TV finale); victory / defeat are offered by
 // themselves (3 s toast with Cancel) when every revealed mob / every crawler is down.
 import { h, toast, ask, portraitSrc, onPortraits, itemArt } from './client.js';
+import { rxPanel } from './gm-reaction.js';
 import { sheetModel, libraryOf } from './rules.js';
 import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
 import { entryArt } from './portrait.js';
@@ -128,6 +129,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const canAct = c.active && mobs.some((m) => !m.down && m.attacks?.length);
     const q = c.autoQueue;
     const left = playingLeft();
+    const rx = !!c.rx; // reaction rounds (gm-reaction.js) replace phases + "Mobs act" (no d20 for mobs)
     return h('header.cbt-head',
       h('div.cbt-title',
         h('h1', 'Combat'),
@@ -139,7 +141,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
           title: onTv() ? 'The fight is on the TV' : 'Go live: arena, or the boss screen when a boss is in the fight', 'aria-label': onTv() ? 'The fight is on the TV' : 'Put the fight on the TV',
           onclick: () => (goLive ? goLive() : act({ t: 'scene.set', kind: 'combat', data: {} }, 'On TV: the arena.')),
         }, icon('tv', { size: 18 }))),
-      h('div.cbt-turn',
+      rx ? null : h('div.cbt-turn',
         c.init?.on ? h('span.cbt-now', c.phase ? `Now: ${c.phase}` : 'Waiting for initiative') : h('ol.cbt-phases', { 'aria-label': 'Phases' }, ph.map((p, i) => h('li', h('button', {
           type: 'button', 'aria-current': c.active && i === c.phaseIndex ? 'step' : null, disabled: !c.active,
           title: c.active ? `Jump to ${p}` : null,
@@ -155,9 +157,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         c.init?.on || c.phasesVerified ? null : h('span.verify', unverifiedBadge('Phase names and order are not checked against the rulebook')),
         c.init?.on ? null : h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(ui.editPhases), onclick: () => { ui.editPhases = !ui.editPhases; redraw(); } }, 'Phases')),
       c.active ? h('div.cbt-auto-bar',
-        h('button.btn.cbt-act', { type: 'button', disabled: !canAct, onclick: () => runAuto(), title: q ? 'Resolve the remaining mobs' : `Every living revealed mob attacks: targets, d20 vs ${DEF()}${hasDr() ? ', damage − DR' : ', damage'} onto the sheets` },
+        rx ? null : h('button.btn.cbt-act', { type: 'button', disabled: !canAct, onclick: () => runAuto(), title: q ? 'Resolve the remaining mobs' : `Every living revealed mob attacks: targets, d20 vs ${DEF()}${hasDr() ? ', damage − DR' : ', damage'} onto the sheets` },
           icon('bolt', { size: 16 }), q ? `Mobs act (${q.uids.length - q.done} left)` : 'Mobs act'),
-        h('button.btn.cbt-step', { type: 'button', disabled: !canAct, onclick: () => runStep(), title: 'One mob at a time' }, icon('play', { size: 14 }), 'Step'),
+        rx ? null : h('button.btn.cbt-step', { type: 'button', disabled: !canAct, onclick: () => runStep(), title: 'One mob at a time' }, icon('play', { size: 14 }), 'Step'),
         left > 0 ? h('button.btn.cbt-skip', { type: 'button', onclick: () => act({ t: 'combat.autoSkip' }), title: 'Jump the TV to the end of the cinematic' }, icon('skip', { size: 14 }), 'Skip') : null,
         c.lastAuto?.canUndo ? h('button.btn.btn-quiet.cbt-undo', { type: 'button', onclick: undo, title: 'Put back the HP and conditions the last auto run changed' }, icon('undo', { size: 14 }), 'Undo') : null,
         c.manualUndo ? h('button.btn.btn-sm.btn-quiet.cbt-undo-hand', { type: 'button', onclick: () => act({ t: 'combat.undo' }).then((r) => r?.result?.undone && toast(`Undone: ${r.result.undone}`)), title: `Take back: ${c.manualUndo.label} (Ctrl+Z)` }, icon('undo', { size: 14 }), `Undo: ${c.manualUndo.label}`) : null,
@@ -820,6 +822,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const side = h('div.cbt-side', lootPanel(), view?.scene?.kind === 'finale' ? null : prizePanel(), c.active ? autoPanel() : null, lastRollCard());
     el.replaceChildren(...[
       header(),
+      rxPanel({ act, view }),
       initPanel(),
       ui.editPhases ? phaseEditor() : null,
       finaleBanner(),
@@ -840,7 +843,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     if (e.key !== 'n' && e.key !== 'N') return;
     if (e.ctrlKey || e.metaKey || e.altKey || !el.isConnected || el.closest('[hidden]')) return;
     if (e.target.closest?.('input, textarea, select, [contenteditable]') || document.querySelector('dialog[open]')) return;
-    if (!C().active) return;
+    if (!C().active || C().rx) return;
     e.preventDefault();
     act({ t: 'combat.next' });
   });

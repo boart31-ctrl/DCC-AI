@@ -263,3 +263,29 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
   .tool-page .drawer .inp { min-height: 44px; font-size: 16px; }
   .tool-page .ask-dlg .btn { min-height: 44px; }
 }
+
+/* Reaction rounds on the phone (rx-phone.js) */
+.rxp { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); z-index: 40; max-height: 70vh; overflow: auto; display: grid; gap: 8px; padding: 12px; background: var(--c-panel, #1b1530); border: 2px solid var(--c-accent, #ff2fb9); border-radius: 14px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6); }
+.rxp[hidden] { display: none; }
+@media (min-width: 700px) { .rxp { left: auto; width: 420px; right: 16px; } }
+.rxp-head { display: flex; align-items: center; gap: 8px; }
+.rxp-step { text-transform: uppercase; font-size: 12px; letter-spacing: 0.06em; padding: 1px 8px; border-radius: 999px; background: var(--c-accent, #ff2fb9); color: #000; font-weight: 700; }
+.rxp-dots { display: inline-flex; gap: 4px; align-items: center; }
+.rxp-dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--c-accent, #ff2fb9); display: inline-block; }
+.rxp-hint { margin: 0; font-size: 14px; color: var(--c-dim, #aaa); }
+.rxp-alert { margin: 0; font-weight: 700; color: #ffb020; }
+.rxp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.rxp-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
+.rxp-mini { display: inline-flex; gap: 4px; }
+.rxp-btns { display: flex; flex-wrap: wrap; gap: 8px; }
+.rxp-btns .btn { flex: 1 1 auto; min-height: 44px; }
+.rxp-deg { font-weight: 700; }
+.rx-deg-crit, .rx-deg-amazing, .rx-deg-success { color: #3ddc5f; }
+.rx-deg-near { color: #ffb020; }
+.rx-deg-fail, .rx-deg-major, .rx-deg-critfail { color: #ff2448; }
+.rxp-pad { display: grid; gap: 8px; }
+.rxp-pad p { margin: 0; font-weight: 700; }
+.rxp-grid { display: grid; gap: 6px; }
+.rxp-g20 { grid-template-columns: repeat(5, 1fr); }
+.rxp-g6 { grid-template-columns: repeat(6, 1fr); }
+.rxp-grid .btn { min-height: 44px; font-size: 18px; font-weight: 700; }

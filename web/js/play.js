@@ -4,6 +4,7 @@ import {
 } from './client.js';
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
 import { createMapView } from './map-view.js';
+import { createRxPhone } from './rx-phone.js';
 import { openBuilder } from './builder.js';
 import { createDiceLog, showRollCard } from './dicelog.js';
 import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme, openDrawer } from './ui.js';
@@ -430,6 +431,9 @@ const sheet = createSheet({
     ext.hosted ? null : { icon: 'x', label: 'Leave on this phone', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
   ].filter(Boolean),
 });
+// Reaction rounds (server/reaction.js): my actions, attacks on me, interrupts, Evade rolls.
+const rxPhone = createRxPhone({ send: (a) => client.send(a), toast });
+document.body.append(rxPhone.el);
 const phoneMq = matchMedia('(max-width: 699px)');
 phoneMq.addEventListener?.('change', () => { if (me) sheet.redraw(); });
 $('#sheet-root').append(sheet.el);
@@ -482,6 +486,7 @@ function render() {
   if (initWanted && waitingForMe()) { initWanted = 0; initPrompt(); } else if (initWanted && Date.now() - initWanted > 10_000) initWanted = 0;
   if (!waitingForMe()) document.querySelector('.ini-pad')?.remove();
   rollPad.update();
+  rxPhone.update(view, me);
   renderStart();
   renderLog();
   renderTicker();
