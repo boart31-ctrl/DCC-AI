@@ -10,7 +10,7 @@
 import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
 
-export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale'];
+export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map'];
 // combat-auto.js OUTCOMES (kept here too: scenes.js must not import combat-auto.js, which imports combat.js → scenes.js).
 export const FINALE_OUTCOMES = ['victory', 'defeat', 'runaway', 'truce', 'special', 'sponsor', 'timeout', 'stalemate'];
 export const AUDIO_DEVICES = ['gm', 'stage'];
@@ -80,6 +80,8 @@ const PLAIN = {
   blank: { text: T.text160 },
   // The arena board: party vs revealed mobs. Its content is view.combat (already role-filtered).
   combat: { title: T.title, showParty: (v) => flag(v, 'showParty') },
+  // A map with fog (maps.js): the content is view.maps, already role-filtered.
+  map: { mapId: (v) => { if (typeof v !== 'string' || !/^[A-Za-z0-9_-]{1,60}$/.test(v)) throw bad('mapId must be a map id'); return v; }, showFeed: (v) => flag(v, 'showFeed') },
 };
 
 const DEFAULTS = {
@@ -94,6 +96,7 @@ const DEFAULTS = {
   roll: () => ({ playerId: null, name: '', color: null, label: '', formula: '', rollId: null, dice: [], total: null, nat1: false, nat20: false, at: null }),
   countdown: () => ({ label: '', totalMs: 300_000, remainingMs: 300_000, startedAt: null }),
   boss: () => ({ bossId: null, boss: null, phase: 0, hp: 0, revealed: false, defeated: false, lootHint: '' }),
+  map: () => ({ mapId: null, showFeed: false }),
 };
 
 function plainMerge(kind, prev, patch) {

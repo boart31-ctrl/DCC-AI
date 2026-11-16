@@ -1,0 +1,55 @@
+/* Maps with fog (web/js/map-view.js): TV scene, phones and the GM editor. */
+.mv { width: 100%; display: grid; place-items: center; }
+.mv[hidden] { display: none; }
+.mv-stage { position: relative; width: 100%; max-height: 100%; overflow: hidden; border-radius: 8px; background: #07040d; touch-action: none; user-select: none; }
+.mv-img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: fill; pointer-events: none; }
+.mv-fog { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; image-rendering: auto; filter: blur(6px); transform: scale(1.02); }
+.mv-gm .mv-fog { filter: none; transform: none; }
+.mv-zones { position: absolute; inset: 0; width: 100%; height: 100%; }
+.mv-zone rect, .mv-zone polygon { fill: transparent; stroke: rgba(255, 255, 255, 0.55); stroke-width: 1.5; stroke-dasharray: 6 4; }
+.mv-gm .mv-zone { cursor: pointer; }
+.mv-zone.on rect, .mv-zone.on polygon { stroke: #2ef2ff; stroke-dasharray: none; }
+.mv-zone.sel rect, .mv-zone.sel polygon { stroke: #ffcc00; stroke-width: 3; fill: rgba(255, 204, 0, 0.08); }
+.mv:not(.mv-gm) .mv-zone rect, .mv:not(.mv-gm) .mv-zone polygon { stroke: none; }
+.mv-label { position: absolute; transform: translate(-50%, -50%); padding: 1px 6px; font-size: 12px; font-weight: 700; color: #fff; background: rgba(0, 0, 0, 0.55); border-radius: 4px; pointer-events: none; white-space: nowrap; }
+.mv-gm .mv-label:not(.on) { opacity: 0.7; font-style: italic; }
+.mv:not(.mv-gm) .mv-label:not(.on) { display: none; }
+.mv-tokens { position: absolute; inset: 0; pointer-events: none; }
+.mv-tok { position: absolute; width: 4.2%; aspect-ratio: 1; min-width: 22px; transform: translate(-50%, -50%); border-radius: 50%; background: var(--tk, #ffcc00); border: 2px solid #fff; box-shadow: 0 2px 8px rgba(0, 0, 0, 0.6); display: grid; place-items: center; font: 700 11px/1 var(--f-body, system-ui); color: #000; pointer-events: auto; }
+.mv-tok.mv-mob { border-radius: 4px; }
+.mv-tok.mv-mark { border-radius: 2px; transform: translate(-50%, -50%) rotate(45deg); }
+.mv-tok.mv-mark span { transform: rotate(-45deg); }
+.mv-tok.hid { opacity: 0.45; border-style: dashed; }
+.mv-tok.mine { cursor: grab; }
+.mv-tok.drag { cursor: grabbing; transform: translate(-50%, -50%) scale(1.25); z-index: 2; }
+.mv-sel { position: absolute; border: 2px dashed #ffcc00; background: rgba(255, 204, 0, 0.12); pointer-events: none; }
+.mv-sel[hidden] { display: none; }
+
+/* TV scene */
+.mp-wrap { position: absolute; inset: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 14px; padding: 120px 80px 90px; }
+.mp-title { margin: 0; font: 700 40px/1 var(--f-display); letter-spacing: 0.02em; color: var(--ink, #fff); text-transform: uppercase; }
+.mp-wrap .mv { height: 100%; min-height: 0; }
+.mp-empty { color: var(--ink-dim, #aaa); font-size: 28px; }
+.mp-empty[hidden] { display: none; }
+
+/* GM editor (gm-maps.js) */
+.gmap { display: grid; gap: 12px; }
+.gmap-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.gmap-tools { display: inline-flex; border: 1px solid var(--c-line); border-radius: 999px; overflow: hidden; }
+.gmap-tools button { background: none; border: 0; padding: 5px 12px; color: var(--c-ink); cursor: pointer; font-size: 13px; }
+.gmap-tools button[aria-pressed="true"] { background: var(--c-accent); color: #000; }
+.gmap-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 12px; align-items: start; }
+.gmap-zones { display: grid; gap: 6px; }
+.gmap-zone { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--c-line); border-radius: 6px; }
+.gmap-zone.sel { border-color: #ffcc00; }
+.gmap-zone-head { display: flex; align-items: center; gap: 6px; }
+.gmap-zone-head b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.gmap-new { display: grid; gap: 10px; }
+@media (max-width: 900px) { .gmap-grid { grid-template-columns: 1fr; } }
+
+/* Phones: Maps tab */
+.ph-maps { display: grid; gap: 14px; }
+.ph-map h3 { margin: 0 0 6px; }
+.ph-map-zones { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.ph-map-zones p { margin: 2px 0 0; white-space: pre-wrap; }
+.mp-wrap .mv-label { font-size: 22px; padding: 3px 10px; }

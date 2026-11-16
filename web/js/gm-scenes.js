@@ -20,6 +20,7 @@ const SCENES = [
   { kind: 'fight', label: 'Fight', key: '', hint: 'Tracker. TV: arena, or the boss screen' },
   { kind: 'boss', label: 'Boss', key: 'F3', hint: 'Boss, minions, attacks' },
   { kind: 'npc', label: 'NPC', key: '', hint: 'Portrait + speak as the NPC' },
+  { kind: 'map', label: 'Map', key: '', hint: 'Fog of war: reveal zones with one tap' },
   { kind: 'loot', label: 'Loot', key: 'F4', hint: 'A box for one crawler' },
   { kind: 'countdown', label: 'Countdown', key: 'F5', hint: 'Floor collapse timer' },
   { kind: 'roll', label: 'Big roll', key: 'F6', hint: 'Dice on the TV' },
@@ -257,6 +258,11 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       const id = d.npcId || v.library?.npc?.[0]?.id;
       return id ? { npcId: id } : null;
     }
+    if (kind === 'map') {
+      const maps = v.maps || [];
+      const id = maps.some((m) => m.id === d.mapId) ? d.mapId : maps[0]?.id;
+      return id ? { mapId: id } : null;
+    }
     return {};
   }
   /** The scene kind GO LIVE sends for a chip (Fight → boss screen when a boss is in the fight). */
@@ -284,7 +290,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       return act({ t: 'scene.set', kind: 'combat', data: dataFor('combat') }, 'On air: the arena.');
     }
     const data = dataFor(chipId);
-    if (data === null) { toast(chipId === 'npc' ? 'No NPCs in the library yet.' : 'Nothing to show yet.', { error: true }); return false; }
+    if (data === null) { toast(chipId === 'npc' ? 'No NPCs in the library yet.' : chipId === 'map' ? 'Create a map first.' : 'Nothing to show yet.', { error: true }); return false; }
     const label = sceneOf(chipId)?.label || chipId;
     // explore: a picked location fills the fields; typed fields override it.
     if (chipId === 'explore' && data.locationId) {
@@ -874,8 +880,8 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   }
 
   // Fixed slots: the desk, sound, fight and NPC panels stay in the page (gm.js renders into them by id).
-  const slots = { scene: h('div.sh-slot'), fight: h('div.sh-slot'), npc: h('div.sh-slot'), sound: h('div.sh-slot'), desk: h('div.sh-slot'), crawlers: h('div.sh-slot') };
-  body.append(slots.scene, slots.fight, slots.npc, slots.sound, slots.desk, slots.crawlers);
+  const slots = { scene: h('div.sh-slot'), fight: h('div.sh-slot'), npc: h('div.sh-slot'), map: h('div.sh-slot'), sound: h('div.sh-slot'), desk: h('div.sh-slot'), crawlers: h('div.sh-slot') };
+  body.append(slots.scene, slots.fight, slots.npc, slots.map, slots.sound, slots.desk, slots.crawlers);
   function drawBody() {
     const id = tab;
     const live = isLive(id);
@@ -883,12 +889,14 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     panel.classList.toggle('no-pv', pvCol.hidden || !pref.pv);
     slots.fight.hidden = id !== 'fight';
     slots.npc.hidden = id !== 'npc';
+    slots.map.hidden = id !== 'map';
     slots.sound.hidden = id !== 'sound';
     slots.desk.hidden = id !== 'desk';
     slots.crawlers.hidden = id !== 'crawlers';
     slots.scene.hidden = isTool(id);
     if (id === 'sound') { drawAudioPanel(); return; }
     if (id === 'desk' || id === 'crawlers') return;
+    if (id === 'map') { slots.scene.replaceChildren(); return; }
     if (id === 'fight') {
       const sc = view().scene;
       slots.scene.replaceChildren(sc?.kind === 'boss' ? h('p.sh-note', icon('tv', { size: 14 }), 'The TV shows the boss screen. Boss HP, phases and his attacks are on the Boss chip.', h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => pick('boss') }, 'Boss controls')) : '');
@@ -966,6 +974,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     Object.assign(parts, { fight: p.fight || h('div'), npcs: p.npcs || null, sound: p.sound || h('div'), desk });
     slots.fight.append(parts.fight);
     if (parts.npcs) slots.npc.append(parts.npcs);
+    if (p.maps) slots.map.append(p.maps);
     if (p.crawlers) { parts.crawlers = p.crawlers; slots.crawlers.append(p.crawlers); }
     if (p.crawlersBadge) barExtra.append(p.crawlersBadge);
     if (p.reach) reachSlot.append(p.reach);
@@ -991,6 +1000,9 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     } else if (kind === 'npc') {
       if (!(lib.npc || []).some((x) => x.id === data.npcId)) return false;
       D('npc').npcId = data.npcId;
+    } else if (kind === 'map') {
+      if (!(view().maps || []).some((x) => x.id === data.mapId)) return false;
+      D('map').mapId = data.mapId;
     } else if (kind === 'boss') {
       if (!(lib.boss || []).some((x) => x.id === data.bossId)) return false;
       bossPick = data.bossId;

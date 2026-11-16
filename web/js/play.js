@@ -3,6 +3,7 @@ import {
   prefersReducedMotion, registerSW, isHosted, ask, portraitSrc,
 } from './client.js';
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
+import { createMapView } from './map-view.js';
 import { openBuilder } from './builder.js';
 import { createDiceLog, showRollCard } from './dicelog.js';
 import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme, openDrawer } from './ui.js';
@@ -414,6 +415,7 @@ const sheet = createSheet({
   extraTabs: () => (me ? [
     { id: 'ach', label: 'Achievements', count: me.achievements?.length || '', sig: achSig(), render: renderAchievements },
     { id: 'msg', label: 'Messages', badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
+    ...((view?.maps || []).length ? [{ id: 'maps', label: 'Maps', count: view.maps.length, sig: JSON.stringify(view.maps), render: renderMaps }] : []),
   ] : []),
   onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act, allowOrigins: !!view?.session?.permissions?.allowOrigins }),
   // Phones: app layout (sticky crawler bar, section tabs); the app bar items move into the menu.
@@ -536,6 +538,19 @@ function renderStart() {
 }
 
 const achSig = () => JSON.stringify(me?.achievements || []);
+/** Maps the GM shared (server/maps.js): revealed part only; with the token layer on, drag your own token. */
+function renderMaps() {
+  return h('div.ph-maps', (view.maps || []).map((m) => {
+    const mv = createMapView({
+      canMoveToken: (t) => t.kind === 'pc' && t.ref === me?.id,
+      onTokenMove: (t, x, y) => client.send({ t: 'map.token.move', id: m.id, tokenId: t.id, x, y }).catch((err) => toast(err.message, { error: true })),
+    });
+    mv.set(m, { labels: true });
+    return h('section.ph-map', h('h3', m.name), mv.el,
+      m.zones.some((z) => z.text) ? h('ul.ph-map-zones', m.zones.filter((z) => z.text).map((z) => h('li', h('b', z.name), h('p', z.text)))) : null);
+  }));
+}
+
 function renderAchievements() {
   const list = me.achievements || [];
   if (!list.length) return h('p.empty-s', 'No achievements yet. The System is watching.');

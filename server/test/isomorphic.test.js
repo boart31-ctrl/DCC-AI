@@ -13,7 +13,7 @@ test('engine.js import graph has no Node-only imports', () => {
   const { files, problems } = checkIsomorphic(path.join(here, '..', 'engine.js'));
   assert.deepEqual(problems, []);
   const names = files.map((f) => path.basename(f)).sort();
-  assert.deepEqual(names, ['character.js', 'chat.js', 'combat-auto.js', 'combat.js', 'constants.js', 'crawlers.js', 'dnd-shared.js', 'dnd2024.js', 'dnd5e.js', 'engine.js', 'errors.js', 'formula.js', 'loot.js', 'outcome.js', 'pack-core.js', 'pf2e.js', 'prep.js', 'quips.js', 'random.js', 'ruleset.js', 'scenes.js', 'state.js', 'systems.js']);
+  assert.deepEqual(names, ['character.js', 'chat.js', 'combat-auto.js', 'combat.js', 'constants.js', 'crawlers.js', 'dnd-shared.js', 'dnd2024.js', 'dnd5e.js', 'engine.js', 'errors.js', 'formula.js', 'loot.js', 'maps.js', 'outcome.js', 'pack-core.js', 'pf2e.js', 'prep.js', 'quips.js', 'random.js', 'ruleset.js', 'scenes.js', 'state.js', 'systems.js']);
 });
 
 test('checker catches forbidden imports', () => {

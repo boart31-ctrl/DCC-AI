@@ -353,7 +353,7 @@ Location `features` are GM-only too.
 
 | `t` | Fields | Effect |
 |-----|--------|--------|
-| `scene.set` | `kind`, `data?` | New scene (new `id`, `since` = now). `data` is validated per kind; unknown fields → `bad_request`. Boss: `bossId` **or** ad-hoc `boss` (name required, `hpSlots` 1..100, ≤10 phases); HP starts full. Explore: `locationId` fills location/floor/image/text from the library location (other fields override). Countdown: `seconds` (1..86400), `autostart?` |
+| `scene.set` | `kind`, `data?` | New scene (new `id`, `since` = now). `data` is validated per kind; unknown fields → `bad_request`. Boss: `bossId` **or** ad-hoc `boss` (name required, `hpSlots` 1..100, ≤10 phases); HP starts full. Explore: `locationId` fills location/floor/image/text from the library location (other fields override). Countdown: `seconds` (1..86400), `autostart?`. Map: `mapId`, `showFeed?` (content in `view.maps`) |
 | `scene.preview` | `kind`, `data?` | Dry run of `scene.set` for the desk's preview: same validation, nothing changes. Ack `result: {scene}` (the stage's scene view; a boss is already revealed) |
 | `scene.update` | `data` | Shallow merge into the current scene's data, same validation (no transition on the TV). Boss: `hp`, `phase`, `revealed`, `defeated`, `lootHint`, `bossId`/`boss` (swap). Countdown: `label`, `seconds` (resets), `running` |
 | `scene.roll` | `playerId?`, `formula?` [d20] **or** `what?` (as `roll.what`), `label?`, `name?` — or `rollId` (re-show a public dice-log roll) | Rolls exactly like `roll` (dice log, `roll` event, nat1/nat20 line), then sets the `roll` scene. Ack `result: {rollId, total, sceneId}` |
@@ -475,6 +475,27 @@ All of these are GM-only actions (players and the stage get `bad_request: unknow
 `POST /api/import` (X-GM-Key) with an export / backup file restores that campaign. View: `campaign` {id, name,
 ruleset} for everyone; GM `rulesetChoices`, `access.campaigns`. `combat.init` = `{ on, order, turnUid, waiting,
 manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
+
+### 3b-3. Maps with fog of war (server/maps.js)
+
+`view.maps`: GM = every map in full; TV = only the map on air (scene kind `map`, `data.mapId`); phones = maps with `phones: true` plus the one on air. TV and phones get revealed zones only (`{id, name, shape, text}`, never `notes`), the fog bitmap (`cols × rows`, base64, row-major, LSB first) and, when `tokensOn`, the tokens that are not hidden. Coordinates are 0..1 of the image.
+
+| Action | Payload | Notes |
+|---|---|---|
+| `map.add` | `name`, `image` (https:// or /pack/ URL), `aspect?` (w/h, 0.2..5) | Ack `result.id` |
+| `map.update` | `id`, `name?`, `image?`, `aspect?`, `phones?`, `tokensOn?` | A new aspect resets the fog grid |
+| `map.remove` | `id` | |
+| `map.fog` | `id`, `rect {x,y,w,h}` + `reveal` (bool) — or `all` (true reveals everything, false covers it and hides every zone) | Event `map.fog` when the map is on air |
+| `map.zone.add` | `id`, `name`, `shape` (`{x,y,w,h}` or `{points:[[x,y]…]}` 3..40), `text?`, `notes?` | Ack `result.zoneId` |
+| `map.zone.update` | `id`, `zoneId`, `name?`, `shape?`, `text?` (read-aloud), `notes?` (GM only), `links?` `[{kind: monster/boss/npc/location/item/card, id}]` | |
+| `map.zone.remove` | `id`, `zoneId` | |
+| `map.zone.reveal` | `id`, `zoneId`, `on?` (default true) | Event `map.reveal {mapId, zoneId, name}` when on air or shared |
+| `map.token.add` | `id`, `kind` (`pc` with `ref` = player id, one per crawler · `mob` · `mark`), `label?`, `color?`, `x?`, `y?`, `hidden?` | Mobs start hidden. Ack `result.tokenId` |
+| `map.token.party` | `id` | A token for every crawler without one; ack `result.added` |
+| `map.token.move` | `id`, `tokenId`, `x`, `y` | |
+| `map.token.update` | `id`, `tokenId`, `label?`, `color?`, `hidden?` | |
+| `map.token.remove` | `id`, `tokenId` | |
+| *(player)* `map.token.move` | `id`, `tokenId`, `x`, `y` | Own crawler's token only, only while `tokensOn` |
 
 ### 3c. Sound desk and System voice (ElevenLabs)
 

@@ -18,6 +18,7 @@ import { createCombatSfx } from './combat-sfx.js';
 import { createCues } from './cues.js';
 import { createNpcs } from './gm-npcs.js';
 import { createPrep } from './gm-prep.js';
+import { createMaps } from './gm-maps.js';
 import { createCrawlers } from './gm-crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
 
@@ -141,6 +142,7 @@ function render() {
   combat.update(view);
   npcs.update(view);
   prep?.update(view);
+  maps?.update(view);
   crawlers.update(view);
   scenes.update(view);
   { const cb = $('#hud-crawlers'); if (cb) { cb.disabled = !view.crawlers; cb.checked = view.crawlers?.shown !== false && !!view.crawlers; } }
@@ -1093,7 +1095,9 @@ const crawlers = createCrawlers({ act, getView: () => view, open: () => { showVi
 // Příprava (gm-prep.js): adventures + session plans; pinned items wait "within reach" in the Show bar.
 const prep = createPrep({ act, getView: () => view, scenes, showView: (v) => showView(v), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
 $('#view-prep').append(prep.el);
-scenes.mountInto($('#view-show'), { fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge, reach: prep.reach });
+// Maps with fog (gm-maps.js): Show → Map chip.
+const maps = createMaps({ act, getView: () => view, scenes, showView: (v) => showView(v) });
+scenes.mountInto($('#view-show'), { maps: maps.el, fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge, reach: prep.reach });
 const rewards = createRewards();
 $('#view-rewards').append(rewards.el);
 // Message centre: every conversation with the crawlers (private lines, groups, everyone); unread badge in the nav.

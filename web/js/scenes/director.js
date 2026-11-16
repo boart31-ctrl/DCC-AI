@@ -14,8 +14,9 @@ import blank from './blank.js';
 import combat from './combat.js';
 import npc from './npc.js';
 import finale from './finale.js';
+import map from './map.js';
 
-const KINDS = { lobby, explore, boss, loot, countdown, roll, recap, blank, combat, npc, finale };
+const KINDS = { lobby, explore, boss, loot, countdown, roll, recap, blank, combat, npc, finale, map };
 const WIPE_MS = 760;
 
 export function createDirector(layer, opts = {}) {

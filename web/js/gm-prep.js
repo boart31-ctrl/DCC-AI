@@ -43,6 +43,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
   function entryOf(ref) {
     if (!ref) return null;
     if (ref.kind === 'card') return cards().find((c) => c.id === ref.id) || null;
+    if (ref.kind === 'map') return (view?.maps || []).find((m) => m.id === ref.id) || null;
     return (lib()[ref.kind] || []).find((e) => e.id === ref.id) || null;
   }
   function refName(ref) {
@@ -87,6 +88,11 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
   async function useRef(ref) {
     const e = entryOf(ref);
     if (!e) { toast('Not in the library any more.', { error: true }); return; }
+    if (ref.kind === 'map') {
+      showView('show');
+      if (scenes.loadDraft('map', { mapId: ref.id })) toast(`${e.name} is in the preview. Go live when ready.`);
+      return;
+    }
     if (ref.kind === 'location' || ref.kind === 'npc' || ref.kind === 'boss') {
       showView('show');
       const ok = scenes.loadDraft(ref.kind === 'location' ? 'explore' : ref.kind, ref.kind === 'location' ? { locationId: ref.id } : ref.kind === 'npc' ? { npcId: ref.id } : { bossId: ref.id });
@@ -103,7 +109,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
     }
     openInLibrary(ref.kind, ref.id);
   }
-  const useLabel = (ref) => ({ location: 'Preview', npc: 'Preview', boss: 'Preview', monster: 'Add to fight', card: 'Fire' }[ref.kind] || 'Open');
+  const useLabel = (ref) => ({ map: 'Preview', location: 'Preview', npc: 'Preview', boss: 'Preview', monster: 'Add to fight', card: 'Fire' }[ref.kind] || 'Open');
 
   /* ---------- left: doc list ---------- */
   function docRow(d) {
@@ -161,12 +167,13 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
     ];
   }
   function refPicker(d, s) {
-    const kinds = (s.refKinds?.length ? s.refKinds : [...LIB_REF, 'card']).filter((k) => k !== 'map');
+    const kinds = s.refKinds?.length ? s.refKinds : [...LIB_REF, 'card', 'map'];
     const have = new Set(s.items.map((it) => `${it.ref?.kind}:${it.ref?.id}`));
     const groups = [];
     for (const k of kinds) {
       const opts = k === 'card'
         ? cards().map((c) => ({ value: `card:${c.id}`, label: `${c.label} (${c.kind})` }))
+        : k === 'map' ? (view?.maps || []).map((m) => ({ value: `map:${m.id}`, label: m.name }))
         : (lib()[k] || []).map((e) => ({ value: `${k}:${e.id}`, label: `${e.floor != null && e.floor !== '' ? `F${e.floor} ` : ''}${e.name}` }));
       const free = opts.filter((o) => !have.has(o.value)).sort((a, b) => a.label.localeCompare(b.label));
       if (free.length) groups.push({ label: REF_LABEL[k] || k, options: free });
@@ -314,7 +321,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
   function update(v) {
     view = v;
     drawReach();
-    const s = JSON.stringify([P(), cards().map((c) => [c.id, c.label, c.used]), Object.values(lib()).map((x) => x.length), (v.players || []).map((p) => p.level)]);
+    const s = JSON.stringify([P(), (v.maps || []).map((m) => [m.id, m.name]), cards().map((c) => [c.id, c.label, c.used]), Object.values(lib()).map((x) => x.length), (v.players || []).map((p) => p.level)]);
     if (s === sig) return;
     sig = s;
     draw();

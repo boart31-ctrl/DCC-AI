@@ -20,6 +20,7 @@ import {
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, initPrep, normalizePrep, prepView } from './prep.js';
+import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView } from './maps.js';
 
 export { genId, ActionError };
 
@@ -109,6 +110,7 @@ export function createState(basePack, now = Date.now(), campaign = {}) {
     messages: [],
     prepCards: [],
     prep: initPrep(), // prep.js: adventures + session plans (GM only)
+    maps: initMaps(), // maps.js: images + zones + fog (+ tokens for online play)
     library: emptyHomebrew(),
     libArt: normalizeLibArt(null),
     rolls: [],
@@ -144,6 +146,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.messages = Array.isArray(raw.messages) ? raw.messages : [];
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
   s.prep = normalizePrep(raw.prep);
+  s.maps = normalizeMaps(raw.maps);
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.session.aiMute = s.session.aiMute === true;
   s.session.hold = s.session.hold === true;
@@ -783,9 +786,9 @@ const PLAYER = {
 };
 
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
-Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM);
+Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
-Object.assign(PLAYER, INIT_PLAYER);
+Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER);
 
 // Internal actions dispatched by the server itself (never accepted from a socket).
 const SYSTEM = {
@@ -954,6 +957,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   v.rolls = rollsFor(state, role, opts.playerId);
   v.combat = combatView(state, pack, role);
   v.crawlers = crawlersView(state, pack, role, now, opts.stageOn !== false);
+  v.maps = mapsView(state, role);
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;
