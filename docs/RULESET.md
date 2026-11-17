@@ -69,6 +69,7 @@ and identifiers:
 |---|---|
 | `stat.<id>` / `stat.<id>.<part>` | stat value (default part = `statMod.from`) |
 | `mod.<id>` | stat modifier via `statMod.formula` (`x` = the stat value) **plus** effects targeting `mod.<id>` |
+| `step(x, t1, t2, …)` | function: how many thresholds `x` has reached — a lookup table, e.g. `step(x, 1, 3, 6, 10, 20, 50, 100, 150, 200, 300)` gives 1 for 1–2, 2 for 3–5 … 10 for 300+ |
 | `field.<id>` | numeric field |
 | `buff.<target>` | sum of active effects with that target |
 | `level` | character level |

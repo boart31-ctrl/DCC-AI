@@ -819,12 +819,12 @@ test('private DCC pack (skipped when absent): sheet model works end to end', { s
   assert.throws(() => g(st, { t: 'item.equip', playerId: pid, uid: items[2], slot: 'hands' }), /max 2/);
   const sh = viewFor(st, dcc, 'player', { playerId: pid }).me.sheet;
   const cs = sh.computed;
-  assert.equal(cs.stats.str.mod.value, 0);
-  assert.ok(cs.stats.str.mod.warnings.some((w) => w.kind === 'unverified'));
-  assert.equal(cs.attacks[0].damage, '1d6');
-  assert.equal(cs.attacks[0].toHit.value, 3);
+  assert.equal(cs.stats.str.mod.value, 2, 'book stat table: score 3 → +2');
+  assert.equal(cs.attacks[0].damage, '1d6+2', 'damage dice + Str mod');
+  assert.equal(cs.attacks[0].toHit.value, 5, 'rank 3 + Str mod 2');
   assert.equal(cs.tracks.hp.max, 10);
-  assert.equal(cs.tracks.mana.max, 5);
+  assert.equal(cs.tracks.hp.slotValue, 2, 'one slot = Con mod');
+  assert.equal(cs.tracks.mana.max, 3, 'mana = Int score');
   assert.ok(cs.effects.some((e) => e.source.kind === 'feature'), 'race features apply');
   // spell with applies + item.use with heal
   const spell = dcc.library.spell.find((s) => s.applies && dcc.library.buff.find((b) => b.id === s.applies && !(b.tags ?? []).includes('debuff')));

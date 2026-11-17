@@ -40,6 +40,8 @@ const FUNCS = new Map([
   ['abs', [1, 1]],
   ['min', [1, LIMITS.maxArgs]],
   ['max', [1, LIMITS.maxArgs]],
+  // step(x, t1, t2, …) = how many thresholds x has reached: a lookup table (e.g. stat score → modifier).
+  ['step', [2, LIMITS.maxArgs]],
 ]);
 
 const IDENT_RE = /[A-Za-z_][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*/y;
@@ -277,6 +279,7 @@ function ev(node, env) {
         case 'abs': return Math.abs(a[0]);
         case 'min': return Math.min(...a);
         case 'max': return Math.max(...a);
+        case 'step': return a.slice(1).filter((t) => a[0] >= t).length;
         default: throw new FormulaError(`unknown function "${node.name}"`);
       }
     }

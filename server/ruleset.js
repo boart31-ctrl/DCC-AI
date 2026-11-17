@@ -359,6 +359,10 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     // Pack: file names under images/ (missing files are skipped quietly, art may still be on its way).
     variants: monsterVariants(raw.variants, ctx, opts),
     hpSlots: intOr(raw, 'hpSlots', 1, 9999, 5, ctx),
+    // Damage one health slot is worth (crawler books: the mob's Con mod); 0 = the ruleset's default.
+    slotValue: intOr(raw, 'slotValue', 0, 50, 0, ctx),
+    // standard | elite | minion | boss: reaction rounds give elites and bosses one action per crawler.
+    role: ['elite', 'minion', 'boss'].includes(raw.role) ? raw.role : 'standard',
     evade: intOr(raw, 'evade', -99, 99, 0, ctx),
     dr: intOr(raw, 'dr', -99, 99, 0, ctx),
     attacks: normalizeStatAttacks(raw.attacks, ctx),
@@ -490,6 +494,8 @@ function normalizeLabels(raw) {
  *   dr: derived id subtracted from damage, or null
  *   crit: 'double' (damage x2) | 'dice' (roll damage dice twice) | 'degrees' (pf2e: beat by 10 or nat 20 bump) | 'none'
  *   initiative: { enabled, derived } turn order instead of phases
+ *   mobBase / floorScaled: mob Evade and to-hit are written as bonuses; the target adds mobBase (+ the world floor)
+ *   flow: 'phases' (default) | 'reaction' (declare → react → resolve → act; the GM never rolls a d20)
  */
 function normalizeCombatRules(raw, derived, unv) {
   const r = isObj(raw) ? raw : {};
@@ -509,6 +515,13 @@ function normalizeCombatRules(raw, derived, unv) {
     advantage: r.advantage === true,
     initiative: { enabled: ini.enabled === true || raw?.initiative === true, derived: has(ini.derived) ? ini.derived : null },
     hpModel: r.hpModel === 'pool' ? 'pool' : r.hpModel === 'slots' ? 'slots' : null,
+    // Mob numbers written as "base + floor" (outcome.js mobDefense / mobAttackDc).
+    mobBase: Number.isInteger(r.mobBase) && r.mobBase >= 0 && r.mobBase <= 30 ? r.mobBase : 0,
+    // Damage one mob health slot is worth when the mob has no own slotValue (slot health bars), 0 = 1 damage per slot.
+    mobSlotValue: Number.isInteger(r.mobSlotValue) && r.mobSlotValue >= 0 && r.mobSlotValue <= 50 ? r.mobSlotValue : 0,
+    floorScaled: r.floorScaled === true,
+    // Combat flow: 'reaction' = reaction rounds (reaction.js), mobs never roll d20.
+    flow: r.flow === 'reaction' ? 'reaction' : 'phases',
   };
   if (!out.defenseLabel) out.defenseLabel = derived.find((d) => d.id === out.defense)?.label ?? 'Defence';
   unverified(r, 'combat', unv);
@@ -566,6 +579,8 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
         out.labels = Array.isArray(t.labels) ? t.labels.filter((x) => typeof x === 'string').map((x) => x.slice(0, 20)).slice(0, out.slots) : [];
       }
       if (isStr(t.maxFormula) && formulaOk(t.maxFormula, ctx, `ruleset.json ${w}.maxFormula`)) out.maxFormula = t.maxFormula.trim();
+      // Slot health bars: how much damage one slot is worth (e.g. "mod.con"). Rolled damage removes whole slots.
+      if (kind === 'slots' && isStr(t.slotValue) && formulaOk(t.slotValue, ctx, `ruleset.json ${w}.slotValue`)) out.slotValue = t.slotValue.trim();
       // Formula tracks start full on a new character unless `start: "empty"` (temporary HP, focus spent...).
       if (t.start === 'empty') out.start = 'empty';
       unverified(t, `tracks.${t.id}`, unv);
@@ -952,6 +967,7 @@ export function computeSheet(ch, ruleset, library) {
     max.value = Math.max(0, max.value);
     const cur = Math.max(0, Math.min(max.value, finite(raw.cur, 0)));
     tracks[t.id] = { cur, max: max.value, maxBreakdown: max };
+    if (t.slotValue) tracks[t.id].slotValue = Math.max(1, Math.round(evaluate(t.slotValue, (n) => resolveFull(n)).value || 1));
   }
 
   // 7. derived (in order; may reference earlier derived.<id>)

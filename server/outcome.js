@@ -20,7 +20,25 @@ export function combatRules(pack, settings = DEFAULT_SETTINGS) {
     useDr: fixed ? !!cr.dr : true,
     defenseLabel: cr.defenseLabel || 'Evade',
     advantage: !!cr.advantage,
+    // Mob numbers as "base + floor" (crawler books: Evade 10 + Dex + F, to hit 10 + mod + F).
+    // mobBase is added to a mob's Evade and to-hit bonus; floorScaled adds the world's current floor.
+    mobBase: Number.isInteger(cr.mobBase) ? cr.mobBase : 0,
+    floorScaled: cr.floorScaled === true,
   };
+}
+
+/** The world's floor (crawlers.js), 1 when unknown. */
+export const floorOfState = (st) => (Number.isInteger(st?.crawlers?.floor) && st.crawlers.floor > 0 ? st.crawlers.floor : 1);
+
+/** Target number to hit a mob: its Evade plus the ruleset's mob base and (optionally) the floor. */
+export function mobDefense(rules, evade, floor = 1) {
+  return (Number.isFinite(evade) ? evade : 0) + (rules.mobBase || 0) + (rules.floorScaled ? floor : 0);
+}
+
+/** Difficulty of evading a mob attack: its `dc` when given, else 10 + to-hit (+ mob base, + floor when scaled). */
+export function mobAttackDc(rules, attack, floor = 1) {
+  if (Number.isFinite(attack?.dc)) return attack.dc + (rules.floorScaled && attack.dcPlusFloor ? floor : 0);
+  return (rules.mobBase || 10) + (Number(attack?.toHit) || 0) + (rules.floorScaled ? floor : 0);
 }
 
 /**
@@ -56,4 +74,17 @@ export function nearness(res, d20) {
   if (res.hit && res.margin >= 0 && res.margin <= 1 && !res.crit) return 'near_success';
   if (!res.hit && res.margin >= -2 && res.margin <= -1) return 'near_fail';
   return null;
+}
+
+/** Damage one health slot of this mob is worth: its own `slotValue`, else the ruleset's `mobSlotValue`, else 1. */
+export function mobSlotValue(pack, mob) {
+  const own = Number(mob?.slotValue);
+  if (Number.isInteger(own) && own >= 1) return own;
+  const r = Number(pack?.ruleset?.combat?.mobSlotValue);
+  return Number.isInteger(r) && r >= 1 ? r : 1;
+}
+
+/** Rolled damage (after DR) → whole health slots; damage below one slot's worth is lost. */
+export function damageToSlots(amount, slotValue) {
+  return slotValue > 1 ? Math.floor(Math.max(0, amount) / slotValue) : Math.max(0, amount);
 }

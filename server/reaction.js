@@ -15,13 +15,13 @@
 //   Decl = { id, mobUid, attack: { name, damage, dc }, targetUid, caught, taunted, evade: null | { die, total,
 //            degree }, result: null | 'evaded' | 'half' | 'hit', damage: null | number }
 //
-// Difficulty of an Evade check = the attack's `dc` when the content has one (book stat blocks: "12+F to hit"),
-// else 10 + the attack's to-hit bonus (older packs written for GM-rolled attacks).
+// Difficulty of an Evade check = outcome.js mobAttackDc: the attack's `dc` when the content has one, else
+// mob base (10 by default) + to-hit bonus, + the world's floor when the ruleset is floor-scaled.
 import { bad, notFound } from './errors.js';
 import { rollDice } from './formula.js';
 import { computeFor, libraryOf } from './character.js';
 import { COMBAT_GM, defenseOf } from './combat.js';
-import { combatRules } from './outcome.js';
+import { combatRules, mobAttackDc, floorOfState } from './outcome.js';
 
 export const STEPS = ['declare', 'react', 'resolve', 'act', 'cleanup'];
 export const ACTIONS_PER_ROUND = 2;
@@ -86,10 +86,9 @@ function declOf(rx, id) {
 }
 const nameOf = (st, x) => (x.type === 'mob' ? x.name : st.players.find((p) => p.id === x.playerId)?.name ?? '?');
 
-/** Difficulty of evading this attack (see header). */
-export function attackDc(attack) {
-  if (Number.isFinite(attack?.dc)) return attack.dc;
-  return 10 + (Number(attack?.toHit) || 0);
+/** Difficulty of evading this attack (see header; floor-scaled rulesets add the current floor). */
+export function attackDc(attack, rules = { mobBase: 0, floorScaled: false }, floor = 1) {
+  return mobAttackDc(rules, attack, floor);
 }
 
 function spend(rx, uid, n = 1) {
@@ -111,7 +110,7 @@ function addDecl(st, ctx, rx, mob, attackIndex, targetUid) {
   const atk = (mob.attacks ?? [])[attackIndex ?? 0];
   if (!atk) throw bad(`${mob.name} has no attack ${attackIndex ?? 0}`);
   const t = crawlerOf(st, targetUid);
-  const d = { id: ctx.genId('dc'), mobUid: mob.uid, attack: { name: atk.name || 'Attack', damage: atk.damage || '1d4', dc: attackDc(atk), area: !!atk.area }, targetUid: t.uid, caught: false, taunted: false, evade: null, result: null, damage: null };
+  const d = { id: ctx.genId('dc'), mobUid: mob.uid, attack: { name: atk.name || 'Attack', damage: atk.damage || '1d4', dc: attackDc(atk, combatRules(ctx.pack, C(st).settings), floorOfState(st)), area: !!atk.area }, targetUid: t.uid, caught: false, taunted: false, evade: null, result: null, damage: null };
   rx.decls.push(d);
   return d;
 }
@@ -152,7 +151,7 @@ function resolveDecl(st, ctx, out, rx, d) {
     if (!d.attack.area) { d.result = 'evaded'; d.damage = 0; log(rx, `${nameOf(st, target)} evades ${mob.name}'s ${d.attack.name}.`); return; }
     mult = 0.5;
   }
-  if (deg === 'major') bonus = Number(st.campaign?.floor) || 1;
+  if (deg === 'major') bonus = floorOfState(st);
   if (deg === 'critfail') mult *= 2;
   let rolled = 0;
   try { rolled = rollDice(d.attack.damage, { randInt: ctx.randInt }).total; } catch { rolled = 1; }
@@ -279,7 +278,7 @@ export const REACTION_PLAYER = {
       const d = declOf(rx, a.declId);
       if (!Number.isInteger(a.total)) throw bad('total (your Taunt check) required');
       const mob = mobOf(st, d.mobUid);
-      const dc = 10 + (Number(mob.stats?.int?.mod) || 2) + (Number(st.campaign?.floor) || 1);
+      const dc = 10 + (Number(mob.stats?.int?.mod) || 2) + (floorOfState(st));
       spend(rx, me.uid);
       const ok = a.total >= dc;
       if (ok) { d.targetUid = me.uid; d.taunted = true; }

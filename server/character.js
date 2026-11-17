@@ -3,7 +3,7 @@
 import { ActionError, bad, notFound, forbidden } from './errors.js';
 import { computeSheet, enhanceItem, MAX_ENHANCE, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
-import { combatRules, attackOutcome, critFormula, critMultiplier, nearness } from './outcome.js';
+import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots } from './outcome.js';
 
 export const DICE_MODES = ['off', 'enter', 'digital'];
 export const MAX_UNDO = 30;
@@ -514,7 +514,11 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
     let dmg = rec.total;
     if (prev?.vs?.crit && rules.crit !== 'dice') dmg *= critMultiplier(rules);
     dmg = Math.max(0, dmg - (rules.useDr ? Math.max(0, target.dr ?? 0) : 0));
-    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg };
+    // Slot health bars: whole slots only (damage below one slot's worth is lost).
+    const sv = mobSlotValue(ctx.pack, target);
+    const rolled = dmg;
+    if (sv > 1) dmg = damageToSlots(dmg, sv);
+    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg, ...(sv > 1 ? { rolled, slotValue: sv } : {}) };
     if (dmg > 0 && ctx.h?.applyDamage) {
       const before = target.hp;
       ctx.h.applyDamage(st, ctx, out, { uid: target.uid, amount: dmg, by: p.id });
@@ -525,7 +529,7 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
     }
     return;
   }
-  if (target) defense = Number.isFinite(target.evade) ? target.evade : 0;
+  if (target) defense = mobDefense(rules, target.evade, floorOfState(st));
   else if (a.dc !== undefined) defense = int(a.dc, 'dc', -10, 99);
   else return;
   const res = attackOutcome(rules, { d20: rec.natural, total: rec.total, target: defense });

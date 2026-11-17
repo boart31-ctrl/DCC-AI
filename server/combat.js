@@ -22,7 +22,7 @@
 // Views: the GM sees everything. Players and the TV see crawlers + revealed mobs only, mob HP as a
 // rounded fraction (exact numbers only with `showMobHp`), never notes / attacks / library GM fields.
 import { bad, notFound } from './errors.js';
-import { combatRules } from './outcome.js';
+import { combatRules, mobSlotValue, damageToSlots } from './outcome.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import { SCENE_GM, introLine } from './scenes.js';
 
@@ -323,6 +323,19 @@ function changeHp(st, a, ctx, out, sign) {
     drApplied = amount - after;
     amount = after;
     if (amount <= 0) { out.result = { hp: x.hp ?? null, blocked: true, dr }; out.changed = false; return; }
+    // Slot health bars: rolled damage removes whole slots (outcome.js damageToSlots); less than one slot = nothing.
+    let sv = 1;
+    if (x.type === 'mob') sv = mobSlotValue(ctx.pack, x);
+    else {
+      const p = st.players.find((y) => y.id === x.playerId);
+      const t = hpTrackOf(ctx.pack);
+      try { sv = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.tracks[t.id].slotValue || 1; } catch { sv = 1; }
+    }
+    if (sv > 1) {
+      const rolled = amount;
+      amount = damageToSlots(amount, sv);
+      if (amount <= 0) { out.result = { hp: x.hp ?? null, blocked: true, belowSlot: true, rolled, slotValue: sv, dr }; out.changed = false; return; }
+    }
   }
   if (x.type === 'crawler') {
     // Sheets stay the single source of truth: same path as the sheet's own track.set.
@@ -758,6 +771,8 @@ export const COMBAT_GM = {
         uid: ctx.genId('cb'), type: 'mob', sourceKind: kind, sourceId: e.id, sourceKey, name,
         image: pickImage(), hp: e.hpSlots ?? 5, hpMax: e.hpSlots ?? 5,
         evade: Number.isInteger(e.evade) ? e.evade : 0, dr: Number.isInteger(e.dr) ? e.dr : 0,
+        ...(Number.isInteger(e.slotValue) && e.slotValue >= 1 ? { slotValue: e.slotValue } : {}),
+        ...(e.role && e.role !== 'standard' ? { role: e.role } : {}),
         attacks: cleanAttacks(e.attacks), conditions: [], notes: '', hidden, ...MOB_TARGETING,
       };
       if (Number.isFinite(e.initiative)) m.initiative = e.initiative;
@@ -788,6 +803,7 @@ export const COMBAT_GM = {
         hp, hpMax: hp,
         evade: a.evade === undefined ? 0 : intIn(a.evade, 'evade', -99, 99),
         dr: a.dr === undefined ? 0 : intIn(a.dr, 'dr', -99, 99),
+        ...(a.slotValue !== undefined ? { slotValue: intIn(a.slotValue, 'slotValue', 1, 50) } : {}),
         attacks, conditions: [], notes: a.notes === undefined ? '' : txt(a.notes, 'notes', 500, { allowEmpty: true }), hidden, ...MOB_TARGETING,
       };
       C(st).combatants.push(m);

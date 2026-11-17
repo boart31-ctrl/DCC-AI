@@ -278,7 +278,9 @@ export async function startServer(opts = {}) {
 
   async function onRequest(req, res) {
     try {
-      if (req.method !== 'GET' && req.method !== 'HEAD') {
+      // POST only for the campaign import (GM key checked there); everything else is read-only.
+      const isImport = req.method === 'POST' && new URL(req.url, 'http://x').pathname === '/api/import';
+      if (req.method !== 'GET' && req.method !== 'HEAD' && !isImport) {
         res.writeHead(405, { allow: 'GET, HEAD' });
         return res.end();
       }
