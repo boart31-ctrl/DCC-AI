@@ -108,3 +108,4 @@
   .pp-side { position: static; }
   .pp-ref .pp-note { flex-basis: 100%; }
 }
+.enc-item { grid-template-columns: 52px minmax(0, 1fr) auto auto; }

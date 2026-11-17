@@ -6,6 +6,7 @@
 import { h } from './client.js';
 import { icon, select } from './ui.js';
 import { createMapView } from './map-view.js';
+import { libraryOf } from './rules.js';
 
 export function createBattleMap({ act, goLiveFight }) {
   let view = null;
@@ -60,6 +61,37 @@ export function createBattleMap({ act, goLiveFight }) {
     if (s === sig) return;
     sig = s;
     draw();
+  }
+  return { el, update };
+}
+
+/**
+ * Fight → loot of the encounter that ran last (its prepared items, enc.give): one tap gives an item to a
+ * crawler. Stays until everything is handed out.
+ */
+export function createEncounterLoot({ act }) {
+  const el = h('section.panel.bm-loot', { hidden: true });
+  let sig = '';
+  function update(view) {
+    const enc = (view?.gm?.prepCards || []).filter((c) => c.kind === 'encounter' && c.used && (c.payload?.items || []).length).sort((a, b) => (b.usedAt || 0) - (a.usedAt || 0))[0];
+    const items = enc?.payload?.items || [];
+    const s = JSON.stringify([enc?.id, items, (view?.players || []).map((p) => [p.id, p.name])]);
+    if (s === sig) return;
+    sig = s;
+    el.hidden = !enc || items.every((x) => x.given);
+    if (el.hidden) { el.replaceChildren(); return; }
+    const lib = libraryOf(view).item || [];
+    const players = view.players || [];
+    el.replaceChildren(
+      h('div.sec-head', icon('gift', { size: 14 }), h('h2', `Loot: ${enc.label}`)),
+      h('ul.bm-items', items.map((x, i) => {
+        const e = lib.find((it) => it.id === x.id);
+        return h('li.bm-item',
+          h('b', `${x.qty > 1 ? `${x.qty}× ` : ''}${e?.name || x.id}`),
+          x.given
+            ? h('span.dim', icon('check', { size: 12 }), players.find((p) => p.id === x.given)?.name || 'given')
+            : h('span.bm-give', players.map((p) => h('button.btn.btn-sm', { type: 'button', title: `Give it to ${p.name}`, onclick: () => act({ t: 'enc.give', id: enc.id, index: i, playerId: p.id }, `${e?.name || 'Item'} → ${p.name}.`) }, p.name))));
+      })));
   }
   return { el, update };
 }

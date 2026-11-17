@@ -3,14 +3,15 @@
 //
 // An encounter is a prepared card of kind "encounter" (state.prepCards), so the Fight tab's encounter chips
 // and `prep.card.fire` keep working. Its payload:
-//   { mobs: [{ kind: 'monster'|'boss', sourceId, count, hidden }], mapId?, notes?, tactics?, loot?: [cardId] }
+//   { mobs: [{ kind: 'monster'|'boss', sourceId, count, hidden }], mapId?, notes?, items?: [{ id, qty, given? }] }
 //     hidden   the mob starts hidden (revealed with one tap during the fight)
 //     mapId    battle map: mob tokens are placed there in prep (enc.tokens) and bound to the real
 //              combatants when the encounter runs, so revealing / killing a mob shows on the map
 //     notes    GM notes: where they lurk, what they want, when they flee
-//     loot     prepared loot cards to hand out after the fight
+//     items    library items the mobs drop: handed out from the Fight tab after the battle (enc.give);
+//              `given` = the player id who got it
 //
-// makeEncounterGM(GM) → { 'enc.save', 'enc.remove', 'enc.tokens', 'enc.run' } (needs the merged GM table
+// makeEncounterGM(GM) → { 'enc.save', 'enc.remove', 'enc.tokens', 'enc.run', 'enc.give' } (needs the merged GM table
 // for combat.addMob / combat.start).
 import { bad, notFound } from './errors.js';
 import { libraryOf } from './character.js';
@@ -29,6 +30,21 @@ function mobsArg(v) {
     const count = m.count === undefined ? 1 : m.count;
     if (!Number.isInteger(count) || count < 1 || count > 20) throw bad('count must be 1..20');
     return { kind: m.kind ?? 'monster', sourceId: m.sourceId, count, hidden: m.hidden !== false };
+  });
+}
+
+function itemsArg(v, old = []) {
+  if (!Array.isArray(v) || v.length > 12) throw bad('items must be 0..12 entries');
+  const pool = [...old];
+  return v.map((x) => {
+    if (!isObj(x) || typeof x.id !== 'string' || !ID_RE.test(x.id)) throw bad('each item needs a library id');
+    const qty = x.qty === undefined ? 1 : x.qty;
+    if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw bad('qty must be 1..99');
+    // Keep who already got it (the same item, first match).
+    const i = pool.findIndex((o) => o?.id === x.id);
+    const given = i >= 0 ? pool[i].given : undefined;
+    if (i >= 0) pool[i] = null;
+    return { id: x.id, qty, ...(typeof given === 'string' ? { given } : {}) };
   });
 }
 
@@ -62,9 +78,11 @@ export function makeEncounterGM(GM) {
         payload.mapId = a.mapId;
       }
       if (a.notes) payload.notes = str(a.notes, 2000);
-      if (Array.isArray(a.loot)) payload.loot = a.loot.filter((x) => typeof x === 'string' && ID_RE.test(x)).slice(0, 10);
+      const prev = a.id ? cardOf(st, a.id) : null;
+      if (a.items !== undefined) { const items = itemsArg(a.items, prev?.payload?.items ?? []); if (items.length) payload.items = items; }
+      else if (prev?.payload?.items?.length) payload.items = prev.payload.items;
       if (a.id) {
-        const c = cardOf(st, a.id);
+        const c = prev;
         const oldMap = c.payload?.mapId;
         c.label = label;
         c.payload = payload;
@@ -129,6 +147,17 @@ export function makeEncounterGM(GM) {
       c.usedAt = ctx.now;
       if (a.start === true && !st.combat?.active) GM['combat.start'](st, {}, ctx, out);
       out.result = { uids: uids.filter(Boolean), skipped, mapId: c.payload?.mapId ?? null, bound };
+    },
+
+    /** `{ id, index, playerId }` Hand out one of the encounter's prepared items (the whole qty). */
+    'enc.give'(st, a, ctx, out) {
+      const c = cardOf(st, a.id);
+      const it = (c.payload?.items ?? [])[a.index];
+      if (!it) throw notFound(`no item ${a.index} in ${c.label}`);
+      const sub = { ...out, result: null };
+      GM['lib.give'](st, { playerId: a.playerId, kind: 'item', id: it.id, qty: it.qty }, ctx, sub);
+      it.given = a.playerId;
+      out.result = { uid: sub.result?.uid ?? null };
     },
   };
 }

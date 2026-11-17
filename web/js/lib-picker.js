@@ -5,7 +5,7 @@
 //   kinds    which kinds to offer: library kinds (monster, boss, npc, location, item, spell, buff) and
 //            'encounter' (prepared encounters), 'map', 'card' (other prepared cards)
 //   multi    tap tiles to collect several, then "Add"; otherwise one tap picks and closes
-//   counts   (multi) monsters / bosses get a count stepper (how many of them)
+//   counts   (multi) monsters / bosses / items get a count stepper (how many of them)
 //   exclude  Set of "kind:id" already linked (shown ticked, not offered again)
 //   onPick([{ kind, id, count }])
 import { h } from './client.js';
@@ -91,7 +91,7 @@ export function pickFromLibrary({ view, kinds, title = 'Add from the library', m
       const key = `${kind}:${e.id}`;
       const had = exclude.has(key);
       const n = chosen.get(key) || 0;
-      const withCount = counts && (kind === 'monster' || kind === 'boss');
+      const withCount = counts && (kind === 'monster' || kind === 'boss' || kind === 'item');
       return h('div.lp-tile', { class: `lp-tile${n ? ' on' : ''}${had ? ' had' : ''}` },
         h('button.lp-tile-b', {
           type: 'button', disabled: had && !multi, title: had ? 'Already linked' : e.name,

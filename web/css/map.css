@@ -92,3 +92,10 @@
 .bm-t { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
 .bm-t h2 { margin: 0; font-size: 15px; }
 .bm-zones { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.bm-loot { display: grid; gap: 6px; border-color: var(--c-accent); }
+.bm-loot[hidden] { display: none; }
+.bm-loot .sec-head { display: flex; align-items: center; gap: 6px; }
+.bm-loot h2 { margin: 0; font-size: 15px; }
+.bm-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.bm-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.bm-give { display: inline-flex; flex-wrap: wrap; gap: 4px; }

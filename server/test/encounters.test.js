@@ -116,3 +116,25 @@ test('prep: encounter refs in monster sections, links on scenes', () => {
   s = gm(s, { t: 'enc.remove', id: encId }).state;
   assert.equal(s.prepCards.length, 0);
 });
+
+test('encounter items: saved with the encounter, handed out from the fight, "given" survives edits', () => {
+  const ITEMS = [{ id: 'duck', name: 'Rubber Duck' }, { id: 'key', name: 'Rusty Key' }];
+  const { pack: p2 } = loadPack(writePack(tmpDir(), { 'monsters.json': MONSTERS, 'items.json': ITEMS }));
+  const c2 = () => ({ now: 5000, rng: seq(0.5), genId: (p) => `${p}_${++n}`, pack: p2 });
+  const g = (s, a) => reduce(s, { role: 'gm', ...a }, c2());
+  let s = createState(p2, 0);
+  let r = g(s, { t: 'player.add', name: 'Carl' });
+  const carl = r.result.id ?? r.state.players[0].id;
+  s = r.state;
+  assert.throws(() => g(s, { t: 'enc.save', label: 'X', mobs: [], items: [{ id: 'duck', qty: 0 }] }), /qty/);
+  r = g(s, { t: 'enc.save', label: 'Rats', mobs: [{ sourceId: 'rat' }], items: [{ id: 'duck', qty: 2 }, { id: 'key' }] });
+  const id = r.result.id;
+  s = g(r.state, { t: 'enc.give', id, index: 0, playerId: carl }).state;
+  const pl = s.players.find((x) => x.id === carl);
+  assert.ok(pl.inventory.some((x) => x.itemId === 'duck' && x.qty === 2), 'Carl got 2 ducks');
+  assert.equal(s.prepCards[0].payload.items[0].given, carl);
+  s = g(s, { t: 'enc.save', id, label: 'Rats', mobs: [{ sourceId: 'rat' }], items: [{ id: 'key' }, { id: 'duck', qty: 2 }] }).state;
+  assert.deepEqual(s.prepCards[0].payload.items.map((x) => [x.id, x.given ?? null]), [['key', null], ['duck', carl]]);
+  s = g(s, { t: 'enc.save', id, label: 'Renamed', mobs: [{ sourceId: 'rat' }] }).state;
+  assert.equal(s.prepCards[0].payload.items.length, 2, 'items kept when not sent');
+});

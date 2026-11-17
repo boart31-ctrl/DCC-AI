@@ -497,9 +497,10 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `map.token.remove` | `id`, `tokenId` | |
 | `map.stroke.add` | `id`, `pts` [[x, y]…] (2..300), `color?`, `gm?` | Pen line on the map; `gm: true` = only the GM sees it. Result `{ strokeId }` |
 | `map.stroke.remove` | `id`, `strokeId` or `all: true` | Erase one drawing or all |
-| `enc.save` | `id?`, `label`, `mobs` [{kind?, sourceId, count?, hidden?}], `mapId?`, `notes?`, `loot?` | Prepared encounter (prep card kind `encounter`), create or replace; never touches the fight. Changing / removing the map drops this encounter's tokens from the old map. Result `{ id }` |
+| `enc.save` | `id?`, `label`, `mobs` [{kind?, sourceId, count?, hidden?}], `mapId?`, `notes?`, `items?` [{id, qty?}] (kept when omitted; `given` survives) | Prepared encounter (prep card kind `encounter`), create or replace; never touches the fight. Changing / removing the map drops this encounter's tokens from the old map. Result `{ id }` |
 | `enc.remove` | `id` | Deletes it and its map tokens |
 | `enc.tokens` | `id`, `party?` | Its mobs as map tokens (hidden like the mobs, positions kept on re-sync); `party` adds crawler tokens. Result `{ added, party }` |
+| `enc.give` | `id`, `index`, `playerId` | Gives one of the encounter's prepared items (its qty) to a crawler; marks it `given` |
 | `enc.run` | `id`, `start?` | Mobs into the fight (each hidden as prepared), map tokens bound to the new combatants (they follow reveal / down), card marked used; `start` starts the fight. Result `{ uids, skipped, mapId, bound }` |
 | *(player)* `map.token.move` | `id`, `tokenId`, `x`, `y` | Own crawler's token only, only while `tokensOn` |
 
