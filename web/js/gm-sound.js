@@ -91,10 +91,23 @@ export function createSound({ client, act, getView, audio }) {
     const names = [...groups.keys()].sort((a, b) => ((GROUP_ORDER.indexOf(a) + 1 || 99) - (GROUP_ORDER.indexOf(b) + 1 || 99)) || a.localeCompare(b));
     const q = search.value.trim().toLowerCase();
     const hit = (p) => !q || `${p.id} ${p.label} ${(p.tags || []).join(' ')} ${p.group || ''}`.toLowerCase().includes(q);
-    grid.replaceChildren(...names.flatMap((g) => {
-      const list = groups.get(g).filter(hit);
-      return list.length ? [h('h3.snd-group', `${g} · ${list.length}`), ...list.map((p) => padCell(p))] : [];
-    }));
+    // Three kinds of sound, never mixed up: background loops (one at a time, until stopped), music (one at a
+    // time, plays through once) and effects (short, once, as many as you like).
+    const ofKind = (k) => board.pads.filter((p) => (k === 'effect' ? p.kind !== 'ambience' && p.kind !== 'music' : p.kind === k)).filter(hit);
+    const block = (title, hint, list, groupBy) => {
+      if (!list.length) return [];
+      const head = h('h3.snd-kind', title, h('span.dim', ` · ${hint}`));
+      if (!groupBy) return [head, ...list.map((p) => padCell(p))];
+      const gs = new Map();
+      for (const p of list) { const g = p.group || 'Other'; if (!gs.has(g)) gs.set(g, []); gs.get(g).push(p); }
+      const order = [...gs.keys()].sort((a, b) => ((GROUP_ORDER.indexOf(a) + 1 || 99) - (GROUP_ORDER.indexOf(b) + 1 || 99)) || a.localeCompare(b));
+      return [head, ...order.flatMap((g) => [h('h4.snd-group', `${g} · ${gs.get(g).length}`), ...gs.get(g).map((p) => padCell(p))])];
+    };
+    void names;
+    grid.replaceChildren(
+      ...block('Background', 'loops until you stop it; a new one crossfades', ofKind('ambience'), true),
+      ...block('Music', 'one track at a time, plays once', ofKind('music'), false),
+      ...block('Effects', 'short, once, never repeat by themselves', ofKind('effect'), true));
     drawPlaying();
   }
   function padCell(p) {
@@ -136,7 +149,18 @@ export function createSound({ client, act, getView, audio }) {
     stopBtn.disabled = !any;
     if (any) raf = requestAnimationFrame(drawPlaying);
   }
-  board.onChange = () => { drawPlaying(); drawOut(); };
+  // Now playing: the background loop and the music, each with its own stop (effects end by themselves).
+  const nowEl = h('div.snd-now');
+  function drawNow() {
+    const name = (id) => board.pads.find((p) => p.id === id)?.label || id;
+    const amb = board.current('ambience');
+    const mus = board.current('music');
+    nowEl.replaceChildren(
+      h('span.snd-now-i', { class: amb ? 'snd-now-i on' : 'snd-now-i' }, h('b', 'Background: '), amb ? name(amb) : 'silence', amb ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => board.stopKind('ambience', 2) }, 'Stop') : null),
+      h('span.snd-now-i', { class: mus ? 'snd-now-i on' : 'snd-now-i' }, h('b', 'Music: '), mus ? name(mus) : 'none', mus ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => board.stopKind('music', 1.5) }, 'Stop') : null));
+  }
+  board.onChange = () => { drawPlaying(); drawOut(); drawNow(); };
+  drawNow();
 
   // Hotkeys: Shift + physical key (e.code), any view, not while typing. Capture phase so the
   // desk's own 1–9 quip keys never fire for the same press (Czech layout: Shift+digit types a digit).
@@ -238,6 +262,7 @@ export function createSound({ client, act, getView, audio }) {
     h('div.snd-cols',
       h('div.snd-col-pads',
         h('div.col-head', h('h2', 'Sound pads'), h('span.dim', 'Click, or Shift + the key shown')),
+        nowEl,
         search,
         grid),
       h('div.snd-col-voice',

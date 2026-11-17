@@ -38,7 +38,7 @@ function loadCfg() {
   return {
     on: s.on !== false,
     ambience: s.ambience !== false,
-    randoms: s.randoms !== false,
+    randoms: s.randoms === true, // off unless the GM turns it on: random sounds every minute get old fast
     ambienceGain: typeof s.ambienceGain === 'number' ? s.ambienceGain : 0.8,
     events: s.events && typeof s.events === 'object' ? s.events : {}, // { ev: { sounds?: [refs], chance?: n, off?: true } }
   };
@@ -96,7 +96,8 @@ export function createCues({ board, getView, onChange, act = null }) {
     if (!id) return null;
     trace.push({ why, id, at: Date.now() });
     if (trace.length > 200) trace.shift();
-    board.play(id, opts);
+    // Automatic sounds are effects: one time, never a loop (location ambience calls board.play directly).
+    board.play(id, { ...(opts || {}), once: !String(why).startsWith('music:') });
     return id;
   }
 

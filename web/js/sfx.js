@@ -197,6 +197,8 @@ export function createSfxBoard() {
     /**
      * Plays a pad (a random variant). Music: one at a time (the previous one fades out).
      * Ambience: loops until stopped or replaced by another ambience (crossfade). opts.gain scales it.
+     * opts.once: play it one time as an effect, whatever its kind (automatic cues and random location sounds
+     * must never start a loop or cut the running ambience).
      */
     async play(id, opts = {}) {
       const pad = pads.find((p) => p.id === id);
@@ -206,18 +208,19 @@ export function createSfxBoard() {
       if (c.state === 'suspended') await c.resume().catch(() => {});
       let buf;
       try { buf = await loadUrl(pickUrl(pad)); } catch (e) { console.warn('[sfx]', e.message); pad.error = true; changed(); return false; }
-      const exclusive = pad.kind === 'music' || pad.kind === 'ambience';
-      if (exclusive) for (const [pid, cur] of playing) if (pid !== id && cur.kind === pad.kind) stop(pid, pad.kind === 'ambience' ? 2.5 : 1.2);
+      const kind = opts.once && pad.kind === 'ambience' ? 'pad' : pad.kind || 'pad';
+      const exclusive = kind === 'music' || kind === 'ambience';
+      if (exclusive) for (const [pid, cur] of playing) if (pid !== id && cur.kind === kind) stop(pid, kind === 'ambience' ? 2.5 : 1.2);
       stop(id, 0.03); // retrigger restarts the pad
       const src = c.createBufferSource();
       src.buffer = buf;
-      src.loop = pad.kind === 'ambience';
+      src.loop = kind === 'ambience';
       const gain = c.createGain();
       const target = padVol(id) * (opts.gain ?? 1);
-      if (pad.kind === 'ambience') { gain.gain.setValueAtTime(0, c.currentTime); gain.gain.linearRampToValueAtTime(target, c.currentTime + 2.5); } else gain.gain.value = target;
+      if (kind === 'ambience') { gain.gain.setValueAtTime(0, c.currentTime); gain.gain.linearRampToValueAtTime(target, c.currentTime + 2.5); } else gain.gain.value = target;
       src.connect(gain);
       route(pad, buf, gain);
-      const entry = { src, gain, startedAt: c.currentTime, duration: src.loop ? Infinity : buf.duration, kind: pad.kind || 'pad' };
+      const entry = { src, gain, startedAt: c.currentTime, duration: src.loop ? Infinity : buf.duration, kind };
       playing.set(id, entry);
       src.onended = () => { if (playing.get(id) === entry) { playing.delete(id); changed(); } };
       src.start();

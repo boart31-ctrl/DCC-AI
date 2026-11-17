@@ -74,3 +74,9 @@
 .cue-table th, .cue-table td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--c-line, rgba(255,255,255,.08)); vertical-align: middle; }
 .cue-table td:nth-child(3) input { width: 100%; min-width: 180px; }
 .cue-ch { width: 64px; }
+.snd-kind { grid-column: 1 / -1; margin: 16px 0 2px; font-size: 15px; }
+.snd-kind:first-child { margin-top: 0; }
+.snd-kind .dim { font-weight: 400; font-size: 12px; }
+.snd-now { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.snd-now-i { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--c-line); border-radius: 999px; font-size: 13px; }
+.snd-now-i.on { border-color: var(--c-accent); }

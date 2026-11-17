@@ -52,7 +52,7 @@ export function createCombatSfx({ board, getView, onChange, mobSound = null }) {
     if (!id) return;
     trace.push({ ev, id, at: Date.now() });
     if (trace.length > 200) trace.shift();
-    board.play(id);
+    board.play(id, { once: true }); // fight sounds are effects: never a loop
   }
   function at(group, ms, ev, uid = null) {
     const t = setTimeout(() => play(ev, uid), Math.max(0, ms));
