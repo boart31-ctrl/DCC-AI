@@ -443,7 +443,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       return n;
     };
     const setHp = (v) => (v < x.hp ? act({ t: 'combat.damage', uid: x.uid, amount: x.hp - v }) : v > x.hp ? act({ t: 'combat.heal', uid: x.uid, amount: v - x.hp }) : null);
-    const status = x.down ? h('span.cbt-dead', icon('skull', { size: 12 }), 'Down') : `${x.hp} / ${x.hpMax} HP`;
+    const status = x.dead ? h('span.cbt-dead', icon('skull', { size: 12 }), 'Dead') : x.dying != null ? h('span.cbt-dead', { title: 'Dying: rounds left; −1 each clean up and each hit; heal to save' }, icon('skull', { size: 12 }), `Dying · ${x.dying}`) : x.down ? h('span.cbt-dead', icon('skull', { size: 12 }), 'Down') : `${x.hp} / ${x.hpMax} HP`;
     return h('li.cc.cc-crawler', { class: `cc cc-crawler${x.down ? ' down' : ''}${x.noTarget ? ' notarget' : ''}`, 'data-uid': x.uid, style: { '--pc': x.color || 'var(--c-accent)' } },
       h('div.cc-who', avatar(x.name, { color: x.color, size: 36, src: p?.sheet?.portrait || null }),
         h('div.cc-nm', h('b', x.name), h('span.dim', status))),

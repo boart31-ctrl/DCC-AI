@@ -986,6 +986,9 @@ function crawlerRow(state, pack, library, x, gm) {
     const d = defenseOf(pack, computed);
     Object.assign(row, { aggro: x.aggro ?? AGGRO_DEFAULT, noTarget: !!x.noTarget, evade: d.evade, dr: d.dr });
   }
+  // Dying countdown (reaction.js dyingTick): rounds left, or dead.
+  if (x.dying != null) row.dying = x.dying;
+  if (x.dead) row.dead = true;
   return row;
 }
 

@@ -524,6 +524,9 @@ function normalizeCombatRules(raw, derived, unv) {
     floorScaled: r.floorScaled === true,
     // Combat flow: 'reaction' = reaction rounds (reaction.js), mobs never roll d20.
     flow: r.flow === 'reaction' ? 'reaction' : 'phases',
+    // Dying at 0 health (reaction rounds): rounds left = this formula (DCC: Con mod); −1 each clean up and each
+    // time a dying crawler is damaged; at 0 they die. Healed above 0 = no longer dying.
+    dyingRounds: isStr(r.dyingRounds) && !validateFormula(r.dyingRounds, {}) ? r.dyingRounds.trim() : null,
     // Every crawler can fight without gear: given when a crawler is created or a fight starts and they have no attack.
     // { name, skill (library skill id, optional), rank, stat, dice }
     starterAttack: isObj(r.starterAttack) && isStr(r.starterAttack.name) && isStr(r.starterAttack.dice)

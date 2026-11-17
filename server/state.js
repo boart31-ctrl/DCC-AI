@@ -21,7 +21,7 @@ import {
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, initPrep, normalizePrep, prepView } from './prep.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView } from './maps.js';
-import { REACTION_GM, REACTION_PLAYER, reactionView } from './reaction.js';
+import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage } from './reaction.js';
 import { makeEncounterGM } from './encounters.js';
 import { makeCreation } from './creation.js';
 
@@ -815,6 +815,18 @@ function giveStarterAttack(st, p, ctx) {
     }
   }
   try { GM['attack.add'](st, { playerId: p.id, name: sa.name, dice: sa.dice, ...(sa.stat ? { stat: sa.stat } : {}), ...(skillUid ? { skillUid } : {}) }, ctx, sub); } catch {}
+}
+{
+  // Dying (ruleset combat.dyingRounds): reaching 0 starts the countdown; a hit while dying takes a round off.
+  const dmg = GM['combat.damage'];
+  GM['combat.damage'] = (st, a, ctx, out) => {
+    const x = st.combat?.combatants?.find((c) => c.uid === a.uid);
+    const wasDying = x?.type === 'crawler' && x.dying != null;
+    dmg(st, a, ctx, out);
+    onCrawlerDamage(st, ctx, out, x, wasDying);
+  };
+  const heal = GM['combat.heal'];
+  if (heal) GM['combat.heal'] = (st, a, ctx, out) => { heal(st, a, ctx, out); const x = st.combat?.combatants?.find((c) => c.uid === a.uid); if (x?.type === 'crawler') dyingTick(st, ctx, out, 'heal', x.uid); };
 }
 {
   const start = GM['combat.start'];

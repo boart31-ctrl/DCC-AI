@@ -20,7 +20,9 @@
 import { bad, notFound } from './errors.js';
 import { rollDice } from './formula.js';
 import { computeFor, libraryOf } from './character.js';
-import { COMBAT_GM, defenseOf } from './combat.js';
+import { sheetResolver } from './ruleset.js';
+import { evaluate } from './formula.js';
+import { COMBAT_GM, defenseOf, hpTrackOf } from './combat.js';
 import { combatRules, mobAttackDc, floorOfState } from './outcome.js';
 
 export const STEPS = ['declare', 'react', 'resolve', 'act', 'cleanup'];
@@ -118,7 +120,7 @@ function addDecl(st, ctx, rx, mob, attackIndex, targetUid) {
 /** The book's rule of thumb: elites and bosses act once per crawler, other mobs once, spread evenly. */
 export function suggestDecls(st, ctx) {
   const c = C(st);
-  const targets = crawlers(st);
+  const targets = crawlers(st).filter((x) => !x.dead && x.dying == null); // mobs go for crawlers still standing
   if (!targets.length) return [];
   const load = new Map(targets.map((t) => [t.uid, 0]));
   const out = [];
@@ -161,7 +163,9 @@ function resolveDecl(st, ctx, out, rx, d) {
   log(rx, `${mob.name} hits ${nameOf(st, target)} with ${d.attack.name}: ${amount}${deg === 'major' ? ' (major fail: +floor)' : deg === 'critfail' ? ' (critical fail: double)' : ''}.`);
   if (amount > 0) {
     const sub = { ...out, result: undefined };
+    const wasDying = target.type === 'crawler' && target.dying != null;
     COMBAT_GM['combat.damage'](st, { uid: target.uid, amount, dr: true }, ctx, sub);
+    onCrawlerDamage(st, ctx, out, target, wasDying);
   }
 }
 
@@ -224,6 +228,7 @@ export const REACTION_GM = {
   /** Clean up and start the next round at declare. */
   'rx.round'(st, a, ctx, out) {
     const rx = rxOf(st);
+    dyingTick(st, ctx, out, 'cleanup');
     rx.round += 1;
     C(st).round = rx.round;
     rx.step = 'declare';
@@ -245,6 +250,53 @@ export const REACTION_GM = {
     rx.acts[a.uid] = Math.max(0, Math.min(5, (rx.acts[a.uid] ?? ACTIONS_PER_ROUND) + a.delta));
   },
 };
+
+/** Health of a crawler combatant (the sheet's hp track): { cur, max } or null. */
+function crawlerHealth(st, ctx, x) {
+  const p = st.players.find((y) => y.id === x.playerId);
+  const t = hpTrackOf(ctx.pack);
+  if (!p || !t) return null;
+  const v = p.sheet?.tracks?.[t.id];
+  return v ? { p, cur: Number(v.cur ?? v.value ?? 0), max: Number(v.max ?? 0) } : null;
+}
+/**
+ * Dying (ruleset combat.dyingRounds): a crawler at 0 health starts with that many rounds; every clean up (and
+ * every hit while dying, `why: 'hit'`) takes one; at 0 the crawler dies. Back above 0 = not dying.
+ */
+export function dyingTick(st, ctx, out, why, onlyUid = null) {
+  const f = ctx.pack.ruleset.combat?.dyingRounds;
+  if (!f || !C(st)?.active) return;
+  for (const x of C(st).combatants) {
+    if (x.type !== 'crawler' || x.dead || (onlyUid && x.uid !== onlyUid)) continue;
+    const hp = crawlerHealth(st, ctx, x);
+    if (!hp) continue;
+    if (hp.cur > 0) { if (x.dying != null) { delete x.dying; out.emit({ kind: 'dying.saved', playerId: x.playerId, name: hp.p.name }, 'all'); } continue; }
+    if (x.dying == null) {
+      let n = 1;
+      try { const { ch, computed } = computeFor(hp.p, ctx.pack, libraryOf(st, ctx.pack)); n = Math.max(1, Math.round(evaluate(f, sheetResolver(computed, ch, ctx.pack.ruleset)).value)); } catch {}
+      x.dying = n;
+      out.emit({ kind: 'dying', playerId: x.playerId, name: hp.p.name, rounds: n }, 'all');
+      continue; // the countdown starts at the next clean up / hit
+    }
+    x.dying -= 1;
+    if (x.dying <= 0) {
+      x.dying = 0;
+      x.dead = true;
+      out.emit({ kind: 'dying.dead', playerId: x.playerId, name: hp.p.name }, 'all');
+      log(rxOf(st), `${hp.p.name} died.`);
+    } else out.emit({ kind: 'dying', playerId: x.playerId, name: hp.p.name, rounds: x.dying }, 'all');
+  }
+}
+
+/** After damage to a crawler: a dying one loses a round (dies at 0); one that just hit 0 starts dying. */
+export function onCrawlerDamage(st, ctx, out, x, wasDying) {
+  if (!ctx.pack.ruleset.combat?.dyingRounds || x?.type !== 'crawler' || x.dead) return;
+  if (wasDying && x.dying != null) {
+    x.dying -= 1;
+    const name = st.players.find((p) => p.id === x.playerId)?.name;
+    if (x.dying <= 0) { x.dying = 0; x.dead = true; out.emit({ kind: 'dying.dead', playerId: x.playerId, name }, 'all'); } else out.emit({ kind: 'dying', playerId: x.playerId, name, rounds: x.dying }, 'all');
+  } else dyingTick(st, ctx, out, 'hit', x.uid);
+}
 
 function evadeRoll(st, ctx, out, a, playerId) {
   const rx = rxOf(st);

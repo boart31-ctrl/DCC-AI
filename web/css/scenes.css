@@ -655,3 +655,6 @@ body.stage[data-scene="roll"] .subtitle { bottom: auto; top: 6.2rem; }
 .bm-img { width: 5rem; height: 5rem; object-fit: cover; border: 2px solid rgba(var(--th-rgb), 0.55); background: #07040d; }
 .bm.down .bm-img { filter: grayscale(1); }
 .bm-body { display: grid; gap: 0.5rem; min-width: 0; }
+.ar-dying { background: #ff2448; animation: ar-dying-pulse 1s ease-in-out infinite; }
+.ar-dead { background: #222; color: #ff2448; }
+@keyframes ar-dying-pulse { 50% { opacity: 0.55; } }

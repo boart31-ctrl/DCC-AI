@@ -951,3 +951,24 @@ test('private DCC pack: seven degrees on attacks, Amazing adds the floor, AI Fav
   st = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'hit' }, target: rat.uid, entered: 1 }).state;
   assert.equal(st.rolls.at(-1).vs.deg7, 'critfail');
 });
+
+test('private DCC pack: dying at 0 health — Con mod rounds, −1 per clean up and per hit, healed = saved, then death', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  const gm = (s, a) => reduce(s, { role: 'gm', ...a }, c());
+  let st = gm(createState(dcc, 0), { t: 'player.add', name: 'Fargo' }).state;
+  st = gm(st, { t: 'sheet.set', playerId: st.players[0].id, path: 'stats.con', value: { enhanced: 6, unenhanced: 6 } }).state; // Con mod +3
+  st = gm(st, { t: 'combat.start' }).state;
+  const x = () => st.combat.combatants.find((y) => y.type === 'crawler');
+  st = gm(st, { t: 'combat.damage', uid: x().uid, amount: 99 }).state;
+  assert.equal(x().dying, 3, 'Con mod 3 rounds');
+  st = gm(st, { t: 'rx.round' }).state;
+  assert.equal(x().dying, 2);
+  st = gm(st, { t: 'combat.damage', uid: x().uid, amount: 3 }).state;
+  assert.equal(x().dying, 1, 'a hit while dying takes a round');
+  st = gm(st, { t: 'combat.heal', uid: x().uid, amount: 1 }).state;
+  assert.equal(x().dying, undefined, 'healed: not dying');
+  st = gm(st, { t: 'combat.damage', uid: x().uid, amount: 99 }).state;
+  for (let i = 0; i < 3; i++) st = gm(st, { t: 'rx.round' }).state;
+  assert.equal(x().dead, true);
+});
