@@ -20,7 +20,7 @@ export function createRollPad({ send, getView, getMe }) {
   const me = () => getMe();
   const rs = () => V().pack?.ruleset || {};
   const rules = () => rs().combat || {};
-  const mode = () => me()?.diceMode || 'off';
+  const mode = () => me()?.diceMode || 'enter';
   const sides = () => Number(String(rs().dice || 'd20').replace(/^d/, '')) || 20;
   const combat = () => V().combat || {};
   const mobs = () => (combat().active ? (combat().combatants || []).filter((x) => x.type === 'mob' && !x.down) : []);

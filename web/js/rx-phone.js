@@ -5,15 +5,16 @@
 // createRxPhone({ send, toast }) → { el, update(view, me) }
 import { h } from './client.js';
 
+const STEP_NAME = { declare: 'Mobs choose', react: 'React', resolve: 'Hits land', act: 'Your turn', cleanup: 'Clean up' };
 const STEP_HINT = {
-  declare: 'The mobs are choosing targets…',
-  react: 'React now: Evade, Catcher, Taunt, Heal or Intervene. Each costs one action.',
-  resolve: 'Attacks land.',
-  act: 'Your turn: spend what is left. Attacks go through your sheet.',
+  declare: 'The mobs are choosing who to hit. Wait a moment…',
+  react: 'Mobs announced their attacks. Before they land you can spend actions: dodge, protect a friend, draw the attack to you. You have 2 actions this round in total.',
+  resolve: 'The attacks land now. Watch the TV.',
+  act: 'Your turn: attack or do something with the actions you have left.',
   cleanup: 'End of the round.',
 };
 
-export function createRxPhone({ send, toast }) {
+export function createRxPhone({ send, toast, onAttack = null }) {
   const el = h('section.rxp', { hidden: true, 'aria-live': 'polite', 'aria-label': 'Combat round' });
   let sig = '';
   let pad = null; // { declId, kind: 'evade'|'intervene', sides }
@@ -41,7 +42,7 @@ export function createRxPhone({ send, toast }) {
     const react = rx.step === 'react';
 
     const head = h('div.rxp-head',
-      h('b', `Round ${rx.round}`), h('span.rxp-step', rx.step),
+      h('b', `Round ${rx.round}`), h('span.rxp-step', STEP_NAME[rx.step] || rx.step),
       h('span.grow'),
       h('span.rxp-dots', { title: `${left} action${left === 1 ? '' : 's'} left` }, Array.from({ length: left }, () => h('i')), left ? null : h('span.dim', 'no actions')));
 
@@ -52,21 +53,25 @@ export function createRxPhone({ send, toast }) {
           : d.result ? h('span.rxp-deg', d.result === 'evaded' ? 'Missed you' : `Hit · ${d.damage ?? ''}`) : d.caught ? h('span.dim', 'You caught it') : null))) : null;
 
     const buttons = [];
+    const opt = (label, sub, onclick, primary = false) => h('button.btn.rxp-opt', { type: 'button', class: primary ? 'btn btn-primary rxp-opt' : 'btn rxp-opt', onclick }, h('b', label), h('small', sub));
     if (react && left > 0) {
-      if (atMe.length && !evading) buttons.push(h('button.btn.btn-primary', { type: 'button', onclick: () => call({ t: 'rx.interrupt', kind: 'evade' }) }, `Evade (${atMe.length} attack${atMe.length === 1 ? '' : 's'})`));
-      buttons.push(h('button.btn', { type: 'button', onclick: () => call({ t: 'rx.interrupt', kind: 'heal' }) }, 'Heal'));
-      if (!canIntervene) buttons.push(h('button.btn', { type: 'button', title: 'Hold a d6 for a friend’s roll (best on a near miss)', onclick: () => call({ t: 'rx.interrupt', kind: 'intervene' }) }, 'Intervene'));
+      if (atMe.length && !evading) buttons.push(opt(`Evade (${atMe.length} attack${atMe.length === 1 ? '' : 's'} on you)`, 'Dodge: 1 action, then roll a d20 for each attack', () => call({ t: 'rx.interrupt', kind: 'evade' }), true));
+      buttons.push(opt('Heal', 'Cast Heal now, before the hits land (1 action)', () => call({ t: 'rx.interrupt', kind: 'heal' })));
+      if (!canIntervene) buttons.push(opt('Intervene', 'Keep a d6 ready to add to a friend’s roll (1 action)', () => call({ t: 'rx.interrupt', kind: 'intervene' })));
     }
     if (rx.step === 'act' && left > 0) {
-      buttons.push(h('button.btn.btn-primary', { type: 'button', onclick: () => call({ t: 'rx.spend' }) }, 'Used an action'));
-      if (!canIntervene) buttons.push(h('button.btn', { type: 'button', onclick: () => call({ t: 'rx.interrupt', kind: 'intervene' }) }, 'Intervene'));
+      if (onAttack) buttons.push(opt('Attack', 'Pick a mob, roll a d20 (1 action)', async () => { if (await call({ t: 'rx.spend' })) onAttack(); }, true));
+      buttons.push(opt('Something else', 'Move, use an item, cast… (1 action)', () => call({ t: 'rx.spend' })));
+      if (!canIntervene) buttons.push(opt('Intervene', 'Keep a d6 ready for a friend (1 action)', () => call({ t: 'rx.interrupt', kind: 'intervene' })));
     }
+    if (rx.step === 'react' && !atMe.length && !atOthers.length) buttons.push(h('p.dim', 'Nobody is attacked this round.'));
+    if (react && evading && atMe.some((d) => !d.evade && !d.caught)) buttons.unshift(h('p.rxp-alert', 'Roll a d20 for each attack below.'));
 
     const allies = react && atOthers.length ? h('details.rxp-allies', h('summary', `Attacks on your friends (${atOthers.length})`),
       h('ul.rxp-list', atOthers.map((d) => h('li',
-        h('span', h('b', d.mob), ` → ${crawlerName(d.targetUid)}`, d.evade ? ` · ${d.evade.label}` : ''),
+        h('span', h('b', d.mob), ` attacks ${crawlerName(d.targetUid)}`, d.evade ? ` · ${d.evade.label}` : ''),
         left > 0 && !d.result ? h('span.rxp-mini',
-          h('button.btn.btn-sm', { type: 'button', title: 'Take the hit for them', onclick: () => call({ t: 'rx.interrupt', kind: 'catcher', declId: d.id }) }, 'Catch'),
+          h('button.btn.btn-sm', { type: 'button', title: 'Step in and take the hit for them (you cannot dodge it)', onclick: () => call({ t: 'rx.interrupt', kind: 'catcher', declId: d.id }) }, 'Take the hit'),
           h('button.btn.btn-sm', { type: 'button', title: 'Draw the attack to you (Taunt check)', onclick: async () => {
             const v = prompt('Your Taunt check total (d20 + rank + Int)?');
             const n = Number(v);

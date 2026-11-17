@@ -664,6 +664,11 @@ export const SHEET = {
     const notesOnly = root === 'story' || (root === 'fields' && ctx.pack.ruleset.storyFields.includes(key));
     const p = targetOf(st, a, ctx, notesOnly ? 'notes' : 'sheet');
     if (a.value === undefined) throw bad('value required');
+    if (ctx.actor.role !== 'gm' && (root === 'identity' || root === 'fields') && (ctx.pack.ruleset.gmOnly ?? []).includes(key)) {
+      // GM-only values (level, floor, AI Favor…). A player may still spend one point of a number field (AI Favor −1).
+      const cur = root === 'fields' ? Number(p.sheet.fields?.[key] ?? ctx.pack.ruleset.fields.find((f) => f.id === key)?.default ?? 0) : NaN;
+      if (!(root === 'fields' && Number(a.value) === cur - 1 && cur >= 1)) throw forbidden(`${key} is set by the GM`);
+    }
     if (ctx.actor.role !== 'gm' && root === 'identity' && ORIGIN_KEYS.includes(key) && a.path.split('.').length === 2) {
       // Players never set race / class / background directly: with allowOrigins it becomes a request.
       const v = str(a.value, key, 40, { allowEmpty: true });

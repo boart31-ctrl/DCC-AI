@@ -180,6 +180,13 @@ export const REACTION_GM = {
     out.result = { declId: d.id };
   },
 
+  /** Change who a declared attack goes for: `{ declId, targetUid }` (declare step). */
+  'rx.retarget'(st, a) {
+    const rx = rxOf(st);
+    if (rx.step !== 'declare') throw bad('targets change in the declare step');
+    declOf(rx, a.declId).targetUid = crawlerOf(st, a.targetUid).uid;
+  },
+
   'rx.undeclare'(st, a) {
     const rx = rxOf(st);
     declOf(rx, a.declId);

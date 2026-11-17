@@ -129,8 +129,10 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const canAct = c.active && mobs.some((m) => !m.down && m.attacks?.length);
     const q = c.autoQueue;
     const left = playingLeft();
+    const back = !c.active && view?.gm?.sceneBeforeFight && ['combat', 'finale'].includes(view?.scene?.kind) ? view.gm.sceneBeforeFight : null;
     const rx = !!c.rx; // reaction rounds (gm-reaction.js) replace phases + "Mobs act" (no d20 for mobs)
-    return h('header.cbt-head',
+    const backBtn = back ? h('button.btn.btn-primary', { type: 'button', title: 'The TV goes back to what it showed before the fight', onclick: () => act({ t: 'scene.set', kind: back.kind, data: back.data }, 'TV is back.') }, icon('tv', { size: 14 }), `TV: back to ${back.kind === 'explore' ? (back.data?.location || 'the location') : back.kind}`) : null;
+    return h('header.cbt-head', backBtn,
       h('div.cbt-title',
         h('h1', 'Combat'),
         c.active ? h('span.cbt-round', h('small', 'Round'), h('b', String(c.round))) : h('span.pill', 'Not started'),
@@ -376,6 +378,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       [2, 3].map((n) => h('button.btn.btn-sm.cbt-hit.cbt-more-dmg', { type: 'button', disabled: x.hp <= 0, onclick: () => dmg(n), 'aria-label': `${n} damage to ${x.name}` }, `−${n}`)),
       h('button.btn.btn-sm.cbt-heal', { type: 'button', disabled: x.hp >= x.hpMax, onclick: () => act({ t: 'combat.heal', uid: x.uid, amount: 1 }), 'aria-label': `Heal ${x.name} 1` }, '+1'),
       custom,
+      h('button.btn.btn-sm.cbt-heal', { type: 'button', title: 'Heal the typed amount', 'aria-label': `Heal ${x.name} by the typed amount`, onclick: () => { const n = Math.round(Number(custom.value)); if (n >= 1) { act({ t: 'combat.heal', uid: x.uid, amount: Math.min(999, n) }, `${x.name} +${n}`); custom.value = ''; } else custom.focus(); } }, '+ heal'),
       x.type === 'mob' ? h('button.icon-btn.cbt-rm', { type: 'button', title: 'Remove from the fight', 'aria-label': `Remove ${x.name}`, onclick: () => act({ t: 'combat.remove', uid: x.uid }, `${x.name} removed.`) }, icon('x', { size: 15 })) : null);
   }
 
@@ -820,6 +823,10 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         h('summary', `Defeated (${dead.length})`), h('ul.cbt-list', dead.map(fallenRow))) : null,
     );
     const side = h('div.cbt-side', lootPanel(), view?.scene?.kind === 'finale' ? null : prizePanel(), c.active ? autoPanel() : null, lastRollCard());
+    // Keep scroll positions across redraws (adding 3 monsters must not jump to the top of the list).
+    const keep = [...el.querySelectorAll('.cbt-picks')].map((x) => x.scrollTop);
+    const page = el.closest('.gm-main');
+    const pageTop = page?.scrollTop;
     el.replaceChildren(...[
       header(),
       rxPanel({ act, view }),
@@ -828,6 +835,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       finaleBanner(),
       h('div.cbt-cols', list, side),
     ].filter(Boolean));
+    [...el.querySelectorAll('.cbt-picks')].forEach((x, i) => { if (keep[i]) x.scrollTop = keep[i]; });
+    if (page && pageTop != null) page.scrollTop = pageTop;
     maybeOffer();
   }
   el.addEventListener('focusout', () => setTimeout(() => { if (!el.contains(document.activeElement)) draw(); }, 0));

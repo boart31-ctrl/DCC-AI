@@ -56,7 +56,8 @@ test('a full round: suggest, evade (spends an action), rolls, intervene on a nea
   const donut = crawlerUid(s, 'Donut');
   s = gm(s, { t: 'rx.suggest' }).state;
   // Aim everything at Carl to keep the test simple.
-  for (const d of s.combat.rx.decls) d.targetUid = carl;
+  for (const d of s.combat.rx.decls) s = gm(s, { t: 'rx.retarget', declId: d.id, targetUid: carl }).state;
+  assert.ok(s.combat.rx.decls.every((d) => d.targetUid === carl));
   assert.throws(() => pl(s, playerId(s, 'Carl'), { t: 'rx.interrupt', kind: 'evade' }), /reaction step/);
   s = gm(s, { t: 'rx.step', to: 'react' }).state;
   s = pl(s, playerId(s, 'Carl'), { t: 'rx.interrupt', kind: 'evade' }).state;

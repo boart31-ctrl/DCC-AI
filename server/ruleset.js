@@ -522,6 +522,11 @@ function normalizeCombatRules(raw, derived, unv) {
     floorScaled: r.floorScaled === true,
     // Combat flow: 'reaction' = reaction rounds (reaction.js), mobs never roll d20.
     flow: r.flow === 'reaction' ? 'reaction' : 'phases',
+    // Every crawler can fight without gear: given when a crawler is created or a fight starts and they have no attack.
+    // { name, skill (library skill id, optional), rank, stat, dice }
+    starterAttack: isObj(r.starterAttack) && isStr(r.starterAttack.name) && isStr(r.starterAttack.dice)
+      ? { name: r.starterAttack.name.trim().slice(0, 40), skill: isStr(r.starterAttack.skill) ? r.starterAttack.skill.trim() : null, rank: Number.isInteger(r.starterAttack.rank) ? Math.max(0, Math.min(20, r.starterAttack.rank)) : 0, stat: isStr(r.starterAttack.stat) ? r.starterAttack.stat.trim() : null, dice: r.starterAttack.dice.trim().slice(0, 30) }
+      : null,
   };
   if (!out.defenseLabel) out.defenseLabel = derived.find((d) => d.id === out.defense)?.label ?? 'Defence';
   unverified(r, 'combat', unv);
@@ -690,6 +695,8 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     attack,
     spells: { costTrack },
     identity: strList(r.identity, ['name', 'race', 'class', 'level', 'floor', 'pronouns']),
+    // Sheet values only the GM sets (identity keys or field ids), e.g. level, floor, crawler number, AI Favor.
+    gmOnly: strList(r.gmOnly, []),
     storyFields: strList(r.storyFields, ['notes']),
     races: lib('races'),
     classes: lib('classes'),

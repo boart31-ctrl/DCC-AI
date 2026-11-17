@@ -289,3 +289,5 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 .rxp-g20 { grid-template-columns: repeat(5, 1fr); }
 .rxp-g6 { grid-template-columns: repeat(6, 1fr); }
 .rxp-grid .btn { min-height: 44px; font-size: 18px; font-weight: 700; }
+.rxp-opt { display: grid; justify-items: start; text-align: left; gap: 2px; flex: 1 1 100%; }
+.rxp-opt small { font-weight: 400; opacity: 0.8; font-size: 12px; }

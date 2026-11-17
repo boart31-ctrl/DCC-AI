@@ -312,7 +312,7 @@ function replayMissed(v) {
 
 const rollPad = createRollPad({ send: (a) => client.send(a), getView: () => view, getMe: () => me });
 document.body.append(rollPad.el);
-const diceOn = () => (me?.diceMode ?? 'off') !== 'off';
+const diceOn = () => (me?.diceMode ?? 'enter') !== 'off';
 const DICE_LABEL = { off: 'Off: dice stay at the table', enter: 'Type my real die', digital: 'The phone rolls' };
 const labelOfTrack = (id) => view?.pack?.ruleset?.tracks?.find((t) => t.id === id)?.label || 'HP';
 const inFight = () => !!view?.combat?.active && (view.combat.combatants || []).some((x) => x.type === 'crawler' && x.playerId === me?.id);
@@ -424,7 +424,7 @@ const sheet = createSheet({
   top: () => [h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
     h('span.ph-crawlers.js-crawlers', { 'data-fmt': 'compact', title: 'Crawlers still alive in the dungeon' })],
   moreItems: () => [
-    { icon: 'dice', label: 'Dice on this phone', sub: DICE_LABEL[me?.diceMode ?? 'off'], onClick: () => setDiceMode({ off: 'enter', enter: 'digital', digital: 'off' }[me?.diceMode ?? 'off']) },
+    { icon: 'dice', label: 'Dice on this phone', sub: DICE_LABEL[me?.diceMode ?? 'enter'], onClick: () => setDiceMode({ off: 'enter', enter: 'digital', digital: 'off' }[me?.diceMode ?? 'enter']) },
     { icon: 'dice', label: 'Dice log', sub: 'Every roll at the table', onClick: () => setLogOpen(true) },
     { icon: 'book', label: 'Rules', sub: view?.pack?.ruleset?.system?.short || 'How this game is played', onClick: openRules },
     { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
@@ -432,7 +432,7 @@ const sheet = createSheet({
   ].filter(Boolean),
 });
 // Reaction rounds (server/reaction.js): my actions, attacks on me, interrupts, Evade rolls.
-const rxPhone = createRxPhone({ send: (a) => client.send(a), toast });
+const rxPhone = createRxPhone({ send: (a) => client.send(a), toast, onAttack: () => rollPad.openPicker() });
 document.body.append(rxPhone.el);
 const phoneMq = matchMedia('(max-width: 699px)');
 phoneMq.addEventListener?.('change', () => { if (me) sheet.redraw(); });
@@ -481,12 +481,12 @@ function render() {
   applyPackTheme(view.pack?.theme);
   drawTheme();
   sheet.update(view, me);
-  rollFab.hidden = !diceOn();
   iniPrompt.hidden = !waitingForMe();
   if (initWanted && waitingForMe()) { initWanted = 0; initPrompt(); } else if (initWanted && Date.now() - initWanted > 10_000) initWanted = 0;
   if (!waitingForMe()) document.querySelector('.ini-pad')?.remove();
   rollPad.update();
   rxPhone.update(view, me);
+  rollFab.hidden = (!diceOn() && !inFight()) || !rxPhone.el.hidden; // in a fight always there; the round bar has its own Attack
   renderStart();
   renderLog();
   renderTicker();

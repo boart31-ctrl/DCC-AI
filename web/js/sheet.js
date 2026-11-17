@@ -196,13 +196,15 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const pend = M.sheet.pending || {};
     const oHint = (k) => (pend[k] ? { hint: `Asked for ${pend[k]}. Waiting for the GM.` } : !gm && !oOk ? { hint: M.sheet.originsLocked ? 'Approved and locked by the GM' : 'Set by the GM' } : {});
     const oSet = (k) => async (v) => { const r = await act({ t: 'sheet.set', path: `identity.${k}`, value: v }); if (r && !gm && r.result?.pending) toast('Sent to the GM for approval.'); };
+    const gmo = (k) => !gm && (M.rs.gmOnly || []).includes(k); // set by the GM: shown, not editable
+    const worldFloor = M.worldFloor;
     const fields = [
       labeled('Name', field(id.name ?? player.name, { onCommit: set('name'), disabled: !ok })),
       labeled(M.rs.labels?.race || 'Race', M.rs.races.length ? select(opt(M.rs.races, id.race), id.race || '', { onChange: oSet('race'), disabled: !oOk }) : field(id.race, { onCommit: oSet('race'), disabled: !oOk }), oHint('race')),
       labeled('Class', M.rs.classes.length ? select(opt(M.rs.classes, id.class), id.class || '', { onChange: oSet('class'), disabled: !oOk }) : field(id.class, { onCommit: oSet('class'), disabled: !oOk }), oHint('class')),
-      labeled('Level', field(id.level ?? player.level ?? 1, { type: 'number', onCommit: set('level'), disabled: !ok, attrs: { min: 0, max: 99, inputmode: 'numeric' } }), { cls: 'lbl-num' }),
-      labeled('Floor', field(id.floor ?? '', { type: 'number', onCommit: set('floor'), disabled: !ok, attrs: { min: 0, inputmode: 'numeric' } }), { cls: 'lbl-num' }),
-      labeled('Crawler #', field(id.crawlerNumber ?? '', { onCommit: set('crawlerNumber'), disabled: !ok })),
+      labeled('Level', field(id.level ?? player.level ?? 1, { type: 'number', onCommit: set('level'), disabled: !ok || gmo('level'), attrs: { min: 0, max: 99, inputmode: 'numeric' } }), { cls: 'lbl-num', ...(gmo('level') ? { hint: 'Set by the GM' } : {}) }),
+      labeled('Floor', field(gmo('floor') && worldFloor ? worldFloor : id.floor ?? '', { type: 'number', onCommit: set('floor'), disabled: !ok || gmo('floor'), attrs: { min: 0, inputmode: 'numeric' } }), { cls: 'lbl-num', ...(gmo('floor') ? { hint: 'The floor the world is on' } : {}) }),
+      labeled('Crawler #', field(id.crawlerNumber ?? '', { onCommit: set('crawlerNumber'), disabled: !ok || gmo('crawlerNumber') }), gmo('crawlerNumber') ? { hint: 'Given by the System (GM)' } : {}),
       labeled('Pronouns', field(id.pronouns ?? '', { onCommit: set('pronouns'), disabled: !ok })),
     ];
     if (M.rs.backgrounds.length) fields.push(labeled('Background', select(opt(M.rs.backgrounds, id.background), id.background || '', { onChange: oSet('background'), disabled: !oOk }), oHint('background')));
@@ -314,7 +316,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       cells.push(h('div.def', { 'data-field': f.id },
         h('span.def-l', f.label),
         ui.editing
-          ? field(v, { type: f.type === 'number' ? 'number' : 'text', disabled: !ok, attrs: { 'aria-label': f.label, inputmode: f.type === 'number' ? 'numeric' : null }, onCommit: (x) => act({ t: 'sheet.set', path: `fields.${f.id}`, value: x }) })
+          ? field(v, { type: f.type === 'number' ? 'number' : 'text', disabled: !ok || (!gm && (M.rs.gmOnly || []).includes(f.id)), attrs: { 'aria-label': f.label, inputmode: f.type === 'number' ? 'numeric' : null }, onCommit: (x) => act({ t: 'sheet.set', path: `fields.${f.id}`, value: x }) })
           : h('span.num.num-plain', String(v)),
       ));
     }
@@ -1018,7 +1020,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return h('section.ph-prof',
       groups.map((g) => h('div.sh-block', h('h2.blk-t', humanize(g)),
         h('dl.kv', fields.filter((f) => (f.group || 'other') === g).map((f) => h('div', h('dt', f.label),
-          h('dd', ui.editing && ok ? field(M.sheet.fields?.[f.id] ?? f.default ?? '', { type: f.type === 'number' ? 'number' : 'text', attrs: { 'aria-label': f.label }, onCommit: (x) => act({ t: 'sheet.set', path: `fields.${f.id}`, value: x }) }) : String(M.sheet.fields?.[f.id] ?? f.default ?? '—'))))))),
+          h('dd', ui.editing && ok && (gm || !(M.rs.gmOnly || []).includes(f.id)) ? field(M.sheet.fields?.[f.id] ?? f.default ?? '', { type: f.type === 'number' ? 'number' : 'text', attrs: { 'aria-label': f.label }, onCommit: (x) => act({ t: 'sheet.set', path: `fields.${f.id}`, value: x }) }) : String(M.sheet.fields?.[f.id] ?? f.default ?? '—'))))))),
       h('div.sh-block', h('h2.blk-t', 'Training'),
         skills.length ? h('ul.prof-chips', skills.map((s) => h('li', h('b', s.name), h('span', `Rank ${s.rank ?? 0}`)))) : h('p.empty-s', 'No trained skills yet.')),
     );
@@ -1094,7 +1096,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
           h('div.ph-luck-v',
             can('sheet') ? h('button.ph-mini', { type: 'button', disabled: lv <= 0, 'aria-label': `${lf.label} minus 1`, onclick: () => act({ t: 'sheet.set', path: `fields.${lf.id}`, value: lv - 1 }) }, icon('minus', { size: 12 })) : null,
             h('b', String(lv)),
-            can('sheet') ? h('button.ph-mini', { type: 'button', 'aria-label': `${lf.label} plus 1`, onclick: () => act({ t: 'sheet.set', path: `fields.${lf.id}`, value: lv + 1 }) }, icon('plus', { size: 12 })) : null)) : null,
+            can('sheet') && (gm || !(M.rs.gmOnly || []).includes(lf.id)) ? h('button.ph-mini', { type: 'button', 'aria-label': `${lf.label} plus 1`, onclick: () => act({ t: 'sheet.set', path: `fields.${lf.id}`, value: lv + 1 }) }, icon('plus', { size: 12 })) : null)) : null,
         h('button.ph-menu', { type: 'button', 'aria-label': unread ? `Menu, ${unread} unread` : 'Menu', onclick: () => phoneMenu() }, icon('more', { size: 22 }), unread ? h('span.ph-badge', String(unread)) : null),
       ),
       h('div.ph-tracks', bars),

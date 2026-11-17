@@ -6,10 +6,10 @@
 import { h } from './client.js';
 import { icon, select } from './ui.js';
 
-const STEP_LABEL = { declare: 'Declare', react: 'React', resolve: 'Resolve', act: 'Act', cleanup: 'Clean up' };
+const STEP_LABEL = { declare: '1 Mobs choose', react: '2 Crawlers react', resolve: '3 Hits land', act: '4 Crawlers act', cleanup: '5 Clean up' };
 const NEXT = {
-  declare: { to: 'react', label: 'Open reactions', hint: 'Phones show who is attacked; crawlers choose Evade, Catcher, Taunt…' },
-  react: { to: 'resolve', label: 'Resolve attacks', hint: 'Every attack lands unless its target evaded it' },
+  declare: { to: 'react', label: 'Announce attacks', hint: 'Phones and TV show who is attacked; crawlers choose Evade, Take the hit, Taunt…' },
+  react: { to: 'resolve', label: 'Let the hits land', hint: 'Every attack lands unless its target evaded it; damage is rolled for you' },
   resolve: { to: 'act', label: 'Crawlers act', hint: 'Remaining actions: attacks go through the sheet rolls' },
   act: { round: true, label: 'Next round', hint: 'Actions reset, mobs declare again' },
   cleanup: { round: true, label: 'Next round', hint: '' },
@@ -56,7 +56,8 @@ export function rxPanel({ act, view }) {
     const dieIn = h('input.inp.inp-sm.rx-die', { type: 'number', min: 1, max: 20, placeholder: 'd20', 'aria-label': `Evade die for ${nameOf(d.targetUid)}` });
     dieIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = Number(dieIn.value); if (v >= 1 && v <= 20) act({ t: 'rx.evade', declId: d.id, die: v }); } });
     return h('li.rx-decl', { class: d.result ? `rx-decl rx-${d.result}` : 'rx-decl' },
-      h('b', d.mob), h('span.dim', d.attack), icon('target', { size: 13 }), h('b', nameOf(d.targetUid)),
+      h('b', d.mob), h('span.dim', d.attack), icon('target', { size: 13 }),
+      rx.step === 'declare' ? select(crawlers.map((x) => ({ value: x.uid, label: nameOf(x.uid) })), d.targetUid, { cls: 'inp-sm', label: `${d.mob} attacks`, onChange: (v) => act({ t: 'rx.retarget', declId: d.id, targetUid: v }) }) : h('b', nameOf(d.targetUid)),
       d.caught ? h('span.pill', 'Caught') : null, d.taunted ? h('span.pill', 'Taunted') : null,
       h('span.dim.rx-dc', `DC ${d.dc} · ${d.damageDice}`),
       h('span.grow'),
@@ -85,7 +86,8 @@ export function rxPanel({ act, view }) {
       rx.step === 'declare' ? h('button.btn.btn-sm', { type: 'button', title: 'Mobs attack once each, spread evenly; elites and bosses attack every crawler', onclick: () => act({ t: 'rx.suggest' }, 'Attacks suggested. Change any you like.') }, icon('sparkle', { size: 13 }), 'Suggest') : null,
       nextBtn),
     pips,
-    rx.decls.length ? h('ul.rx-decls', rx.decls.map(declRow)) : h('p.empty-s', rx.step === 'declare' ? 'No attacks declared yet. Suggest, or declare them one by one.' : 'No attacks this round.'),
+    rx.step === 'declare' ? h('p.dim', 'Pick who each mob attacks: Suggest does it by the book (elites and bosses hit everyone), then change any line. Nothing rolls for the mobs.') : null,
+    rx.decls.length ? h('ul.rx-decls', rx.decls.map(declRow)) : h('p.empty-s', rx.step === 'declare' ? 'No attacks yet.' : 'No attacks this round.'),
     adder,
     waiting ? h('p.dim', `${waiting} Evade roll${waiting === 1 ? '' : 's'} still missing (phones, or type the die above).`) : null,
     rx.log.length ? h('details.rx-log', h('summary', 'Round log'), h('ul', rx.log.slice().reverse().map((l) => h('li', l)))) : null);

@@ -304,6 +304,7 @@ export function normalizeRuleset(pack) {
     attack: r?.attack || { toHit: 'skill.rank + mod.{stat}', damage: '{dice} + mod.{stat}' },
     spells: r?.spells || { costTrack: tracks.find((t) => /mana|mp/i.test(t.id))?.id || null },
     identity: r?.identity || ['name', 'race', 'class', 'level'],
+    gmOnly: Array.isArray(r?.gmOnly) ? r.gmOnly : [],
     storyFields: r?.storyFields || [],
     races: r?.races || [], classes: r?.classes || [], backgrounds: r?.backgrounds || [],
     combat: r?.combat || null,
@@ -360,7 +361,7 @@ export function sheetModel(view, player) {
   const legacy = !player?.sheet;
   const sheet = player?.sheet || legacySheet(player || {}, rs);
   const computed = player?.sheet?.computed || player?.computed || computeSheet(rs, sheet, lib, { level: player?.level });
-  return { rs, lib, sheet, computed, legacy, local: !(player?.sheet?.computed || player?.computed) };
+  return { rs, lib, sheet, computed, legacy, local: !(player?.sheet?.computed || player?.computed), worldFloor: view?.crawlers?.floor ?? null };
 }
 
 /** Item data for an inventory entry: library entry merged under per-copy fields. */

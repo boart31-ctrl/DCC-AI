@@ -179,3 +179,14 @@ Event `roll` to the roller + GM (+ everyone unless `secret`). Stage shows non-se
 
 `NdM(+/-K)`, `d20`, multiple terms `2d6+1d4+3`, plus formula identifiers (`d20 + mod.dex`).
 Natural 1/20 on a single d20 flagged `nat1`/`nat20` (the show reacts).
+
+## Crawler-family options (added 17 Nov 2026)
+
+| Key | Meaning |
+|---|---|
+| `gmOnly: ["level", "floor", "crawlerNumber", "aiFavor"]` | Identity keys / field ids only the GM sets. Players see them read-only; a number field may still be lowered by 1 by its player (spending AI Favor). |
+| `combat.flow: "reaction"` | Reaction rounds (`server/reaction.js`): declare → react → resolve → act; starts with `combat.start`. |
+| `combat.mobBase`, `combat.floorScaled` | Mob Evade / to-hit are bonuses: target = mobBase + bonus (+ the world floor). |
+| `combat.mobSlotValue` | Damage one mob health slot is worth when the mob has no `slotValue`. |
+| `combat.starterAttack: { name, skill, rank, stat, dice }` | Given to every crawler without an attack (on creation and when a fight starts). |
+| track `slotValue: "mod.con"` | Slot health bar: rolled damage after DR removes whole slots; less than one slot is lost. |

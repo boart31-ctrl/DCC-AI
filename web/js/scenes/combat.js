@@ -16,6 +16,15 @@ import { uiOf, uiAsset, artEl, floorLayer } from '../ui-art.js';
 const MAX_PIPS = 20;
 const FALLEN_MAX = 10;
 
+const RX_STEP = { declare: 'Mobs choose', react: 'React', resolve: 'Hits land', act: 'Crawlers strike', cleanup: 'Clean up' };
+const RX_HINT = {
+  declare: 'The mobs pick their targets',
+  react: 'Crawlers: Evade, Catch, Taunt, Heal or Intervene on your phone',
+  resolve: 'Attacks land',
+  act: 'Crawlers: your turn. Attack from your phone',
+  cleanup: 'End of the round',
+};
+
 export default function combat(root, sc, env) {
   const { T, clock } = env;
   const title = h('p.ar-title');
@@ -27,10 +36,13 @@ export default function combat(root, sc, env) {
   const fallen = h('div.ar-fallen', { 'aria-label': 'Fallen' });
   const foesEmpty = h('div.ar-empty', h('i.ar-scan'), h('p', 'Scanning for hostiles'));
   const fx = h('div.ar-fx', { 'aria-hidden': 'true' });
+  // Reaction rounds (server/reaction.js): who attacks whom this round, and how it went.
+  const rxBoard = h('div.ar-rx', { hidden: true, 'aria-live': 'polite' });
   const floorBg = floorLayer('combat'); // ui.json floor art under the CSS grid; none → today's look
   root.append(
     h('div.ar-bg', floorBg.el, h('i.ar-grid'), h('i.ar-glow-l'), h('i.ar-glow-r')),
     h('header.ar-head', h('div.ar-banner', title, round, h('div.ar-phasebox', phases, status))),
+    rxBoard,
     h('div.ar-board',
       h('section.ar-side.ar-side-l', h('h2.ar-label', h('span', 'Crawlers')), party),
       h('div.ar-vs', { 'aria-hidden': 'true' }, h('i'), h('b', 'VS'), h('i')),
@@ -168,6 +180,17 @@ export default function combat(root, sc, env) {
     ].filter(Boolean));
   }
 
+  function drawRx(rx, c, v) {
+    const names = new Map((v.players || []).map((p) => [p.id, p.name]));
+    const who = (uid) => { const x = (c.combatants || []).find((y) => y.uid === uid); return x ? (x.type === 'mob' ? x.name : names.get(x.playerId) || x.name || '?') : '?'; };
+    const decls = rx.decls || [];
+    rxBoard.hidden = !decls.length || rx.step === 'declare';
+    rxBoard.replaceChildren(...decls.slice(0, 12).map((d) => h('div.ar-rx-row', { class: `ar-rx-row${d.result ? ` ar-rx-${d.result}` : ''}` },
+      h('b', d.mob), h('span.ar-rx-arrow', '→'), h('b', who(d.targetUid)), h('span.ar-rx-atk', d.attack),
+      d.evade ? h('span.ar-rx-deg', { class: `ar-rx-deg rx-deg-${d.evade.degree}` }, d.evade.label) : rx.evading?.includes(d.targetUid) ? h('span.ar-rx-deg', 'Evading…') : null,
+      d.result ? h('span.ar-rx-res', d.result === 'evaded' ? 'Missed' : `Hit${d.damage ? ` · ${d.damage}` : ''}`) : null)));
+  }
+
   function update(s, v) {
     view = v;
     floorBg.update(v);
@@ -177,8 +200,18 @@ export default function combat(root, sc, env) {
     round.querySelector('b').textContent = String(c.round || 1);
     round.hidden = !c.active;
     const ph = c.phases || [];
-    phases.replaceChildren(...ph.map((p, i) => h('li', { class: c.active && i === c.phaseIndex ? 'on' : i < c.phaseIndex ? 'done' : '' }, p)));
-    status.textContent = c.active ? `${c.phase || ''} phase` : 'Combat incoming';
+    const rx = c.active ? c.rx : null;
+    if (rx) {
+      const steps = rx.steps || [];
+      const at = steps.indexOf(rx.step);
+      phases.replaceChildren(...steps.map((p, i) => h('li', { class: i === at ? 'on' : i < at ? 'done' : '' }, RX_STEP[p] || p)));
+      status.textContent = RX_HINT[rx.step] || '';
+      drawRx(rx, c, v);
+    } else {
+      phases.replaceChildren(...ph.map((p, i) => h('li', { class: c.active && i === c.phaseIndex ? 'on' : i < c.phaseIndex ? 'done' : '' }, p)));
+      status.textContent = c.active ? `${c.phase || ''} phase` : 'Combat incoming';
+      rxBoard.hidden = true;
+    }
     root.classList.toggle('idle', !c.active);
     if (c.active && (lastRound !== c.round || lastPhase !== c.phaseIndex)) {
       if (lastRound !== null) {

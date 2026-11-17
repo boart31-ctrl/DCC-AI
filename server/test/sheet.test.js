@@ -806,7 +806,8 @@ test('private DCC pack (skipped when absent): sheet model works end to end', { s
   const pid = st.players[0].id;
   st = g(st, { t: 'sheet.set', playerId: pid, path: 'identity.race', value: 'baseline_human' }).state;
   st = g(st, { t: 'lib.give', playerId: pid, kind: 'skill', id: 'improvised_weapons', rank: 3 }).state;
-  const skUid = st.players[0].sheet.skills[0].uid;
+  const skUid = st.players[0].sheet.skills.find((k) => k.skillId === 'improvised_weapons').uid;
+  assert.ok(st.players[0].sheet.attacks.some((k) => k.name === 'Unarmed Combat'), 'starter attack');
   st = g(st, { t: 'attack.add', playerId: pid, name: 'Crowbar', skillUid: skUid, stat: 'str', dice: '1d6' }).state;
   const items = [];
   for (let i = 0; i < 3; i++) {
@@ -820,8 +821,9 @@ test('private DCC pack (skipped when absent): sheet model works end to end', { s
   const sh = viewFor(st, dcc, 'player', { playerId: pid }).me.sheet;
   const cs = sh.computed;
   assert.equal(cs.stats.str.mod.value, 2, 'book stat table: score 3 → +2');
-  assert.equal(cs.attacks[0].damage, '1d6+2', 'damage dice + Str mod');
-  assert.equal(cs.attacks[0].toHit.value, 5, 'rank 3 + Str mod 2');
+  const crow = cs.attacks[st.players[0].sheet.attacks.findIndex((k) => k.name === 'Crowbar')];
+  assert.equal(crow.damage, '1d6+2', 'damage dice + Str mod');
+  assert.equal(crow.toHit.value, 5, 'rank 3 + Str mod 2');
   assert.equal(cs.tracks.hp.max, 10);
   assert.equal(cs.tracks.hp.slotValue, 2, 'one slot = Con mod');
   assert.equal(cs.tracks.mana.max, 3, 'mana = Int score');
@@ -842,4 +844,22 @@ test('private DCC pack (skipped when absent): sheet model works end to end', { s
   st.players[0].sheet.skills[0].used = true;
   const ru = g(st, { t: 'skills.rankUp' }, { rollInt: () => 10 });
   assert.deepEqual(ru.result.results.map((x) => [x.roll, x.target, x.success, x.to]), [[11, 3, true, 4]]);
+});
+
+test('private DCC pack: GM-only values (level, floor, crawler #, AI Favor) and the starter attack', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  let st = reduce(createState(dcc, 0), { role: 'gm', t: 'player.add', name: 'Fargo' }, c()).state;
+  const pid = st.players[0].id;
+  const me = (a) => reducePlayerAction(st, a, c({ playerId: pid }));
+  assert.throws(() => me({ t: 'sheet.set', playerId: pid, path: 'identity.level', value: 5 }), /set by the GM/);
+  assert.throws(() => me({ t: 'sheet.set', playerId: pid, path: 'fields.crawlerNumber', value: '42' }), /set by the GM/);
+  assert.throws(() => me({ t: 'sheet.set', playerId: pid, path: 'fields.aiFavor', value: 2 }), /set by the GM/, 'cannot raise AI Favor');
+  st = me({ t: 'sheet.set', playerId: pid, path: 'fields.aiFavor', value: 0 }).state;
+  assert.equal(st.players[0].sheet.fields.aiFavor, 0, 'spending one point is fine');
+  st = reduce(st, { role: 'gm', t: 'sheet.set', playerId: pid, path: 'fields.aiFavor', value: 3 }, c()).state;
+  assert.equal(st.players[0].sheet.fields.aiFavor, 3, 'the GM gives favor');
+  assert.deepEqual(st.players[0].sheet.attacks.map((k) => k.name), ['Unarmed Combat']);
+  st = reduce(st, { role: 'gm', t: 'combat.start' }, c()).state;
+  assert.equal(st.combat.rx?.step, 'declare', 'reaction rounds start with the fight');
 });

@@ -336,7 +336,7 @@ const GM = {
     }
     const userId = a.userId === undefined ? null : userIdOf(st, a.userId);
     const p = {
-      id: ctx.genId('p'), name, color: c, level: 1, pin, userId,
+      id: ctx.genId('p'), name, color: c, level: 1, pin, userId, joinedAt: ctx.now,
       title: '', klass: '', race: '', gold: 0, notes: '',
       sheet: freshSheet(ctx.pack.ruleset),
       inventory: [], achievements: [],
@@ -345,6 +345,7 @@ const GM = {
     const { computed } = computeFor(p, ctx.pack, libraryOf(st, ctx.pack));
     for (const t of ctx.pack.ruleset.tracks) if (t.maxFormula) p.sheet.tracks[t.id] = { cur: t.start === 'empty' ? 0 : computed.tracks[t.id].max, max: computed.tracks[t.id].max };
     st.players.push(p);
+    giveStarterAttack(st, p, ctx);
     out.result = { playerId: p.id, pin };
   },
 
@@ -791,6 +792,36 @@ Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_G
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER, REACTION_PLAYER);
 
+/**
+ * Ruleset `combat.starterAttack` (e.g. Unarmed Combat rank 3, 1d4 + Str): a crawler with no attack gets it, so
+ * nobody stands in a fight with nothing to do. Runs on player.add and on combat.start (older characters).
+ */
+function giveStarterAttack(st, p, ctx) {
+  const sa = ctx.pack?.ruleset?.combat?.starterAttack;
+  if (!sa || (p.sheet?.attacks ?? []).length) return;
+  const sub = { result: undefined, events: [], emit() {}, changed: true };
+  let skillUid = null;
+  if (sa.skill) {
+    const have = (p.sheet.skills ?? []).find((s) => (s.skillId ?? s.id) === sa.skill);
+    if (have) skillUid = have.uid;
+    else {
+      try { GM['lib.give'](st, { playerId: p.id, kind: 'skill', id: sa.skill, rank: sa.rank }, ctx, sub); skillUid = sub.result?.uid ?? null; } catch {}
+    }
+  }
+  try { GM['attack.add'](st, { playerId: p.id, name: sa.name, dice: sa.dice, ...(sa.stat ? { stat: sa.stat } : {}), ...(skillUid ? { skillUid } : {}) }, ctx, sub); } catch {}
+}
+{
+  const start = GM['combat.start'];
+  GM['combat.start'] = (st, a, ctx, out) => {
+    for (const p of st.players) giveStarterAttack(st, p, ctx);
+    // Remember what the TV showed before the fight, so the GM can go back in one tap afterwards.
+    if (st.scene && !['combat', 'finale', 'blank', 'lobby'].includes(st.scene.kind)) st.sceneBeforeFight = { kind: st.scene.kind, data: structuredClone(st.scene.data ?? {}) };
+    start(st, a, ctx, out);
+    // Reaction-round rulesets start round 1 at once (no initiative, the GM never rolls a d20).
+    if (ctx.pack?.ruleset?.combat?.flow === 'reaction' && st.combat?.active) REACTION_GM['rx.start'](st, {}, ctx, out);
+  };
+}
+
 // Internal actions dispatched by the server itself (never accepted from a socket).
 const SYSTEM = {
   'budget.consume'(st) {
@@ -884,8 +915,10 @@ const CATEGORY_LABELS = { nat1: 'Nat 1', nat20: 'Nat 20', levelup: 'Level up' };
 const categoryLabel = (id) => CATEGORY_LABELS[id] ?? (id.charAt(0).toUpperCase() + id.slice(1)).replace(/_/g, ' ');
 
 function messagesFor(state, playerId) {
+  // A crawler created later does not get the group messages sent before they existed.
+  const joined = state.players.find((p) => p.id === playerId)?.joinedAt ?? 0;
   return state.messages
-    .filter((m) => addressedTo(m, playerId))
+    .filter((m) => addressedTo(m, playerId) && !(isGroup(m.to) && m.at < joined))
     .slice(-PLAYER_MESSAGES)
     .map((m) => ({
       id: m.id, at: m.at, from: m.from, fromId: m.fromId, text: m.text, icon: m.icon, to: m.to, thread: threadOf(m.to),
@@ -899,7 +932,7 @@ function fullPlayer(state, p, pack, library) {
   const { stats, resources } = legacyStats(p, pack, sheet.computed);
   return {
     id: p.id, name: p.name, color: p.color, level: p.level,
-    title: p.title, klass: p.klass, race: p.race, diceMode: DICE_MODES.includes(p.diceMode) ? p.diceMode : 'off',
+    title: p.title, klass: p.klass, race: p.race, diceMode: DICE_MODES.includes(p.diceMode) ? p.diceMode : 'enter', // default: type the physical die (the table rolls real dice)
     stats, resources, gold: p.gold, notes: p.notes,
     inventory: enrichInventory(p.inventory, library), achievements: p.achievements,
     sheet,
@@ -978,6 +1011,7 @@ export function viewFor(state, basePack, role, opts = {}) {
       playersFull: state.players.map((p) => ({ ...fullPlayer(state, p, pack, library), userId: p.userId ?? null })),
       prepCards: state.prepCards,
       prep: prepView(state, pack),
+      sceneBeforeFight: state.sceneBeforeFight ?? null,
       messages: state.messages.slice(-GM_MESSAGES).map((m) => ({
         id: m.id, at: m.at, from: m.from, fromId: m.fromId, text: m.text, icon: m.icon, to: m.to, thread: threadOf(m.to),
         group: isGroup(m.to), onStage: m.onStage, readBy: m.readBy, reactions: m.reactions, gmRead: m.gmRead,

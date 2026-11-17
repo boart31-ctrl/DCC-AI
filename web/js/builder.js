@@ -21,6 +21,8 @@ const STEPS = [
  * @param {(a:object)=>Promise} o.act  sheet act() (adds playerId for the GM)
  */
 export function openBuilder({ model: M, player, gm, act, allowOrigins = false }) {
+  // Values only the GM sets (ruleset gmOnly: level, floor, crawler number, AI Favor) are left out for players.
+  const gmo = (k) => !gm && (M.rs?.gmOnly || []).includes(k);
   const rs = M.rs;
   // Race / class / background: the GM decides. Players only see the step when the GM allows requests,
   // and only until the GM approved one (then they are locked).
@@ -90,9 +92,9 @@ export function openBuilder({ model: M, player, gm, act, allowOrigins = false })
         h('div.form-grid',
           labeled('Name', field(d.identity.name, { onCommit: set('name'), attrs: { required: true } }), { cls: 'span-2' }),
           labeled('Pronouns', field(d.identity.pronouns, { onCommit: set('pronouns'), placeholder: 'she/her, they/them…' })),
-          rs.identity.includes('crawlerNumber') || rs.fields.some((f) => f.id === 'crawlerNumber') ? labeled('Crawler #', field(d.identity.crawlerNumber, { onCommit: set('crawlerNumber') })) : null,
-          rs.identity.includes('floor') ? labeled('Floor', field(d.identity.floor, { type: 'number', onCommit: set('floor'), attrs: { min: 0, inputmode: 'numeric' } })) : null,
-          labeled('Level', field(d.identity.level, { type: 'number', onCommit: set('level'), attrs: { min: 0, inputmode: 'numeric' } })),
+          (rs.identity.includes('crawlerNumber') || rs.fields.some((f) => f.id === 'crawlerNumber')) && !gmo('crawlerNumber') ? labeled('Crawler #', field(d.identity.crawlerNumber, { onCommit: set('crawlerNumber') })) : null,
+          rs.identity.includes('floor') && !gmo('floor') ? labeled('Floor', field(d.identity.floor, { type: 'number', onCommit: set('floor'), attrs: { min: 0, inputmode: 'numeric' } })) : null,
+          gmo('level') ? null : labeled('Level', field(d.identity.level, { type: 'number', onCommit: set('level'), attrs: { min: 0, inputmode: 'numeric' } })),
         ),
       );
     },
