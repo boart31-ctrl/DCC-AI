@@ -370,3 +370,6 @@ body.desk-offline .gm-main, body.desk-offline .gm-nav, body.desk-offline .gm-log
 .hold-btn[aria-pressed="true"] { background: #c0392b; color: #fff; border-color: #c0392b; animation: holdpulse 1.2s ease-in-out infinite; }
 @keyframes holdpulse { 50% { opacity: 0.65; } }
 body.on-hold .topbar { box-shadow: inset 0 -3px 0 #c0392b; }
+.lvl-remind { position: fixed; left: 16px; bottom: 16px; z-index: 40; max-width: 360px; display: grid; gap: 8px; padding: 12px 14px; border-radius: 12px; background: var(--c-panel); border: 2px solid var(--c-accent); box-shadow: var(--c-shadow, 0 8px 30px rgba(0,0,0,.5)); font-size: 14px; }
+.lvl-remind p { margin: 0; }
+.lvl-remind.late { border-color: #ff2448; }

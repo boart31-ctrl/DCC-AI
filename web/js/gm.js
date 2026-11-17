@@ -134,6 +134,7 @@ function render() {
   renderLinks();
   renderComms();
   renderPrep();
+  renderLevelReminder();
   renderLog();
   renderSettings();
   renderCampaign();
@@ -161,6 +162,30 @@ function render() {
   const sys = view.pack?.systemName;
   if (sys) $('.brand-name').textContent = sys;
   for (const fn of ext.afterRender) { try { fn(view); } catch (err) { console.error(err); } }
+}
+
+/**
+ * Level-up reminder (play clock in view.gm.playClock): after 2 h of play since the last level-up a quiet card
+ * asks; from 3 h it is red. Nothing happens on its own: the GM levels the party or says "not yet".
+ */
+const LEVEL_EVERY_MIN = 120;
+let levelEl = null;
+function renderLevelReminder() {
+  const pc = view.gm?.playClock;
+  const crawler = (view.pack?.ruleset?.system?.family || 'crawler') === 'crawler';
+  const due = pc && crawler && view.players?.length && pc.sinceLevelMin >= LEVEL_EVERY_MIN && (pc.snoozeMin == null || pc.playMin >= pc.snoozeMin);
+  if (!due) { levelEl?.remove(); levelEl = null; return; }
+  const late = pc.sinceLevelMin >= LEVEL_EVERY_MIN + 60;
+  const sig = `${late}|${Math.floor(pc.sinceLevelMin / 10)}`;
+  if (levelEl?.dataset.sig === sig) return;
+  levelEl?.remove();
+  const hrs = (pc.sinceLevelMin / 60).toFixed(1).replace('.0', '');
+  levelEl = h('div.lvl-remind', { class: late ? 'lvl-remind late' : 'lvl-remind', role: 'status', 'data-sig': sig },
+    h('p', h('b', late ? 'Level up is overdue.' : 'Time for a level up?'), ` ${hrs} h of play since the last one (the rules: one level per 2 h).`),
+    h('div.row-start',
+      h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => act({ t: 'level.party' }, 'Everyone is a level up.') }, 'Level up everyone'),
+      h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'level.snooze', minutes: 30 }) }, 'Not yet (30 min)')));
+  document.body.append(levelEl);
 }
 
 function renderVoices() {

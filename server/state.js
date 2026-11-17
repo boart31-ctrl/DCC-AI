@@ -33,6 +33,7 @@ export const MAX_RECAP = 4000;
 export const PREP_KINDS = { achievement: 'ach.award', loot: 'loot.open', message: 'msg.send', line: 'say', encounter: 'combat.addEncounter' };
 export const MAX_MESSAGES = 400;
 export const GM_MESSAGES = 200;
+export const PLAY_GAP_MS = 15 * 60_000;
 export const PLAYER_MESSAGES = 120;
 // Reactions when the pack's ui.json has none: rendered as emoji by the clients.
 export const DEFAULT_REACTIONS = ['like', 'lol', 'love', 'wow', 'sad', 'fire', 'skull', 'party'];
@@ -620,6 +621,26 @@ const GM = {
     st.session.voice = a.voice;
   },
 
+  /** `{ delta? }` Everyone up a level (+1 default); resets the level-up reminder's play clock. */
+  'level.party'(st, a, ctx, out) {
+    const delta = a.delta === undefined ? 1 : a.delta;
+    if (!Number.isInteger(delta) || delta < -5 || delta > 5 || delta === 0) throw bad('delta must be -5..5, not 0');
+    for (const p of st.players) {
+      const cur = Number(p.sheet?.identity?.level ?? p.level ?? 1) || 1;
+      const next = Math.max(0, cur + delta);
+      if (p.sheet) p.sheet.identity = { ...(p.sheet.identity ?? {}), level: next };
+      p.level = next;
+    }
+    st.session.levelAtMs = st.session.playMs ?? 0;
+    if (delta > 0) out.emit({ kind: 'levelup', delta, names: st.players.map((p) => p.name) }, 'all');
+    out.result = { players: st.players.length };
+  },
+  /** `{ minutes }` Not yet: the reminder comes back after this much more play. */
+  'level.snooze'(st, a) {
+    const m = Number.isInteger(a.minutes) && a.minutes >= 5 && a.minutes <= 240 ? a.minutes : 30;
+    st.session.levelSnoozeMs = (st.session.playMs ?? 0) + m * 60_000;
+  },
+
   'session.recap'(st, a) {
     if (typeof a.text !== 'string') throw bad('text must be a string');
     if (a.text.length > MAX_RECAP) throw bad(`text too long (max ${MAX_RECAP})`);
@@ -917,6 +938,14 @@ export function reduce(state, action, ctx) {
   };
   if (action.role === 'system') out.changed = false;
   fn(st, action, full, out);
+  // Play clock: time between actions counts as play when the gap is under 15 minutes (breaks don't count).
+  // Drives the level-up reminder (DCC: a level every 2 hours of play; nothing happens automatically).
+  if (out.changed && action.role !== 'system' && st.session) {
+    const last = st.session.lastActAt ?? 0;
+    const gap = full.now - last;
+    if (last && gap > 0 && gap < PLAY_GAP_MS) st.session.playMs = (st.session.playMs ?? 0) + gap;
+    st.session.lastActAt = full.now;
+  }
   return {
     state: out.changed ? st : state,
     changed: out.changed,
@@ -1022,6 +1051,8 @@ export function viewFor(state, basePack, role, opts = {}) {
   } else if (role === 'gm') {
     const cats = [...new Set([...STANDARD_CATEGORIES, ...pack.quipsByCategory.keys()])];
     v.gm = {
+      // Level-up reminder (gm.js): minutes of play, since the last party level-up, snoozed until.
+      playClock: { playMin: Math.round((state.session.playMs ?? 0) / 60_000), sinceLevelMin: Math.round(((state.session.playMs ?? 0) - (state.session.levelAtMs ?? 0)) / 60_000), snoozeMin: state.session.levelSnoozeMs != null ? Math.round(state.session.levelSnoozeMs / 60_000) : null },
       joinUrl: opts.urls?.join ?? '',
       stageUrl: opts.urls?.stage ?? '',
       gmUrl: opts.urls?.gm ?? '',

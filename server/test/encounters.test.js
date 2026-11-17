@@ -138,3 +138,20 @@ test('encounter items: saved with the encounter, handed out from the fight, "giv
   s = g(s, { t: 'enc.save', id, label: 'Renamed', mobs: [{ sourceId: 'rat' }] }).state;
   assert.equal(s.prepCards[0].payload.items.length, 2, 'items kept when not sent');
 });
+
+test('play clock: gaps under 15 min count, breaks do not; level.party levels everyone and resets the reminder; snooze', () => {
+  let { s } = setup();
+  const at = (t, a) => reduce(s, { role: 'gm', ...a }, { now: t, rng: seq(0.5), genId: (p) => `${p}_${++n}`, pack }).state;
+  s = at(1_000_000, { t: 'map.update', id: s.maps.list[0].id, name: 'A' });
+  s = at(1_000_000 + 10 * 60_000, { t: 'map.update', id: s.maps.list[0].id, name: 'B' });
+  s = at(1_000_000 + 10 * 60_000 + 60 * 60_000, { t: 'map.update', id: s.maps.list[0].id, name: 'C' }); // an hour's break
+  assert.equal(Math.round(s.session.playMs / 60_000), 10);
+  const v = viewFor(s, pack, 'gm', { now: 0 });
+  assert.deepEqual(v.gm.playClock, { playMin: 10, sinceLevelMin: 10, snoozeMin: null });
+  s = at(2_000_000_0, { t: 'level.snooze', minutes: 30 });
+  assert.equal(Math.round(s.session.levelSnoozeMs / 60_000), 40);
+  const before = s.players.map((p) => p.sheet.identity?.level ?? p.level ?? 1);
+  s = at(2_000_000_1, { t: 'level.party' });
+  assert.deepEqual(s.players.map((p) => p.sheet.identity.level), before.map((x) => x + 1));
+  assert.equal(viewFor(s, pack, 'gm', { now: 0 }).gm.playClock.sinceLevelMin, 0);
+});
