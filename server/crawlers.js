@@ -15,8 +15,12 @@
 // MAX_GAP_MS caps one step: a TV left on overnight or a campaign asleep for a week never loses millions.
 //
 // Pack config (pack.json "crawlers", every field optional; see docs/CONTENT_PACKS.md):
-//   { label, start, floors: [{ floor, start, perHour, min }], events: [{ id, label, min, max, line? }],
-//     numberLine: "{count} crawlers remain.", collapseKeep }
+//   { label, start, floors: [{ floor, start, perHour, min, hours }], events: [{ id, label, min, max, line? }],
+//     numberLine: "{count} crawlers remain.", collapseKeep, dayHours }
+//
+// Floor clock: state.crawlers.clock = { hours, shown } in-game hours until this floor collapses. Game time is
+// not real time: the GM advances it (an hour of exploring, a short / long rest, a day). A floor's `hours`
+// (DCC: Floor 1 = 5 days of 30 h) refills it on collapse. Editable and hideable like the counter.
 
 import { bad, notFound } from './errors.js';
 
@@ -62,6 +66,7 @@ export function normalizeCrawlersConfig(raw, warnings = []) {
       start: whole(f.start, null, 1),
       perHour: fraction(f.perHour, null, 0.9),
       min: whole(f.min, null, 0),
+      hours: Number.isFinite(f.hours) && f.hours > 0 && f.hours <= 10_000 ? f.hours : null,
     });
   }
   floors.sort((a, b) => a.floor - b.floor);
@@ -90,6 +95,7 @@ export function normalizeCrawlersConfig(raw, warnings = []) {
     floors,
     events,
     numberLine,
+    dayHours: Number.isFinite(r.dayHours) && r.dayHours >= 1 && r.dayHours <= 100 ? r.dayHours : 24,
   };
 }
 
@@ -116,7 +122,12 @@ export function floorRule(cfg, floor) {
 export function initCrawlers(pack, now) {
   const cfg = pack?.crawlers ?? normalizeCrawlersConfig(null);
   const start = floorRule(cfg, 1).start;
-  return { count: start, at: now, floor: 1, start, running: true, shown: true, speak: true, last: null, history: [] };
+  return { count: start, at: now, floor: 1, start, running: true, shown: true, speak: true, last: null, history: [], clock: clockFor(cfg, 1) };
+}
+/** A fresh floor clock: the floor's hours (pack), or none. */
+function clockFor(cfg, floor) {
+  const h = cfg?.floors?.find((x) => x.floor === floor)?.hours ?? null;
+  return { hours: h, shown: !!h };
 }
 
 export function normalizeCrawlers(raw, pack, now) {
@@ -134,6 +145,7 @@ export function normalizeCrawlers(raw, pack, now) {
     speak: raw.speak !== false,
     last: isObj(raw.last) ? raw.last : null,
     history: Array.isArray(raw.history) ? raw.history.filter(isObj).slice(-HISTORY_SIZE) : [],
+    clock: isObj(raw.clock) ? { hours: Number.isFinite(raw.clock.hours) ? Math.max(0, Math.min(100_000, raw.clock.hours)) : null, shown: raw.clock.shown === true } : clockFor(pack?.crawlers, floor),
   };
 }
 
@@ -243,6 +255,29 @@ export const CRAWLERS_GM = {
     if (a.start !== undefined) c.start = Math.max(1, countOf(a.start, 'start'));
   },
 
+  /**
+   * Floor clock: `{ hours? }` set the hours left, `{ advance }` game time passes (hours, e.g. 2 = short rest,
+   * 8 = long rest, a day), `{ shown? }` on the TV / phones or not. Reaching 0 announces nothing by itself.
+   */
+  'crawlers.clock'(st, a, ctx, out) {
+    const c = st.crawlers;
+    if (!c) throw bad('no counter');
+    c.clock = isObj(c.clock) ? c.clock : { hours: null, shown: false };
+    if (a.hours !== undefined) {
+      if (a.hours !== null && !(Number.isFinite(a.hours) && a.hours >= 0 && a.hours <= 100_000)) throw bad('hours must be 0..100000 or null');
+      c.clock.hours = a.hours === null ? null : Math.round(a.hours * 4) / 4;
+    }
+    if (a.advance !== undefined) {
+      if (!Number.isFinite(a.advance) || a.advance <= 0 || a.advance > 1000) throw bad('advance must be 0..1000 hours');
+      if (c.clock.hours == null) throw bad('set the hours first');
+      const before = c.clock.hours;
+      c.clock.hours = Math.max(0, Math.round((before - a.advance) * 4) / 4);
+      if (before > 0 && c.clock.hours === 0) out.emit({ kind: 'floor.timeup', floor: c.floor }, 'all');
+    }
+    if (a.shown !== undefined) c.clock.shown = boolOf(a.shown, 'shown');
+    out.result = { hours: c.clock.hours };
+  },
+
   /** Small manual correction (± crawlers), no fanfare. */
   'crawlers.adjust'(st, a, ctx) {
     if (!Number.isInteger(a.delta) || a.delta === 0 || Math.abs(a.delta) > MAX_COUNT) throw bad('delta must be a non-zero integer');
@@ -297,6 +332,8 @@ export const CRAWLERS_GM = {
     c.floor = next;
     c.start = Math.max(1, to);
     c.running = true;
+    const fresh = clockFor(ctx.pack.crawlers, next);
+    c.clock = { hours: fresh.hours, shown: fresh.hours != null ? (c.clock?.shown ?? true) : false };
     dropMoment(st, ctx, out, {
       from, to, reason: 'collapse', label: `Floor ${prevFloor} collapsed`, category: 'crawlers_collapse', announce: a.announce !== false,
     });
@@ -354,6 +391,7 @@ export function crawlersView(state, pack, role, now, stageOn = true) {
     perHour: rule.perHour, min: Math.max(rule.min, partyMin(state)), maxGapMs: MAX_GAP_MS,
     label: pack.crawlers?.label ?? 'Crawlers remaining',
     last: c.last ? { at: c.last.at, from: c.last.from, to: c.last.to, reason: c.last.reason, label: c.last.label } : null,
+    clock: c.clock?.hours != null && (role === 'gm' || c.clock.shown) ? { hours: c.clock.hours, shown: !!c.clock.shown, dayHours: pack.crawlers?.dayHours ?? 24 } : null,
   };
   if (role === 'gm') {
     v.speak = c.speak;

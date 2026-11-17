@@ -155,3 +155,19 @@ test('play clock: gaps under 15 min count, breaks do not; level.party levels eve
   assert.deepEqual(s.players.map((p) => p.sheet.identity.level), before.map((x) => x + 1));
   assert.equal(viewFor(s, pack, 'gm', { now: 0 }).gm.playClock.sinceLevelMin, 0);
 });
+
+test('floor clock: set, advance in game hours, hide from the TV, refill on collapse', () => {
+  let { s } = setup();
+  const g = (a) => (s = gm(s, a).state);
+  g({ t: 'crawlers.clock', hours: 150, shown: true });
+  g({ t: 'crawlers.clock', advance: 8 });
+  assert.equal(s.crawlers.clock.hours, 142);
+  assert.throws(() => gm(s, { t: 'crawlers.clock', advance: -1 }), /advance/);
+  assert.equal(viewFor(s, pack, 'stage', { now: 0 }).crawlers.clock.hours, 142);
+  g({ t: 'crawlers.clock', shown: false });
+  assert.equal(viewFor(s, pack, 'stage', { now: 0 }).crawlers.clock, null, 'hidden from the TV');
+  assert.equal(viewFor(s, pack, 'gm', { now: 0 }).crawlers.clock.hours, 142, 'the GM still sees it');
+  const r = gm(s, { t: 'crawlers.clock', advance: 500 });
+  assert.equal(r.state.crawlers.clock.hours, 0);
+  assert.ok(r.events.some((e) => e.event.kind === 'floor.timeup'));
+});

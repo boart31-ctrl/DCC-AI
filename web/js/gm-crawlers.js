@@ -32,6 +32,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
   const collapseBox = h('div.crg-row');
   const deathBox = h('div.crg-row');
   const history = h('ol.crg-history');
+  const clockBox = h('div.crg-clock');
   const customPct = h('input.inp.inp-sm', { type: 'number', min: '0.1', max: '100', step: '0.1', placeholder: '%', 'aria-label': 'Share of the living (%)' });
   const setCount = h('input.inp.inp-sm', { type: 'number', min: '0', step: '1', 'aria-label': 'Crawlers remaining' });
   const setFloor = h('input.inp.inp-sm.crg-floor-inp', { type: 'number', min: '1', max: '99', step: '1', 'aria-label': 'Floor' });
@@ -53,7 +54,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
         if (!(p > 0 && p <= 100)) { customPct.focus(); return; }
         act({ t: 'crawlers.drop', pct: p / 100, label: 'Casualties' }, `−${p} % of the crawlers.`).then((ok) => { if (ok) customPct.value = ''; });
       } }, customPct, h('button.btn.btn-sm', { type: 'submit' }, 'Kill that share'))),
-    h('div.crg-sec', h('h3', 'Floor'), collapseBox),
+    h('div.crg-sec', h('h3', 'Floor'), clockBox, collapseBox),
     h('div.crg-sec', h('h3', 'At the table'), deathBox),
     h('details.crg-sec.crg-fix',
       h('summary', 'Set the count by hand (quiet, no TV moment)'),
@@ -75,7 +76,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
     const c = view().crawlers;
     if (!c) return;
     const players = view().players || [];
-    const s = JSON.stringify([c.count, c.at, c.floor, c.running, c.shown, c.speak, c.live, c.history?.length, c.history?.at(-1)?.at, c.events, c.nextStart, players.map((p) => [p.id, p.name])]);
+    const s = JSON.stringify([c.clock, c.count, c.at, c.floor, c.running, c.shown, c.speak, c.live, c.history?.length, c.history?.at(-1)?.at, c.events, c.nextStart, players.map((p) => [p.id, p.name])]);
     if (s === sig) return;
     sig = s;
     state.replaceChildren(h('span', String(c.label || 'Crawlers remaining').toLowerCase()), h('span.crg-floor', `Floor ${c.floor}`),
@@ -88,6 +89,19 @@ export function createCrawlers({ act, getView, open = () => {} }) {
       type: 'button', title: `Kills ${pctText(e)} of the living crawlers, TV moment + System line + chat`,
       onclick: () => act({ t: 'crawlers.drop', event: e.id }).then((ack) => { if (ack?.result) toast(`${e.label}: −${fmtFull(ack.result.lost)} crawlers.`); }),
     }, h('b', e.label), h('span.dim', pctText(e)))));
+    // Floor clock (game time): the GM moves it on; shown on the TV next to the floor.
+    const k = c.clock;
+    const dh = k?.dayHours || 24;
+    const fmt = (hrs) => `${hrs >= dh ? `${Math.floor(hrs / dh)} d ` : ''}${Math.round(hrs % dh)} h`;
+    const hoursIn = h('input.inp.inp-sm', { type: 'number', min: 0, step: 1, value: k?.hours ?? '', 'aria-label': 'Hours until the floor collapses', placeholder: 'hours' });
+    clockBox.replaceChildren(
+      h('div.crg-row',
+        h('b.crg-clock-n', k?.hours != null ? (k.hours <= 0 ? 'Time is up' : `Collapse in ${fmt(k.hours)}`) : 'No floor clock'),
+        k ? toggle(k.shown, 'On the TV', 'Hidden on the TV', 'Floor clock next to the floor in the TV HUD', () => act({ t: 'crawlers.clock', shown: !k.shown })) : null),
+      k?.hours != null ? h('div.crg-row', h('span.hint', 'Game time passes:'),
+        [[1, '+1 h'], [2, 'Short rest 2 h'], [8, 'Long rest 8 h'], [dh, `Day ${dh} h`]].map(([n, l]) => h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'crawlers.clock', advance: n }, `${l}: ${fmt(Math.max(0, k.hours - n))} left.`) }, l))) : null,
+      h('form.crg-row', { onsubmit: (e) => { e.preventDefault(); const v = hoursIn.value === '' ? null : Number(hoursIn.value); act({ t: 'crawlers.clock', hours: v, ...(v != null && !k ? { shown: true } : {}) }, v == null ? 'Floor clock off.' : 'Floor clock set.'); } },
+        h('label.crg-lbl', `Hours left (a day = ${dh} h)`, hoursIn), h('button.btn.btn-sm', { type: 'submit' }, 'Set')));
     collapseBox.replaceChildren(
       c.nextStart != null ? h('button.btn.btn-alarm', { type: 'button', onclick: async () => {
         if (!await ask(`Collapse floor ${c.floor}? Everyone who did not make the stairs dies: about ${fmtFull(c.nextStart)} crawlers reach floor ${c.nextFloor}.`, { ok: `Collapse floor ${c.floor}`, danger: true })) return;

@@ -505,6 +505,7 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `roll.intervene` *(player / GM)* | `rollId`, `entered?` (1–6), `playerId?` (GM) | +1d6 to someone else's missed check / attack vs a target, once per roll, not on stat checks; in reaction rounds costs one action; emits `rollUpdate` |
 | `level.party` | `delta?` (default +1) | Everyone's level ± delta; resets the level-up reminder (`view.gm.playClock`: playMin, sinceLevelMin, snoozeMin; play = gaps between actions under 15 min) |
 | `level.snooze` | `minutes` (5–240) | The reminder waits that much more play |
+| `crawlers.clock` | `hours?` (null = off), `advance?` (hours of game time), `shown?` | Floor clock: in-game hours until the floor collapses (pack crawlers.floors[].hours refills it on collapse; `dayHours` for display); `view.crawlers.clock` (TV only when shown); 0 emits `floor.timeup` |
 | `gear.approve` | `playerId`, `index?` | Gives requested starting things (custom ones become homebrew items) |
 | `gear.deny` | `playerId`, `index?` | Drops one request or all |
 | `enc.give` | `id`, `index`, `playerId` | Gives one of the encounter's prepared items (its qty) to a crawler; marks it `given` |

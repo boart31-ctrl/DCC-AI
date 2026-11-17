@@ -228,7 +228,10 @@ function renderCrawlers() {
   document.body.classList.toggle('has-crawlers', !box.hidden);
   if (!c) return;
   $('#cr-label').textContent = String(c.label || 'Crawlers remaining').toLowerCase();
-  $('#cr-floor').textContent = c.floor ? `Floor ${c.floor}` : '';
+  // Floor clock (game time, GM-advanced): "Floor 1 · collapse in 4 d 12 h".
+  const k = c.clock;
+  const left = k && k.hours != null ? (k.hours <= 0 ? 'collapsing!' : `collapse in ${k.hours >= (k.dayHours || 24) ? `${Math.floor(k.hours / (k.dayHours || 24))} d ` : ''}${Math.round(k.hours % (k.dayHours || 24))} h`) : '';
+  $('#cr-floor').textContent = [c.floor ? `Floor ${c.floor}` : '', left].filter(Boolean).join(' · ');
   box.classList.toggle('live', !!c.live);
   tickCrawlers();
 }
