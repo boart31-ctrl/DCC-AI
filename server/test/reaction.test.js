@@ -58,6 +58,16 @@ test('a full round: suggest, evade (spends an action), rolls, intervene on a nea
   // Aim everything at Carl to keep the test simple.
   for (const d of s.combat.rx.decls) s = gm(s, { t: 'rx.retarget', declId: d.id, targetUid: carl }).state;
   assert.ok(s.combat.rx.decls.every((d) => d.targetUid === carl));
+  { // Advantage +5 / Disadvantage −5 on the Evade difficulty, and back.
+    const d0 = s.combat.rx.decls[0];
+    const dc = d0.attack.dc;
+    let t = gm(s, { t: 'rx.adv', declId: d0.id, adv: 'adv' }).state;
+    assert.equal(t.combat.rx.decls[0].attack.dc, dc + 5);
+    t = gm(t, { t: 'rx.adv', declId: d0.id, adv: 'dis' }).state;
+    assert.equal(t.combat.rx.decls[0].attack.dc, dc - 5);
+    t = gm(t, { t: 'rx.adv', declId: d0.id, adv: null }).state;
+    assert.equal(t.combat.rx.decls[0].attack.dc, dc);
+  }
   assert.throws(() => pl(s, playerId(s, 'Carl'), { t: 'rx.interrupt', kind: 'evade' }), /reaction step/);
   s = gm(s, { t: 'rx.step', to: 'react' }).state;
   s = pl(s, playerId(s, 'Carl'), { t: 'rx.interrupt', kind: 'evade' }).state;

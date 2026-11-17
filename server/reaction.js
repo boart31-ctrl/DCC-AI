@@ -191,6 +191,21 @@ export const REACTION_GM = {
     declOf(rx, a.declId).targetUid = crawlerOf(st, a.targetUid).uid;
   },
 
+  /**
+   * `{ declId, adv: 'adv' | 'dis' | null }` A mob attacks with Advantage (+5 to the Evade difficulty) or
+   * Disadvantage (−5): high ground, cover, darkness, size. Only before the Evade rolls.
+   */
+  'rx.adv'(st, a) {
+    const rx = rxOf(st);
+    if (!['declare', 'react'].includes(rx.step)) throw bad('change it before the hits land');
+    const d = declOf(rx, a.declId);
+    if (d.evade) throw bad('already evaded');
+    if (![null, 'adv', 'dis'].includes(a.adv ?? null)) throw bad('adv must be adv, dis or null');
+    d.attack.baseDc ??= d.attack.dc;
+    d.adv = a.adv ?? null;
+    d.attack.dc = d.attack.baseDc + (d.adv === 'adv' ? 5 : d.adv === 'dis' ? -5 : 0);
+  },
+
   'rx.undeclare'(st, a) {
     const rx = rxOf(st);
     declOf(rx, a.declId);
@@ -389,7 +404,7 @@ export function reactionView(state, role) {
   const mobs = new Map(c.combatants.filter((x) => x.type === 'mob').map((x) => [x.uid, x]));
   const decls = rx.decls.filter((d) => gm || !mobs.get(d.mobUid)?.hidden).map((d) => {
     const m = mobs.get(d.mobUid);
-    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
+    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
     return gm ? { ...base, dc: d.attack.dc, damageDice: d.attack.damage, evadeTotal: d.evade?.total ?? null } : base;
   });
   return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, evading: rx.evading, intervene: rx.intervene, log: gm ? rx.log.slice(-12) : rx.log.slice(-5) };

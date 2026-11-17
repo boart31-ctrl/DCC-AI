@@ -520,6 +520,7 @@ Round = `declare` → `react` → `resolve` → `act` → `cleanup`. Each crawle
 |---|---|---|
 | `rx.start` | | Starts / re-syncs rounds for the running fight (step declare, 2 actions each) |
 | `rx.declare` | `mobUid`, `attackIndex?`, `targetUid` | Declare step only; ack `result.declId` |
+| `rx.adv` | `declId`, `adv` adv\|dis\|null | Mob attack with Advantage (+5 to the Evade difficulty) / Disadvantage (−5), before it is evaded |
 | `rx.retarget` | `declId`, `targetUid` | Declare step: change who a declared attack goes for |
 | `rx.undeclare` | `declId` | |
 | `rx.suggest` | | Replaces declarations: revealed living mobs 1 attack each spread evenly (focus respected), elites / bosses one per crawler; ack `result.count` |
