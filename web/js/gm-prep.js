@@ -9,14 +9,24 @@
 // Every item can be pinned: pinned items of tonight's session and its adventure show up in the
 // "Within reach" strip on the Show tab, one tap away (load into the preview, never live).
 //
+// Left also lists Encounters (gm-encounter.js: mobs from the library, strength, a battle map with tokens)
+// and Maps (gm-maps.js in prep mode). Nothing in Prep touches the TV or the live fight: library entries open
+// in the Library, encounters and maps open here; running things happens on the Show tab ("Within reach").
+// A scene (part) lists what it needs at the table (its encounter, map, NPCs, location): pin the scene and
+// all of it waits within reach.
+//
 // createPrep({ act, getView, scenes, showView, openInLibrary }) → { el, reach, update(view) }
 import { h, toast, ask } from './client.js';
 import { icon, field, select, openDrawer, closeDrawer } from './ui.js';
 import { libraryOf } from './rules.js';
 import { benchmark } from './prep-bench.js';
+import { pickFromLibrary, KIND_LABEL } from './lib-picker.js';
+import { encounterEditor, strengthBadge } from './gm-encounter.js';
+import { createMaps } from './gm-maps.js';
 
-const REF_LABEL = { monster: 'Monster', boss: 'Boss', npc: 'NPC', location: 'Location', item: 'Item', spell: 'Spell', buff: 'Buff', card: 'Card', map: 'Map' };
+const REF_LABEL = KIND_LABEL;
 const LIB_REF = ['monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff'];
+const SCENE_LINKS = ['encounter', 'map', 'npc', 'location', 'boss', 'monster', 'item', 'card'];
 const store = {
   get(k, d) { try { const v = localStorage.getItem(`system.prep.${k}`); return v == null ? d : JSON.parse(v); } catch { return d; } },
   set(k, v) { try { localStorage.setItem(`system.prep.${k}`, JSON.stringify(v)); } catch {} },
@@ -30,6 +40,10 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
   const st = { sel: store.get('sel', null), closed: new Set(store.get('closed', [])), q: '' };
   const el = h('div.prep2');
   const reach = h('div.sh-reach', { hidden: true });
+  // One map editor for Prep (Maps + an encounter's battle map); never touches the TV.
+  const mapEd = createMaps({ act, getView, scenes, showView, mode: 'prep', openInLibrary });
+  const selKind = () => (typeof st.sel === 'string' && /^(enc|map):/.test(st.sel) ? st.sel.split(':')[0] : 'doc');
+  const selId = () => (selKind() === 'doc' ? st.sel : st.sel.slice(4));
 
   const P = () => view?.gm?.prep || { docs: [], current: null, templates: [], defaults: {} };
   const docs = () => P().docs || [];
@@ -42,19 +56,23 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
 
   function entryOf(ref) {
     if (!ref) return null;
-    if (ref.kind === 'card') return cards().find((c) => c.id === ref.id) || null;
+    if (ref.kind === 'card' || ref.kind === 'encounter') return cards().find((c) => c.id === ref.id) || null;
     if (ref.kind === 'map') return (view?.maps || []).find((m) => m.id === ref.id) || null;
     return (lib()[ref.kind] || []).find((e) => e.id === ref.id) || null;
   }
   function refName(ref) {
     const e = entryOf(ref);
     if (!e) return `${ref.id} (missing)`;
-    return ref.kind === 'card' ? (e.label || e.kind) : e.name;
+    return ref.kind === 'card' || ref.kind === 'encounter' ? (e.label || e.kind) : e.name;
   }
   /** Readiness: red = missing from the library, amber = no art, green = has art. */
   function ready(ref) {
     const e = entryOf(ref);
     if (!e) return { cls: 'rd-red', why: 'Not in the library any more.' };
+    if (ref.kind === 'encounter') {
+      const n = (e.payload?.mobs || []).length;
+      return n ? { cls: e.used ? 'rd-amber' : 'rd-green', why: e.used ? 'Ran already (can run again).' : 'Ready.' } : { cls: 'rd-red', why: 'No mobs yet.' };
+    }
     if (ref.kind === 'card') return { cls: e.used ? 'rd-amber' : 'rd-green', why: e.used ? 'Already used tonight.' : 'Ready.' };
     if (['monster', 'boss', 'npc', 'location'].includes(ref.kind) && !(e.image || e.imageSquare || e.portrait)) return { cls: 'rd-amber', why: 'No picture yet: the TV shows a generated placeholder.' };
     return { cls: 'rd-green', why: 'Has a picture.' };
@@ -85,9 +103,16 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
       select_(r.result.id);
     }
   }
+  /** At the table (Within reach on the Show tab): runs / previews / fires. */
   async function useRef(ref) {
     const e = entryOf(ref);
     if (!e) { toast('Not in the library any more.', { error: true }); return; }
+    if (ref.kind === 'encounter') {
+      if (e.used && !(await ask(`"${e.label}" ran already. Run it again (new mobs)?`, { ok: 'Run again' }))) return;
+      const r = await act({ t: 'enc.run', id: e.id }, `${e.label}: mobs in the fight${(e.payload?.mobs || []).some((m) => m.hidden !== false) ? ' (hidden ones wait for you)' : ''}.`);
+      if (r) { showView('show'); scenes.pick('fight'); }
+      return;
+    }
     if (ref.kind === 'map') {
       showView('show');
       if (scenes.loadDraft('map', { mapId: ref.id })) toast(`${e.name} is in the preview. Go live when ready.`);
@@ -109,7 +134,51 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
     }
     openInLibrary(ref.kind, ref.id);
   }
-  const useLabel = (ref) => ({ map: 'Preview', location: 'Preview', npc: 'Preview', boss: 'Preview', monster: 'Add to fight', card: 'Fire' }[ref.kind] || 'Open');
+  const useLabel = (ref) => ({ encounter: 'Run', map: 'Preview', location: 'Preview', npc: 'Preview', boss: 'Preview', monster: 'Add to fight', card: 'Fire' }[ref.kind] || 'Open');
+  /** In Prep: open it for editing (encounters and maps here, the rest in the Library). Never live. */
+  function openRef(ref) {
+    if (ref.kind === 'encounter') { select_(`enc:${ref.id}`); return; }
+    if (ref.kind === 'map') { select_(`map:${ref.id}`); return; }
+    if (ref.kind === 'card') { showView('show'); scenes.pick('desk'); return; }
+    openInLibrary(ref.kind, ref.id);
+  }
+  const openLabel = (ref) => (ref.kind === 'encounter' || ref.kind === 'map' ? 'Edit' : 'Open');
+  async function newEncounter(then) {
+    const r = await act({ t: 'enc.save', label: 'New encounter', mobs: [] });
+    if (r?.result?.id) { then?.(r.result.id); select_(`enc:${r.result.id}`); }
+    return r?.result?.id;
+  }
+  /** Tonight's plan (or a new one) gets the encounter linked and pinned. */
+  const monsterSection = (d) => d?.sections.find((s) => s.kind === 'refs' && !s.hidden && s.refKinds.includes('encounter'));
+  function inTonight(encId) {
+    const d = docById(P().current);
+    return !!d?.sections.some((s) => s.items.some((it) => it.pin && ((it.ref?.kind === 'encounter' && it.ref.id === encId) || it.links?.some((l) => l.kind === 'encounter' && l.id === encId))));
+  }
+  /** The view arrives a moment after the action's answer: wait for it (max ~2 s). */
+  async function waitView(fn) {
+    for (let i = 0; i < 25; i++) {
+      const v = getView();
+      const r = v && fn(v);
+      if (r) { view = v; return r; }
+      await new Promise((res) => setTimeout(res, 80));
+    }
+    return null;
+  }
+  async function addToTonight(encId) {
+    let d = docById(P().current);
+    if (!d) {
+      const r = await act({ t: 'prep.session.add' });
+      if (!r?.result?.id) return;
+      await act({ t: 'prep.session.current', id: r.result.id });
+      d = await waitView((v) => (v.gm?.prep?.docs || []).find((x) => x.id === r.result.id));
+      if (!d) return;
+    }
+    const sec = monsterSection(d);
+    if (!sec) { toast('Tonight’s plan has no section for encounters: add one in the plan.', { error: true }); return; }
+    const had = sec.items.find((it) => it.ref?.kind === 'encounter' && it.ref.id === encId);
+    if (had) await act({ t: 'prep.item.update', id: d.id, key: sec.key, itemId: had.id, pin: true }, 'Pinned: within reach on the Show tab.');
+    else await act({ t: 'prep.item.add', id: d.id, key: sec.key, ref: { kind: 'encounter', id: encId }, pin: true }, 'In tonight’s plan and within reach on the Show tab.');
+  }
 
   /* ---------- left: doc list ---------- */
   function docRow(d) {
@@ -120,14 +189,35 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
       h('span.dim', d.type === 'session' ? (adv ? adv.title : 'No adventure') : tplLabel(d.template)),
       cur ? h('span.pill.pill-on', 'Tonight') : null));
   }
+  function encRow(c) {
+    const n = (c.payload?.mobs || []).reduce((a, m) => a + (m.count || 1), 0);
+    const map = c.payload?.mapId ? (view?.maps || []).find((m) => m.id === c.payload.mapId) : null;
+    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === `enc:${c.id}` ? 'true' : null, onclick: () => select_(`enc:${c.id}`) },
+      h('span.pp-doc-t', c.label),
+      h('span.dim', `${n} mob${n === 1 ? '' : 's'}${map ? ` · ${map.name}` : ''}`),
+      inTonight(c.id) ? h('span.pill.pill-on', 'Tonight') : c.used ? h('span.pill', 'Used') : null));
+  }
+  function mapRow(m) {
+    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === `map:${m.id}` ? 'true' : null, onclick: () => select_(`map:${m.id}`) },
+      h('span.pp-doc-t', m.name),
+      h('span.dim', `${m.zones.length} zone${m.zones.length === 1 ? '' : 's'} · ${m.tokens.length} token${m.tokens.length === 1 ? '' : 's'}`)));
+  }
   function side() {
     const adv = docs().filter((d) => d.type === 'adventure');
     const ses = docs().filter((d) => d.type === 'session').slice().reverse();
     const advTpls = (P().templates || []).filter((t) => t.scope === 'adventure');
+    const encs = cards().filter((c) => c.kind === 'encounter').slice().reverse();
+    const maps = (view?.maps || []).slice().reverse();
     return h('aside.pp-side',
       h('div.pp-side-head', h('h2', 'Sessions'),
-        h('button.btn.btn-sm', { type: 'button', onclick: () => newSession(null), title: 'New session plan: unfinished secrets and scenes from tonight carry over' }, icon('plus', { size: 14 }), 'New session')),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => newSession(null), title: 'New session plan: unfinished secrets and scenes from tonight carry over' }, icon('plus', { size: 14 }), 'New')),
       ses.length ? h('ul.pp-docs', ses.map(docRow)) : h('p.empty-s', 'No session plan yet.'),
+      h('div.pp-side-head', h('h2', 'Encounters'),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => newEncounter(), title: 'Mobs from the library, strength for your party, a battle map' }, icon('plus', { size: 14 }), 'New')),
+      encs.length ? h('ul.pp-docs', encs.map(encRow)) : h('p.empty-s', 'Fights you prepare: mobs from the library, a map, one tap to run.'),
+      h('div.pp-side-head', h('h2', 'Maps'),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => { mapEd.newMap((id) => select_(`map:${id}`)); } }, icon('plus', { size: 14 }), 'New')),
+      maps.length ? h('ul.pp-docs', maps.map(mapRow)) : h('p.empty-s', 'Maps with fog, zones and tokens.'),
       h('div.pp-side-head', h('h2', 'Adventures'),
         advTpls.length > 1
           ? select([{ value: '', label: '+ New…' }, ...advTpls.map((t) => ({ value: t.id, label: t.label }))], '', { cls: 'inp-sm', label: 'New adventure from template', onChange: (v) => v && newAdventure(v) })
@@ -162,27 +252,30 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
         h('div.pp-part-head', doneBox(d, s, it, 'Played'),
           field(it.title, { cls: 'inp-sm pp-part-title', placeholder: 'Title', onCommit: (v) => act({ t: 'prep.item.update', id: d.id, key: s.key, itemId: it.id, title: v }) }),
           itemTools(d, s, it, i)),
-        field(it.text, { multiline: true, rows: 3, placeholder: 'What is here, what happens, what the players can find', onCommit: (v) => act({ t: 'prep.item.update', id: d.id, key: s.key, itemId: it.id, text: v }) })))),
+        field(it.text, { multiline: true, rows: 3, placeholder: 'What is here, what happens, what the players can find', onCommit: (v) => act({ t: 'prep.item.update', id: d.id, key: s.key, itemId: it.id, text: v }) }),
+        linksRow(d, s, it)))),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'prep.item.add', id: d.id, key: s.key, title: `${s.label.replace(/s$/, '')} ${s.items.length + 1}` }) }, icon('plus', { size: 14 }), 'Add'),
     ];
   }
+  /** What a scene needs at the table: its encounter, map, NPCs, location… (pin the scene: all within reach). */
+  function linksRow(d, s, it) {
+    const links = it.links || [];
+    const setLinks = (next) => act({ t: 'prep.item.update', id: d.id, key: s.key, itemId: it.id, links: next });
+    return h('div.pp-links',
+      h('span.dim', 'Needs:'),
+      links.map((l) => h('span.pp-link', { class: entryOf(l) ? 'pp-link' : 'pp-link missing' },
+        h('button', { type: 'button', title: `${REF_LABEL[l.kind]}: ${openLabel(l)}`, onclick: () => openRef(l) }, h('span.pp-kind', REF_LABEL[l.kind]), refName(l)),
+        h('button.icon-btn.xs', { type: 'button', 'aria-label': 'Unlink', onclick: () => setLinks(links.filter((x) => x !== l)) }, icon('x', { size: 12 })))),
+      h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => pickFromLibrary({ view, kinds: SCENE_LINKS, title: `What ${it.title || 'this scene'} needs`, multi: true, exclude: new Set(links.map((l) => `${l.kind}:${l.id}`)), onPick: (list) => setLinks([...links, ...list.map(({ kind, id }) => ({ kind, id }))].slice(0, 12)) }) }, icon('plus', { size: 12 }), links.length ? 'Add' : 'Encounter, map, NPC…'),
+      !links.some((l) => l.kind === 'encounter') ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'A new encounter for this scene, linked here', onclick: () => newEncounter((id) => setLinks([...links, { kind: 'encounter', id }])) }, icon('swords', { size: 12 }), 'New encounter') : null);
+  }
   function refPicker(d, s) {
-    const kinds = s.refKinds?.length ? s.refKinds : [...LIB_REF, 'card', 'map'];
+    const kinds = s.refKinds?.length ? s.refKinds : [...LIB_REF, 'encounter', 'card', 'map'];
     const have = new Set(s.items.map((it) => `${it.ref?.kind}:${it.ref?.id}`));
-    const groups = [];
-    for (const k of kinds) {
-      const opts = k === 'card'
-        ? cards().map((c) => ({ value: `card:${c.id}`, label: `${c.label} (${c.kind})` }))
-        : k === 'map' ? (view?.maps || []).map((m) => ({ value: `map:${m.id}`, label: m.name }))
-        : (lib()[k] || []).map((e) => ({ value: `${k}:${e.id}`, label: `${e.floor != null && e.floor !== '' ? `F${e.floor} ` : ''}${e.name}` }));
-      const free = opts.filter((o) => !have.has(o.value)).sort((a, b) => a.label.localeCompare(b.label));
-      if (free.length) groups.push({ label: REF_LABEL[k] || k, options: free });
-    }
-    if (!groups.length) return h('p.dim.pp-hint', kinds.includes('card') ? 'Nothing to link: add entries in the Library or prepared cards on the Show tab.' : 'Nothing to link: add entries in the Library first.');
-    return select([{ value: '', label: `+ Link ${kinds.map((k) => REF_LABEL[k].toLowerCase()).join(' / ')}…` }, ...groups], '', {
-      cls: 'inp-sm', label: `Link to ${s.label}`,
-      onChange: (v) => { if (!v) return; const [kind, ...rest] = v.split(':'); act({ t: 'prep.item.add', id: d.id, key: s.key, ref: { kind, id: rest.join(':') } }); },
-    });
+    return h('div.pp-head-row',
+      h('button.btn.btn-sm', { type: 'button', onclick: () => pickFromLibrary({ view, kinds, title: `${s.label}: add`, multi: true, exclude: have, onPick: async (list) => { for (const x of list) await act({ t: 'prep.item.add', id: d.id, key: s.key, ref: { kind: x.kind, id: x.id } }); } }) }, icon('plus', { size: 14 }), `Add ${kinds.filter((k) => k !== 'card').map((k) => (REF_LABEL[k] || k).toLowerCase()).slice(0, 3).join(' / ')}…`),
+      kinds.includes('encounter') ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => newEncounter((id) => act({ t: 'prep.item.add', id: d.id, key: s.key, ref: { kind: 'encounter', id } })) }, icon('swords', { size: 14 }), 'New encounter') : null,
+      kinds.includes('map') ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => mapEd.newMap((id) => act({ t: 'prep.item.add', id: d.id, key: s.key, ref: { kind: 'map', id } })) }, icon('map', { size: 14 }), 'New map') : null);
   }
   function refsBody(d, s) {
     const mobs = [];
@@ -190,18 +283,21 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
       if (it.ref?.kind === 'monster') mobs.push({ count: 1, level: entryOf(it.ref)?.level, cr: entryOf(it.ref)?.cr, role: entryOf(it.ref)?.role || 'standard' });
       if (it.ref?.kind === 'boss') mobs.push({ role: 'boss', level: entryOf(it.ref)?.level });
     }
+    if (s.items.some((it) => it.ref?.kind === 'encounter')) mobs.length = 0; // encounters carry their own strength
     return [
       h('ul.pp-refs', s.items.map((it, i) => {
         const e = entryOf(it.ref);
         const r = ready(it.ref);
-        const isEnc = it.ref?.kind === 'card' && e?.kind === 'encounter';
+        const isEnc = (it.ref?.kind === 'card' || it.ref?.kind === 'encounter') && e?.kind === 'encounter';
+        const encSub = isEnc ? (e.payload?.mobs || []).map((m) => `${m.count || 1}× ${(lib()[m.kind || 'monster'] || []).find((x) => x.id === m.sourceId)?.name || m.sourceId}`).join(', ') : '';
         return h('li.pp-ref',
           h('span.rd', { class: `rd ${r.cls}`, title: r.why, 'aria-label': r.why }),
           h('span.pp-kind', REF_LABEL[it.ref?.kind] || '?'),
           h('b.pp-ref-name', refName(it.ref)),
-          isEnc ? benchBadge(encounterMobs(e)) : null,
+          isEnc ? strengthBadge(view, e.payload) : null,
+          encSub ? h('span.dim.pp-enc-sub', encSub) : null,
           field(it.text, { cls: 'inp-sm pp-note', placeholder: 'Note for tonight', onCommit: (v) => act({ t: 'prep.item.update', id: d.id, key: s.key, itemId: it.id, text: v }) }),
-          e ? h('button.btn.btn-sm', { type: 'button', onclick: () => useRef(it.ref) }, useLabel(it.ref)) : null,
+          e ? h('button.btn.btn-sm', { type: 'button', onclick: () => openRef(it.ref) }, openLabel(it.ref)) : null,
           itemTools(d, s, it, i));
       })),
       mobs.length > 1 ? h('p.pp-hint', 'All of these at once: ', benchBadge(mobs), h('span.dim', party().length ? ` for ${party().length} character${party().length === 1 ? '' : 's'}` : ' (no characters yet: counted as one)')) : null,
@@ -262,6 +358,19 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
       h('span.grow'), add);
   }
   function main() {
+    if (selKind() === 'enc') {
+      const c = cards().find((x) => x.id === selId() && x.kind === 'encounter');
+      if (c) {
+        if (c.payload?.mapId && mapEd.current() !== c.payload.mapId) mapEd.select(c.payload.mapId);
+        mapEd.embed(true);
+        return h('div.pp-main', encounterEditor({ view, act, card: c, mapEd, inTonight, addToTonight, onDone: (id) => { if (id !== undefined) select_(id ? `enc:${id}` : null); else { sig = ''; draw(); } } }));
+      }
+    }
+    if (selKind() === 'map' && (view?.maps || []).some((m) => m.id === selId())) {
+      if (mapEd.current() !== selId()) mapEd.select(selId());
+      mapEd.embed(false);
+      return h('div.pp-main', mapEd.el);
+    }
     const d = docById(st.sel) || docById(P().current) || docs()[docs().length - 1] || null;
     if (!d) {
       return h('div.pp-main.pp-empty', h('section.panel',
@@ -282,12 +391,20 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
     const adv = cur.adventureId ? docById(cur.adventureId) : null;
     const out = [];
     for (const d of [cur, adv].filter(Boolean)) for (const s of d.sections) if (!s.hidden) for (const it of s.items) if (it.pin && !it.done) out.push({ d, s, it });
-    return out.slice(0, 8);
+    return out.slice(0, 10);
+  }
+  function peek(d, s, it) {
+    openDrawer({
+      title: it.title || s.label, sub: `${d.title} · ${s.label}`,
+      body: h('div.pp-peek', h('p', it.text || ''),
+        it.links?.length ? h('div.pp-links', it.links.map((l) => h('button.btn.btn-sm', { type: 'button', disabled: !entryOf(l), onclick: () => { closeDrawer(); useRef(l); } }, h('span.pp-kind', REF_LABEL[l.kind]), `${useLabel(l)}: ${refName(l)}`))) : null,
+        h('label.chk', h('input', { type: 'checkbox', checked: !!it.done, onchange: (e) => act({ t: 'prep.item.update', id: d.id, key: s.key, itemId: it.id, done: e.target.checked }) }), s.kind === 'list' ? 'Revealed' : 'Played')),
+    });
   }
   function drawReach() {
     const items = reachItems();
     const cur = docById(P().current);
-    const sgn = JSON.stringify([cur?.title, items.map((x) => [x.it.id, x.it.title, x.it.text, x.it.ref]), cards().map((c) => c.used)]);
+    const sgn = JSON.stringify([cur?.title, items.map((x) => [x.it.id, x.it.title, x.it.text, x.it.ref, x.it.links]), cards().map((c) => [c.id, c.label, c.used]), (view?.maps || []).map((m) => m.name)]);
     if (sgn === reachSig) return;
     reachSig = sgn;
     reach.hidden = !cur;
@@ -297,12 +414,14 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
       items.length ? items.map(({ d, s, it }) => {
         if (it.ref) {
           const e = entryOf(it.ref);
-          return h('button.sh-reach-i', { type: 'button', title: `${REF_LABEL[it.ref.kind]}: ${useLabel(it.ref)}${it.text ? ` · ${it.text}` : ''}`, disabled: !e, onclick: () => useRef(it.ref) }, h('span.pp-kind', REF_LABEL[it.ref.kind]), refName(it.ref));
+          return h('button.sh-reach-i', { type: 'button', class: it.ref.kind === 'encounter' ? 'sh-reach-i sh-reach-enc' : 'sh-reach-i', title: `${REF_LABEL[it.ref.kind]}: ${useLabel(it.ref)}${it.text ? ` · ${it.text}` : ''}`, disabled: !e, onclick: () => useRef(it.ref) }, h('span.pp-kind', it.ref.kind === 'encounter' ? (e?.used ? 'Ran' : 'Run') : REF_LABEL[it.ref.kind]), refName(it.ref));
         }
-        return h('button.sh-reach-i', { type: 'button', title: it.text || it.title, onclick: () => openDrawer({
-          title: it.title || s.label, sub: `${d.title} · ${s.label}`,
-          body: h('div.pp-peek', h('p', it.text || ''), h('label.chk', h('input', { type: 'checkbox', checked: !!it.done, onchange: (e) => act({ t: 'prep.item.update', id: d.id, key: s.key, itemId: it.id, done: e.target.checked }) }), s.kind === 'list' ? 'Revealed' : 'Played')),
-        }) }, h('span.pp-kind', s.label), it.title || (it.text.length > 40 ? `${it.text.slice(0, 40)}…` : it.text));
+        if (it.links?.length) {
+          return h('span.sh-reach-scene',
+            h('button.sh-reach-i', { type: 'button', title: it.text || it.title, onclick: () => peek(d, s, it) }, h('span.pp-kind', 'Scene'), it.title || it.text.slice(0, 30)),
+            it.links.map((l) => h('button.sh-reach-i.sh-reach-sub', { type: 'button', class: l.kind === 'encounter' ? 'sh-reach-i sh-reach-sub sh-reach-enc' : 'sh-reach-i sh-reach-sub', disabled: !entryOf(l), title: `${REF_LABEL[l.kind]}: ${useLabel(l)}`, onclick: () => useRef(l) }, h('span.pp-kind', l.kind === 'encounter' ? (entryOf(l)?.used ? 'Ran' : 'Run') : REF_LABEL[l.kind]), refName(l))));
+        }
+        return h('button.sh-reach-i', { type: 'button', title: it.text || it.title, onclick: () => peek(d, s, it) }, h('span.pp-kind', s.label), it.title || (it.text.length > 40 ? `${it.text.slice(0, 40)}…` : it.text));
       }) : h('span.dim', 'Pin items in Prep with the star to keep them here.')].flat());
   }
 
@@ -321,7 +440,8 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
   function update(v) {
     view = v;
     drawReach();
-    const s = JSON.stringify([P(), (v.maps || []).map((m) => [m.id, m.name]), cards().map((c) => [c.id, c.label, c.used]), Object.values(lib()).map((x) => x.length), (v.players || []).map((p) => p.level)]);
+    mapEd.update(v);
+    const s = JSON.stringify([P(), (v.maps || []).map((m) => [m.id, m.name, m.zones.length, m.tokens.filter((t) => t.enc).map((t) => t.enc)]), cards().map((c) => [c.id, c.label, c.used, c.payload]), Object.values(lib()).map((x) => x.length), (v.players || []).map((p) => p.level)]);
     if (s === sig) return;
     sig = s;
     draw();

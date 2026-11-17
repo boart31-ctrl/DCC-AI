@@ -9,6 +9,7 @@
 // themselves (3 s toast with Cancel) when every revealed mob / every crawler is down.
 import { h, toast, ask, portraitSrc, onPortraits, itemArt } from './client.js';
 import { rxPanel } from './gm-reaction.js';
+import { createBattleMap } from './gm-battlemap.js';
 import { sheetModel, libraryOf } from './rules.js';
 import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
 import { entryArt } from './portrait.js';
@@ -34,6 +35,7 @@ const END_DELAY_S = 3;
 
 export function createCombat({ act, send, getView, sfx = null, openSound = null, goLive = null }) {
   let view = null;
+  const battleMap = createBattleMap({ act, goLiveFight: () => goLive?.() });
   let sig = '';
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
   const ui = {
@@ -822,7 +824,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       dead.length ? h('details.cbt-fallen', { open: ui.fallenOpen || null, ontoggle: (e) => { ui.fallenOpen = e.target.open; } },
         h('summary', `Defeated (${dead.length})`), h('ul.cbt-list', dead.map(fallenRow))) : null,
     );
-    const side = h('div.cbt-side', lootPanel(), view?.scene?.kind === 'finale' ? null : prizePanel(), c.active ? autoPanel() : null, lastRollCard());
+    const side = h('div.cbt-side', battleMap.el, lootPanel(), view?.scene?.kind === 'finale' ? null : prizePanel(), c.active ? autoPanel() : null, lastRollCard());
     // Keep scroll positions across redraws (adding 3 monsters must not jump to the top of the list).
     const keep = [...el.querySelectorAll('.cbt-picks')].map((x) => x.scrollTop);
     const page = el.closest('.gm-main');
@@ -857,7 +859,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     act({ t: 'combat.next' });
   });
 
-  return { el, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; draw(); } };
+  return { el, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; battleMap.update(v); draw(); } };
 }
 
 export { signed };

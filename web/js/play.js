@@ -547,7 +547,7 @@ const achSig = () => JSON.stringify(me?.achievements || []);
 function renderMaps() {
   return h('div.ph-maps', (view.maps || []).map((m) => {
     const mv = createMapView({
-      canMoveToken: (t) => t.kind === 'pc' && t.ref === me?.id,
+      canMoveToken: (t) => m.tokensOn && t.kind === 'pc' && t.ref === me?.id,
       onTokenMove: (t, x, y) => client.send({ t: 'map.token.move', id: m.id, tokenId: t.id, x, y }).catch((err) => toast(err.message, { error: true })),
     });
     mv.set(m, { labels: true });

@@ -33,23 +33,62 @@
 .mp-empty[hidden] { display: none; }
 
 /* GM editor (gm-maps.js) */
-.gmap { display: grid; gap: 12px; }
+.gmap { display: grid; gap: 10px; }
 .gmap-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.gmap-tools { display: inline-flex; border: 1px solid var(--c-line); border-radius: 999px; overflow: hidden; }
-.gmap-tools button { background: none; border: 0; padding: 5px 12px; color: var(--c-ink); cursor: pointer; font-size: 13px; }
+.gmap-pick { display: inline-flex; gap: 8px; align-items: center; }
+.gmap.embedded .gmap-pick { display: none; }
+.gmap-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; }
+.gmap-tools { display: inline-flex; border: 1px solid var(--c-line); border-radius: 8px; overflow: hidden; }
+.gmap-tools button { display: inline-flex; align-items: center; gap: 5px; background: none; border: 0; border-right: 1px solid var(--c-line); padding: 7px 12px; color: var(--c-ink); cursor: pointer; font-size: 13px; font-weight: 600; }
+.gmap-tools button:last-child { border-right: 0; }
 .gmap-tools button[aria-pressed="true"] { background: var(--c-accent); color: #000; }
-.gmap-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 300px); gap: 12px; align-items: start; }
-.gmap-zones { display: grid; gap: 6px; }
-.gmap-zone { display: grid; gap: 6px; padding: 8px; border: 1px solid var(--c-line); border-radius: 6px; }
+.gmap-pen { display: inline-flex; align-items: center; gap: 6px; }
+.gmap-swatch { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--c-line); background: var(--sw); cursor: pointer; padding: 0; }
+.gmap-swatch[aria-pressed="true"] { border-color: var(--c-ink); box-shadow: 0 0 0 2px var(--c-accent); }
+.gmap-hint { margin: 0; font-size: 13px; flex-basis: 100%; }
+.gmap-grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(260px, 320px); gap: 12px; align-items: start; }
+.gmap-side { display: grid; gap: 8px; border: 1px solid var(--c-line); border-radius: 8px; padding: 8px; max-height: calc(100vh - 220px); overflow: auto; position: sticky; top: 8px; }
+.gmap-tabs { display: flex; gap: 4px; }
+.gmap-tabs button { flex: 1; padding: 6px; border: 1px solid var(--c-line); border-radius: 6px; background: none; color: var(--c-ink); cursor: pointer; font-weight: 600; font-size: 13px; }
+.gmap-tabs button[aria-selected="true"] { background: var(--c-accent); color: #000; border-color: var(--c-accent); }
+.gmap-side-body { display: grid; gap: 8px; }
+.gmap-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.gmap-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.gmap-tgroup h4 { margin: 6px 0 4px; font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--c-dim, #999); }
+.gmap-tok { display: flex; align-items: center; gap: 6px; padding: 4px 6px; border: 1px solid var(--c-line); border-radius: 6px; cursor: pointer; font-size: 13px; }
+.gmap-tok b { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+.gmap-tok .dim { font-size: 11px; white-space: nowrap; }
+.gmap-tok.sel { border-color: #ffcc00; background: rgba(255, 204, 0, 0.08); }
+.gmap-tok.down { opacity: 0.5; text-decoration: line-through; }
+.gmap-tok-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--tk); flex: none; }
+.gmap-encs { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.gmap-enc { display: flex; align-items: center; gap: 6px; padding: 6px; border: 1px solid var(--c-accent); border-radius: 6px; font-size: 13px; }
+.gmap-zone { display: grid; gap: 6px; padding: 6px 8px; border: 1px solid var(--c-line); border-radius: 6px; }
 .gmap-zone.sel { border-color: #ffcc00; }
 .gmap-zone-head { display: flex; align-items: center; gap: 6px; }
-.gmap-zone-head b { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; cursor: pointer; }
+.gmap-zone-n { flex: 1; display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; color: var(--c-ink); font-weight: 700; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; }
 .gmap-new { display: grid; gap: 10px; }
-@media (max-width: 900px) { .gmap-grid { grid-template-columns: 1fr; } }
+@media (max-width: 760px) { .gmap-grid { grid-template-columns: 1fr; } .gmap-side { position: static; max-height: none; } }
 
-/* Phones: Maps tab */
-.ph-maps { display: grid; gap: 14px; }
-.ph-map h3 { margin: 0 0 6px; }
-.ph-map-zones { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
-.ph-map-zones p { margin: 2px 0 0; white-space: pre-wrap; }
-.mp-wrap .mv-label { font-size: 22px; padding: 3px 10px; }
+/* drawings, tokens (both GM and TV) */
+.mv-ink { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
+.mv-stroke { fill: none; stroke-width: 4; stroke-linecap: round; stroke-linejoin: round; }
+.mv-gm .mv-stroke.gm { stroke-dasharray: 8 5; opacity: 0.85; }
+.mv-poly { fill: rgba(255, 204, 0, 0.12); stroke: #ffcc00; stroke-width: 2; stroke-dasharray: 6 4; }
+.mv-tok.down { filter: grayscale(1); opacity: 0.55; }
+.mv-tok.down::after { content: '✕'; position: absolute; inset: 0; display: grid; place-items: center; font-size: 160%; color: #ff2448; font-weight: 900; }
+.mv-tok.sel { box-shadow: 0 0 0 3px #ffcc00, 0 2px 8px rgba(0, 0, 0, 0.6); z-index: 3; }
+.mv-tok-n { position: absolute; top: 100%; left: 50%; transform: translate(-50%, 2px); font: 600 10px/1.2 var(--f-body, system-ui); font-style: normal; color: #fff; background: rgba(0, 0, 0, 0.7); padding: 0 4px; border-radius: 3px; white-space: nowrap; pointer-events: none; }
+.mv-gm .mv-tok { cursor: pointer; }
+.mv-mob .mv-tok-n, .mv-mark .mv-tok-n { display: none; }
+.mv-tok:hover .mv-tok-n, .mv-tok.sel .mv-tok-n, .mv-tok.drag .mv-tok-n { display: block; z-index: 4; }
+.mv-gm .mv-stage[data-tool="move"] .mv-tok { cursor: grab; }
+.mv-stage[data-tool="zone"], .mv-stage[data-tool="reveal"], .mv-stage[data-tool="cover"], .mv-stage[data-tool="poly"], .mv-stage[data-tool="pen"] { cursor: crosshair; }
+
+/* Fight → battle map (gm-battlemap.js) */
+.bm { display: grid; gap: 8px; }
+.bm[hidden] { display: none; }
+.bm .sec-head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.bm-t { display: inline-flex; align-items: center; gap: 6px; background: none; border: 0; color: inherit; cursor: pointer; padding: 0; }
+.bm-t h2 { margin: 0; font-size: 15px; }
+.bm-zones { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }

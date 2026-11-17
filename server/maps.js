@@ -10,7 +10,14 @@
 //     fog       revealed grid cells, base64 bitmap of cols × rows (row-major, LSB first)
 //   Zone  = { id, name, shape: { x, y, w, h } | { points: [[x, y], …] } (0..1 of the image), text, notes,
 //             revealed, links: [{ kind, id }] }   text = read-aloud (players see it once revealed), notes = GM only
-//   Token = { id, kind: 'pc'|'mob'|'mark', ref, label, color, x, y, hidden }
+//   Token = { id, kind: 'pc'|'mob'|'mark', ref, label, color, x, y, hidden, enc?, slot? }
+//     ref       pc: the player id · mob: the combatant uid once its encounter runs (then the fight decides
+//               whether it is hidden or down) · enc/slot: the prepared encounter (prep card id) and which
+//               of its mobs this token stands for (0-based, in the encounter's order)
+//   Stroke = { id, pts: [[x, y], …], color, gm }   pen drawing on the map; gm = only the GM sees it
+//
+// Tokens are always part of the map (the GM moves them at the table; the TV shows the visible ones).
+// `tokensOn` only lets the players drag their own crawler's token on their phones (online play).
 //
 // The TV shows a map through scene kind `map` ({ mapId }); its content is view.maps (role-filtered here):
 // the GM gets everything, the TV and phones only revealed zones (no notes), the fog bits and visible tokens.
@@ -20,6 +27,8 @@ export const MAX_MAPS = 40;
 export const MAX_ZONES = 80;
 export const MAX_TOKENS = 60;
 export const MAX_POINTS = 40;
+export const MAX_STROKES = 150;
+export const MAX_STROKE_POINTS = 300;
 export const FOG_COLS = 48;
 export const TOKEN_KINDS = ['pc', 'mob', 'mark'];
 export const ZONE_LINK_KINDS = ['monster', 'boss', 'npc', 'location', 'item', 'card'];
@@ -127,7 +136,19 @@ function normToken(t) {
     id: t.id, kind: t.kind, ref: typeof t.ref === 'string' && ID_RE.test(t.ref) ? t.ref : null,
     label: text(t.label, 40) || '?', color: COLOR_RE.test(t.color ?? '') ? t.color : '#ffcc00',
     x: fin(t.x) ? clamp01(t.x) : 0.5, y: fin(t.y) ? clamp01(t.y) : 0.5, hidden: t.hidden === true,
+    ...(typeof t.enc === 'string' && ID_RE.test(t.enc) && Number.isInteger(t.slot) && t.slot >= 0 && t.slot < 200 ? { enc: t.enc, slot: t.slot } : {}),
   };
+}
+function strokePts(v) {
+  if (!Array.isArray(v)) return null;
+  const pts = v.filter((p) => Array.isArray(p) && fin(p[0]) && fin(p[1])).slice(0, MAX_STROKE_POINTS).map(([x, y]) => [round4(clamp01(x)), round4(clamp01(y))]);
+  return pts.length >= 2 ? pts : null;
+}
+function normStroke(k) {
+  if (!isObj(k) || typeof k.id !== 'string' || !ID_RE.test(k.id)) return null;
+  const pts = strokePts(k.pts);
+  if (!pts) return null;
+  return { id: k.id, pts, color: COLOR_RE.test(k.color ?? '') ? k.color : '#ffcc00', gm: k.gm === true };
 }
 function normMap(m) {
   if (!isObj(m) || typeof m.id !== 'string' || !ID_RE.test(m.id)) return null;
@@ -140,6 +161,7 @@ function normMap(m) {
     aspect, phones: m.phones === true, tokensOn: m.tokensOn === true, cols, rows, fog,
     zones: (Array.isArray(m.zones) ? m.zones : []).map(normZone).filter(Boolean).slice(0, MAX_ZONES),
     tokens: (Array.isArray(m.tokens) ? m.tokens : []).map(normToken).filter(Boolean).slice(0, MAX_TOKENS),
+    strokes: (Array.isArray(m.strokes) ? m.strokes : []).map(normStroke).filter(Boolean).slice(0, MAX_STROKES),
     createdAt: fin(m.createdAt) ? m.createdAt : 0,
   };
 }
@@ -178,7 +200,7 @@ export const MAPS_GM = {
     if (maps.list.length >= MAX_MAPS) throw bad(`max ${MAX_MAPS} maps`);
     const aspect = a.aspect === undefined ? 1.5 : aspectArg(a.aspect);
     const rows = fogRows(aspect);
-    const m = { id: ctx.genId('map'), name: nameArg(a.name), image: imageArg(a.image), aspect, phones: false, tokensOn: false, cols: FOG_COLS, rows, fog: encode(emptyFog(FOG_COLS, rows)), zones: [], tokens: [], createdAt: ctx.now };
+    const m = { id: ctx.genId('map'), name: nameArg(a.name), image: imageArg(a.image), aspect, phones: false, tokensOn: false, cols: FOG_COLS, rows, fog: encode(emptyFog(FOG_COLS, rows)), zones: [], tokens: [], strokes: [], createdAt: ctx.now };
     maps.list.push(m);
     out.result = { id: m.id };
   },
@@ -316,7 +338,58 @@ export const MAPS_GM = {
     tokenOf(m, a.tokenId);
     m.tokens = m.tokens.filter((x) => x.id !== a.tokenId);
   },
+
+  /** `{ id, pts: [[x, y], …], color?, gm? }` → result `{ strokeId }`. A pen line on the map. */
+  'map.stroke.add'(st, a, ctx, out) {
+    const m = mapOf(st, a.id);
+    m.strokes ??= [];
+    if (m.strokes.length >= MAX_STROKES) throw bad(`max ${MAX_STROKES} drawings: erase some first`);
+    const pts = strokePts(a.pts);
+    if (!pts) throw bad('pts must be at least 2 points [x, y] (0..1)');
+    const k = { id: ctx.genId('sk'), pts, color: COLOR_RE.test(a.color ?? '') ? a.color : '#ffcc00', gm: a.gm === true };
+    m.strokes.push(k);
+    out.result = { strokeId: k.id };
+  },
+  /** `{ id, strokeId }` or `{ id, all: true }` */
+  'map.stroke.remove'(st, a) {
+    const m = mapOf(st, a.id);
+    m.strokes ??= [];
+    if (a.all === true) { m.strokes = []; return; }
+    if (!m.strokes.some((k) => k.id === a.strokeId)) throw notFound(`no drawing ${a.strokeId}`);
+    m.strokes = m.strokes.filter((k) => k.id !== a.strokeId);
+  },
 };
+
+/**
+ * Mob tokens of a prepared encounter: one per mob (count expanded, encounter order), hidden like the mob,
+ * laid out in a loose cluster at (cx, cy). Existing tokens of the encounter keep their place; surplus ones go.
+ * `mobs` = [{ name, hidden, color? }] (already expanded). Returns how many were added.
+ */
+export function placeEncounterTokens(st, mapId, encId, mobs, ctx, { cx = 0.7, cy = 0.5 } = {}) {
+  const m = mapOf(st, mapId);
+  let added = 0;
+  m.tokens = m.tokens.filter((t) => t.enc !== encId || t.slot < mobs.length);
+  mobs.forEach((mob, i) => {
+    const t = m.tokens.find((x) => x.enc === encId && x.slot === i);
+    if (t) { t.label = mob.name.slice(0, 40); return; }
+    if (m.tokens.length >= MAX_TOKENS) return;
+    const col = i % 4;
+    const row = Math.floor(i / 4);
+    m.tokens.push({ id: ctx.genId('tk'), kind: 'mob', ref: null, label: mob.name.slice(0, 40), color: mob.color || '#ff3355',
+      x: round4(clamp01(cx + (col - 1.5) * 0.065)), y: round4(clamp01(cy + (row - 0.5) * 0.1)), hidden: mob.hidden !== false, enc: encId, slot: i });
+    added++;
+  });
+  return added;
+}
+
+/** When an encounter runs: its tokens now stand for the new combatants (uids in encounter order). */
+export function bindEncounterTokens(st, mapId, encId, uids) {
+  const m = (st.maps?.list ?? []).find((x) => x.id === mapId);
+  if (!m) return 0;
+  let n = 0;
+  for (const t of m.tokens) if (t.enc === encId && uids[t.slot]) { t.ref = uids[t.slot]; n++; }
+  return n;
+}
 
 // ---------- player actions ----------
 
@@ -335,19 +408,34 @@ export const MAPS_PLAYER = {
 
 // ---------- views ----------
 
+/**
+ * A token as the fight sees it: a mob token bound to a combatant is hidden while the mob is hidden and
+ * `down` once it is down (or gone from the fight).
+ */
+function liveToken(state, t) {
+  if (t.kind !== 'mob' || !t.ref) return t;
+  const c = (state.combat?.combatants ?? []).find((x) => x.uid === t.ref);
+  if (!c) return { ...t, down: true };
+  return { ...t, hidden: c.hidden === true, down: c.down === true || (Number.isFinite(c.hp) && c.hp <= 0) };
+}
+function withLive(state, m) {
+  return m.tokens.some((t) => t.kind === 'mob' && t.ref) ? { ...m, tokens: m.tokens.map((t) => liveToken(state, t)) } : m;
+}
+
 /** What the TV and phones may see of one map: revealed zones without GM notes, fog bits, visible tokens. */
 export function publicMap(m) {
   return {
     id: m.id, name: m.name, image: m.image, aspect: m.aspect, cols: m.cols, rows: m.rows, fog: m.fog,
     tokensOn: m.tokensOn, phones: m.phones,
     zones: m.zones.filter((z) => z.revealed).map(({ id, name, shape, text: t }) => ({ id, name, shape, text: t })),
-    tokens: m.tokensOn ? m.tokens.filter((t) => !t.hidden).map(({ id, kind, ref, label, color, x, y }) => ({ id, kind, ref, label, color, x, y })) : [],
+    tokens: m.tokens.filter((t) => !t.hidden).map(({ id, kind, ref, label, color, x, y, down }) => ({ id, kind, ref, label, color, x, y, ...(down ? { down: true } : {}) })),
+    strokes: (m.strokes ?? []).filter((k) => !k.gm).map(({ id, pts, color }) => ({ id, pts, color })),
   };
 }
 
 /** GM: every map in full. TV: the map on air. Player: maps shared to phones (+ the one on air). */
 export function mapsView(state, role) {
-  const list = state.maps?.list ?? [];
+  const list = (state.maps?.list ?? []).map((m) => withLive(state, m));
   if (role === 'gm') return list;
   const live = state.scene?.kind === 'map' ? state.scene.data?.mapId : null;
   if (role === 'stage') return list.filter((m) => m.id === live).map(publicMap);

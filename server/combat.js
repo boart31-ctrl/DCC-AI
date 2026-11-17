@@ -875,7 +875,7 @@ export const COMBAT_GM = {
       if (!isObj(m) || typeof m.sourceId !== 'string') throw bad('each mob needs a sourceId');
       const sub = { ...out, result: null };
       try {
-        COMBAT_GM['combat.addMob'](st, { kind: m.kind, sourceId: m.sourceId, count: m.count ?? 1, hidden }, ctx, sub);
+        COMBAT_GM['combat.addMob'](st, { kind: m.kind, sourceId: m.sourceId, count: m.count ?? 1, hidden: a.hidden === undefined && typeof m.hidden === 'boolean' ? m.hidden : hidden }, ctx, sub);
         uids.push(...(sub.result?.uids ?? []));
       } catch (err) {
         if (err?.code === 'not_found') skipped.push(m.sourceId); else throw err;

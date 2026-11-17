@@ -1,7 +1,7 @@
 // The System — service worker. Caches the app shell only.
 // Never touches /ws, /pack/* (images, audio), /qr or anything else dynamic.
 
-const CACHE = 'system-shell-v19';
+const CACHE = 'system-shell-v20';
 const SHELL = [
   '/',
   '/gm',
@@ -38,6 +38,9 @@ const SHELL = [
   '/css/map.css',
   '/js/map-view.js',
   '/js/gm-maps.js',
+  '/js/gm-encounter.js',
+  '/js/gm-battlemap.js',
+  '/js/lib-picker.js',
   '/js/gm-reaction.js',
   '/js/rx-phone.js',
   '/js/scenes/map.js',

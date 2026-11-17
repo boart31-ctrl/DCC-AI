@@ -1,11 +1,17 @@
 // One map on screen (server/maps.js): image, fog of war, zones, tokens. Used by the TV scene, the phones
 // and the GM editor.
 //
-// createMapView({ gm = false, onDrag, onTokenMove, canMoveToken }) → { el, set(map, opts), toLocal(evt) }
-//   gm            translucent fog, every zone outlined with its name (revealed ones solid), hidden tokens dim
-//   onDrag(rect, evt)        GM: a finished drag on the map, rect in 0..1 image coordinates
+// createMapView({ gm = false, onDrag, onPen, onPoly, tool, onTokenMove, canMoveToken, onToken }) →
+//   { el, set(map, opts), toLocal(evt) }
+//   gm            translucent fog, every zone outlined with its name (revealed ones solid), hidden tokens dim,
+//                 GM-only drawings dashed
+//   tool()        GM: what a drag on the map does: 'zone' | 'reveal' | 'cover' (rectangle → onDrag),
+//                 'pen' (freehand → onPen(points)), 'poly' (click corners, click the first one or double-click
+//                 to close → onPoly(points)), 'move' (only tokens move)
+//   onDrag(rect, evt)        a finished rectangle, rect in 0..1 image coordinates
 //   onTokenMove(token, x, y) a token was dropped (x, y 0..1)
 //   canMoveToken(token)      who may drag which token (default: nobody)
+//   onToken(token)           a token was clicked without moving it
 // A zone counts as revealed when `revealed` is true or missing (public maps only carry revealed zones).
 import { h } from './client.js';
 
@@ -30,16 +36,20 @@ function tracePath(ctx, shape, W, H) {
   } else ctx.rect(shape.x * W, shape.y * H, shape.w * W, shape.h * H);
 }
 
-export function createMapView({ gm = false, onDrag = null, onTokenMove = null, canMoveToken = () => false, fit = false } = {}) {
+export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly = null, tool = () => (onDrag ? 'zone' : 'move'), onTokenMove = null, canMoveToken = () => false, onToken = null, fit = false } = {}) {
   const img = h('img.mv-img', { alt: '', draggable: false });
   const fog = h('canvas.mv-fog', { 'aria-hidden': 'true' });
   const svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('class', 'mv-zones');
   svg.setAttribute('viewBox', '0 0 1000 1000');
   svg.setAttribute('preserveAspectRatio', 'none');
+  const ink = document.createElementNS(SVGNS, 'svg');
+  ink.setAttribute('class', 'mv-ink');
+  ink.setAttribute('viewBox', '0 0 1000 1000');
+  ink.setAttribute('preserveAspectRatio', 'none');
   const tokens = h('div.mv-tokens');
   const sel = h('div.mv-sel', { hidden: true });
-  const stage = h('div.mv-stage', img, fog, svg, tokens, sel);
+  const stage = h('div.mv-stage', img, fog, svg, ink, tokens, sel);
   const el = h('div.mv', { class: gm ? 'mv mv-gm' : 'mv' }, stage);
   let map = null;
   let opts = {};
@@ -118,29 +128,57 @@ export function createMapView({ gm = false, onDrag = null, onTokenMove = null, c
     }
   }
 
+  function drawInk() {
+    for (const n of [...ink.querySelectorAll('.mv-stroke')]) n.remove();
+    if (!map) return;
+    for (const k of map.strokes || []) {
+      const pl = document.createElementNS(SVGNS, 'polyline');
+      pl.setAttribute('class', `mv-stroke${k.gm ? ' gm' : ''}`);
+      pl.setAttribute('points', k.pts.map(([x, y]) => `${x * 1000},${y * 1000}`).join(' '));
+      pl.setAttribute('stroke', k.color || '#ffcc00');
+      pl.setAttribute('vector-effect', 'non-scaling-stroke');
+      ink.append(pl);
+    }
+  }
+
+  /** "Goblin 3" → "G3", "Carl" → "CA". */
+  const short = (label) => {
+    const m = /^(.*?)\s+(\d+)$/.exec(label || '');
+    return m ? `${m[1].slice(0, 1)}${m[2]}`.toUpperCase() : (label || '?').slice(0, 2).toUpperCase();
+  };
+
   function drawTokens() {
     tokens.replaceChildren();
-    if (!map || !map.tokensOn) return;
+    if (!map) return;
     for (const t of map.tokens || []) {
       const mine = canMoveToken(t);
       const tk = h('div.mv-tok', {
-        class: `mv-tok mv-${t.kind}${t.hidden ? ' hid' : ''}${mine ? ' mine' : ''}`,
+        class: `mv-tok mv-${t.kind}${t.hidden ? ' hid' : ''}${t.down ? ' down' : ''}${mine ? ' mine' : ''}${opts.selectedToken === t.id ? ' sel' : ''}`,
         style: { left: `${t.x * 100}%`, top: `${t.y * 100}%`, '--tk': t.color },
-        title: t.label,
-      }, h('span', t.label.slice(0, 2).toUpperCase()));
-      if (mine && onTokenMove) {
+        title: `${t.label}${t.down ? ' (down)' : t.hidden ? ' (hidden from the players)' : ''}`,
+      }, h('span', short(t.label)), gm || opts.names ? h('i.mv-tok-n', t.label) : null);
+      if (onTokenMove || onToken) {
         tk.addEventListener('pointerdown', (e) => {
+          const mine = canMoveToken(t); // the tool may have changed since this token was drawn
+          if (!mine && !onToken) return;
           e.preventDefault();
           e.stopPropagation();
           tk.setPointerCapture(e.pointerId);
-          tk.classList.add('drag');
-          const move = (ev) => { const p = toLocal(ev); tk.style.left = `${p.x * 100}%`; tk.style.top = `${p.y * 100}%`; };
+          const start = toLocal(e);
+          let moved = false;
+          const move = (ev) => {
+            if (!mine || !onTokenMove) return;
+            const p = toLocal(ev);
+            if (!moved && Math.hypot(p.x - start.x, p.y - start.y) < 0.006) return;
+            moved = true;
+            tk.classList.add('drag');
+            tk.style.left = `${p.x * 100}%`; tk.style.top = `${p.y * 100}%`;
+          };
           const up = (ev) => {
             tk.removeEventListener('pointermove', move);
             tk.removeEventListener('pointerup', up);
             tk.classList.remove('drag');
-            const p = toLocal(ev);
-            onTokenMove(t, p.x, p.y);
+            if (moved) { const p = toLocal(ev); onTokenMove(t, p.x, p.y); } else onToken?.(t);
           };
           tk.addEventListener('pointermove', move);
           tk.addEventListener('pointerup', up);
@@ -150,10 +188,72 @@ export function createMapView({ gm = false, onDrag = null, onTokenMove = null, c
     }
   }
 
+  // Polygon zone being drawn: corners so far.
+  let poly = [];
+  const polyEl = document.createElementNS(SVGNS, 'polyline');
+  polyEl.setAttribute('class', 'mv-poly');
+  polyEl.setAttribute('vector-effect', 'non-scaling-stroke');
+  const drawPoly = (extra) => {
+    const pts = extra ? [...poly, extra] : poly;
+    polyEl.setAttribute('points', pts.map(([x, y]) => `${x * 1000},${y * 1000}`).join(' '));
+    if (pts.length && !polyEl.isConnected) ink.append(polyEl);
+    if (!pts.length) polyEl.remove();
+  };
+  const closePoly = () => {
+    const pts = poly;
+    poly = [];
+    drawPoly();
+    if (pts.length >= 3) onPoly?.(pts);
+  };
+  stage.addEventListener('dblclick', (e) => { if (gm && tool() === 'poly') { e.preventDefault(); closePoly(); } });
+  stage.addEventListener('pointermove', (e) => { if (poly.length && tool() === 'poly') { const p = toLocal(e); drawPoly([p.x, p.y]); } });
+  document.addEventListener('keydown', (e) => {
+    if (!poly.length) return;
+    if (e.key === 'Escape') { poly = []; drawPoly(); }
+    if (e.key === 'Enter') closePoly();
+  });
+
   // GM drag: a rectangle for a zone, a reveal or a cover.
-  if (onDrag) {
+  if (onDrag || onPen || onPoly) {
     stage.addEventListener('pointerdown', (e) => {
       if (e.button !== 0 || e.target.closest('.mv-tok')) return;
+      const mode = tool();
+      if (mode === 'move') return;
+      if (mode === 'poly') {
+        const p = toLocal(e);
+        const first = poly[0];
+        const r = stage.getBoundingClientRect();
+        if (first && poly.length >= 3 && Math.hypot((p.x - first[0]) * r.width, (p.y - first[1]) * r.height) < 14) { closePoly(); return; }
+        poly.push([p.x, p.y]);
+        drawPoly();
+        return;
+      }
+      if (mode === 'pen') {
+        stage.setPointerCapture(e.pointerId);
+        const pts = [[toLocal(e).x, toLocal(e).y]];
+        const line = document.createElementNS(SVGNS, 'polyline');
+        line.setAttribute('class', 'mv-stroke drawing');
+        line.setAttribute('vector-effect', 'non-scaling-stroke');
+        line.setAttribute('stroke', opts.penColor || '#ffcc00');
+        ink.append(line);
+        const move = (ev) => {
+          const p = toLocal(ev);
+          const last = pts[pts.length - 1];
+          if (Math.hypot(p.x - last[0], p.y - last[1]) < 0.004) return;
+          pts.push([p.x, p.y]);
+          line.setAttribute('points', pts.map(([x, y]) => `${x * 1000},${y * 1000}`).join(' '));
+        };
+        const up = () => {
+          stage.removeEventListener('pointermove', move);
+          stage.removeEventListener('pointerup', up);
+          if (pts.length >= 2) onPen?.(pts.length > 300 ? pts.filter((_, i) => i % Math.ceil(pts.length / 300) === 0) : pts);
+          else line.remove();
+        };
+        stage.addEventListener('pointermove', move);
+        stage.addEventListener('pointerup', up);
+        return;
+      }
+      if (!onDrag) return;
       const a = toLocal(e);
       let b = a;
       stage.setPointerCapture(e.pointerId);
@@ -183,14 +283,16 @@ export function createMapView({ gm = false, onDrag = null, onTokenMove = null, c
     stage.style.aspectRatio = String(m.aspect || 1.5);
     fitNow();
     if (img.getAttribute('src') !== m.image) img.src = m.image;
-    const sig = JSON.stringify([m.fog, m.zones, m.tokens, m.tokensOn, o.selected, o.labels]);
+    stage.dataset.tool = gm ? tool() : '';
+    const sig = JSON.stringify([m.fog, m.zones, m.tokens, m.strokes, o.selected, o.selectedToken, o.labels, o.names]);
     if (sig === lastSig) return;
     lastSig = sig;
     drawFog();
     drawZones();
     drawLabels();
+    drawInk();
     drawTokens();
   }
 
-  return { el, set, toLocal };
+  return { el, set, toLocal, cancelPoly: () => { poly = []; drawPoly(); } };
 }

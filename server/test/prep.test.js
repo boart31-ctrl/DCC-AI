@@ -104,7 +104,7 @@ test('items: refs respect section kinds, no duplicates, text sections refuse ite
   const adv = gm(s, { t: 'prep.adventure.add', title: 'A' });
   s = adv.state;
   const id = adv.result.id;
-  assert.throws(() => gm(s, { t: 'prep.item.add', id, key: 'mobs', ref: { kind: 'npc', id: 'bob' } }), /takes monster, boss/);
+  assert.throws(() => gm(s, { t: 'prep.item.add', id, key: 'mobs', ref: { kind: 'npc', id: 'bob' } }), /takes encounter, monster, boss/);
   assert.throws(() => gm(s, { t: 'prep.item.add', id, key: 'summary', text: 'x' }), /text section/);
   assert.throws(() => gm(s, { t: 'prep.item.add', id, key: 'achievements' }), /title or text/);
   s = run(s, { t: 'prep.item.add', id, key: 'mobs', ref: { kind: 'monster', id: 'rat' }, pin: true });

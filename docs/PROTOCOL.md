@@ -478,7 +478,7 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 
 ### 3b-3. Maps with fog of war (server/maps.js)
 
-`view.maps`: GM = every map in full; TV = only the map on air (scene kind `map`, `data.mapId`); phones = maps with `phones: true` plus the one on air. TV and phones get revealed zones only (`{id, name, shape, text}`, never `notes`), the fog bitmap (`cols × rows`, base64, row-major, LSB first) and, when `tokensOn`, the tokens that are not hidden. Coordinates are 0..1 of the image.
+`view.maps`: GM = every map in full; TV = only the map on air (scene kind `map`, `data.mapId`); phones = maps with `phones: true` plus the one on air. TV and phones get revealed zones only (`{id, name, shape, text}`, never `notes`), the fog bitmap (`cols × rows`, base64, row-major, LSB first), the tokens that are not hidden and the drawings that are not GM-only (`strokes`). A mob token bound to a combatant (`ref` = uid, set by `enc.run`) is hidden while the mob is hidden and carries `down: true` once it is down or gone. `tokensOn` only lets players drag their own token. Coordinates are 0..1 of the image.
 
 | Action | Payload | Notes |
 |---|---|---|
@@ -495,6 +495,12 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `map.token.move` | `id`, `tokenId`, `x`, `y` | |
 | `map.token.update` | `id`, `tokenId`, `label?`, `color?`, `hidden?` | |
 | `map.token.remove` | `id`, `tokenId` | |
+| `map.stroke.add` | `id`, `pts` [[x, y]…] (2..300), `color?`, `gm?` | Pen line on the map; `gm: true` = only the GM sees it. Result `{ strokeId }` |
+| `map.stroke.remove` | `id`, `strokeId` or `all: true` | Erase one drawing or all |
+| `enc.save` | `id?`, `label`, `mobs` [{kind?, sourceId, count?, hidden?}], `mapId?`, `notes?`, `loot?` | Prepared encounter (prep card kind `encounter`), create or replace; never touches the fight. Changing / removing the map drops this encounter's tokens from the old map. Result `{ id }` |
+| `enc.remove` | `id` | Deletes it and its map tokens |
+| `enc.tokens` | `id`, `party?` | Its mobs as map tokens (hidden like the mobs, positions kept on re-sync); `party` adds crawler tokens. Result `{ added, party }` |
+| `enc.run` | `id`, `start?` | Mobs into the fight (each hidden as prepared), map tokens bound to the new combatants (they follow reveal / down), card marked used; `start` starts the fight. Result `{ uids, skipped, mapId, bound }` |
 | *(player)* `map.token.move` | `id`, `tokenId`, `x`, `y` | Own crawler's token only, only while `tokensOn` |
 
 ### 3b-4. Reaction rounds (server/reaction.js) — games where the GM never rolls a d20

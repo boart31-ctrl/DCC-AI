@@ -8,7 +8,9 @@
 // state.prep = { docs: [Doc], current: sessionDocId|null }
 //   Doc     = { id, type: 'adventure'|'session', template, title, adventureId|null, createdAt, sections: [Section] }
 //   Section = { key, label, kind, hint, carry, refKinds, hidden, text, items: [Item] }
-//   Item    = { id, title, text, done, pin, ref: {kind, id}|null }
+//   Item    = { id, title, text, done, pin, ref: {kind, id}|null, links: [{kind, id}] }
+//             links = what a part / scene needs at the table (its encounter, map, NPCs, location…);
+//             ref kind `encounter` = a prepared encounter (prep card id, server/encounters.js)
 //
 // Section kinds: text (one free text) · list (tick list) · refs (links to library entries / prepared cards)
 // · parts (titled chunks: quarters of a neighbourhood, quest stages, scenes; tickable).
@@ -21,7 +23,8 @@ import { bad, notFound } from './errors.js';
 
 export const DOC_TYPES = ['adventure', 'session'];
 export const SECTION_KINDS = ['text', 'list', 'refs', 'parts'];
-export const REF_KINDS = ['monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff', 'card', 'map'];
+export const REF_KINDS = ['encounter', 'monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff', 'card', 'map'];
+export const MAX_LINKS = 12;
 export const MAX_DOCS = 80;
 export const MAX_SECTIONS = 30;
 export const MAX_ITEMS = 200;
@@ -49,7 +52,7 @@ export const BUILTIN_TEMPLATES = Object.freeze([
       sec('secrets', 'Secrets and clues', 'list', { hint: 'About ten one-line facts the players can discover in any scene. Unrevealed ones carry over.', carry: true }),
       sec('locations', 'Fantastic locations', 'refs', { refKinds: ['location', 'map'] }),
       sec('npcs', 'Important NPCs', 'refs', { refKinds: ['npc'] }),
-      sec('monsters', 'Relevant monsters', 'refs', { refKinds: ['monster', 'boss', 'card'] }),
+      sec('monsters', 'Encounters and monsters', 'refs', { refKinds: ['encounter', 'monster', 'boss', 'card'] }),
       sec('treasure', 'Rewards', 'refs', { refKinds: ['item', 'card'] }),
       sec('notes', 'Notes', 'text'),
     ],
@@ -65,7 +68,7 @@ export const BUILTIN_TEMPLATES = Object.freeze([
       sec('parts', 'Parts', 'parts', { hint: 'Areas, chapters or stages. Tick them off as they are played.' }),
       sec('locations', 'Locations', 'refs', { refKinds: ['location', 'map'] }),
       sec('npcs', 'NPCs', 'refs', { refKinds: ['npc'] }),
-      sec('monsters', 'Monsters', 'refs', { refKinds: ['monster', 'boss', 'card'] }),
+      sec('monsters', 'Encounters and monsters', 'refs', { refKinds: ['encounter', 'monster', 'boss', 'card'] }),
       sec('treasure', 'Rewards', 'refs', { refKinds: ['item', 'card'] }),
       sec('secrets', 'Secrets', 'list'),
       sec('notes', 'Notes', 'text'),
@@ -156,7 +159,23 @@ function normalizeItem(it) {
     done: it.done === true,
     pin: it.pin === true,
     ref: normalizeRef(it.ref),
+    links: (Array.isArray(it.links) ? it.links : []).map(normalizeRef).filter(Boolean).slice(0, MAX_LINKS),
   };
+}
+function linksArg(v) {
+  if (!Array.isArray(v)) throw bad('links must be an array of { kind, id }');
+  const out = [];
+  for (const l of v.slice(0, MAX_LINKS)) {
+    const r = normalizeRef(l);
+    if (!r) throw bad(`links: { kind: ${REF_KINDS.join('|')}, id }`);
+    if (!out.some((x) => x.kind === r.kind && x.id === r.id)) out.push(r);
+  }
+  return out;
+}
+
+/** Sections that take monsters also take prepared encounters (older saves and pack templates). */
+function withEncounters(kinds) {
+  return kinds.includes('monster') && !kinds.includes('encounter') ? ['encounter', ...kinds] : kinds;
 }
 
 function normalizeSection(s) {
@@ -167,7 +186,7 @@ function normalizeSection(s) {
     kind: SECTION_KINDS.includes(s.kind) ? s.kind : 'text',
     hint: cleanText(s.hint, 300),
     carry: s.carry === true,
-    refKinds: Array.isArray(s.refKinds) ? s.refKinds.filter((k) => REF_KINDS.includes(k)) : [],
+    refKinds: withEncounters(Array.isArray(s.refKinds) ? s.refKinds.filter((k) => REF_KINDS.includes(k)) : []),
     hidden: s.hidden === true,
     text: cleanText(s.text),
     items: (Array.isArray(s.items) ? s.items : []).map(normalizeItem).filter(Boolean).slice(0, MAX_ITEMS),
@@ -258,7 +277,7 @@ function templateOf(pack, id, scope) {
 function sectionFromDef(def) {
   return {
     key: def.key, label: def.label, kind: def.kind, hint: def.hint ?? '', carry: !!def.carry,
-    refKinds: def.refKinds ? [...def.refKinds] : [], hidden: false, text: '', items: [],
+    refKinds: withEncounters(def.refKinds ? [...def.refKinds] : []), hidden: false, text: '', items: [],
   };
 }
 
@@ -404,7 +423,8 @@ export const PREP_GM = {
     const s = sectionOf(docOf(st, a.id), a.key);
     if (s.kind === 'text') throw bad('a text section has no items');
     if (s.items.length >= MAX_ITEMS) throw bad(`max ${MAX_ITEMS} items`);
-    const it = { id: ctx.genId('pi'), title: '', text: '', done: false, pin: a.pin === true, ref: null };
+    const it = { id: ctx.genId('pi'), title: '', text: '', done: false, pin: a.pin === true, ref: null, links: [] };
+    if (a.links !== undefined) it.links = linksArg(a.links);
     if (s.kind === 'refs') {
       it.ref = refArg(a.ref, s);
       if (s.items.some((x) => x.ref?.kind === it.ref.kind && x.ref?.id === it.ref.id)) throw bad('already linked');
@@ -428,6 +448,7 @@ export const PREP_GM = {
     if (a.done !== undefined) it.done = a.done === true;
     if (a.pin !== undefined) it.pin = a.pin === true;
     if (a.ref !== undefined) it.ref = a.ref === null ? null : refArg(a.ref, s.kind === 'refs' ? s : { refKinds: [], label: s.label });
+    if (a.links !== undefined) it.links = linksArg(a.links);
   },
 
   'prep.item.remove'(st, a) {
