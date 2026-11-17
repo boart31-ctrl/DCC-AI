@@ -649,3 +649,9 @@ body.stage[data-scene="roll"] .subtitle { bottom: auto; top: 6.2rem; }
 .rx-deg-crit, .rx-deg-amazing, .rx-deg-success { color: #3ddc5f; }
 .rx-deg-near { color: #ffb020; }
 .rx-deg-fail, .rx-deg-major, .rx-deg-critfail { color: #ff2448; }
+/* Boss scene: minion tiles with the minion's picture */
+.bm { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 0.8rem; }
+.bm.more { grid-template-columns: 1fr; }
+.bm-img { width: 5rem; height: 5rem; object-fit: cover; border: 2px solid rgba(var(--th-rgb), 0.55); background: #07040d; }
+.bm.down .bm-img { filter: grayscale(1); }
+.bm-body { display: grid; gap: 0.5rem; min-width: 0; }

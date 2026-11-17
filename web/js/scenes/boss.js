@@ -150,22 +150,30 @@ export default function boss(root, sc, env) {
   let minionSig = '';
   function drawMinions(v) {
     const groups = minionGroups(v?.combat);
-    const sig = JSON.stringify(groups.map((g) => [g.key, g.name, g.members.map((m) => [m.hpPct, m.down, m.hp])]));
+    const sig = JSON.stringify(groups.map((g) => [g.key, g.name, g.members.map((m) => [m.hpPct, m.down, m.hp, m.image])]));
+    // The minion's own picture (the arena's art); a failed load just leaves the tile text-only.
+    const pic = (m) => {
+      if (!m?.image) return null;
+      const img = h('img.bm-img', { alt: '', decoding: 'async' });
+      img.onerror = () => img.remove();
+      img.src = m.image;
+      return img;
+    };
     if (sig === minionSig) return;
     minionSig = sig;
     root.classList.toggle('has-minions', groups.length > 0);
     root.classList.toggle('many-minions', groups.length > 3);
     minions.replaceChildren(...groups.slice(0, 8).map((g) => {
       if (g.pack) {
-        return h('div.bm', { class: `bm pack${g.alive ? '' : ' down'}` },
-          h('div.bm-n', h('b', g.name), h('span.bm-x', `×${g.alive}`)),
-          h('div.bm-pips', g.members.map((m) => h('i', { class: m.down ? 'gone' : '' }))));
+        return h('div.bm', { class: `bm pack${g.alive ? '' : ' down'}` }, pic(g.members.find((m) => !m.down) || g.members[0]),
+          h('div.bm-body', h('div.bm-n', h('b', g.name), h('span.bm-x', `×${g.alive}`)),
+            h('div.bm-pips', g.members.map((m) => h('i', { class: m.down ? 'gone' : '' })))));
       }
       const m = g.members[0];
       const pct = Math.max(0, Math.min(1, m.hpPct ?? (m.hpMax ? m.hp / m.hpMax : 1)));
-      return h('div.bm', { class: m.down ? 'bm down' : 'bm' },
-        h('div.bm-n', h('b', m.name)),
-        h('div.bm-bar', h('i', { style: { width: `${pct * 100}%` } })));
+      return h('div.bm', { class: m.down ? 'bm down' : 'bm' }, pic(m),
+        h('div.bm-body', h('div.bm-n', h('b', m.name)),
+          h('div.bm-bar', h('i', { style: { width: `${pct * 100}%` } }))));
     }), groups.length > 8 ? h('div.bm.more', `+${groups.length - 8}`) : '');
   }
 

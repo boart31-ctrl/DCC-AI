@@ -981,7 +981,9 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const search = (M.sheet.inventory || []).length > 8 ? h('input.inp.inp-search', { type: 'search', placeholder: 'Search your gear', value: ui.invQuery, 'aria-label': 'Search inventory', oninput: (e) => { ui.invQuery = e.target.value; const sel = e.target.selectionStart; draw(true); const n = root.querySelector('.inp-search'); n?.focus(); n?.setSelectionRange(sel, sel); } }) : null;
     ui.openBoxes ??= {};
     return h('section.sh-block.sh-backpack',
-      h('h2.blk-t', 'Backpack', h('span.blk-n', String(inv.length))),
+      h('h2.blk-t', 'Backpack', h('span.blk-n', String(inv.length)),
+        M.rs.creation?.help?.inventory ? h('button.icon-btn.xs', { type: 'button', 'aria-label': 'How the backpack works', 'aria-expanded': String(!!ui.invHelp), onclick: () => { ui.invHelp = !ui.invHelp; draw(true); } }, icon('info', { size: 14 })) : null),
+      ui.invHelp && M.rs.creation?.help?.inventory ? h('p.cr-info', M.rs.creation.help.inventory) : null,
       search,
       boxes.map((b) => {
         const inside = inv.filter((i) => i.containerUid === b.uid && match(i));
