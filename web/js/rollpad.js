@@ -208,16 +208,44 @@ export function createRollPad({ send, getView, getMe }) {
     const total = r.total ?? roll.total;
     const hasVs = r.hit !== undefined;
     const dmgLabel = isDamage() ? (r.applied ? (r.applied.after <= 0 ? 'DOWN!' : `−${-r.applied.delta} HP`) : 'Tell the GM') : null;
-    const label = dmgLabel ?? (!hasVs ? null : r.degree === 3 ? (rules().degrees ? 'CRITICAL SUCCESS' : 'CRITICAL HIT') : r.hit ? (st.what.kind === 'attack' ? 'HIT' : 'SUCCESS') : r.degree === 0 && rules().degrees ? 'CRITICAL FAILURE' : st.what.kind === 'attack' ? 'MISS' : 'FAIL');
+    const DEG7 = { crit: 'CRITICAL HIT', amazing: 'AMAZING', success: st.what.kind === 'attack' ? 'HIT' : 'SUCCESS', near: 'NEAR MISS', fail: st.what.kind === 'attack' ? 'MISS' : 'FAIL', major: 'MAJOR FAIL', critfail: 'CRITICAL FAIL' };
+    const label = dmgLabel ?? (r.deg7 ? DEG7[r.deg7] : !hasVs ? null : r.degree === 3 ? (rules().degrees ? 'CRITICAL SUCCESS' : 'CRITICAL HIT') : r.hit ? (st.what.kind === 'attack' ? 'HIT' : 'SUCCESS') : r.degree === 0 && rules().degrees ? 'CRITICAL FAILURE' : st.what.kind === 'attack' ? 'MISS' : 'FAIL');
         return h('div.rp-body', head(st.label, null), h('div.rp-scroll',
       h('div.rp-result', { class: `rp-result${hasVs ? (r.hit ? ' is-hit' : ' is-miss') : r.applied ? ' is-hit' : ''}${r.crit ? ' is-crit' : ''}` },
         h('span.rp-total', String(total ?? '?')),
         h('span.rp-math', isDamage() ? `dice ${roll.dice?.map((d) => d.value).join(' + ') || r.natural || '?'} + modifiers` : `d20 ${roll.natural ?? r.natural ?? roll.dice?.find((d) => d.die === 'd20')?.value ?? '?'}${roll.adv ? ` (${roll.adv === 'adv' ? 'best' : 'worst'} of ${roll.natural}, ${roll.otherDie})` : ''} + modifiers`),
         label ? h('span.rp-verdict', label) : h('span.rp-verdict.dim', 'Tell the GM')),
+      r.deg7 === 'near' ? h('p.rp-note', 'So close. A friend can Intervene: their phone offers +1d6 now.') : null,
+      r.deg7 === 'amazing' ? h('p.rp-note', 'Amazing: the floor number is added to your damage.') : null,
+      r.deg7 === 'crit' ? h('p.rp-note', 'Critical: roll your damage dice twice.') : null,
       h('div.rp-next',
         isAttack() && r.hit ? h('button.btn.btn-primary', { type: 'button', onclick: damageNext }, 'Roll damage') : null,
+        favorBtn(r),
         h('button.btn', { type: 'button', onclick: undo }, icon('undo', { size: 16 }), 'Undo'),
         h('button.btn.btn-quiet', { type: 'button', onclick: close }, 'Done'))));
+  }
+
+  /** AI Favor: reroll the d20 once (never a natural 1), costs 1 Favor (rules with an aiFavor field). */
+  function favorBtn(r) {
+    const m = me();
+    const fdef = (V()?.pack?.ruleset?.fields || []).find((f) => f.id === 'aiFavor');
+    if (!fdef || isDamage() || !r.rollId || r.hit || r.favored) return null;
+    const nat = r.roll?.natural ?? r.natural;
+    const left = Number(m?.sheet?.fields?.aiFavor ?? fdef.default ?? 0);
+    if (nat === 1 || !(left > 0)) return null;
+    return h('button.btn', { type: 'button', title: 'Spend 1 AI Favor: roll the d20 again (type the new die, or let the phone roll)', onclick: async () => {
+      const n = window.prompt(`Reroll with AI Favor (${left} left). Roll your d20 again and type it, or leave empty to let the phone roll:`, '');
+      if (n === null) return;
+      const a = { t: 'roll.favor', rollId: r.rollId };
+      if (n.trim()) { const v = Number(n); if (!Number.isInteger(v) || v < 1 || v > 20) { toast('Type 1 to 20', { error: true }); return; } a.entered = v; }
+      try {
+        const res = await send(a);
+        const vs = res?.result?.vs || {};
+        st.result = { ...st.result, total: res?.result?.total, hit: vs.hit, crit: vs.crit, degree: vs.degree, deg7: vs.deg7, natural: res?.result?.natural, favored: true, roll: { ...(st.result.roll || {}), natural: res?.result?.natural } };
+        buzz(vs.hit ? [20, 40, 20] : 15);
+        draw();
+      } catch (err) { toast(err.message, { error: true }); }
+    } }, icon('sparkle', { size: 16 }), `AI Favor reroll (${left})`);
   }
 
   function draw() {

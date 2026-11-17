@@ -512,6 +512,8 @@ function normalizeCombatRules(raw, derived, unv) {
     critRange: Number.isInteger(r.critRange) && r.critRange >= 2 && r.critRange <= 20 ? r.critRange : 20,
     nat1: ['miss', 'degrade', 'none'].includes(r.nat1) ? r.nat1 : 'miss',
     degrees: r.degrees === true,
+    // 'seven' = the crawler books' seven degrees on attacks / checks vs a target (outcome.js degree7).
+    degreeScale: r.degreeScale === 'seven' ? 'seven' : null,
     advantage: r.advantage === true,
     initiative: { enabled: ini.enabled === true || raw?.initiative === true, derived: has(ini.derived) ? ini.derived : null },
     hpModel: r.hpModel === 'pool' ? 'pool' : r.hpModel === 'slots' ? 'slots' : null,

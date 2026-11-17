@@ -188,6 +188,7 @@ Natural 1/20 on a single d20 flagged `nat1`/`nat20` (the show reacts).
 | `combat.flow: "reaction"` | Reaction rounds (`server/reaction.js`): declare → react → resolve → act; starts with `combat.start`. |
 | `combat.mobBase`, `combat.floorScaled` | Mob Evade / to-hit are bonuses: target = mobBase + bonus (+ the world floor). |
 | `combat.mobSlotValue` | Damage one mob health slot is worth when the mob has no `slotValue`. |
+| `combat.degreeScale: "seven"` | Attacks / checks vs a target get the seven degrees (`vs.deg7`: crit, amazing, success, near, fail, major, critfail). Amazing adds the floor to the damage; a near miss offers Intervene on the other phones |
 | `combat.starterAttack: { name, skill, rank, stat, dice }` | Given to every crawler without an attack (on creation and when a fight starts). |
 | track `slotValue: "mod.con"` | Slot health bar: rolled damage after DR removes whole slots; less than one slot is lost. |
 

@@ -136,7 +136,9 @@ function rollCard(e) {
   const p = (view?.players || []).find((x) => x.id === e.playerId);
   const vs = e.vs || null;
   const rules = view?.pack?.ruleset?.combat || {};
+  const DEG7 = { crit: 'Critical hit!', amazing: 'Amazing!', success: e.what === 'attack' ? 'Hit' : 'Success', near: 'Near miss', fail: e.what === 'attack' ? 'Miss' : 'Fail', major: 'Major fail', critfail: 'Critical fail' };
   const verdict = !vs || vs.damage !== undefined ? null
+    : vs.deg7 ? DEG7[vs.deg7]
     : vs.degree === 3 ? (rules.degrees ? 'Critical success' : 'Critical hit')
       : vs.hit ? (e.what === 'attack' ? 'Hit' : 'Success')
         : vs.degree === 0 && rules.degrees ? 'Critical failure' : e.what === 'attack' ? 'Miss' : 'Fail';

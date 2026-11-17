@@ -526,12 +526,15 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
     const prev = typeof a.after === 'string' ? st.rolls.find((x) => x.id === a.after && x.playerId === p.id) : null;
     let dmg = rec.total;
     if (prev?.vs?.crit && rules.crit !== 'dice') dmg *= critMultiplier(rules);
+    // Seven degrees: an Amazing hit adds the floor to the damage.
+    const amazing = rules.seven && prev?.vs?.deg7 === 'amazing' ? floorOfState(st) : 0;
+    dmg += amazing;
     dmg = Math.max(0, dmg - (rules.useDr ? Math.max(0, target.dr ?? 0) : 0));
     // Slot health bars: whole slots only (damage below one slot's worth is lost).
     const sv = mobSlotValue(ctx.pack, target);
     const rolled = dmg;
     if (sv > 1) dmg = damageToSlots(dmg, sv);
-    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg, ...(sv > 1 ? { rolled, slotValue: sv } : {}) };
+    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg, ...(sv > 1 ? { rolled, slotValue: sv } : {}), ...(amazing ? { amazing } : {}) };
     if (dmg > 0 && ctx.h?.applyDamage) {
       const before = target.hp;
       ctx.h.applyDamage(st, ctx, out, { uid: target.uid, amount: dmg, by: p.id });
@@ -546,8 +549,21 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
   else if (a.dc !== undefined) defense = int(a.dc, 'dc', -10, 99);
   else return;
   const res = attackOutcome(rules, { d20: rec.natural, total: rec.total, target: defense });
-  rec.vs = { ...(target ? { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name } : { dc: true }), hit: res.hit, crit: res.crit, degree: res.degree, degrees: rules.degrees, defense, margin: res.margin };
+  rec.vs = { ...(target ? { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name } : { dc: true }), hit: res.hit, crit: res.crit, degree: res.degree, degrees: rules.degrees, defense, margin: res.margin, ...(res.deg7 ? { deg7: res.deg7 } : {}) };
   if (target && rec.part === 'hit') undoPush(st, rec);
+}
+
+function rollOf(st, id) {
+  const rec = typeof id === 'string' ? (st.rolls ?? []).find((x) => x.id === id) : null;
+  if (!rec) throw notFound('no such roll');
+  return rec;
+}
+/** Works out a changed roll (AI Favor, Intervene) against its target again. */
+function rescore(st, ctx, rec) {
+  if (!rec.vs || rec.vs.defense == null || rec.vs.damage !== undefined) return;
+  const res = attackOutcome(combatRules(ctx.pack, st.combat?.settings), { d20: rec.natural, total: rec.total, target: rec.vs.defense });
+  Object.assign(rec.vs, { hit: res.hit, crit: res.crit, degree: res.degree, margin: res.margin });
+  if (res.deg7) rec.vs.deg7 = res.deg7; else delete rec.vs.deg7;
 }
 
 function undoPush(st, rec) {
@@ -976,6 +992,69 @@ export const SHEET = {
     out.result = { healed, applied, consumed: consume, pendingBuff: use.applyBuff && !who ? use.applyBuff : null };
   },
 
+  /**
+   * `{ rollId, entered? }` Spend 1 AI Favor to reroll the d20 of your own roll (never a natural 1), once.
+   * entered = what the real die showed. The result against the target is worked out again.
+   */
+  'roll.favor'(st, a, ctx, out) {
+    const p = targetOf(st, a, ctx, 'play');
+    const rec = rollOf(st, a.rollId);
+    if (rec.playerId !== p.id) throw forbidden('only your own roll');
+    if (rec.natural == null) throw bad('that roll has no d20');
+    if (rec.natural === 1) throw bad('a natural 1 cannot be rerolled');
+    if (rec.favored) throw bad('already rerolled');
+    if (ctx.now - rec.at > 10 * 60_000) throw bad('too late to reroll that one');
+    const fdef = ctx.pack.ruleset.fields.find((f) => f.id === 'aiFavor');
+    if (!fdef) throw bad('this game has no AI Favor');
+    const fav = Number(p.sheet.fields?.aiFavor ?? fdef.default ?? 0);
+    if (!(fav > 0)) throw bad('no AI Favor left');
+    const die = a.entered === undefined ? (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(20) + 1 : int(a.entered, 'entered', 1, 20);
+    p.sheet.fields = { ...(p.sheet.fields ?? {}), aiFavor: fav - 1 };
+    const old = rec.natural;
+    rec.total += die - old;
+    const d = rec.dice.find((x) => x.die === 'd20');
+    if (d) d.value = die;
+    rec.natural = die;
+    rec.nat20 = die === 20;
+    rec.nat1 = die === 1;
+    rec.favored = { from: old };
+    rec.breakdown = { ...rec.breakdown, value: rec.total };
+    rescore(st, ctx, rec);
+    out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: p.id, name: p.name, why: 'favor', from: old, to: die }, 'all');
+    out.result = { natural: die, total: rec.total, vs: rec.vs ?? null };
+  },
+
+  /**
+   * `{ rollId, entered? }` Intervene: add 1d6 to another crawler's missed check / attack after the result
+   * (turns a near miss into a hit). Once per roll; in reaction rounds it costs one of your actions.
+   */
+  'roll.intervene'(st, a, ctx, out) {
+    const rec = rollOf(st, a.rollId);
+    const me = ctx.actor.role === 'gm' ? (a.playerId ? playerOf(st, a.playerId) : null) : playerOf(st, ctx.actor.playerId);
+    if (me && rec.playerId === me.id) throw bad('you cannot intervene on your own roll');
+    if (!rec.vs || rec.vs.damage !== undefined || rec.vs.defense == null) throw bad('only a check or attack against a target');
+    if (rec.vs.hit) throw bad('it already worked');
+    if (rec.intervened) throw bad('someone already intervened');
+    if (rec.what === 'stat') throw bad('no help on stat checks');
+    if (ctx.now - rec.at > 10 * 60_000) throw bad('too late');
+    const rx = st.combat?.active ? st.combat.rx : null;
+    if (rx && me) {
+      const cb = (st.combat.combatants ?? []).find((x) => x.type === 'crawler' && (x.playerId === me.id || x.uid === me.id));
+      if (cb) {
+        const left = rx.acts?.[cb.uid] ?? 2;
+        if (left < 1) throw bad('no actions left this round');
+        rx.acts[cb.uid] = left - 1;
+      }
+    }
+    const d6 = a.entered === undefined ? (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(6) + 1 : int(a.entered, 'entered', 1, 6);
+    rec.total += d6;
+    rec.intervened = { by: me?.id ?? 'gm', name: me?.name ?? 'GM', d6 };
+    rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown?.parts ?? []), { label: `Intervene (${me?.name ?? 'GM'})`, value: d6, source: 'intervene' }] };
+    rescore(st, ctx, rec);
+    out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: rec.playerId, why: 'intervene', by: me?.name ?? 'GM', d6, hit: !!rec.vs.hit }, 'all');
+    out.result = { d6, total: rec.total, hit: !!rec.vs.hit };
+  },
+
   'hotlist.set'(st, a, ctx) {
     const p = targetOf(st, a, ctx, 'sheet');
     const size = ctx.pack.ruleset.hotlist.size;
@@ -1096,7 +1175,7 @@ export const SHEET = {
     if (w.kind === 'attack') rec.part = w.part === 'damage' ? 'damage' : 'hit';
     resolveAgainst(st, ctx0, a, rec, p, out);
     pushRoll(st, rec, out, ctx0);
-    out.result = { rollId: rec.id, total: rec.total, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, applied: rec.applied ?? null } : {}) };
+    out.result = { rollId: rec.id, total: rec.total, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, applied: rec.applied ?? null } : {}) };
   },
 
   /** Dice mode for this crawler: off (everything at the table), enter (type the real die), digital (phone rolls). */

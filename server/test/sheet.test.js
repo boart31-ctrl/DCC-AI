@@ -914,3 +914,40 @@ test('private DCC pack: guided creation (backgrounds, weapon, array stats, no do
   assert.ok(st.library.item.some((i) => i.name === 'A rubber chicken'), 'custom thing became a homebrew item');
   assert.deepEqual(st.players[0].sheet.gearRequest, []);
 });
+
+test('private DCC pack: seven degrees on attacks, Amazing adds the floor, AI Favor reroll, Intervene on a near miss', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  let st = createState(dcc, 0);
+  for (const name of ['Fargo', 'Lina']) st = reduce(st, { role: 'gm', t: 'player.add', name }, c()).state;
+  const [fargo, lina] = st.players.map((p) => p.id);
+  st = reduce(st, { role: 'gm', t: 'combat.addAdhoc', name: 'Rat', hp: 6, evade: 0, hidden: false }, c()).state;
+  st = reduce(st, { role: 'gm', t: 'combat.start' }, c()).state;
+  const rat = st.combat.combatants.find((x) => x.type === 'mob');
+  const atk = st.players[0].sheet.attacks[0];
+  const as = (pid, a) => reducePlayerAction(st, a, c({ playerId: pid }));
+  // Unarmed: rank 3 + Str mod 2 = +5 vs Evade 10 + 0 + floor 1 = 11. d20 4 → 9: miss by 2 = near miss.
+  let r = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'hit' }, target: rat.uid, entered: 4 });
+  st = r.state;
+  let rec = st.rolls.at(-1);
+  assert.equal(rec.vs.deg7, 'near');
+  assert.equal(rec.vs.hit, false);
+  assert.throws(() => as(fargo, { t: 'roll.intervene', rollId: rec.id, entered: 3 }), /own roll/);
+  st = as(lina, { t: 'roll.intervene', rollId: rec.id, entered: 3 }).state;
+  rec = st.rolls.at(-1);
+  assert.equal(rec.total, 12);
+  assert.equal(rec.vs.hit, true, 'the d6 turned the near miss into a hit');
+  assert.throws(() => as(lina, { t: 'roll.intervene', rollId: rec.id, entered: 3 }), /already worked|already intervened/);
+  // AI Favor reroll: 1 favor, one reroll, never a natural 1.
+  st = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'hit' }, target: rat.uid, entered: 2 }).state;
+  rec = st.rolls.at(-1);
+  assert.equal(rec.vs.deg7, 'fail');
+  st = as(fargo, { t: 'roll.favor', rollId: rec.id, entered: 17 }).state;
+  rec = st.rolls.at(-1);
+  assert.equal(rec.natural, 17);
+  assert.equal(rec.vs.deg7, 'amazing', '17 + 5 = 22 vs 11: beat by 11');
+  assert.equal(st.players[0].sheet.fields.aiFavor, 0);
+  assert.throws(() => as(fargo, { t: 'roll.favor', rollId: rec.id, entered: 17 }), /already|no AI Favor/);
+  st = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'hit' }, target: rat.uid, entered: 1 }).state;
+  assert.equal(st.rolls.at(-1).vs.deg7, 'critfail');
+});

@@ -291,3 +291,8 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 .rxp-grid .btn { min-height: 44px; font-size: 18px; font-weight: 700; }
 .rxp-opt { display: grid; justify-items: start; text-align: left; gap: 2px; flex: 1 1 100%; }
 .rxp-opt small { font-weight: 400; opacity: 0.8; font-size: 12px; }
+.rp-note { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: rgba(58, 141, 255, 0.12); border: 1px solid rgba(58, 141, 255, 0.45); font-size: 14px; }
+.ivn { position: fixed; left: 10px; right: 10px; bottom: 84px; z-index: 60; display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--c-panel, #15121f); border: 2px solid #3a8dff; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); }
+.ivn p { margin: 0; }
+.ivn-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.ivn-row button.num { width: 44px; height: 44px; font-size: 18px; font-weight: 800; }

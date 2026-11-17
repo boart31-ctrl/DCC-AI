@@ -11,6 +11,9 @@ export function combatRules(pack, settings = DEFAULT_SETTINGS) {
   return {
     family,
     degrees: !!cr.degrees,
+    // 'seven' (crawler books): nat 20 crit · beat by 10 amazing · success · miss by 1–2 near · fail · miss by
+    // 10 major · nat 1 critical fail. Amazing adds the floor to damage; near misses can be Intervened.
+    seven: cr.degreeScale === 'seven',
     hitRule: fixed ? cr.hitRule ?? '>=' : settings.hitRule,
     crit: cr.crit ?? settings.crit ?? 'double',
     critRange: cr.critRange ?? 20,
@@ -45,10 +48,28 @@ export function mobAttackDc(rules, attack, floor = 1) {
  * Outcome of an attack (or check) total against a target number.
  * Returns { hit, crit, degree (0 crit fail, 1 fail, 2 success, 3 crit success), margin }.
  */
+/** The seven degrees of the crawler books (see combatRules.seven). */
+export function degree7(d20, total, target) {
+  if (d20 === 20) return 'crit';
+  if (d20 === 1) return 'critfail';
+  const m = total - target;
+  if (m >= 10) return 'amazing';
+  if (m >= 0) return 'success';
+  if (m >= -2) return 'near';
+  if (m > -10) return 'fail';
+  return 'major';
+}
+export const DEGREE7_LABEL = { crit: 'Critical hit', amazing: 'Amazing', success: 'Success', near: 'Near miss', fail: 'Fail', major: 'Major fail', critfail: 'Critical fail' };
+
 export function attackOutcome(rules, { d20, total, target }) {
   const nat20 = d20 === 20;
   const nat1 = d20 === 1;
   const margin = total - target;
+  if (rules.seven) {
+    const deg7 = degree7(d20, total, target);
+    const hit = deg7 === 'crit' || deg7 === 'amazing' || deg7 === 'success';
+    return { hit, crit: deg7 === 'crit', degree: deg7 === 'crit' ? 3 : hit ? 2 : deg7 === 'critfail' ? 0 : 1, deg7, margin };
+  }
   if (rules.degrees) {
     let deg = margin >= 10 ? 3 : margin >= 0 ? 2 : margin <= -10 ? 0 : 1;
     if (nat20) deg = Math.min(3, deg + 1);

@@ -243,7 +243,14 @@ client.on('view', (v) => {
 
 client.on('event', (e) => {
   if (!me) return;
-  if (e.kind === 'roll') { const r = e.roll || e; if (r.playerId === me.id && !r.vs && !r.card) showRollCard(r, { meId: me.id }); return; }
+  if (e.kind === 'roll') {
+    const r = e.roll || e;
+    if (r.playerId === me.id && !r.vs && !r.card) showRollCard(r, { meId: me.id });
+    // A friend's near miss (seven degrees): offer to Intervene with +1d6.
+    if (r.playerId && r.playerId !== me.id && r.vs?.deg7 === 'near' && r.vs.damage === undefined) intervenePrompt(r);
+    return;
+  }
+  if (e.kind === 'rollUpdate') { if (e.why === 'intervene') { document.querySelector('.ivn')?.remove(); if (e.playerId === me.id) toast(`${e.by} intervened: +${e.d6}${e.hit ? '. It worked!' : '. Still not enough.'}`, { ms: 4000 }); } return; }
   if (e.kind === 'stat') {
     // Something hurt me: feel it, and see how much.
     if (e.playerId === me.id && e.resource && e.to < e.from) {
@@ -512,6 +519,28 @@ function tickCrawlers() {
   }
 }
 setInterval(tickCrawlers, 1000);
+
+/* ---------- Intervene: a friend's near miss, +1d6 from this phone ---------- */
+function intervenePrompt(r) {
+  document.querySelector('.ivn')?.remove();
+  const who = (view?.players || []).find((p) => p.id === r.playerId)?.name || 'A friend';
+  const go = async (entered) => {
+    try {
+      const res = await client.send({ t: 'roll.intervene', rollId: r.id, ...(entered ? { entered } : {}) });
+      card.remove();
+      toast(res?.result?.hit ? `+${res.result.d6}: ${who} makes it!` : `+${res?.result?.d6}: still not enough.`, { ms: 3500 });
+    } catch (err) { toast(err.message, { error: true }); card.remove(); }
+  };
+  const card = h('div.ivn', { role: 'dialog', 'aria-label': 'Intervene' },
+    h('p', h('b', `${who}: near miss${r.vs?.name ? ` on ${r.vs.name}` : ''}!`)),
+    h('p.dim', 'Intervene: roll a d6 and add it to their roll (one action). Tap what your die shows, or let the phone roll.'),
+    h('div.ivn-row', [1, 2, 3, 4, 5, 6].map((n) => h('button.btn.num', { type: 'button', onclick: () => go(n) }, String(n))),
+      h('button.btn.btn-primary', { type: 'button', onclick: () => go(null) }, icon('dice', { size: 16 }), 'Roll'),
+      h('button.btn.btn-quiet', { type: 'button', onclick: () => card.remove() }, 'No')));
+  document.body.append(card);
+  buzz([30, 30, 30]);
+  setTimeout(() => card.remove(), 25_000);
+}
 
 /* ---------- first visit: friendly start instead of an empty sheet ---------- */
 
