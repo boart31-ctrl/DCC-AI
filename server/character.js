@@ -86,7 +86,7 @@ export function migrateSheet(sheet, legacy, ruleset) {
     fields: cleanMap(s.fields),
     tracks,
     skills: arr(s.skills).map((k) => ({ uid: k.uid, skillId: k.skillId ?? null, name: k.name ?? '', rank: finite(k.rank, 0), stat: k.stat ?? '', checkType: k.checkType ?? '', notes: k.notes ?? '', used: !!k.used })),
-    attacks: arr(s.attacks).map((k) => ({ uid: k.uid, name: k.name ?? '', skillUid: k.skillUid ?? null, stat: k.stat ?? '', dice: k.dice ?? '', effects: k.effects ?? '' })),
+    attacks: arr(s.attacks).map((k) => ({ uid: k.uid, name: k.name ?? '', skillUid: k.skillUid ?? null, stat: k.stat ?? '', dice: k.dice ?? '', effects: k.effects ?? '', ...(typeof k.dmgStat === 'string' && k.dmgStat ? { dmgStat: k.dmgStat } : {}) })),
     spells: arr(s.spells).map((k) => ({ uid: k.uid, spellId: k.spellId, rank: finite(k.rank, 1), active: !!k.active })),
     hotlist: hot,
     buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0), ...(Number.isInteger(b.roundsLeft) && b.roundsLeft > 0 ? { roundsLeft: b.roundsLeft } : {}) })),
@@ -97,6 +97,10 @@ export function migrateSheet(sheet, legacy, ruleset) {
     // Race / class / background the player asked for (allowOrigins), waiting for the GM; locked once approved.
     pending: isObj(s.pending) ? Object.fromEntries(ORIGIN_KEYS.filter((k) => typeof s.pending[k] === 'string').map((k) => [k, s.pending[k].slice(0, 40)])) : {},
     originsLocked: !!s.originsLocked,
+    // Guided creation finished (server/creation.js): the phone stops offering the creator.
+    ...(s.created ? { created: true } : {}),
+    // Starting things from guided creation, waiting for the GM (server/creation.js gear.approve / deny).
+    gearRequest: arr(s.gearRequest).slice(0, 8).map((r) => ({ slot: String(r.slot ?? '').slice(0, 80), name: String(r.name ?? '').slice(0, 60), ...(typeof r.itemId === 'string' ? { itemId: r.itemId } : {}), ...(typeof r.icon === 'string' ? { icon: r.icon } : {}) })).filter((r) => r.name),
   };
 }
 
@@ -217,6 +221,8 @@ export function characterOf(p, ruleset) {
     pools: sh.pools ?? [],
     pending: sh.pending ?? {},
     originsLocked: !!sh.originsLocked,
+    gearRequest: sh.gearRequest ?? [],
+    created: !!sh.created,
   };
 }
 
@@ -288,8 +294,15 @@ export function playerLibrary(state, pack, library, p) {
       if (def?.applies) add('buff', def.applies);
     }
     for (const b of p.sheet.buffs) if (b.buffId) add('buff', b.buffId);
+    // Guided creation not finished: the plain starting things to pick from (no treasure, no weapons).
+    if (pack.ruleset.creation && !p.sheet.created) for (const e of library.list('item')) if (out.item.length < 250 && isStarterItem(e)) add('item', e.id);
   }
   return out;
+}
+
+/** A plain thing anyone could have had on them when the world ended (guided creation's catalog). */
+export function isStarterItem(e) {
+  return (e.rarity || 'common') === 'common' && !e.attack && !(e.tags ?? []).some((t) => /quest|legendary|unique|boss|sponsor|weapon|armor|shield|custom/i.test(t));
 }
 
 export function gmLibrary(library) {
@@ -1063,7 +1076,8 @@ export const SHEET = {
       if (w.part === 'damage') {
         if (!k.dice) throw bad(`${k.name} has no damage dice`);
         const sk = k.skillUid ? p.sheet.skills.find((s) => s.uid === k.skillUid) : null;
-        const stat = k.stat && rs.stats.some((s) => s.id === k.stat) ? k.stat : '';
+        const stat0 = k.stat && rs.stats.some((s) => s.id === k.stat) ? k.stat : '';
+        const stat = k.dmgStat === 'none' ? '' : k.dmgStat && rs.stats.some((s) => s.id === k.dmgStat) ? k.dmgStat : stat0;
         formula = tmpl(rs.attack.damage, stat, k.dice);
         // After a critical hit (a.after = the to-hit roll): the game's crit rule (5e: double dice).
         const prev = typeof a.after === 'string' ? st.rolls.find((x) => x.id === a.after && x.playerId === p.id) : null;
@@ -1117,6 +1131,12 @@ function attackFields(p, a, ctx, creating) {
     dice: diceOpt(a.dice, 'dice') ?? (creating ? '' : undefined),
     effects: str(a.effects, 'effects', 300, { optional: true, allowEmpty: true }) ?? (creating ? '' : undefined),
   };
+  // Damage stat when it differs from the to-hit stat ('none' = the damage adds no stat). Omitted = same.
+  if (a.dmgStat !== undefined) {
+    if (a.dmgStat === '' || a.dmgStat === null) f.dmgStat = '';
+    else if (a.dmgStat === 'none') f.dmgStat = 'none';
+    else f.dmgStat = statOpt(a.dmgStat, rs) ?? '';
+  }
   return f;
 }
 

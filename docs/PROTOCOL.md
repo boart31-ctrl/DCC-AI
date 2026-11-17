@@ -500,6 +500,9 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `enc.save` | `id?`, `label`, `mobs` [{kind?, sourceId, count?, hidden?}], `mapId?`, `notes?`, `items?` [{id, qty?}] (kept when omitted; `given` survives) | Prepared encounter (prep card kind `encounter`), create or replace; never touches the fight. Changing / removing the map drops this encounter's tokens from the old map. Result `{ id }` |
 | `enc.remove` | `id` | Deletes it and its map tokens |
 | `enc.tokens` | `id`, `party?` | Its mobs as map tokens (hidden like the mobs, positions kept on re-sync); `party` adds crawler tokens. Result `{ added, party }` |
+| `creation.apply` *(player or GM + playerId)* | `background` {stageId: {option, skills}}, `weapon` {index} \| {name, like} \| {none}, `stats` {statId: n}, `method` array\|roll, `stuff` {slotId: {itemId} \| {name, icon?}} | Guided creation (ruleset `creation`): validated (array permutation / roll range, `pick` skills per stage, no skill from two stages), then skills at the stage ranks, the fixed + weapon attacks (with `dmgStat`), base stats mirrored, `identity.background`; stuff becomes `sheet.gearRequest`; sets `sheet.created` |
+| `gear.approve` | `playerId`, `index?` | Gives requested starting things (custom ones become homebrew items) |
+| `gear.deny` | `playerId`, `index?` | Drops one request or all |
 | `enc.give` | `id`, `index`, `playerId` | Gives one of the encounter's prepared items (its qty) to a crawler; marks it `given` |
 | `enc.run` | `id`, `start?` | Mobs into the fight (each hidden as prepared), map tokens bound to the new combatants (they follow reveal / down), card marked used; `start` starts the fight. Result `{ uids, skipped, mapId, bound }` |
 | *(player)* `map.token.move` | `id`, `tokenId`, `x`, `y` | Own crawler's token only, only while `tokensOn` |

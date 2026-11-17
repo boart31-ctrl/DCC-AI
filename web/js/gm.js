@@ -3,7 +3,10 @@ import {
   rarityOf, statusText, registerSW, isHosted, ask,
 } from './client.js';
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
-import { openBuilder } from './builder.js';
+import { openBuilder as openPlainBuilder } from './builder.js';
+import { openCreator, hasCreator } from './creator.js';
+// Rulesets with guided creation (ruleset.creation) get the step-by-step creator; others the plain builder.
+const openBuilder = (o) => (hasCreator(o.model) ? openCreator(o) : openPlainBuilder(o));
 import { createDiceLog, showRollCard } from './dicelog.js';
 import { sheetModel, effectTargets, effectText, LIB_KINDS, playerEditLevel } from './rules.js';
 import {

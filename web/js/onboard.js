@@ -385,6 +385,7 @@ ext.afterRender.push(render);
 $('#tv-btn')?.addEventListener('click', openTv);
 ext.client.on('event', (e) => {
   if (e.kind === 'originsRequest') toast(`${e.name} asks for ${Object.values(e.pending || {}).filter(Boolean).join(' ') || 'a change'}. Approve on the Party tab.`, { ms: 7000 });
+  if (e.kind === 'gearRequest') toast(`${e.name} finished their crawler and asks for: ${(e.items || []).join(', ')}. Give it on their sheet (Party tab).`, { ms: 8000 });
   if (e.kind === 'joinRequest') {
     toast(`${e.name} wants to join. Approve on the Party tab.`, { ms: 8000 });
     if (!document.querySelector('#view-party:not([hidden])')) for (const b of document.querySelectorAll('[data-view="party"]')) b.classList.add('ping');

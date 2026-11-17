@@ -533,6 +533,55 @@ function normalizeCombatRules(raw, derived, unv) {
   return out;
 }
 
+/**
+ * Guided character creation (web/js/creator.js). Optional; without it the plain builder is used.
+ *   statMethods  { array: [n…], roll: { dice: 'd6', reroll: [1] }, min, max }  how base stats are set
+ *   statPart     the stat part the player sets (e.g. 'unenhanced'); mirrorParts get the same value at start
+ *   backgrounds  [{ id, label, pick, rank, roll?, options: [{ name, skills: [skillId…] }] }]  life stages:
+ *                pick one option, then `pick` of its skills at `rank`
+ *   noDouble     the same skill cannot come from two stages
+ *   combat       { fixed: attack every character has, rank, weapons: [{ name, group, skill, stat, dice,
+ *                damageStat, damageType, note }], custom }  the starting weapon skill + attack
+ *   stuff        [{ id, label, hint, auto?: 'weapon', catalog?, custom? }]  starting things (GM approves)
+ *   derived      [{ label, text }]  read-only explanations shown after the stats
+ *   basicActions [{ name, text }]   what anyone can do (also on the sheet)
+ *   help         { step: text }     the "i" bubble per step
+ */
+function normalizeCreation(c, warnings) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+  const strList = (v, dflt) => (Array.isArray(v) ? [...new Set(v.filter((x) => typeof x === 'string' && /^[A-Za-z0-9_.-]{1,60}$/.test(x)))].slice(0, 30) : dflt);
+  const str = (v, max = 400) => (typeof v === 'string' ? v.slice(0, max) : '');
+  const ints = (v, lo, hi) => (Array.isArray(v) ? v.filter((x) => Number.isInteger(x) && x >= lo && x <= hi).slice(0, 12) : []);
+  const sm = c.statMethods && typeof c.statMethods === 'object' ? c.statMethods : {};
+  const out = {
+    statMethods: {
+      array: ints(sm.array, -10, 100),
+      roll: sm.roll && /^d\d{1,3}$/.test(sm.roll.dice ?? '') ? { dice: sm.roll.dice, reroll: ints(sm.roll.reroll, 1, 100) } : null,
+      min: Number.isInteger(sm.min) ? sm.min : null,
+      max: Number.isInteger(sm.max) ? sm.max : null,
+    },
+    statPart: isStr(c.statPart) ? c.statPart.trim() : null,
+    mirrorParts: strList(c.mirrorParts, []),
+    noDouble: c.noDouble !== false,
+    backgrounds: (Array.isArray(c.backgrounds) ? c.backgrounds : []).slice(0, 8).map((g) => ({
+      id: str(g?.id, 40) || 'stage', label: str(g?.label, 60) || 'Background', pick: Number.isInteger(g?.pick) ? Math.max(1, Math.min(5, g.pick)) : 2,
+      rank: Number.isInteger(g?.rank) ? g.rank : 1, roll: isStr(g?.roll) ? g.roll : null,
+      options: (Array.isArray(g?.options) ? g.options : []).slice(0, 30).map((o) => ({ name: str(o?.name, 80), desc: str(o?.desc, 300), skills: strList(o?.skills, []).slice(0, 6) })).filter((o) => o.name && o.skills.length),
+    })).filter((g) => g.options.length),
+    combat: null,
+    stuff: (Array.isArray(c.stuff) ? c.stuff : []).slice(0, 8).map((x) => ({ id: str(x?.id, 40), label: str(x?.label, 80), hint: str(x?.hint, 200), auto: x?.auto === 'weapon' ? 'weapon' : null, catalog: x?.catalog === true, custom: x?.custom === true })).filter((x) => x.id && x.label),
+    derived: (Array.isArray(c.derived) ? c.derived : []).slice(0, 12).map((x) => ({ label: str(x?.label, 60), text: str(x?.text, 300) })).filter((x) => x.label),
+    basicActions: (Array.isArray(c.basicActions) ? c.basicActions : []).slice(0, 20).map((x) => ({ name: str(x?.name, 60), text: str(x?.text, 300) })).filter((x) => x.name),
+    help: Object.fromEntries(Object.entries(c.help && typeof c.help === 'object' ? c.help : {}).filter(([k, v]) => /^[a-z_]{1,30}$/.test(k) && isStr(v)).map(([k, v]) => [k, v.slice(0, 600)])),
+  };
+  if (c.combat && typeof c.combat === 'object') {
+    const atk = (w) => (w && isStr(w.name) && isStr(w.skill) && /^\d*d\d+/.test(w.dice ?? '') ? { name: str(w.name, 60), group: str(w.group, 40), skill: w.skill, stat: str(w.stat, 20), dice: w.dice, damageStat: isStr(w.damageStat) ? w.damageStat : null, damageType: str(w.damageType, 40), note: str(w.note, 120), rank: Number.isInteger(w.rank) ? w.rank : null } : null);
+    out.combat = { fixed: atk(c.combat.fixed), rank: Number.isInteger(c.combat.rank) ? c.combat.rank : 1, weapons: (Array.isArray(c.combat.weapons) ? c.combat.weapons : []).slice(0, 60).map(atk).filter(Boolean), custom: c.combat.custom !== false };
+  }
+  if (!out.backgrounds.length && !out.statMethods.array.length && !out.combat) { warnings?.push?.('ruleset.creation: nothing usable, ignored'); return null; }
+  return out;
+}
+
 export function normalizeRuleset(raw, legacy = {}, warnings = []) {
   const ctx = { strict: false, warnings };
   if (raw != null && !isObj(raw)) {
@@ -697,6 +746,7 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     identity: strList(r.identity, ['name', 'race', 'class', 'level', 'floor', 'pronouns']),
     // Sheet values only the GM sets (identity keys or field ids), e.g. level, floor, crawler number, AI Favor.
     gmOnly: strList(r.gmOnly, []),
+    creation: normalizeCreation(r.creation, warnings),
     storyFields: strList(r.storyFields, ['notes']),
     races: lib('races'),
     classes: lib('classes'),
@@ -1012,7 +1062,9 @@ export function computeSheet(ch, ruleset, library) {
     const stat = k.stat && statById.has(k.stat) ? k.stat : '';
     const zeroBuff = (p) => !(p.source?.startsWith('buff.') && p.value === 0 && !p.parts?.length);
     const th = evaluate(tmpl(ruleset.attack.toHit, stat, ''), (n) => resolveFull(n, extra));
-    const dmg = diceText(tmpl(ruleset.attack.damage, stat, k.dice || ''), (n) => resolveFull(n, extra));
+    // dmgStat: the stat the damage adds when it differs from the to-hit stat ('none' = no stat), e.g. a dagger.
+    const dStat = k.dmgStat === 'none' ? '' : k.dmgStat && statById.has(k.dmgStat) ? k.dmgStat : stat;
+    const dmg = diceText(tmpl(ruleset.attack.damage, dStat, k.dice || ''), (n) => resolveFull(n, extra));
     return { uid: k.uid, toHit: { value: th.value, parts: th.parts.filter(zeroBuff), warnings: th.warnings }, damage: dmg.text, damageParts: dmg.parts.filter(zeroBuff) };
   });
 

@@ -190,3 +190,19 @@ Natural 1/20 on a single d20 flagged `nat1`/`nat20` (the show reacts).
 | `combat.mobSlotValue` | Damage one mob health slot is worth when the mob has no `slotValue`. |
 | `combat.starterAttack: { name, skill, rank, stat, dice }` | Given to every crawler without an attack (on creation and when a fight starts). |
 | track `slotValue: "mod.con"` | Slot health bar: rolled damage after DR removes whole slots; less than one slot is lost. |
+
+## Guided creation: `creation` (added 18 Nov 2026)
+
+Optional. With it, players get a step-by-step creator (`web/js/creator.js`) instead of the plain builder, and `creation.apply` checks their choices.
+
+| Key | Meaning |
+|---|---|
+| `statMethods` | `{ array: [2,3,4,5,6], roll: { dice: "d6", reroll: [1] }, min, max }` |
+| `statPart`, `mirrorParts` | Which stat part the player sets (e.g. `unenhanced`) and which parts start with the same value |
+| `backgrounds` | `[{ id, label, pick, rank, roll, options: [{ name, skills: [skillId…] }] }]` life stages |
+| `noDouble` | A skill cannot come from two stages |
+| `combat` | `{ fixed: {name, skill, rank, stat, dice, damageStat}, rank, weapons: [{ name, group, skill, stat, dice, damageStat, damageType, note }], custom }` |
+| `stuff` | `[{ id, label, hint, auto: "weapon" \| catalog: true \| custom: true }]` starting things (GM approves) |
+| `derived`, `basicActions`, `help` | Explanations: after the stats, on the review + the sheet's Actions tab, the "i" bubble per step |
+
+Attacks may carry `dmgStat` (damage stat when it differs from the to-hit stat, `none` = no stat), e.g. a dagger: Dex to hit, Str to damage.

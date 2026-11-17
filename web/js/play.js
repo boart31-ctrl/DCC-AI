@@ -5,7 +5,10 @@ import {
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
 import { createMapView } from './map-view.js';
 import { createRxPhone } from './rx-phone.js';
-import { openBuilder } from './builder.js';
+import { openBuilder as openPlainBuilder } from './builder.js';
+import { openCreator, hasCreator } from './creator.js';
+// Rulesets with guided creation (ruleset.creation) get the step-by-step creator; others the plain builder.
+const openBuilder = (o) => (hasCreator(o.model) ? openCreator(o) : openPlainBuilder(o));
 import { createDiceLog, showRollCard } from './dicelog.js';
 import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme, openDrawer } from './ui.js';
 import { playerEditLevel } from './rules.js';
@@ -515,13 +518,25 @@ setInterval(tickCrawlers, 1000);
 const startKey = () => `system.startSeen.${me?.id}`;
 function renderStart() {
   const sh = me.sheet || {};
-  const empty = !!me.sheet && !sh.identity?.race && !sh.identity?.class && !(sh.skills || []).length && !(sh.inventory || []).length;
+  // Fresh = nothing chosen yet. The starter attack (ruleset combat.starterAttack) does not count as chosen.
+  const starter = view?.pack?.ruleset?.combat?.starterAttack?.skill;
+  const ownSkills = (sh.skills || []).filter((s) => !starter || s.skillId !== starter);
+  const empty = !!me.sheet && !sh.created && !sh.identity?.race && !sh.identity?.class && !ownSkills.length && !(sh.inventory || []).length;
   let seen = false;
   try { seen = sessionStorage.getItem(startKey()) === '1'; } catch {}
   const box = $('#start');
   const show = empty && !seen;
   box.hidden = !show;
   $('#sheet-root').hidden = show;
+  // Guided creation not finished yet: a strip above the sheet brings it back (draft kept on the phone).
+  let strip = document.getElementById('cr-banner');
+  const wantStrip = !show && !!view?.pack?.ruleset?.creation && !sh.created && playerEditLevel(view) === 'sheet';
+  if (wantStrip && !strip) {
+    strip = h('div.cr-banner#cr-banner', icon('info', { size: 16 }), h('span', 'Your crawler is not finished: background, weapon, stats, stuff.'),
+      h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => { const M = sheet.model(); if (M) openBuilder({ model: M, player: me, gm: false, act: sheet.act }); } }, 'Continue'));
+    $('#sheet-root').before(strip);
+  }
+  if (strip) strip.hidden = !wantStrip;
   if (!show) return;
   const lvl = playerEditLevel(view);
   const name = sh.identity?.name || me.name;

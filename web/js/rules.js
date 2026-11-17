@@ -9,7 +9,7 @@
 
 /* ---------------- formulas ---------------- */
 
-const FUNCS = new Set(['floor', 'ceil', 'round', 'min', 'max', 'abs']);
+const FUNCS = new Set(['floor', 'ceil', 'round', 'min', 'max', 'abs', 'step']);
 
 export class FormulaError extends Error {
   constructor(msg, at) { super(msg); this.at = at; }
@@ -186,6 +186,7 @@ export function evaluate(src, { resolve, labelOf, expand } = {}) {
         if (n.f === 'abs') return Math.abs(xs[0]);
         if (n.f === 'min') return Math.min(...xs);
         if (n.f === 'max') return Math.max(...xs);
+        if (n.f === 'step') return xs.slice(1).filter((t) => xs[0] >= t).length; // lookup table (server/formula.js)
         return 0;
       }
       default: return 0;
@@ -305,6 +306,7 @@ export function normalizeRuleset(pack) {
     spells: r?.spells || { costTrack: tracks.find((t) => /mana|mp/i.test(t.id))?.id || null },
     identity: r?.identity || ['name', 'race', 'class', 'level'],
     gmOnly: Array.isArray(r?.gmOnly) ? r.gmOnly : [],
+    creation: r?.creation || null,
     storyFields: r?.storyFields || [],
     races: r?.races || [], classes: r?.classes || [], backgrounds: r?.backgrounds || [],
     combat: r?.combat || null,

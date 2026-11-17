@@ -742,7 +742,7 @@ test('views: me.sheet and gm.playersFull[].sheet = raw + computed; pack.ruleset;
   const pv = viewFor(state, pack, 'player', { playerId: id });
   const gv = viewFor(state, pack, 'gm', {});
   assert.deepEqual(gv.gm.playersFull[0].sheet, pv.me.sheet);
-  assert.deepEqual(Object.keys(pv.me.sheet).sort(), ['attacks', 'buffs', 'computed', 'fields', 'hotlist', 'identity', 'inventory', 'level', 'name', 'originsLocked', 'pending', 'pools', 'portrait', 'skills', 'spells', 'stats', 'story', 'tracks']);
+  assert.deepEqual(Object.keys(pv.me.sheet).sort(), ['attacks', 'buffs', 'computed', 'created', 'fields', 'gearRequest', 'hotlist', 'identity', 'inventory', 'level', 'name', 'originsLocked', 'pending', 'pools', 'portrait', 'skills', 'spells', 'stats', 'story', 'tracks']);
   assert.deepEqual(Object.keys(pv.me.sheet.computed).sort(), ['attacks', 'buffs', 'derived', 'effects', 'externalBuffs', 'fields', 'skills', 'spells', 'stats', 'tracks', 'warnings']);
   assert.equal(pv.pack.ruleset.id, 'test-rules');
   assert.deepEqual(pv.me.resources, { hp: { cur: 10, max: 10 }, mana: { cur: 6, max: 6 } });
@@ -862,4 +862,55 @@ test('private DCC pack: GM-only values (level, floor, crawler #, AI Favor) and t
   assert.deepEqual(st.players[0].sheet.attacks.map((k) => k.name), ['Unarmed Combat']);
   st = reduce(st, { role: 'gm', t: 'combat.start' }, c()).state;
   assert.equal(st.combat.rx?.step, 'declare', 'reaction rounds start with the fight');
+});
+
+test('private DCC pack: guided creation (backgrounds, weapon, array stats, no double-dipping, gear request → approve)', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  let st = reduce(createState(dcc, 0), { role: 'gm', t: 'player.add', name: 'Fargo' }, c()).state;
+  const pid = st.players[0].id;
+  const me = (a) => reducePlayerAction(st, a, c({ playerId: pid }));
+  const cr = dcc.ruleset.creation;
+  const [g1, g2, g3, g4] = cr.backgrounds;
+  const opt = (g, i) => g.options[i];
+  // Two skills per stage, never the same skill twice and never the weapon (dagger).
+  const taken = new Set(['dagger']);
+  const bg = {};
+  for (const g of [g1, g2, g3, g4]) {
+    for (const o of g.options) {
+      const free = o.skills.filter((x) => !taken.has(x));
+      if (free.length >= 2) { bg[g.id] = { option: o.name, skills: free.slice(0, 2) }; free.slice(0, 2).forEach((x) => taken.add(x)); break; }
+    }
+  }
+  const ids = dcc.ruleset.stats.map((s) => s.id);
+  const stats = Object.fromEntries(ids.map((k, i) => [k, [6, 2, 4, 5, 3][i]]));
+  assert.throws(() => me({ t: 'creation.apply', stats: { ...stats, [ids[0]]: 50 }, method: 'array' }), /each number once/);
+  assert.throws(() => me({ t: 'creation.apply', stats: { ...stats, [ids[0]]: 1 }, method: 'roll' }), /roll/);
+  assert.throws(() => me({ t: 'creation.apply', background: { [g1.id]: { option: opt(g1, 0).name, skills: opt(g1, 0).skills } } }), /pick 2/);
+  // The same skill from two stages is refused (Latchkey Kid Stealth + Criminal Stealth).
+  const latch = g1.options.find((o) => o.skills.includes('stealth'));
+  const crim = g3.options.find((o) => o.skills.includes('stealth'));
+  assert.throws(() => me({ t: 'creation.apply', background: { [g1.id]: { option: latch.name, skills: ['stealth', latch.skills.find((x) => x !== 'stealth')] }, [g3.id]: { option: crim.name, skills: ['stealth', crim.skills.find((x) => x !== 'stealth')] } } }), /picked twice/);
+  const dagger = cr.combat.weapons.findIndex((w) => w.name === 'Dagger');
+  const used = new Set(Object.values(bg).flatMap((x) => x.skills));
+  assert.ok(!used.has('dagger'));
+  st = me({ t: 'creation.apply', background: bg, weapon: { index: dagger }, stats, method: 'array', stuff: { item: { itemId: dcc.items[0].id }, weird: { name: 'A rubber chicken', icon: 'icon_generic' } } }).state;
+  const p = st.players[0];
+  assert.equal(p.sheet.stats[ids[0]].unenhanced, 6);
+  assert.equal(p.sheet.stats[ids[0]].enhanced, 6, 'mirrored into enhanced');
+  assert.equal(p.sheet.skills.find((s) => s.skillId === 'unarmed_combat').rank, 3);
+  assert.equal(p.sheet.skills.find((s) => s.skillId === 'dagger').rank, 3);
+  assert.equal(p.sheet.skills.find((s) => s.skillId === bg[g3.id].skills[0]).rank, g3.rank, 'career skills at the career rank');
+  assert.equal(p.sheet.skills.filter((s) => s.skillId === 'unarmed_combat').length, 1, 'starter attack skill not doubled');
+  const dag = p.sheet.attacks.find((k) => k.name === 'Dagger');
+  assert.equal(dag.stat, 'dex');
+  assert.equal(dag.dmgStat, 'str', 'dagger: Dex to hit, Str to damage');
+  assert.equal(p.sheet.attacks.filter((k) => k.name === 'Unarmed Combat').length, 1);
+  assert.match(p.sheet.identity.background, / · /);
+  assert.equal(p.sheet.gearRequest.length, 2);
+  assert.equal(p.inventory.length, 0, 'nothing given before the GM approves');
+  st = reduce(st, { role: 'gm', t: 'gear.approve', playerId: pid }, c()).state;
+  assert.equal(st.players[0].inventory.length, 2);
+  assert.ok(st.library.item.some((i) => i.name === 'A rubber chicken'), 'custom thing became a homebrew item');
+  assert.deepEqual(st.players[0].sheet.gearRequest, []);
 });

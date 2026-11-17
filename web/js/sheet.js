@@ -290,6 +290,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         );
       })),
       ui.editing && !ok ? lockHint(lockText()) : null,
+      !ui.editing && M.rs.statMod && parts.includes('unenhanced') ? h('p.stat-legend', h('b', '+2'), ' = modifier you add to rolls · ', h('b', '3'), ' / ', h('span.stat-base', '3'), ' = score / base score (without items and buffs)') : null,
     );
   }
 
@@ -945,7 +946,16 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       usableItems(),
       M.rs.legacy ? null : h('section.sh-block.sh-attacks', h('h2.blk-t', 'Other attacks'), atks.length || can('sheet') ? attacksPanel() : null),
       poolsBlock(),
+      basicActions(),
     );
+  }
+  /** What anyone can do without items or special skills (ruleset creation.basicActions). */
+  function basicActions() {
+    const list = M.rs.creation?.basicActions || [];
+    if (!list.length) return null;
+    return h('details.sh-block.sh-basic', { open: !(M.sheet.attacks || []).length || null },
+      h('summary.blk-t', 'What anyone can do'),
+      h('ul.sh-basic-list', list.map((x) => h('li', h('b', x.name), h('span', x.text)))));
   }
 
   /* ---------- backpack with containers ---------- */
@@ -1117,6 +1127,18 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       ),
     });
   }
+  /** Starting things from guided creation, waiting for the GM: the GM gives or drops them, the player sees them. */
+  function gearRequestBox() {
+    const req = M.sheet.gearRequest || [];
+    if (!req.length) return null;
+    if (!gm) return h('div.callout.cr-wait', icon('gift', { size: 14 }), h('span', 'Waiting for the GM: ', req.map((r) => r.name).join(', ')));
+    return h('div.callout.cr-wait',
+      h('p', h('b', 'Starting stuff to approve'), h('span.dim', ' (from character creation)')),
+      h('ul.cr-req', req.map((r, i) => h('li', h('span.dim', `${r.slot}: `), h('b', r.name), r.itemId ? null : h('span.pill', 'custom'),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'gear.approve', index: i }, `${r.name} given.`) }, 'Give'),
+        h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'gear.deny', index: i }, `${r.name} dropped.`) }, 'Drop')))),
+      req.length > 1 ? h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => act({ t: 'gear.approve' }, 'All given.') }, 'Give all') : null);
+  }
   function phoneInfo() {
     const id = M.sheet.identity || {};
     const line = [id.race, id.class].filter(Boolean).join(' ');
@@ -1125,6 +1147,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return h('section.ph-info',
       h('p.ph-line', line || (gm ? `No ${(M.rs.labels?.race || 'race').toLowerCase()} or class yet` : `${M.rs.labels?.race || 'Race'} and class: ask your GM`), id.floor != null && id.floor !== '' ? h('span', `Floor ${id.floor}`) : null,
         pend ? h('span.pill.pill-on', `Asked: ${Object.values(pend).filter(Boolean).join(' ')}`) : null),
+      gearRequestBox(),
       empty && onBuilder && (gm || can('sheet')) ? h('div.callout', h('p', h('b', 'This sheet is empty.'), ' The builder takes you through it.'), h('button.btn.btn-primary', { type: 'button', onclick: () => onBuilder(M, player) }, 'Open the builder')) : null,
       ui.editing ? identityEditor() : null,
       stats(),
@@ -1196,6 +1219,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     }
     root.replaceChildren(...[
       header(),
+      gearRequestBox(),
       empty && onBuilder && (gm || can('sheet')) ? h('div.callout', h('p', h('b', 'This sheet is empty.'), gm ? ' Walk through the builder with the player, or fill it in by hand.' : ' The builder takes you through it step by step.'), h('button.btn.btn-primary', { type: 'button', onclick: () => onBuilder(M, player) }, 'Open the builder')) : null,
       ui.editing ? identityEditor() : null,
       h('div.sh-top', tracks(), stats(), defense(), M.rs.legacy ? null : buffs()),
