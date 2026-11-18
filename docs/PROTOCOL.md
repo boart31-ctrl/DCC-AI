@@ -504,7 +504,7 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `untrained.learn` | `skillId` (GM: `playerId`) | Tutorial Floors (ruleset `skills.untrained.learn`, `learnMaxFloor`): learn one skill tried untrained this session at Rank 1; the list is wiped |
 | `untrained.clear` | `playerId?` (GM) | Wipe the tried-untrained list of one crawler or everyone |
 | `roll` untrained | `what: { kind: 'untrained', skillId, stat? }` | Library skill not on the sheet: ruleset `skills.untrained` (DCC: Disadvantage forced, `mod.{stat} + buff.check`, no Ranks; Passive refused); the skill joins `sheet.untried` |
-| `roll.favor` *(player)* | `rollId`, `entered?` | Spend 1 AI Favor (`fields.aiFavor`): reroll the d20 of your own roll once (never a natural 1); the result vs the target is worked out again; emits `rollUpdate` |
+| `roll.favor` *(player)* | `rollId`, `entered?` | Spend 1 AI Favor (`fields.aiFavor`): reroll the d20 of your own roll once (never a natural 1); emits `rollUpdate`. Ack `result: {natural, total, vs, roll}` with target defence and margin omitted |
 | `roll.intervene` *(player / GM)* | `rollId`, `entered?` (1–6), `playerId?` (GM) | +1d6 to someone else's missed check / attack vs a target, once per roll, not on stat checks; in reaction rounds costs one action; emits `rollUpdate` |
 | `level.party` | `delta?` (default +1), `rankUp?` | With `rankUp`, every skill marked used also gets its advancement roll (skills.rankUp). Everyone's level ± delta; resets the level-up reminder (`view.gm.playClock`: playMin, sinceLevelMin, snoozeMin; play = gaps between actions under 15 min) |
 | `level.snooze` | `minutes` (5–240) | The reminder waits that much more play |
@@ -678,7 +678,7 @@ the connection. The "player needs" column is the minimum `session.permissions.pl
 | `rest` | `playerId` (GM), `kind` (`short`/`long`), `heal?` | Long: every track to max, every counter refilled. Short: counters with `reset: "short"` refilled, plus `heal` health. Ack `result.restored` (labels). `pool.add` / `pool.update` take `reset?` (`short`/`long`) |
 | `pool.remove` | `uid` | `sheet` | |
 | `sheet.set` `identity.race` / `class` / `background` | `value` | — | Players: without `allowOrigins` → `forbidden` (re-sending the current value is a no-op). With it the value goes to `sheet.pending` (event `originsRequest {playerId, name, pending}` to the GM) until `origins.approve`; after approval → `forbidden` until the GM unlocks |
-| `roll` | `what`, `secret?` | `play` | `what`: `{kind:"stat", id}` → `dice + mod`; `{kind:"derived", id}` → `derived.roll + value`; `{kind:"skill", uid, markUsed?}` → `skills.check.roll + total`, marks the skill used; `{kind:"attack", uid, part?: "toHit"|"damage"}`; `{kind:"custom", formula, label?}` (formula may use sheet identifiers; GM may omit `playerId`). Server RNG (Web Crypto). Ack `result: {rollId, total}` |
+| `roll` | `what`, `secret?` | `play` | `what`: `{kind:"stat", id}` → `dice + mod`; `{kind:"derived", id}` → `derived.roll + value`; `{kind:"skill", uid, markUsed?}` → `skills.check.roll + total`, marks the skill used; `{kind:"attack", uid, part?: "toHit"|"damage"}`; `{kind:"custom", formula, label?}` (formula may use sheet identifiers; GM may omit `playerId`). Server RNG (Web Crypto). Ack `result: {rollId, total, roll}` carries the actual dice and breakdown, with target defence and margin omitted for players. |
 
 ### Rolls
 

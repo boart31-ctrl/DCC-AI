@@ -1061,7 +1061,8 @@ export const SHEET = {
     rec.breakdown = { ...rec.breakdown, value: rec.total };
     rescore(st, ctx, rec);
     out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: p.id, name: p.name, why: 'favor', from: old, to: die }, 'all');
-    out.result = { natural: die, total: rec.total, vs: rec.vs ?? null };
+    const shown = publicRoll(rec);
+    out.result = { natural: die, total: rec.total, vs: shown.vs ?? null, roll: shown };
   },
 
   /**
@@ -1171,7 +1172,7 @@ export const SHEET = {
       const r = doRoll(formula, resolve, ctx);
       const rec = finish(rollRecord(r, { ctx, p, by, label, formula, secret, what: 'custom' }));
       pushRoll(st, rec, out, ctx0);
-      out.result = { rollId: rec.id, total: rec.total };
+      out.result = { rollId: rec.id, total: rec.total, roll: rec };
       return;
     }
     const p = targetOf(st, a, ctx, 'play');
@@ -1230,7 +1231,8 @@ export const SHEET = {
     if (w.kind === 'attack') rec.part = w.part === 'damage' ? 'damage' : 'hit';
     resolveAgainst(st, ctx0, a, rec, p, out);
     pushRoll(st, rec, out, ctx0);
-    out.result = { rollId: rec.id, total: rec.total, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, typed: rec.vs.typed ?? null, advantage: !!rec.vs.advantage, applied: rec.applied ?? null } : {}) };
+    const shown = ctx0.actor.role === 'gm' ? rec : publicRoll(rec);
+    out.result = { rollId: rec.id, total: rec.total, roll: shown, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, typed: rec.vs.typed ?? null, advantage: !!rec.vs.advantage, applied: rec.applied ?? null } : {}) };
   },
 
   /** Dice mode for this crawler: off (everything at the table), enter (type the real die), digital (phone rolls). */

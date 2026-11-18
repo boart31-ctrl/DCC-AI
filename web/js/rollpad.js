@@ -14,7 +14,11 @@ const KEEP_TARGET_MS = 5 * 60 * 1000;
  */
 export function createRollPad({ send, getView, getMe }) {
   const el = h('div.rp', { hidden: true, role: 'dialog', 'aria-modal': 'true', 'aria-label': 'Roll' });
+  const panel = h('div.rp-sheet');
+  el.append(h('div.rp-scrim', { onclick: close }), panel);
   const st = { what: null, label: '', target: null, adv: null, bonus: 0, digits: '', step: 'pick', result: null, after: null, busy: false, lastTarget: null, lastTargetAt: 0 };
+  let renderedStep = null;
+  let viewKey = '';
 
   const V = () => getView() || {};
   const me = () => getMe();
@@ -187,9 +191,9 @@ export function createRollPad({ send, getView, getMe }) {
     const list = mobs();
     if (!(isAttack() || isDamage()) || !list.length) return null;
     return h('div.rp-targets', h('span.rp-l', isDamage() ? 'Damage to' : 'Attack'),
-      h('div.rp-chips', list.map((m) => h('button.chip', { type: 'button', 'aria-pressed': String(st.target === m.uid), onclick: () => { st.target = st.target === m.uid ? null : m.uid; if (!st.advTouched) st.adv = sizeHint()?.adv ?? null; draw(); } }, m.name)),
+      h('div.rp-chips', list.map((m) => h('button.chip', { type: 'button', 'aria-pressed': String(st.target === m.uid), onclick: () => { if (st.target === m.uid) return; st.target = m.uid; if (!st.advTouched) st.adv = sizeHint()?.adv ?? null; draw(); } }, m.name)),
         h('button.chip', { type: 'button', 'aria-pressed': String(st.target === null), onclick: () => { st.target = null; draw(); } }, 'No target')),
-      st.target === undefined ? h('span.rp-need', 'Who do you attack?') : null);
+      st.target === undefined ? h('span.rp-need', 'Pick a target or No target to roll.') : null);
   }
 
   function modsRow() {
@@ -232,10 +236,10 @@ export function createRollPad({ send, getView, getMe }) {
     const critNote = st.after && st.critPending ? (rules().crit === 'dice' ? ' — critical: roll the dice twice' : ' — critical: the app doubles it') : '';
     const sub = dmg ? `Roll the dice of ${damageText(st.what) || 'your damage'}${critNote}, type what they show (the app adds the rest)` : enterFirst ? `Roll your d${sides()}${st.adv ? ' twice, keep the ' + (st.adv === 'adv' ? 'higher' : 'lower') : ''}, type what it shows` : 'Tap Roll, or type a real die';
     const digitalBtn = h('button.btn.btn-primary.rp-digital', { type: 'button', disabled: st.busy || st.target === undefined, onclick: () => submit({ digital: true }) }, icon('dice', { size: 18 }), dmg ? 'Roll damage for me' : 'Roll for me');
-    return h('div.rp-body', head(st.label, sub), h('div.rp-scroll',
+    return h(enterFirst ? 'div.rp-body.rp-entry' : 'div.rp-body', head(st.label, sub), h('div.rp-scroll',
       targetRow(), modsRow(),
-      enterFirst ? keypad() : digitalBtn,
-      enterFirst ? h('div.rp-alt', digitalBtn) : h('details.rp-alt', h('summary', 'I rolled a real die'), keypad())));
+      enterFirst ? keypad() : [digitalBtn, h('details.rp-alt', h('summary', 'I rolled a real die'), keypad())]),
+    enterFirst ? h('footer.rp-roll-footer', digitalBtn) : null);
   }
 
   function resultStep() {
@@ -243,14 +247,26 @@ export function createRollPad({ send, getView, getMe }) {
     const roll = r.roll || {};
     const total = r.total ?? roll.total;
     const hasVs = r.hit !== undefined;
+    const natural = roll.natural ?? r.natural ?? roll.dice?.find((d) => d.die === `d${sides()}`)?.value;
+    const values = isDamage() ? (roll.dice || []).map((d) => d.value) : [natural];
+    const hasDice = values.length && values.every(Number.isFinite);
+    const modifier = hasDice ? total - values.reduce((sum, n) => sum + n, 0) : 0;
+    const equation = hasDice && Number.isFinite(total)
+      ? `${isDamage() ? '' : `d${sides()} `}${values.join(' + ')}${modifier < 0 ? ` − ${-modifier}` : ` + ${modifier}`} = ${total}`
+      : '';
+    const advantage = roll.adv && Number.isFinite(roll.otherDie) && Number.isFinite(natural)
+      ? `Kept ${natural} of ${natural} and ${roll.otherDie} (${roll.adv === 'adv' ? 'Advantage' : 'Disadvantage'})`
+      : '';
     const dmgLabel = isDamage() ? (r.applied ? (r.applied.after <= 0 ? 'DOWN!' : `−${-r.applied.delta} HP`) : 'Tell the GM') : null;
     const typedNote = isDamage() && r.typed ? { immune: 'Immune to that: no damage.', resistant: 'Resistant: half damage.', vulnerable: 'Vulnerable: double damage!' }[r.typed] : null;
     const DEG7 = { crit: 'CRITICAL HIT', amazing: 'AMAZING', success: st.what.kind === 'attack' ? 'HIT' : 'SUCCESS', near: 'NEAR MISS', fail: st.what.kind === 'attack' ? 'MISS' : 'FAIL', major: 'MAJOR FAIL', critfail: 'CRITICAL FAIL' };
     const label = dmgLabel ?? (r.deg7 ? DEG7[r.deg7] : !hasVs ? null : r.degree === 3 ? (rules().degrees ? 'CRITICAL SUCCESS' : 'CRITICAL HIT') : r.hit ? (st.what.kind === 'attack' ? 'HIT' : 'SUCCESS') : r.degree === 0 && rules().degrees ? 'CRITICAL FAILURE' : st.what.kind === 'attack' ? 'MISS' : 'FAIL');
-        return h('div.rp-body', head(st.label, null), h('div.rp-scroll',
+    return h('div.rp-body', head(st.label, null), h('div.rp-scroll',
       h('div.rp-result', { class: `rp-result${hasVs ? (r.hit ? ' is-hit' : ' is-miss') : r.applied ? ' is-hit' : ''}${r.crit ? ' is-crit' : ''}` },
         h('span.rp-total', String(total ?? '?')),
-        h('span.rp-math', isDamage() ? `dice ${roll.dice?.map((d) => d.value).join(' + ') || r.natural || '?'} + modifiers` : `d20 ${roll.natural ?? r.natural ?? roll.dice?.find((d) => d.die === 'd20')?.value ?? '?'}${roll.adv ? ` (${roll.adv === 'adv' ? 'best' : 'worst'} of ${roll.natural}, ${roll.otherDie})` : ''} + modifiers`),
+        equation ? h('span.rp-math', equation) : null,
+        advantage ? h('span.rp-math', advantage) : null,
+        roll.vs?.name ? h('span.rp-math', roll.vs.name) : null,
         label ? h('span.rp-verdict', label) : h('span.rp-verdict.dim', 'Tell the GM')),
       typedNote ? h('p.rp-note', typedNote) : null,
       r.deg7 === 'near' ? h('p.rp-note', 'So close. A friend can Intervene: their phone offers +1d6 now.') : null,
@@ -277,7 +293,7 @@ export function createRollPad({ send, getView, getMe }) {
         const res = await send(a);
         const vs = res?.result?.vs || {};
         st.favorOpen = false;
-        st.result = { ...st.result, total: res?.result?.total, hit: vs.hit, crit: vs.crit, degree: vs.degree, deg7: vs.deg7, natural: res?.result?.natural, favored: true, roll: { ...(st.result.roll || {}), natural: res?.result?.natural } };
+        st.result = { ...st.result, total: res?.result?.total, hit: vs.hit, crit: vs.crit, degree: vs.degree, deg7: vs.deg7, natural: res?.result?.natural, favored: true, roll: res?.result?.roll ?? null };
         buzz(vs.hit ? [20, 40, 20] : 15);
         draw();
       } catch (err) { toast(err.message, { error: true }); }
@@ -291,11 +307,39 @@ export function createRollPad({ send, getView, getMe }) {
     return h('button.btn', { type: 'button', title: 'Spend 1 AI Favor: roll the d20 again', onclick: () => { st.favorOpen = true; draw(); } }, icon('sparkle', { size: 16 }), `AI Favor reroll (${left})`);
   }
 
+  function currentViewKey() {
+    if (st.step === 'pick') {
+      const sh = me()?.sheet;
+      return JSON.stringify([rs().id, sh?.attacks, sh?.skills, sh?.computed, V().library?.skill]);
+    }
+    return JSON.stringify([mode(), sides(), rules().advantage, bonusOf(st.what), damageText(st.what),
+      mobs().map((m) => [m.uid, m.name, m.size]), sizeHint()?.adv]);
+  }
+
   function draw() {
-    el.replaceChildren(h('div.rp-scrim', { onclick: close }), h('div.rp-sheet', st.step === 'pick' ? pickList() : st.step === 'result' ? resultStep() : rollStep()));
+    const scrollTop = st.step === renderedStep ? el.querySelector('.rp-scroll')?.scrollTop ?? 0 : 0;
+    panel.replaceChildren(st.step === 'pick' ? pickList() : st.step === 'result' ? resultStep() : rollStep());
+    if (scrollTop) el.querySelector('.rp-scroll').scrollTop = scrollTop;
+    renderedStep = st.step;
+    viewKey = currentViewKey();
+  }
+
+  function update() {
+    if (el.hidden) return;
+    if (st.step === 'result') {
+      if (st.result.roll) return;
+      const roll = V().rolls?.find((r) => r.id === st.result.rollId);
+      if (roll) { st.result.roll = roll; draw(); }
+      return;
+    }
+    if (st.step === 'roll' && st.target && !mobs().some((m) => m.uid === st.target)) {
+      st.target = mobs().length ? undefined : null;
+      if (!st.advTouched) st.adv = null;
+    }
+    if (viewKey !== currentViewKey()) draw();
   }
 
   document.addEventListener('keydown', (e) => { if (!el.hidden && e.key === 'Escape') close(); });
 
-  return { el, open, openPicker, close, get mode() { return mode(); }, update() { if (!el.hidden && st.step !== 'result') draw(); }, defLabel };
+  return { el, open, openPicker, close, get mode() { return mode(); }, update, defLabel };
 }

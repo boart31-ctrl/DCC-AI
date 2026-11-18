@@ -933,6 +933,11 @@ test('private DCC pack: seven degrees on attacks, Amazing adds the floor, AI Fav
   let rec = st.rolls.at(-1);
   assert.equal(rec.vs.deg7, 'near');
   assert.equal(rec.vs.hit, false);
+  assert.equal(r.result.roll.natural, 4);
+  assert.equal(r.result.roll.total, 9);
+  assert.equal(r.result.roll.vs.name, rat.name);
+  assert.equal(r.result.roll.vs.defense, undefined);
+  assert.equal(r.result.roll.vs.margin, undefined);
   assert.throws(() => as(fargo, { t: 'roll.intervene', rollId: rec.id, entered: 3 }), /own roll/);
   st = as(lina, { t: 'roll.intervene', rollId: rec.id, entered: 3 }).state;
   rec = st.rolls.at(-1);
@@ -943,10 +948,14 @@ test('private DCC pack: seven degrees on attacks, Amazing adds the floor, AI Fav
   st = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'hit' }, target: rat.uid, entered: 2 }).state;
   rec = st.rolls.at(-1);
   assert.equal(rec.vs.deg7, 'fail');
-  st = as(fargo, { t: 'roll.favor', rollId: rec.id, entered: 17 }).state;
+  r = as(fargo, { t: 'roll.favor', rollId: rec.id, entered: 17 });
+  st = r.state;
   rec = st.rolls.at(-1);
   assert.equal(rec.natural, 17);
   assert.equal(rec.vs.deg7, 'amazing', '17 + 5 = 22 vs 11: beat by 11');
+  assert.equal(r.result.roll.natural, 17);
+  assert.equal(r.result.vs.defense, undefined);
+  assert.equal(r.result.roll.vs.margin, undefined);
   assert.equal(st.players[0].sheet.fields.aiFavor, 0);
   assert.throws(() => as(fargo, { t: 'roll.favor', rollId: rec.id, entered: 17 }), /already|no AI Favor/);
   st = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'hit' }, target: rat.uid, entered: 1 }).state;
