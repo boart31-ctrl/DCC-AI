@@ -180,10 +180,12 @@ function renderLevelReminder() {
   if (levelEl?.dataset.sig === sig) return;
   levelEl?.remove();
   const hrs = (pc.sinceLevelMin / 60).toFixed(1).replace('.0', '');
+  const marked = (view.gm?.playersFull || []).reduce((n, p) => n + (p.sheet?.skills || []).filter((s) => s.used).length, 0);
+  const hasRankUp = !!view.pack?.ruleset?.skills?.rankUp;
   levelEl = h('div.lvl-remind', { class: late ? 'lvl-remind late' : 'lvl-remind', role: 'status', 'data-sig': sig },
     h('p', h('b', late ? 'Level up is overdue.' : 'Time for a level up?'), ` ${hrs} h of play since the last one (the rules: one level per 2 h).`),
     h('div.row-start',
-      h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => act({ t: 'level.party' }, 'Everyone is a level up.') }, 'Level up everyone'),
+      h('button.btn.btn-sm.btn-primary', { type: 'button', title: hasRankUp && marked ? 'Also rolls advancement (d20 vs Rank) for every skill marked used' : '', onclick: () => act({ t: 'level.party', rankUp: hasRankUp }, hasRankUp && marked ? `Everyone is a level up; ${marked} skill roll${marked === 1 ? '' : 's'} in the dice log.` : 'Everyone is a level up.') }, hasRankUp && marked ? `Level up + ${marked} skill roll${marked === 1 ? '' : 's'}` : 'Level up everyone'),
       h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'level.snooze', minutes: 30 }) }, 'Not yet (30 min)')));
   document.body.append(levelEl);
 }

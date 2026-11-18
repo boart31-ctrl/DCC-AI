@@ -633,7 +633,14 @@ const GM = {
     }
     st.session.levelAtMs = st.session.playMs ?? 0;
     if (delta > 0) out.emit({ kind: 'levelup', delta, names: st.players.map((p) => p.name) }, 'all');
-    out.result = { players: st.players.length };
+    // With rankUp: every skill marked used gets its advancement roll (ruleset skills.rankUp).
+    let rankUps = [];
+    if (a.rankUp === true && ctx.pack.ruleset.skills?.rankUp) {
+      const sub = { ...out, result: null };
+      GM['skills.rankUp'](st, {}, ctx, sub);
+      rankUps = sub.result?.results ?? [];
+    }
+    out.result = { players: st.players.length, rankUps };
   },
   /** `{ minutes }` Not yet: the reminder comes back after this much more play. */
   'level.snooze'(st, a) {
