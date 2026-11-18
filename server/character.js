@@ -3,7 +3,7 @@
 import { ActionError, bad, notFound, forbidden } from './errors.js';
 import { computeSheet, enhanceItem, MAX_ENHANCE, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
-import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots } from './outcome.js';
+import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots, typedDamage } from './outcome.js';
 
 export const DICE_MODES = ['off', 'enter', 'digital'];
 export const MAX_UNDO = 30;
@@ -86,7 +86,7 @@ export function migrateSheet(sheet, legacy, ruleset) {
     fields: cleanMap(s.fields),
     tracks,
     skills: arr(s.skills).map((k) => ({ uid: k.uid, skillId: k.skillId ?? null, name: k.name ?? '', rank: finite(k.rank, 0), stat: k.stat ?? '', checkType: k.checkType ?? '', notes: k.notes ?? '', used: !!k.used })),
-    attacks: arr(s.attacks).map((k) => ({ uid: k.uid, name: k.name ?? '', skillUid: k.skillUid ?? null, stat: k.stat ?? '', dice: k.dice ?? '', effects: k.effects ?? '', ...(typeof k.dmgStat === 'string' && k.dmgStat ? { dmgStat: k.dmgStat } : {}) })),
+    attacks: arr(s.attacks).map((k) => ({ uid: k.uid, name: k.name ?? '', skillUid: k.skillUid ?? null, stat: k.stat ?? '', dice: k.dice ?? '', effects: k.effects ?? '', ...(typeof k.dmgStat === 'string' && k.dmgStat ? { dmgStat: k.dmgStat } : {}), ...(typeof k.dtype === 'string' && k.dtype ? { dtype: k.dtype } : {}) })),
     spells: arr(s.spells).map((k) => ({ uid: k.uid, spellId: k.spellId, rank: finite(k.rank, 1), active: !!k.active })),
     hotlist: hot,
     buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0), ...(Number.isInteger(b.roundsLeft) && b.roundsLeft > 0 ? { roundsLeft: b.roundsLeft } : {}) })),
@@ -530,11 +530,15 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
     const amazing = rules.seven && prev?.vs?.deg7 === 'amazing' ? floorOfState(st) : 0;
     dmg += amazing;
     dmg = Math.max(0, dmg - (rules.useDr ? Math.max(0, target.dr ?? 0) : 0));
+    // Damage type vs the mob's resistances (after DR): the attack's dtype.
+    const atk = a.what?.kind === 'attack' ? (p.sheet.attacks ?? []).find((k) => k.uid === a.what.uid) : null;
+    const typed = typedDamage(dmg, atk?.dtype, target);
+    dmg = typed.amount;
     // Slot health bars: whole slots only (damage below one slot's worth is lost).
     const sv = mobSlotValue(ctx.pack, target);
     const rolled = dmg;
     if (sv > 1) dmg = damageToSlots(dmg, sv);
-    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg, ...(sv > 1 ? { rolled, slotValue: sv } : {}), ...(amazing ? { amazing } : {}) };
+    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg, ...(sv > 1 ? { rolled, slotValue: sv } : {}), ...(amazing ? { amazing } : {}), ...(typed.why ? { typed: typed.why, dtype: atk.dtype } : {}) };
     if (dmg > 0 && ctx.h?.applyDamage) {
       const before = target.hp;
       ctx.h.applyDamage(st, ctx, out, { uid: target.uid, amount: dmg, by: p.id });
@@ -549,7 +553,15 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
   else if (a.dc !== undefined) defense = int(a.dc, 'dc', -10, 99);
   else return;
   const res = attackOutcome(rules, { d20: rec.natural, total: rec.total, target: defense });
-  rec.vs = { ...(target ? { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name } : { dc: true }), hit: res.hit, crit: res.crit, degree: res.degree, degrees: rules.degrees, defense, margin: res.margin, ...(res.deg7 ? { deg7: res.deg7 } : {}) };
+  // An Advantage earned by a great Evade against this mob is used up by this attack.
+  const rxAdv = target && st.combat?.rx?.advantage;
+  let hadAdv = false;
+  if (rxAdv?.length) {
+    const me = (st.combat.combatants ?? []).find((x) => x.type === 'crawler' && x.playerId === p.id);
+    const i = me ? rxAdv.findIndex((v) => v.uid === me.uid && v.mobUid === target.uid) : -1;
+    if (i >= 0) { rxAdv.splice(i, 1); hadAdv = true; }
+  }
+  rec.vs = { ...(hadAdv ? { advantage: true } : {}), ...(target ? { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name } : { dc: true }), hit: res.hit, crit: res.crit, degree: res.degree, degrees: rules.degrees, defense, margin: res.margin, ...(res.deg7 ? { deg7: res.deg7 } : {}) };
   if (target && rec.part === 'hit') undoPush(st, rec);
 }
 
@@ -1175,7 +1187,7 @@ export const SHEET = {
     if (w.kind === 'attack') rec.part = w.part === 'damage' ? 'damage' : 'hit';
     resolveAgainst(st, ctx0, a, rec, p, out);
     pushRoll(st, rec, out, ctx0);
-    out.result = { rollId: rec.id, total: rec.total, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, applied: rec.applied ?? null } : {}) };
+    out.result = { rollId: rec.id, total: rec.total, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, typed: rec.vs.typed ?? null, advantage: !!rec.vs.advantage, applied: rec.applied ?? null } : {}) };
   },
 
   /** Dice mode for this crawler: off (everything at the table), enter (type the real die), digital (phone rolls). */
@@ -1210,6 +1222,8 @@ function attackFields(p, a, ctx, creating) {
     dice: diceOpt(a.dice, 'dice') ?? (creating ? '' : undefined),
     effects: str(a.effects, 'effects', 300, { optional: true, allowEmpty: true }) ?? (creating ? '' : undefined),
   };
+  // Damage type (fire, piercing…): mobs may resist / be vulnerable / immune. '' = untyped.
+  if (a.dtype !== undefined) f.dtype = typeof a.dtype === 'string' && /^[a-z][a-z -]{0,29}$/i.test(a.dtype.trim()) ? a.dtype.trim().toLowerCase() : '';
   // Damage stat when it differs from the to-hit stat ('none' = the damage adds no stat). Omitted = same.
   if (a.dmgStat !== undefined) {
     if (a.dmgStat === '' || a.dmgStat === null) f.dmgStat = '';

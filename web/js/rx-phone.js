@@ -56,9 +56,13 @@ export function createRxPhone({ send, toast, onAttack = null }) {
     const opt = (label, sub, onclick, primary = false) => h('button.btn.rxp-opt', { type: 'button', class: primary ? 'btn btn-primary rxp-opt' : 'btn rxp-opt', onclick }, h('b', label), h('small', sub));
     if (react && left > 0) {
       if (atMe.length && !evading) buttons.push(opt(`Evade (${atMe.length} attack${atMe.length === 1 ? '' : 's'} on you)`, 'Dodge: 1 action, then roll a d20 for each attack', () => call({ t: 'rx.interrupt', kind: 'evade' }), true));
-      buttons.push(opt('Heal', 'Cast Heal now, before the hits land (1 action)', () => call({ t: 'rx.interrupt', kind: 'heal' })));
+      const hs = view.pack?.ruleset?.combat?.healSpell;
+      buttons.push(opt('Heal', hs ? `${hs.mana} Mana: ${hs.slots} Health slots back now, before the hits land (1 action)` : 'Cast Heal now, before the hits land (1 action)', () => call({ t: 'rx.interrupt', kind: 'heal' })));
       if (!canIntervene) buttons.push(opt('Intervene', 'Keep a d6 ready to add to a friend’s roll (1 action)', () => call({ t: 'rx.interrupt', kind: 'intervene' })));
     }
+    const myAdv = (rx.advantage || []).filter((v) => v.uid === mine.uid);
+    if (rx.step === 'act' && myAdv.length) buttons.push(h('p.rxp-alert', `Advantage against ${myAdv.map((v) => v.mob).join(', ')}: roll 2 d20, keep the higher.`));
+    if (rx.round === 0 && rx.surprised && rx.step === 'act') buttons.push(h('p.rxp-alert', 'Surprise! One free action before the mobs move.'));
     if (rx.step === 'act' && left > 0) {
       if (onAttack) buttons.push(opt('Attack', 'Pick a mob, roll a d20 (1 action)', async () => { if (await call({ t: 'rx.spend' })) onAttack(); }, true));
       buttons.push(opt('Something else', 'Move, use an item, cast… (1 action)', () => call({ t: 'rx.spend' })));

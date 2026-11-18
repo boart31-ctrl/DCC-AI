@@ -22,7 +22,7 @@
 // Views: the GM sees everything. Players and the TV see crawlers + revealed mobs only, mob HP as a
 // rounded fraction (exact numbers only with `showMobHp`), never notes / attacks / library GM fields.
 import { bad, notFound } from './errors.js';
-import { combatRules, mobSlotValue, damageToSlots } from './outcome.js';
+import { combatRules, mobSlotValue, damageToSlots, typedDamage } from './outcome.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import { SCENE_GM, introLine } from './scenes.js';
 
@@ -319,7 +319,9 @@ function changeHp(st, a, ctx, out, sign) {
       try { dr = defenseOf(ctx.pack, computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed).dr; } catch { dr = 0; }
     }
     const min = combatRules(ctx.pack, c.settings).drMin ?? 0;
-    const after = Math.max(min, amount - Math.max(0, dr));
+    let after = Math.max(min, amount - Math.max(0, dr));
+    // a.dtype: the damage type; a mob's resist / vulnerable / immune lists change it (after DR).
+    if (a.dtype && x.type === 'mob') after = typedDamage(after, a.dtype, x).amount;
     drApplied = amount - after;
     amount = after;
     if (amount <= 0) { out.result = { hp: x.hp ?? null, blocked: true, dr }; out.changed = false; return; }
@@ -773,6 +775,9 @@ export const COMBAT_GM = {
         evade: Number.isInteger(e.evade) ? e.evade : 0, dr: Number.isInteger(e.dr) ? e.dr : 0,
         ...(Number.isInteger(e.slotValue) && e.slotValue >= 1 ? { slotValue: e.slotValue } : {}),
         ...(e.role && e.role !== 'standard' ? { role: e.role } : {}),
+        ...(e.resist?.length ? { resist: [...e.resist] } : {}),
+        ...(e.vulnerable?.length ? { vulnerable: [...e.vulnerable] } : {}),
+        ...(e.immune?.length ? { immune: [...e.immune] } : {}),
         attacks: cleanAttacks(e.attacks), conditions: [], notes: '', hidden, ...MOB_TARGETING,
       };
       if (Number.isFinite(e.initiative)) m.initiative = e.initiative;

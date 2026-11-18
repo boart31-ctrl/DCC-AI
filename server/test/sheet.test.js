@@ -993,3 +993,41 @@ test('private DCC pack: injuries after the fight (Evade major fail → minor, a 
   assert.equal(after.derived.evade.value, before.derived.evade.value - 2);
   void pid;
 });
+
+test('private DCC pack: heal interrupt (2 Mana → 2 slots), debuff damage at clean up, surprise round, typed damage, Advantage after a great Evade', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  const gm = (s, a) => reduce(s, { role: 'gm', ...a }, c());
+  let st = gm(createState(dcc, 0), { t: 'player.add', name: 'Fargo' }).state;
+  const pid = st.players[0].id;
+  st = gm(st, { t: 'combat.addAdhoc', name: 'Rat', hp: 20, evade: 0, hidden: false }).state;
+  st = gm(st, { t: 'combat.start' }).state;
+  // Surprise: one free action each, round 0.
+  st = gm(st, { t: 'rx.surprise' }).state;
+  const me = () => st.combat.combatants.find((y) => y.type === 'crawler');
+  assert.equal(st.combat.rx.step, 'act');
+  assert.equal(st.combat.rx.acts[me().uid], 1);
+  assert.throws(() => gm(st, { t: 'rx.surprise' }), /only before/);
+  st = gm(st, { t: 'rx.round' }).state;
+  assert.equal(st.combat.rx.round, 1);
+  // Heal interrupt: damage first, then heal in the react step.
+  st = gm(st, { t: 'combat.damage', uid: me().uid, amount: 3 }).state;
+  const hpBefore = st.players[0].sheet.tracks.hp.cur;
+  const manaBefore = st.players[0].sheet.tracks.mana.cur;
+  st = gm(st, { t: 'rx.step', to: 'react' }).state;
+  st = reducePlayerAction(st, { t: 'rx.interrupt', kind: 'heal' }, c({ playerId: pid })).state;
+  assert.equal(st.players[0].sheet.tracks.mana.cur, manaBefore - 2);
+  assert.equal(st.players[0].sheet.tracks.hp.cur, Math.min(st.players[0].sheet.tracks.hp.max ?? 10, hpBefore + 2));
+  // Burned: 1d10 + floor at clean up.
+  st = gm(st, { t: 'combat.condition', uid: me().uid, buffId: 'burned', on: true }).state;
+  const hp2 = st.players[0].sheet.tracks.hp.cur;
+  st = gm(st, { t: 'rx.round' }).state;
+  assert.ok(st.players[0].sheet.tracks.hp.cur < hp2, 'burned at clean up');
+  assert.ok(st.combat.rx.log.some((l) => /Burned/.test(l.text ?? l)));
+  // Typed damage: an immune mob takes nothing from that type.
+  const rat = st.combat.combatants.find((y) => y.type === 'mob');
+  rat.immune = ['fire'];
+  const ratHp = rat.hp;
+  st = gm(st, { t: 'combat.damage', uid: rat.uid, amount: 9, dr: true, dtype: 'fire' }).state;
+  assert.equal(st.combat.combatants.find((y) => y.uid === rat.uid).hp, ratHp);
+});

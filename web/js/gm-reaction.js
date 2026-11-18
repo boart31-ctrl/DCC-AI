@@ -85,6 +85,7 @@ export function rxPanel({ act, view }) {
   return h('section.panel.rx',
     h('div.sec-head', h('h2', `Round ${rx.round}`), steps, h('span.grow'),
       rx.step === 'declare' ? h('button.btn.btn-sm', { type: 'button', title: 'Mobs attack once each, spread evenly; elites and bosses attack every crawler', onclick: () => act({ t: 'rx.suggest' }, 'Attacks suggested. Change any you like.') }, icon('sparkle', { size: 13 }), 'Suggest') : null,
+      rx.step === 'declare' && rx.round === 1 && !rx.decls.length && !rx.surprised ? h('button.btn.btn-sm', { type: 'button', title: 'The crawlers surprised the mobs (Stealth / Ambush beat their Surprise): one free action each before round 1', onclick: () => act({ t: 'rx.surprise' }, 'Surprise round: one free action each.') }, 'Crawlers surprise') : null,
       nextBtn),
     pips,
     rx.step === 'declare' ? h('p.dim', 'Pick who each mob attacks: Suggest does it by the book (elites and bosses hit everyone), then change any line. Nothing rolls for the mobs.') : null,

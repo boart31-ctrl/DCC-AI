@@ -244,9 +244,26 @@ export const REACTION_GM = {
     if (a.to === 'react') out.emit({ kind: 'rx.react', round: rx.round, targets: [...new Set(rx.decls.map((d) => d.targetUid))] }, 'all');
   },
 
+  /**
+   * The crawlers surprised the mobs (Stealth / Ambush beat their Surprise): before round 1 every crawler gets
+   * one free action, the mobs do nothing. Then rx.round starts round 1 as usual.
+   */
+  'rx.surprise'(st, a, ctx, out) {
+    const rx = rxOf(st);
+    if (rx.round !== 1 || rx.step !== 'declare' || rx.decls.length || rx.surprised) throw bad('only before the first round');
+    rx.surprised = true;
+    rx.round = 0;
+    C(st).round = 0;
+    rx.step = 'act';
+    for (const x of crawlers(st)) rx.acts[x.uid] = 1;
+    log(rx, 'Surprise! The crawlers get one free action each.');
+    out.emit({ kind: 'rx.surprise' }, 'all');
+  },
+
   /** Clean up and start the next round at declare. */
   'rx.round'(st, a, ctx, out) {
     const rx = rxOf(st);
+    debuffTicks(st, ctx, out, rx);
     dyingTick(st, ctx, out, 'cleanup');
     rx.round += 1;
     C(st).round = rx.round;
@@ -269,6 +286,34 @@ export const REACTION_GM = {
     rx.acts[a.uid] = Math.max(0, Math.min(5, (rx.acts[a.uid] ?? ACTIONS_PER_ROUND) + a.delta));
   },
 };
+
+/**
+ * Clean up: every buff / condition with a `tick` (Blood Trail, Burned, Poisoned…) deals its damage — crawlers
+ * from their sheet buffs, mobs from conditions that name a library buff (buffId).
+ */
+function debuffTicks(st, ctx, out, rx) {
+  const lib = libraryOf(st, ctx.pack);
+  const F = floorOfState(st);
+  const hit = (x, def, who) => {
+    let n = 0;
+    try { n = rollDice(def.tick.damage, { randInt: ctx.randInt }).total; } catch { n = 1; }
+    n += def.tick.plusFloor ? F : 0;
+    if (n <= 0) return;
+    const wasDying = x.type === 'crawler' && x.dying != null;
+    COMBAT_GM['combat.damage'](st, { uid: x.uid, amount: n, dr: false, ...(def.tick.type ? { dtype: def.tick.type } : {}) }, ctx, { ...out, result: null });
+    if (x.type === 'crawler') onCrawlerDamage(st, ctx, out, x, wasDying);
+    log(rx, `${who}: ${def.name} ${n}.`);
+  };
+  for (const x of [...C(st).combatants]) {
+    if (x.dead) continue;
+    if (x.type === 'crawler') {
+      const p = st.players.find((y) => y.id === x.playerId);
+      for (const b of p?.sheet?.buffs ?? []) { const def = b.buffId ? lib.get('buff', b.buffId) : null; if (def?.tick) hit(x, def, p.name); }
+    } else if (x.type === 'mob') {
+      for (const k of x.conditions ?? []) { const bid = k.id ?? k.buffId; const def = bid ? lib.get('buff', bid) : null; if (def?.tick) hit(x, def, x.name); }
+    }
+  }
+}
 
 /** Health of a crawler combatant (the sheet's hp track): { cur, max } or null. */
 function crawlerHealth(st, ctx, x) {
@@ -329,6 +374,11 @@ function evadeRoll(st, ctx, out, a, playerId) {
   const total = a.die + crawlerEvade(st, ctx, x);
   const degree = degreeOf(a.die, total, d.attack.dc);
   d.evade = { die: a.die, total, degree };
+  // Evade natural 20 / Amazing: Advantage on the next attack against that mob (shown on the phone + TV log).
+  if (degree === 'crit' || degree === 'amazing') {
+    rx.advantage = [...(rx.advantage ?? []).filter((v) => !(v.uid === x.uid && v.mobUid === d.mobUid)), { uid: x.uid, mobUid: d.mobUid }].slice(-20);
+    log(rx, `${nameOf(st, x)} has Advantage on the next attack against ${mobOf(st, d.mobUid).name}.`);
+  }
   out.result = { degree, label: DEGREE_LABEL[degree], near: degree === 'near' };
   out.emit({ kind: 'rx.evade', declId: d.id, uid: x.uid, degree, near: degree === 'near' }, 'all');
 }
@@ -361,6 +411,20 @@ export const REACTION_PLAYER = {
       const ok = a.total >= dc;
       if (ok) { d.targetUid = me.uid; d.taunted = true; }
       out.result = { ok };
+    } else if (a.kind === 'heal' && ctx.pack.ruleset.combat?.healSpell) {
+      // The heal every crawler has (DCC: 2 Mana → 2 Health slots), before the hits land.
+      const hs = ctx.pack.ruleset.combat.healSpell;
+      const p = st.players.find((y) => y.id === me.playerId);
+      const mana = p?.sheet?.tracks?.[hs.track];
+      const have = Number(mana?.cur ?? mana?.value ?? 0);
+      if (!mana || have < hs.mana) throw bad(`not enough Mana (needs ${hs.mana})`);
+      if (me.dead) throw bad('too late');
+      spend(rx, me.uid);
+      p.sheet.tracks[hs.track] = { ...mana, cur: have - hs.mana };
+      const wasDying = me.dying != null;
+      COMBAT_GM['combat.heal'](st, { uid: me.uid, amount: hs.slots }, ctx, { ...out, result: null });
+      if (wasDying) dyingTick(st, ctx, out, 'heal', me.uid);
+      out.result = { healed: hs.slots, mana: have - hs.mana };
     } else {
       spend(rx, me.uid);
       if (a.kind === 'intervene') rx.intervene.push(me.uid);
@@ -411,5 +475,6 @@ export function reactionView(state, role) {
     const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
     return gm ? { ...base, dc: d.attack.dc, damageDice: d.attack.damage, evadeTotal: d.evade?.total ?? null } : base;
   });
-  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, evading: rx.evading, intervene: rx.intervene, log: gm ? rx.log.slice(-12) : rx.log.slice(-5) };
+  const advantage = (rx.advantage ?? []).filter((v) => gm || !mobs.get(v.mobUid)?.hidden).map((v) => ({ uid: v.uid, mobUid: v.mobUid, mob: mobs.get(v.mobUid)?.name ?? '?' }));
+  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5) };
 }

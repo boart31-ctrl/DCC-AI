@@ -212,6 +212,7 @@ export function createRollPad({ send, getView, getMe }) {
     const total = r.total ?? roll.total;
     const hasVs = r.hit !== undefined;
     const dmgLabel = isDamage() ? (r.applied ? (r.applied.after <= 0 ? 'DOWN!' : `−${-r.applied.delta} HP`) : 'Tell the GM') : null;
+    const typedNote = isDamage() && r.typed ? { immune: 'Immune to that: no damage.', resistant: 'Resistant: half damage.', vulnerable: 'Vulnerable: double damage!' }[r.typed] : null;
     const DEG7 = { crit: 'CRITICAL HIT', amazing: 'AMAZING', success: st.what.kind === 'attack' ? 'HIT' : 'SUCCESS', near: 'NEAR MISS', fail: st.what.kind === 'attack' ? 'MISS' : 'FAIL', major: 'MAJOR FAIL', critfail: 'CRITICAL FAIL' };
     const label = dmgLabel ?? (r.deg7 ? DEG7[r.deg7] : !hasVs ? null : r.degree === 3 ? (rules().degrees ? 'CRITICAL SUCCESS' : 'CRITICAL HIT') : r.hit ? (st.what.kind === 'attack' ? 'HIT' : 'SUCCESS') : r.degree === 0 && rules().degrees ? 'CRITICAL FAILURE' : st.what.kind === 'attack' ? 'MISS' : 'FAIL');
         return h('div.rp-body', head(st.label, null), h('div.rp-scroll',
@@ -219,6 +220,7 @@ export function createRollPad({ send, getView, getMe }) {
         h('span.rp-total', String(total ?? '?')),
         h('span.rp-math', isDamage() ? `dice ${roll.dice?.map((d) => d.value).join(' + ') || r.natural || '?'} + modifiers` : `d20 ${roll.natural ?? r.natural ?? roll.dice?.find((d) => d.die === 'd20')?.value ?? '?'}${roll.adv ? ` (${roll.adv === 'adv' ? 'best' : 'worst'} of ${roll.natural}, ${roll.otherDie})` : ''} + modifiers`),
         label ? h('span.rp-verdict', label) : h('span.rp-verdict.dim', 'Tell the GM')),
+      typedNote ? h('p.rp-note', typedNote) : null,
       r.deg7 === 'near' ? h('p.rp-note', 'So close. A friend can Intervene: their phone offers +1d6 now.') : null,
       r.deg7 === 'amazing' ? h('p.rp-note', 'Amazing: the floor number is added to your damage.') : null,
       r.deg7 === 'crit' ? h('p.rp-note', 'Critical: roll your damage dice twice.') : null,

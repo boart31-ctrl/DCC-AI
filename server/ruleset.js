@@ -198,6 +198,10 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
     });
   } else if (kind === 'buff') {
     Object.assign(e, { effects: normalizeEffects(raw.effects, ctx), duration: text(raw.duration, 80), external: raw.external === true });
+    // Damage at every clean up while it lasts (Blood Trail, Burned, Poisoned…): dice + the floor if plusFloor.
+    if (raw.tick && typeof raw.tick === 'object' && /^\d*d\d+([+-]\d+)?$/.test(String(raw.tick.damage ?? '').replace(/\s/g, ''))) {
+      e.tick = { damage: String(raw.tick.damage).replace(/\s/g, ''), plusFloor: raw.tick.plusFloor === true, type: text(raw.tick.type, 30).toLowerCase() };
+    }
   } else if (kind === 'feature') {
     Object.assign(e, { effects: normalizeEffects(raw.effects, ctx) });
   } else if (kind === 'boss') {
@@ -281,6 +285,10 @@ function normalizeBossEntry(raw, ctx, opts) {
     // Stat block for running the boss as a combatant (optional; the boss scene ignores these).
     evade: intOr(raw, 'evade', -99, 99, 0, ctx),
     dr: intOr(raw, 'dr', -99, 99, 0, ctx),
+    // Damage types (lower case, e.g. fire): resistant = half, vulnerable = double, immune = none (after DR).
+    resist: typeList(raw.resist),
+    vulnerable: typeList(raw.vulnerable),
+    immune: typeList(raw.immune),
     attacks: normalizeStatAttacks(raw.attacks, ctx),
   };
 }
@@ -365,6 +373,10 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     role: ['elite', 'minion', 'boss'].includes(raw.role) ? raw.role : 'standard',
     evade: intOr(raw, 'evade', -99, 99, 0, ctx),
     dr: intOr(raw, 'dr', -99, 99, 0, ctx),
+    // Damage types (lower case, e.g. fire): resistant = half, vulnerable = double, immune = none (after DR).
+    resist: typeList(raw.resist),
+    vulnerable: typeList(raw.vulnerable),
+    immune: typeList(raw.immune),
     attacks: normalizeStatAttacks(raw.attacks, ctx),
     flavor: text(raw.flavor, 1200),
     intro: text(raw.intro, 600), // the System's announcement the first time it shows up: TV voice
@@ -374,6 +386,10 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     tactics: text(raw.tactics, 3000), // GM only
     lootHint: text(raw.lootHint, 300), // GM only
   };
+}
+
+function typeList(v) {
+  return Array.isArray(v) ? [...new Set(v.filter((x) => typeof x === 'string' && /^[a-z][a-z -]{0,29}$/i.test(x.trim())).map((x) => x.trim().toLowerCase()))].slice(0, 12) : [];
 }
 
 function monsterVariants(v, ctx, opts) {
@@ -528,6 +544,8 @@ function normalizeCombatRules(raw, derived, unv) {
     // time a dying crawler is damaged; at 0 they die. Healed above 0 = no longer dying.
     // Injuries after combat: buff ids for { minor, major, minorLong, majorLong }; a second one of the same
     // kind becomes the long-term one (reaction.js marks them, state.js gives them on combat.end).
+    // The heal every crawler has as an interrupt (rx.interrupt heal): { mana, slots, track? (mana track id) }.
+    healSpell: isObj(r.healSpell) && Number.isInteger(r.healSpell.mana) && Number.isInteger(r.healSpell.slots) ? { mana: Math.max(0, r.healSpell.mana), slots: Math.max(1, r.healSpell.slots), track: isStr(r.healSpell.track) ? r.healSpell.track : 'mana' } : null,
     injuries: isObj(r.injuries) && ['minor', 'major'].every((k) => isStr(r.injuries[k])) ? { minor: r.injuries.minor, major: r.injuries.major, minorLong: isStr(r.injuries.minorLong) ? r.injuries.minorLong : null, majorLong: isStr(r.injuries.majorLong) ? r.injuries.majorLong : null } : null,
     dyingRounds: isStr(r.dyingRounds) && !validateFormula(r.dyingRounds, {}) ? r.dyingRounds.trim() : null,
     // Every crawler can fight without gear: given when a crawler is created or a fight starts and they have no attack.

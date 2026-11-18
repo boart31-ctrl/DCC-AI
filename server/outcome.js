@@ -109,3 +109,15 @@ export function mobSlotValue(pack, mob) {
 export function damageToSlots(amount, slotValue) {
   return slotValue > 1 ? Math.floor(Math.max(0, amount) / slotValue) : Math.max(0, amount);
 }
+
+/** Damage after DR by type against a target's { resist, vulnerable, immune } lists (lower-case types). */
+export function typedDamage(amount, type, target) {
+  const t = String(type || '').toLowerCase();
+  if (!t || !target) return { amount, why: null };
+  if ((target.immune ?? []).includes(t)) return { amount: 0, why: 'immune' };
+  let out = amount;
+  let why = null;
+  if ((target.resist ?? []).includes(t)) { out = Math.floor(out / 2); why = 'resistant'; }
+  if ((target.vulnerable ?? []).includes(t)) { out *= 2; why = why ? null : 'vulnerable'; }
+  return { amount: out, why };
+}

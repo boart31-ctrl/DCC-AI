@@ -125,7 +125,7 @@ export function makeCreation(GM) {
         const uid = skillUid[k.skill] ?? null;
         const same = p.sheet.attacks.find((x) => x.name === k.name || (uid && x.skillUid === uid && x.dice === k.dice));
         if (same) continue;
-        GM['attack.add'](st, { ...who, name: k.name, dice: k.dice, stat: k.stat, ...(uid ? { skillUid: uid } : {}), ...(k.damageStat !== undefined && k.damageStat !== k.stat ? { dmgStat: k.damageStat || 'none' } : {}), ...(k.damageType ? { effects: [k.damageType, k.note].filter(Boolean).join(', ') } : {}) }, ctx, sub());
+        GM['attack.add'](st, { ...who, name: k.name, dice: k.dice, stat: k.stat, ...(uid ? { skillUid: uid } : {}), ...(k.damageStat !== undefined && k.damageStat !== k.stat ? { dmgStat: k.damageStat || 'none' } : {}), ...(k.damageType ? { dtype: k.damageType, effects: [k.damageType, k.note].filter(Boolean).join(', ') } : {}) }, ctx, sub());
       }
       // The background here is the life stages the rules ask for, not an origin needing approval: written directly.
       if (labels.length) { p.sheet.identity = { ...(p.sheet.identity ?? {}), background: labels.join(' · ').slice(0, 120) }; }
