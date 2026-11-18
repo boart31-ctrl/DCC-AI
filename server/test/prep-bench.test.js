@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { benchmark, crawlerTable } from '../../web/js/prep-bench.js';
+import { fitToParty } from '../../web/js/gm-encounter.js';
 
 const party = (n, level = 1) => Array.from({ length: n }, () => ({ level }));
 
@@ -33,4 +34,18 @@ test('pf2e: XP budget scaled for party size', () => {
   assert.equal(benchmark('pf2e', party(4, 3), [{ level: 5 }, { level: 3 }]).label, 'Severe'); // 120
   assert.equal(benchmark('pf2e', party(5, 3), [{ level: 3, count: 2 }]).label, 'Moderate', '80 ≤ 100 for five'); // budget 100
   assert.equal(benchmark('pf2e', party(4, 3), [{ level: -5 }]).label, 'Trivial');
+});
+
+
+test('fitToParty preserves boss/elite counts and includes all of them in the strength budget', () => {
+  const view = {
+    players: party(4),
+    library: { monster: [{ id: 'grunt', role: 'standard' }], boss: [{ id: 'boss', role: 'boss' }] },
+  };
+  const payload = { mobs: [{ kind: 'boss', sourceId: 'boss', count: 2 }, { kind: 'monster', sourceId: 'grunt', count: 3 }] };
+  const fitted = fitToParty(view, payload, 2);
+  assert.equal(fitted.find((m) => m.sourceId === 'boss').count, 2, 'must not silently delete a boss');
+  assert.equal(fitted.find((m) => m.sourceId === 'grunt').count, 1, 'two bosses already exhaust the overwhelming budget');
+  const b = benchmark('crawler', view.players, fitted.map((m) => ({ role: m.kind === 'boss' ? 'boss' : 'standard', count: m.count })));
+  assert.equal(b.level, 3);
 });
