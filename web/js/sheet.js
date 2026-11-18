@@ -410,14 +410,30 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       h('h2.blk-t', 'Skills', h('span.blk-n', String(all.length)), (() => { if (!gm) return null; const uv = sectionUnverified(/^skills/) || (rs.skills.rankUp?.note ? `Rank-up: ${rs.skills.rankUp.note}` : ''); return uv ? unverifiedBadge(uv) : null; })()),
       all.length > 6 || sq ? h('input.inp.inp-search.sk-search', { type: 'search', placeholder: `Search ${all.length} skills`, value: ui.skillQuery || '', 'aria-label': 'Search skills', oninput: (e) => { ui.skillQuery = e.target.value; const sel = e.target.selectionStart; draw(true); const n = root.querySelector('.sk-search'); n?.focus(); n?.setSelectionRange(sel, sel); } }) : null,
       list.length ? h('div.table', head, h('ul.skill-list', rows)) : h('p.empty-s', sq ? 'No skill matches.' : can('sheet') ? 'No skills yet. Add one from the catalog.' : 'No skills yet.'),
+      untriedCard(),
       can('sheet') ? addSkillForm() : null,
     );
+  }
+
+  /** DCC Tutorial Floors: skills tried untrained this session; at its end the crawler learns one (Rank 1). */
+  function untriedCard() {
+    const U = M.rs.skills?.untrained;
+    const list = M.sheet.untried || [];
+    if (!U?.learn || !list.length) return null;
+    const names = list.map((id) => ({ id, name: M.lib.skill.find((x) => x.id === id)?.name || id }));
+    const ok = can('play') || gm;
+    return h('div.sk-untried',
+      h('p', h('b', 'Tried untrained: '), names.map((x) => x.name).join(', ')),
+      h('p.dim', 'End of the session (about 2 hours): learn one of them at Rank 1. The rest are wiped.'),
+      ok ? h('div.row-wrap', names.map((x) => h('button.btn.btn-sm', { type: 'button', onclick: async () => { if (await ask(`Learn ${x.name} at Rank 1? The rest of the list is wiped.`, { ok: 'Learn' })) act({ t: 'untrained.learn', skillId: x.id }, `${x.name} learned.`); } }, `Learn ${x.name}`)),
+        gm ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'untrained.clear' }, 'Wiped.') }, 'Wipe') : null) : null);
   }
 
   function addSkillForm() {
     const rs = M.rs;
     const have = new Set((M.sheet.skills || []).map((s) => s.skillId));
-    const cat = [...(M.lib.skill.length ? M.lib.skill : rs.skills.catalog)].filter((s) => !have.has(s.id)).sort((a, b) => a.name.localeCompare(b.name));
+    const hide = new Set(gm ? [] : rs.skills.hideTags || []);
+    const cat = [...(M.lib.skill.length ? M.lib.skill : rs.skills.catalog)].filter((s) => !have.has(s.id) && !(s.tags || []).some((t) => hide.has(t))).sort((a, b) => a.name.localeCompare(b.name));
     const sel = select([{ value: '', label: 'Add skill from catalog…' }, ...cat.map((s) => ({ value: s.id, label: `${s.name} (${rs.stats.find((x) => x.id === s.stat)?.abbr || s.stat})` })), { value: '__custom', label: 'Custom skill…' }], '', {
       label: 'Add skill',
       onChange: (v) => {

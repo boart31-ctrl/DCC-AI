@@ -112,7 +112,7 @@ function addDecl(st, ctx, rx, mob, attackIndex, targetUid) {
   const atk = (mob.attacks ?? [])[attackIndex ?? 0];
   if (!atk) throw bad(`${mob.name} has no attack ${attackIndex ?? 0}`);
   const t = crawlerOf(st, targetUid);
-  const d = { id: ctx.genId('dc'), mobUid: mob.uid, attack: { name: atk.name || 'Attack', damage: atk.damage || '1d4', dc: attackDc(atk, combatRules(ctx.pack, C(st).settings), floorOfState(st)), area: !!atk.area }, targetUid: t.uid, caught: false, taunted: false, evade: null, result: null, damage: null };
+  const d = { id: ctx.genId('dc'), mobUid: mob.uid, attack: { name: atk.name || 'Attack', damage: atk.damage || '1d4', dc: attackDc(atk, combatRules(ctx.pack, C(st).settings), mob.flat ? 0 : floorOfState(st)), area: !!atk.area }, targetUid: t.uid, caught: false, taunted: false, evade: null, result: null, damage: null };
   rx.decls.push(d);
   return d;
 }
@@ -148,11 +148,12 @@ function resolveDecl(st, ctx, out, rx, d) {
   const target = C(st).combatants.find((x) => x.uid === d.targetUid);
   if (!mob || !target) { d.result = 'evaded'; return; }
   const deg = d.evade?.degree ?? null;
-  let mult = 1;
+  // Splash ring of an area attack: half damage, a successful Evade there leaves a quarter.
+  let mult = d.splash ? 0.5 : 1;
   let bonus = 0;
   if (deg && isSuccess(deg)) {
     if (!d.attack.area) { d.result = 'evaded'; d.damage = 0; log(rx, `${nameOf(st, target)} evades ${mob.name}'s ${d.attack.name}.`); return; }
-    mult = 0.5;
+    mult *= 0.5;
   }
   if (deg === 'major') bonus = floorOfState(st);
   if (deg === 'critfail') mult *= 2;
@@ -163,7 +164,7 @@ function resolveDecl(st, ctx, out, rx, d) {
   let rolled = 0;
   try { rolled = rollDice(d.attack.damage, { randInt: ctx.randInt }).total; } catch { rolled = 1; }
   const amount = Math.max(0, Math.floor(rolled * mult) + bonus);
-  d.result = mult === 0.5 ? 'half' : 'hit';
+  d.result = mult < 1 ? 'half' : 'hit';
   d.damage = amount;
   log(rx, `${mob.name} hits ${nameOf(st, target)} with ${d.attack.name}: ${amount}${deg === 'major' ? ' (major fail: +floor)' : deg === 'critfail' ? ' (critical fail: double)' : ''}.`);
   if (amount > 0) {
@@ -209,6 +210,20 @@ export const REACTION_GM = {
     d.attack.baseDc ??= d.attack.dc;
     d.adv = a.adv ?? null;
     d.attack.dc = d.attack.baseDc + (d.adv === 'adv' ? 5 : d.adv === 'dis' ? -5 : 0);
+  },
+
+  /**
+   * `{ declId, area: null | 'full' | 'splash' }` Area of Effect for this hit: 'full' (evade halves it) or
+   * 'splash' (the target stands in the splash ring: half damage, a successful Evade leaves a quarter).
+   */
+  'rx.area'(st, a) {
+    const rx = rxOf(st);
+    if (!['declare', 'react'].includes(rx.step)) throw bad('change it before the hits land');
+    const d = declOf(rx, a.declId);
+    if (d.result) throw bad('already resolved');
+    if (![null, 'full', 'splash'].includes(a.area ?? null)) throw bad('area must be full, splash or null');
+    d.attack.area = !!a.area;
+    d.splash = a.area === 'splash';
   },
 
   'rx.undeclare'(st, a) {
@@ -473,7 +488,7 @@ export function reactionView(state, role) {
   const mobs = new Map(c.combatants.filter((x) => x.type === 'mob').map((x) => [x.uid, x]));
   const decls = rx.decls.filter((d) => gm || !mobs.get(d.mobUid)?.hidden).map((d) => {
     const m = mobs.get(d.mobUid);
-    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
+    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, splash: !!d.splash, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
     return gm ? { ...base, dc: d.attack.dc, damageDice: d.attack.damage, evadeTotal: d.evade?.total ?? null } : base;
   });
   const advantage = (rx.advantage ?? []).filter((v) => gm || !mobs.get(v.mobUid)?.hidden).map((v) => ({ uid: v.uid, mobUid: v.mobUid, mob: mobs.get(v.mobUid)?.name ?? '?' }));

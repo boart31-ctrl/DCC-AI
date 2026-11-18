@@ -58,6 +58,7 @@ export function rxPanel({ act, view }) {
     return h('li.rx-decl', { class: d.result ? `rx-decl rx-${d.result}` : 'rx-decl' },
       h('b', d.mob), h('span.dim', d.attack), icon('target', { size: 13 }),
       rx.step === 'declare' ? select(crawlers.map((x) => ({ value: x.uid, label: nameOf(x.uid) })), d.targetUid, { cls: 'inp-sm', label: `${d.mob} attacks`, onChange: (v) => act({ t: 'rx.retarget', declId: d.id, targetUid: v }) }) : h('b', nameOf(d.targetUid)),
+      (rx.step === 'declare' || rx.step === 'react') && !d.result ? h('button.btn.btn-sm.btn-quiet.rx-adv', { type: 'button', 'aria-pressed': String(!!d.area), title: 'Area of Effect: full (Evade halves) / splash ring (half; Evade leaves a quarter) / single target', onclick: () => act({ t: 'rx.area', declId: d.id, area: !d.area ? 'full' : !d.splash ? 'splash' : null }) }, !d.area ? 'AoE' : d.splash ? 'Splash ½' : 'AoE full') : null,
       (rx.step === 'declare' || rx.step === 'react') && !d.evade ? h('button.btn.btn-sm.btn-quiet.rx-adv', { type: 'button', 'aria-pressed': String(!!d.adv), title: 'Advantage (+5 to evade: high ground, size) / Disadvantage (−5: cover, darkness) / normal', onclick: () => act({ t: 'rx.adv', declId: d.id, adv: d.adv === 'adv' ? 'dis' : d.adv === 'dis' ? null : 'adv' }) }, d.adv === 'adv' ? 'Adv +5' : d.adv === 'dis' ? 'Dis −5' : '±') : null,
       d.caught ? h('span.pill', 'Caught') : null, d.taunted ? h('span.pill', 'Taunted') : null,
       h('span.dim.rx-dc', `DC ${d.dc} · ${d.damageDice}`),

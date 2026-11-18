@@ -212,3 +212,15 @@ Optional. With it, players get a step-by-step creator (`web/js/creator.js`) inst
 | `derived`, `basicActions`, `help` | Explanations: after the stats, on the review + the sheet's Actions tab, the "i" bubble per step |
 
 Attacks may carry `dmgStat` (damage stat when it differs from the to-hit stat, `none` = no stat), e.g. a dagger: Dex to hit, Str to damage.
+
+### skills.untrained / skills.hideTags
+
+```json
+"untrained": { "adv": "dis", "formula": "mod.{stat} + buff.check", "noCheckTypes": ["Passive"], "learn": true, "learnMaxFloor": 2 },
+"hideTags": ["legacy"]
+```
+
+Untrained checks: any library skill not on the sheet can be rolled (`roll` with `what.kind: 'untrained'`), always with
+`adv`, the `formula` instead of Rank + Stat Mod. Check types in `noCheckTypes` cannot be tried. With `learn`, tried skills
+gather in `sheet.untried`; `untrained.learn` turns one into Rank 1 and wipes the list (only up to `learnMaxFloor`, 0 = any
+floor). `hideTags`: library skills with these tags stay out of the players' pickers (kept for old references).

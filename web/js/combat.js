@@ -14,6 +14,7 @@ import { sheetModel, libraryOf } from './rules.js';
 import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
 import { entryArt } from './portrait.js';
 import { openArtGallery } from './art-gallery.js';
+import { statBlock, hasStatBlock } from './statblock.js';
 import { initStrip } from './initiative.js';
 
 const PREF = 'system.combat.ui'; // UI preferences only (builder tab, roll visibility); no game state
@@ -508,6 +509,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
               onclick: () => (v === 'focus' && !m.focus && crawlers[0] ? act({ t: 'combat.target', uid: m.uid, focus: crawlers.find((x) => !x.down)?.uid || crawlers[0].uid }) : act({ t: 'combat.target', uid: m.uid, targetMode: v })) }, l))),
           m.targetMode === 'focus' ? select(crawlers.map((x) => ({ value: x.uid, label: x.name })), m.focus || '', { cls: 'inp-sm', label: 'Focus target', onChange: (v) => act({ t: 'combat.target', uid: m.uid, focus: v }) }) : null)),
       h('div.cc-block', h('span.mini-l', 'Conditions'), conditions(m)),
+      hasStatBlock(e) ? statBlock({ ...e, evade: m.evade, dr: m.dr, attacks: m.attacks }, getView()?.pack?.ruleset?.combat || {}) : null,
       e?.tactics || e?.notes || e?.lootHint || m.attacks.some((a) => a.effects) ? h('div.cbt-info',
         e?.tactics ? h('p', h('b', 'Tactics. '), e.tactics) : null,
         e?.notes ? h('p', h('b', 'Notes. '), e.notes) : null,

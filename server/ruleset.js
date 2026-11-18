@@ -290,6 +290,10 @@ function normalizeBossEntry(raw, ctx, opts) {
     vulnerable: typeList(raw.vulnerable),
     immune: typeList(raw.immune),
     attacks: normalizeStatAttacks(raw.attacks, ctx),
+    // Health slot worth (book bosses: the number in each Health Bar box); 0 = the ruleset's default.
+    slotValue: intOr(raw, 'slotValue', 0, 50, 0, ctx),
+    notes: text(raw.notes, 3000), // GM only
+    ...statBlockExtras(raw),
   };
 }
 
@@ -351,8 +355,37 @@ function normalizeStatAttacks(raw, ctx) {
     }
     let damage = typeof a.damage === 'number' && Number.isInteger(a.damage) ? String(a.damage) : text(a.damage, 60);
     if (damage && !formulaOk(damage, ctx, `${w} damage`, { dice: true })) damage = '';
-    out.push({ name: text(a.name, 60), toHit, damage, effects: text(a.effects, 400), buffs: idList(a.buffs, 10) });
+    out.push({
+      name: text(a.name, 60), toHit, damage, effects: text(a.effects, 400), buffs: idList(a.buffs, 10),
+      // Book stat block extras: damage type, range, Area of Effect ("20ft Cone +10ft Splash").
+      ...(typeof a.dtype === 'string' && /^[a-z][a-z -]{0,29}$/i.test(a.dtype.trim()) ? { dtype: a.dtype.trim().toLowerCase() } : {}),
+      ...(isStr(a.range) ? { range: text(a.range, 60) } : {}),
+      ...(isStr(a.area) ? { area: text(a.area, 120) } : {}),
+    });
   });
+  return out;
+}
+
+/** Book stat block details shown to the GM (DCC: Level, Surprise, Move, size, creature type, the five stats). */
+function statBlockExtras(raw) {
+  const out = {};
+  if (Number.isInteger(raw.level) && raw.level >= 0 && raw.level <= 999) out.level = raw.level;
+  // Surprise: Difficulty of crawler Stealth / Ambush checks against it (plus the floor unless flat).
+  if (Number.isInteger(raw.surprise) && Math.abs(raw.surprise) <= 99) out.surprise = raw.surprise;
+  if (isStr(raw.move)) out.move = text(raw.move, 30);
+  if (isObj(raw.size) && isStr(raw.size.label)) out.size = { label: text(raw.size.label, 20), ...(Number.isInteger(raw.size.value) ? { value: raw.size.value } : {}) };
+  if (isStr(raw.creature)) out.creature = text(raw.creature, 40);
+  if (isStr(raw.neighborhood)) out.neighborhood = text(raw.neighborhood, 60);
+  if (isStr(raw.rank)) out.rank = text(raw.rank, 30);
+  if (isObj(raw.stats)) {
+    const st = {};
+    for (const [k, v] of Object.entries(raw.stats).slice(0, 10)) {
+      if (safeId(k) && isObj(v) && Number.isInteger(v.score) && Number.isInteger(v.mod)) st[k] = { score: v.score, mod: v.mod };
+    }
+    if (Object.keys(st).length) out.stats = st;
+  }
+  // Numbers printed without +F (one-shot adventures): the floor is not added to its Evade or attacks.
+  if (raw.flat === true) out.flat = true;
   return out;
 }
 
@@ -385,6 +418,7 @@ function normalizeMonsterEntry(raw, ctx, opts) {
     notes: text(raw.notes, 3000), // GM only
     tactics: text(raw.tactics, 3000), // GM only
     lootHint: text(raw.lootHint, 300), // GM only
+    ...statBlockExtras(raw),
   };
 }
 
@@ -713,6 +747,23 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     unverified(sk.check, 'skills.check', unv);
   }
   const rankMax = Number.isInteger(sk.rankMax) && sk.rankMax >= 1 && sk.rankMax <= 1000 ? sk.rankMax : 20;
+  // Untrained checks (DCC: Disadvantage, Stat Mod only; Tutorial Floors teach one tried skill per session).
+  let untrained = null;
+  if (isObj(sk.untrained)) {
+    const u = sk.untrained;
+    const f = isStr(u.formula) && !validateFormula(tmpl(u.formula, 'str', ''), {}) ? u.formula.trim() : 'mod.{stat}';
+    if (isStr(u.formula) && f !== u.formula.trim()) warnings.push('ruleset.json skills.untrained.formula invalid, using mod.{stat}');
+    untrained = {
+      adv: ['adv', 'dis'].includes(u.adv) ? u.adv : null,
+      formula: f,
+      noCheckTypes: Array.isArray(u.noCheckTypes) ? u.noCheckTypes.filter(isStr).slice(0, 10) : ['Passive'],
+      learn: u.learn === true,
+      // Only up to this floor (DCC: the Tutorial Floors 1–2); 0 = every floor.
+      learnMaxFloor: Number.isInteger(u.learnMaxFloor) && u.learnMaxFloor >= 0 && u.learnMaxFloor <= 100 ? u.learnMaxFloor : 0,
+      ...(Array.isArray(u.hideTags) ? { hideTags: u.hideTags.filter(isStr).slice(0, 10) } : {}),
+      ...noteOf(u),
+    };
+  }
   const skills = {
     columns: Array.isArray(sk.columns) ? sk.columns.filter(isStr).slice(0, 10) : ['rank', 'stat', 'checkType'],
     ...(isObj(sk.columnLabels) ? { columnLabels: Object.fromEntries(Object.entries(sk.columnLabels).filter(([k, v]) => safeId(k) && isStr(v)).map(([k, v]) => [k, text(v, 80)])) } : {}),
@@ -726,6 +777,9 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     checkTypes,
     usedTracking: sk.usedTracking !== false,
     rankUp,
+    ...(untrained ? { untrained } : {}),
+    // Library skills with these tags stay out of the players' pickers (old homebrew kept for references).
+    ...(Array.isArray(sk.hideTags) ? { hideTags: sk.hideTags.filter(isStr).slice(0, 10) } : {}),
     catalog,
   };
 

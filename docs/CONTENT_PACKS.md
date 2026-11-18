@@ -225,6 +225,12 @@ Optional arrays, library kinds `monster` and `npc` (GM library only; never sent 
 `hpSlots` 1..100 (default 5), `evade`/`dr` integers −99..99, ≤ 12 attacks (`toHit` integer, `damage` dice
 formula or `"0"`, `buffs` = buff ids the attack can apply). The TV only ever shows a revealed mob's name, art,
 HP bar and conditions.
+Book stat block extras (monsters and bosses, optional, GM only): `level`, `surprise` (Difficulty of Stealth / Ambush
+against it, plus the floor), `move` text, `size: {label, value}`, `creature` (type), `rank` ("Neighborhood Boss"),
+`neighborhood`, `ref` (book page), `stats: {str: {score, mod}, …}`, `slotValue` (health box worth, bosses too),
+`flat: true` (numbers printed without +F: the floor is not added to its Evade or attacks). Attacks may carry `dtype`
+(damage type), `range` and `area` ("20ft Cone +10ft Splash"): an attack with `area` is Area of Effect in reaction
+rounds (a successful Evade halves it; the GM can mark a target as in the splash ring, `rx.area`).
 `variants` (monsters, optional): up to 16 more images of the same species (`["gob_archer.webp", …]`, missing files
 are skipped quietly). When several copies of the monster are on the field, each gets a picture none of its kind is
 wearing: the base `image` first, then the variants at random, then the least used one.

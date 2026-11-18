@@ -552,3 +552,5 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 .cr-species { display: grid; gap: 8px; margin-top: 14px; }
 .cr-species h4 { margin: 0; }
 .cr-size { min-height: 0; padding: 6px 10px; }
+.sk-untried { margin: 10px 0; padding: 10px 12px; border: 1px dashed var(--line, #555); border-radius: 10px; display: grid; gap: 6px; }
+.sk-untried p { margin: 0; }

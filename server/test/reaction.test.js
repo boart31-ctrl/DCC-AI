@@ -1,6 +1,8 @@
 // reaction.js: reaction rounds (GM never rolls a d20): declare → react → resolve → act → next round.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { loadPack } from '../pack.js';
 import { createState, reduce, reducePlayerAction, viewFor } from '../state.js';
 import { degreeOf, suggestDecls, attackDc, ACTIONS_PER_ROUND } from '../reaction.js';
@@ -8,6 +10,7 @@ import { tmpDir, writePack, seq } from './fixtures.js';
 
 const { pack } = loadPack(writePack(tmpDir()));
 let n = 0;
+const DCC_PACK = process.env.DCC_PACK || path.resolve(import.meta.dirname, '../../../dcc-ai-private/packs/dcc');
 const ctx = (extra = {}) => ({ now: 1000, rng: seq(0.1, 0.6, 0.3), genId: (p) => `${p}_${++n}`, pack, ...extra });
 const gm = (s, a, extra) => reduce(s, { role: 'gm', ...a }, ctx(extra));
 const pl = (s, pid, a) => reducePlayerAction(s, a, { ...ctx(), playerId: pid });
@@ -86,6 +89,14 @@ test('a full round: suggest, evade (spends an action), rolls, intervene on a nea
   s = r.state;
   assert.equal(r.result.degree, 'success', 'Intervene turns the near miss into a success');
   assert.throws(() => gm(s, { t: 'rx.step', to: 'resolve' }), /1 Evade roll missing/);
+  { // Area of Effect: evaded full area = half; splash ring = half, evaded splash = a quarter (rounded down).
+    let t = gm(s, { t: 'rx.area', declId: d1.id, area: 'splash' }).state;
+    t = gm(t, { t: 'rx.area', declId: d2.id, area: 'full' }).state;
+    t = gm(t, { t: 'rx.area', declId: d3.id, area: 'splash' }).state;
+    assert.throws(() => gm(t, { t: 'rx.area', declId: d3.id, area: 'cone' }), /area must be/);
+    t = gm(t, { t: 'rx.step', to: 'resolve', force: true }, { randInt: (k) => k - 1 }).state;
+    assert.deepEqual(t.combat.rx.decls.map((d) => [d.result, d.damage]), [['half', 1], ['half', 2], ['half', 2]]);
+  }
   s = gm(s, { t: 'rx.step', to: 'resolve', force: true }, { randInt: (k) => k - 1 }).state;
   const res = s.combat.rx.decls.map((d) => d.result);
   assert.deepEqual(res, ['evaded', 'evaded', 'hit']);
@@ -125,4 +136,37 @@ test('catcher takes the hit (no evade), major / critical fails hurt more, views 
   assert.equal(a.result, 'hit');
   assert.equal(a.damage, 4);
   assert.equal(b.damage, 8, 'critical fail on Evade: double damage');
+});
+
+test('book stat blocks (private DCC pack): extras load, area attacks are AoE, flat blocks skip the floor', { skip: !fs.existsSync(path.join(DCC_PACK, 'monsters.json')) && 'private pack not present' }, async () => {
+  const { pack: dcc } = loadPack(DCC_PACK);
+  const rr = dcc.library.monster.find((x) => x.id === 'riff_roughers');
+  assert.ok(rr, 'Riff Roughers from the GM toolkit');
+  assert.equal(rr.level, 4);
+  assert.equal(rr.surprise, 11);
+  assert.equal(rr.slotValue, 3);
+  assert.deepEqual(rr.stats.str, { score: 6, mod: 3 });
+  const breath = rr.attacks.find((a) => a.name === 'Breath');
+  assert.equal(breath.area, '10ft Cone');
+  assert.equal(breath.dtype, 'acid');
+  const kong = dcc.library.boss.find((x) => x.id === 'general_kong');
+  assert.ok(kong?.flat, 'Par for the Course prints flat numbers');
+  assert.equal(kong.slotValue, 4);
+  let k = 0;
+  const c = (x = {}) => ({ now: 1000, rng: () => 0.1, genId: (p) => `${p}_${++k}`, pack: dcc, ...x });
+  let s = createState(dcc, 0);
+  s = reduce(s, { role: 'gm', t: 'player.add', name: 'Carl' }, c()).state;
+  s = reduce(s, { role: 'gm', t: 'crawlers.set', floor: 3 }, c()).state;
+  s = reduce(s, { role: 'gm', t: 'combat.start' }, c()).state;
+  s = reduce(s, { role: 'gm', t: 'combat.addMob', kind: 'monster', sourceId: 'riff_roughers', hidden: false, intro: false }, c()).state;
+  s = reduce(s, { role: 'gm', t: 'combat.addMob', kind: 'boss', sourceId: 'general_kong', hidden: false }, c()).state;
+  s = reduce(s, { role: 'gm', t: 'rx.start' }, c()).state;
+  s = reduce(s, { role: 'gm', t: 'rx.suggest' }, c()).state;
+  const decls = s.combat.rx.decls;
+  const byMob = (name) => decls.filter((d) => s.combat.combatants.find((m) => m.uid === d.mobUid)?.name.startsWith(name));
+  const kd = byMob('General Kong')[0];
+  assert.equal(kd.attack.dc, 16, 'Kong Smash: 16 to hit, no floor');
+  const rd = byMob('Riff Roughers')[0];
+  assert.equal(rd.attack.dc, 13 + 3, 'Breath 13+F on floor 3');
+  assert.equal(rd.attack.area, true, 'a Cone is an area attack');
 });

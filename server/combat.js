@@ -239,6 +239,9 @@ function cleanAttacks(list) {
     damage: typeof a.damage === 'string' ? a.damage.slice(0, 60) : '',
     effects: typeof a.effects === 'string' ? a.effects.slice(0, 400) : '',
     buffs: Array.isArray(a.buffs) ? a.buffs.filter((b) => typeof b === 'string' && ID_RE.test(b)).slice(0, 10) : [],
+    ...(typeof a.dtype === 'string' && a.dtype ? { dtype: a.dtype.slice(0, 30) } : {}),
+    ...(typeof a.range === 'string' && a.range ? { range: a.range.slice(0, 60) } : {}),
+    ...(typeof a.area === 'string' && a.area ? { area: a.area.slice(0, 120) } : {}),
   }));
 }
 
@@ -775,6 +778,8 @@ export const COMBAT_GM = {
         evade: Number.isInteger(e.evade) ? e.evade : 0, dr: Number.isInteger(e.dr) ? e.dr : 0,
         ...(Number.isInteger(e.slotValue) && e.slotValue >= 1 ? { slotValue: e.slotValue } : {}),
         ...(e.role && e.role !== 'standard' ? { role: e.role } : {}),
+        ...(e.flat ? { flat: true } : {}),
+        ...(Number.isInteger(e.surprise) ? { surprise: e.surprise } : {}),
         ...(e.resist?.length ? { resist: [...e.resist] } : {}),
         ...(e.vulnerable?.length ? { vulnerable: [...e.vulnerable] } : {}),
         ...(e.immune?.length ? { immune: [...e.immune] } : {}),

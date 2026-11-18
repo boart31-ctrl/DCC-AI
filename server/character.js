@@ -12,6 +12,7 @@ export const MAX_ROLLS = 200;
 export const VIEW_ROLLS = 50;
 export const PLAYER_EDIT = ['none', 'notes', 'sheet'];
 export const MAX_SKILLS = 100;
+export const MAX_UNTRIED = 20;
 export const MAX_ATTACKS = 50;
 export const MAX_SPELLS = 200;
 export const MAX_BUFFS = 50;
@@ -99,6 +100,8 @@ export function migrateSheet(sheet, legacy, ruleset) {
     originsLocked: !!s.originsLocked,
     // Guided creation finished (server/creation.js): the phone stops offering the creator.
     ...(s.created ? { created: true } : {}),
+    // Library skills tried untrained this session (ruleset skills.untrained.learn: one becomes Rank 1).
+    untried: arr(s.untried).filter((x) => typeof x === 'string' && x.length <= 80).slice(-MAX_UNTRIED),
     ...(typeof s.species === 'string' && /^[a-z0-9_-]{1,30}$/.test(s.species) ? { species: s.species } : {}),
     // Starting things from guided creation, waiting for the GM (server/creation.js gear.approve / deny).
     gearRequest: arr(s.gearRequest).slice(0, 8).map((r) => ({ slot: String(r.slot ?? '').slice(0, 80), name: String(r.name ?? '').slice(0, 60), ...(typeof r.itemId === 'string' ? { itemId: r.itemId } : {}), ...(typeof r.icon === 'string' ? { icon: r.icon } : {}) })).filter((r) => r.name),
@@ -225,6 +228,7 @@ export function characterOf(p, ruleset) {
     gearRequest: sh.gearRequest ?? [],
     created: !!sh.created,
     species: sh.species ?? null,
+    untried: sh.untried ?? [],
   };
 }
 
@@ -551,7 +555,7 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
     }
     return;
   }
-  if (target) defense = mobDefense(rules, target.evade, floorOfState(st));
+  if (target) defense = mobDefense(rules, target.evade, target.flat ? 0 : floorOfState(st));
   else if (a.dc !== undefined) defense = int(a.dc, 'dc', -10, 99);
   else return;
   const res = attackOutcome(rules, { d20: rec.natural, total: rec.total, target: defense });
@@ -830,6 +834,28 @@ export const SHEET = {
     out.result = { uid: entry.uid };
   },
 
+  /**
+   * `{ skillId }` End of a Tutorial Floor session: learn one skill tried untrained (Rank 1); the rest of
+   * the list is wiped (it cannot be saved for later sessions).
+   */
+  'untrained.learn'(st, a, ctx, out) {
+    const p = targetOf(st, a, ctx, 'play');
+    const unt = ctx.pack.ruleset.skills?.untrained;
+    if (!unt?.learn) throw bad('this game does not teach untrained skills');
+    if (unt.learnMaxFloor && floorOfState(st) > unt.learnMaxFloor) throw bad(`untrained skills are learned only up to floor ${unt.learnMaxFloor}`);
+    if (!(p.sheet.untried ?? []).includes(a.skillId)) throw bad('not tried untrained this session');
+    const def = libraryOf(st, ctx.pack).get('skill', a.skillId);
+    if (!def) throw notFound(`unknown skill ${a.skillId}`);
+    if (p.sheet.skills.length >= MAX_SKILLS) throw bad(`max ${MAX_SKILLS} skills`);
+    if (!p.sheet.skills.some((x) => x.skillId === def.id)) {
+      const rs = ctx.pack.ruleset;
+      p.sheet.skills.push({ uid: ctx.genId('s'), skillId: def.id, name: def.name, stat: rs.stats.some((x) => x.id === def.stat) ? def.stat : '', checkType: def.checkType || rs.skills.checkTypes[0], rank: 1, notes: '', used: false });
+    }
+    p.sheet.untried = [];
+    out.result = { name: def.name };
+    out.emit({ kind: 'untrained.learn', playerId: p.id, skill: def.name }, 'all');
+  },
+
   'skill.update'(st, a, ctx) {
     const sheetFields = ['rank', 'stat', 'checkType', 'name'].filter((k) => a[k] !== undefined);
     const p = targetOf(st, a, ctx, sheetFields.length ? 'sheet' : 'notes');
@@ -1090,7 +1116,10 @@ export const SHEET = {
     const by = ctx0.actor.role === 'gm' ? 'gm' : ctx0.actor.playerId;
     // Dice entry: the player rolled a real die and types it (entered), or rolls with advantage (adv / dis).
     const entered = a.entered === undefined ? null : int(a.entered, 'entered', 1, 1000);
-    const adv = a.adv === undefined || a.adv === null ? null : ['adv', 'dis'].includes(a.adv) ? a.adv : (() => { throw bad('adv must be adv or dis'); })();
+    // Untrained check (ruleset skills.untrained): always with the ruleset's Disadvantage, no Ranks.
+    const unt = w.kind === 'untrained' ? rs.skills?.untrained : null;
+    if (w.kind === 'untrained' && !unt) throw bad('this game has no untrained checks');
+    const adv = unt?.adv ? unt.adv : a.adv === undefined || a.adv === null ? null : ['adv', 'dis'].includes(a.adv) ? a.adv : (() => { throw bad('adv must be adv or dis'); })();
     const bonus = a.bonus === undefined ? 0 : int(a.bonus, 'bonus', -50, 50);
     const natural = { first: null, kept: null, other: null };
     const base = ctx0.dieInt ?? ctx0.rollInt ?? ctx0.randInt;
@@ -1184,8 +1213,19 @@ export const SHEET = {
         label = `${k.name} to hit`;
         ({ r, formula } = rollWith(rs.attack.roll || rs.dice, computed.attacks.find((x) => x.uid === k.uid).toHit, `${k.name} to hit`, ctx, `attack:${k.uid}`));
       }
-    } else throw bad('what.kind must be stat, derived, skill, attack or custom');
-    const rec = finish(rollRecord(r, { ctx, p, by, label, formula, secret, what: w.kind, whatId: w.kind === 'stat' || w.kind === 'derived' ? w.id : w.uid ?? null }));
+    } else if (w.kind === 'untrained') {
+      const def = libraryOf(st, ctx.pack).get('skill', str(w.skillId, 'skillId', 80));
+      if (!def) throw notFound(`unknown skill ${w.skillId}`);
+      if ((unt.noCheckTypes ?? ['Passive']).includes(def.checkType)) throw bad(`${def.name} cannot be attempted untrained`);
+      if (p.sheet.skills.some((x) => x.skillId === def.id)) throw bad(`${p.sheet.identity?.name || 'you'} already has ${def.name}: roll it from the sheet`);
+      const stat = rs.stats.some((x) => x.id === w.stat) ? w.stat : def.stat;
+      label = `${def.name} (untrained)`;
+      formula = `${rs.skills.check.roll || rs.dice} + ${String(unt.formula || 'mod.{stat}').replaceAll('{stat}', stat)}`;
+      r = doRoll(formula, sheetResolver(computed, ch, rs), ctx);
+      // Tried this session: the Tutorial Floors teach one of them (Rank 1) at the end of the session.
+      if (unt.learn && !(unt.learnMaxFloor && floorOfState(st) > unt.learnMaxFloor)) p.sheet.untried = [...new Set([...(p.sheet.untried ?? []), def.id])].slice(-MAX_UNTRIED);
+    } else throw bad('what.kind must be stat, derived, skill, attack, untrained or custom');
+    const rec = finish(rollRecord(r, { ctx, p, by, label, formula, secret, what: w.kind, whatId: w.kind === 'stat' || w.kind === 'derived' ? w.id : w.kind === 'untrained' ? w.skillId : w.uid ?? null }));
     if (w.kind === 'attack') rec.part = w.part === 'damage' ? 'damage' : 'hit';
     resolveAgainst(st, ctx0, a, rec, p, out);
     pushRoll(st, rec, out, ctx0);
@@ -1272,6 +1312,10 @@ export function setTrack(st, p, a, ctx, out) {
 
 /** GM-only character / library actions. */
 export const SHEET_GM = {
+  /** `{ playerId? }` Wipe the untrained list (one crawler, or everyone): the session ended without learning. */
+  'untrained.clear'(st, a) {
+    for (const p of st.players) if (a.playerId === undefined || p.id === a.playerId) p.sheet.untried = [];
+  },
   /** GM cancels any roll (wrong number typed, rolled the wrong thing). */
   'roll.void'(st, a, ctx, out) {
     const rec = (st.rolls ?? []).find((r) => r.id === a.id);

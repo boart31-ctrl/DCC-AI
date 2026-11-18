@@ -7,6 +7,7 @@ import {
 import { icon, field, select, labeled, openDrawer, closeDrawer, signed } from './ui.js';
 import { entryArt, imageRef, pickPortrait } from './portrait.js';
 import { openArtGallery } from './art-gallery.js';
+import { statBlock, hasStatBlock } from './statblock.js';
 
 const FIELDS = {
   item: ['rarity', 'slot', 'stackable', 'image', 'flavor', 'effects', 'attack'],
@@ -210,6 +211,7 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
     if (f.includes('group')) textRow('group', 'Group', { ph: 'construct, vermin, undead' });
     if (f.includes('hpSlots')) formRows.push(labeled('HP slots', field(d.hpSlots ?? 10, { type: 'number', disabled: ro, attrs: { min: 1, max: 100 }, onCommit: (v) => set('hpSlots')(Math.max(1, Math.min(100, Math.round(v) || 10))) })));
     const numRow = (k, label) => formRows.push(labeled(label, field(d[k] ?? 0, { type: 'number', disabled: ro, attrs: { min: -99, max: 99 }, onCommit: (v) => set(k)(Math.max(-99, Math.min(99, Math.round(v) || 0))) })));
+    if ((kind === 'monster' || kind === 'boss') && hasStatBlock(d)) formRows.push(h('div.span-all', statBlock(d, rs.combat || {})));
     if (f.includes('evade')) numRow('evade', 'Evade');
     if (f.includes('dr')) numRow('dr', 'DR');
     if (f.includes('image')) formRows.push(imageField(d, ro, kind));

@@ -33,6 +33,7 @@ export function createRollPad({ send, getView, getMe }) {
     if (!c || !what) return null;
     if (what.kind === 'stat') return c.stats?.[what.id]?.mod?.value ?? null;
     if (what.kind === 'derived') return c.derived?.[what.id]?.value ?? null;
+    if (what.kind === 'untrained') { const d = (V().library?.skill || []).find((x) => x.id === what.skillId); return d ? c.stats?.[d.stat]?.mod?.value ?? null : null; }
     if (what.kind === 'skill') return c.skills?.find((x) => x.uid === what.uid)?.total?.value ?? null;
     if (what.kind === 'attack' && what.part !== 'damage') return c.attacks?.find((x) => x.uid === what.uid)?.toHit?.value ?? null;
     return null;
@@ -59,6 +60,7 @@ export function createRollPad({ send, getView, getMe }) {
     st.favorOpen = false;
     st.after = null;
     st.step = 'roll';
+    if (what.kind === 'untrained' && rs().skills?.untrained?.adv) st.adv = rs().skills.untrained.adv;
     // Keep aiming at the monster you just attacked (5 minutes), else the only one standing.
     const alive = mobs();
     const keep = st.lastTarget && Date.now() - st.lastTargetAt < KEEP_TARGET_MS && alive.some((m) => m.uid === st.lastTarget);
@@ -150,9 +152,17 @@ export function createRollPad({ send, getView, getMe }) {
     const derived = (R.derived || []).filter((d) => d.roll).map((d) => btn({ kind: 'derived', id: d.id }, d.label, c.derived?.[d.id]?.value));
     const skills = (sh.skills || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => btn({ kind: 'skill', uid: s.uid }, s.name, c.skills?.find((x) => x.uid === s.uid)?.total?.value));
     const stats = (R.stats || []).map((s) => btn({ kind: 'stat', id: s.id }, `${s.abbr} check`, c.stats?.[s.id]?.mod?.value));
-    const group = (t, list) => (list.length ? h('section.rp-group', h('h3', t), h('div.rp-acts', list)) : null);
+    const group = (t, list, note) => (list.length ? h('section.rp-group', h('h3', t), note ? h('p.hint', note) : null, h('div.rp-acts', list)) : null);
+    // Untrained (DCC): any library skill not on the sheet, with Disadvantage and only the Stat Mod.
+    const U = R.skills?.untrained;
+    const have = new Set((sh.skills || []).map((x) => x.skillId));
+    const hide = new Set([...(R.skills?.hideTags || []), ...(U?.hideTags || [])]);
+    const untrained = U ? (V().library?.skill || []).filter((d) => !have.has(d.id) && !(U.noCheckTypes || []).includes(d.checkType) && !(d.tags || []).some((t) => hide.has(t)))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .map((d) => btn({ kind: 'untrained', skillId: d.id }, d.name, c.stats?.[d.stat]?.mod?.value)) : [];
     return h('div.rp-body', head('What do you roll?', null), h('div.rp-scroll',
       group('Attacks', attacks), group('Saves & more', derived), group('Skills', skills), group('Abilities', stats),
+      group('Try untrained', untrained, `Roll ${U?.adv === 'dis' ? 'with Disadvantage (2 dice, keep the lower)' : ''}, Stat Mod only.${U?.learn ? ' On the Tutorial Floors you may learn one of these at the end of the session.' : ''}`),
       !attacks.length && !skills.length ? h('p.hint', 'Your sheet has nothing to roll yet. Ask the GM to set it up.') : null));
   }
 
@@ -167,7 +177,7 @@ export function createRollPad({ send, getView, getMe }) {
 
   function modsRow() {
     const b = bonusOf(st.what);
-    const advOn = !!rules().advantage && !isDamage();
+    const advOn = !!rules().advantage && !isDamage() && st.what?.kind !== 'untrained';
     return h('div.rp-mods',
       b == null ? null : h('span.rp-mod', `Your modifier ${signed(b)}`),
       advOn ? h('div.rp-adv', ['adv', 'dis'].map((k) => h('button.chip', { type: 'button', 'aria-pressed': String(st.adv === k), onclick: () => { st.adv = st.adv === k ? null : k; draw(); } }, k === 'adv' ? 'Advantage' : 'Disadvantage'))) : null,

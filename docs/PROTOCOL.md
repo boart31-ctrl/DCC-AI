@@ -501,6 +501,9 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `enc.remove` | `id` | Deletes it and its map tokens |
 | `enc.tokens` | `id`, `party?` | Its mobs as map tokens (hidden like the mobs, positions kept on re-sync); `party` adds crawler tokens. Result `{ added, party }` |
 | `creation.apply` *(player or GM + playerId)* | `background` {stageId: {option, skills}}, `weapon` {index} \| {name, like} \| {none}, `stats` {statId: n}, `method` array\|roll, `stuff` {slotId: {itemId} \| {name, icon?}} | Guided creation (ruleset `creation`): validated (array permutation / roll range, `pick` skills per stage, no skill from two stages), then skills at the stage ranks, the fixed + weapon attacks (with `dmgStat`), base stats mirrored, `identity.background`; stuff becomes `sheet.gearRequest`; sets `sheet.created` |
+| `untrained.learn` | `skillId` (GM: `playerId`) | Tutorial Floors (ruleset `skills.untrained.learn`, `learnMaxFloor`): learn one skill tried untrained this session at Rank 1; the list is wiped |
+| `untrained.clear` | `playerId?` (GM) | Wipe the tried-untrained list of one crawler or everyone |
+| `roll` untrained | `what: { kind: 'untrained', skillId, stat? }` | Library skill not on the sheet: ruleset `skills.untrained` (DCC: Disadvantage forced, `mod.{stat} + buff.check`, no Ranks; Passive refused); the skill joins `sheet.untried` |
 | `roll.favor` *(player)* | `rollId`, `entered?` | Spend 1 AI Favor (`fields.aiFavor`): reroll the d20 of your own roll once (never a natural 1); the result vs the target is worked out again; emits `rollUpdate` |
 | `roll.intervene` *(player / GM)* | `rollId`, `entered?` (1–6), `playerId?` (GM) | +1d6 to someone else's missed check / attack vs a target, once per roll, not on stat checks; in reaction rounds costs one action; emits `rollUpdate` |
 | `level.party` | `delta?` (default +1), `rankUp?` | With `rankUp`, every skill marked used also gets its advancement roll (skills.rankUp). Everyone's level ± delta; resets the level-up reminder (`view.gm.playClock`: playMin, sinceLevelMin, snoozeMin; play = gaps between actions under 15 min) |
@@ -521,6 +524,7 @@ Round = `declare` → `react` → `resolve` → `act` → `cleanup`. Each crawle
 | `rx.start` | | Starts / re-syncs rounds for the running fight (step declare, 2 actions each) |
 | `rx.declare` | `mobUid`, `attackIndex?`, `targetUid` | Declare step only; ack `result.declId` |
 | `rx.surprise` | — | Before round 1 (no declarations): the crawlers surprised the mobs → round 0, step act, one free action each; `rx.round` then starts round 1 |
+| `rx.area` | `declId`, `area` full\|splash\|null | Mark a declared hit as Area of Effect (Evade halves) or splash ring (half damage; Evade leaves a quarter) |
 | `rx.adv` | `declId`, `adv` adv\|dis\|null | Mob attack with Advantage (+5 to the Evade difficulty) / Disadvantage (−5), before it is evaded |
 | `rx.retarget` | `declId`, `targetUid` | Declare step: change who a declared attack goes for |
 | `rx.undeclare` | `declId` | |
