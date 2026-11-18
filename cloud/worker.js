@@ -60,8 +60,8 @@ export default {
         return withHeaders(await campaignStub(env).fetch(request), url, { 'cache-control': 'no-store' });
       }
       if (request.method !== 'GET') return json(405, { error: 'method not allowed' }, url);
-      if (p === '/api/info') return json(200, { edition: 'cloud', legacy: false, keyLogin: true }, url);
       if (p === '/api/health') return json(200, { ok: true }, url);
+      if (p === '/api/info') return campaignStub(env).fetch(request);
       if (p.startsWith('/api/tts/')) return withHeaders(await campaignStub(env).fetch(request), url, { 'cache-control': 'no-store' });
       if (p === '/api/export') return withHeaders(await campaignStub(env).fetch(request), url, { 'cache-control': 'no-store' });
       return json(404, { error: 'not found' }, url);
@@ -211,6 +211,7 @@ export class Campaign extends DurableObject {
       this.host.connect(server, { ip: ipOf(request), base: url.origin });
       return new Response(null, { status: 101, webSocket: client });
     }
+    if (url.pathname === '/api/info') return json(200, { edition: 'cloud', legacy: false, keyLogin: true, campaign: this.host.joinCampaign() }, url);
     if (url.pathname === '/api/export') return this.exportResponse(request, url);
     if (url.pathname === '/api/import' && request.method === 'POST') return this.importResponse(request);
     if (url.pathname.startsWith('/api/tts/')) return this.ttsResponse(request, url);

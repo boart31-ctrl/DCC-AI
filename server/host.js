@@ -706,9 +706,20 @@ export function createHost(opts) {
     return state.players.map((p) => ({ id: p.id, name: p.name, color: p.color, connected: on.has(p.id) }));
   }
 
+  function joinCampaign() {
+    const { id, name } = state.campaign;
+    return { id, name };
+  }
+
+  function closeChangedClaim(conn) {
+    refuse(conn, 'campaign_changed', 'The GM switched campaigns. Check the campaign name and ask again.');
+  }
+
   function startClaim(conn, meta, msg) {
     const name = typeof msg.name === 'string' ? msg.name.trim().slice(0, 40) : '';
     if (!name) return send(conn, { t: 'error', code: 'bad_request', msg: 'name required' });
+    const campaign = joinCampaign();
+    if (msg.campaignId !== undefined && msg.campaignId !== campaign.id) return closeChangedClaim(conn);
     if (waitingCount('claim') >= L.maxWaiting) {
       send(conn, { t: 'error', code: 'busy', msg: 'too many join requests waiting, try again in a minute' });
       return dropConn(conn, CLOSE.expired, 'busy');
@@ -717,7 +728,7 @@ export function createHost(opts) {
     delete meta.helloBy;
     armTimer(conn, meta, meta.codeExpires, CLOSE.expired, 'request_expired');
     saveMeta(conn, meta);
-    send(conn, { t: 'claim', requestId: meta.requestId, characters: claimCharacters() });
+    send(conn, { t: 'claim', requestId: meta.requestId, campaign, characters: claimCharacters() });
     toGm({ kind: 'joinRequest', requestId: meta.requestId, name });
     scheduleViews();
   }
@@ -766,7 +777,10 @@ export function createHost(opts) {
     logEvent({ at: t, kind: 'action', action: sanitizeAction(msg) });
     voice.clear();
     eventLog = [];
-    for (const [c, m] of [...conns]) if (m.role === 'player') dropConn(c, CLOSE.removed, 'campaign changed');
+    for (const [c, m] of [...conns]) {
+      if (m.role === 'player') dropConn(c, CLOSE.removed, 'campaign changed');
+      if (m.role === 'claim') closeChangedClaim(c);
+    }
     scheduleViews();
   }
 
@@ -821,13 +835,21 @@ export function createHost(opts) {
       return { playerId: msg.playerId, joinUrl: playerUrl(base, tokens[msg.playerId]) };
     },
     'player.approve'(msg) {
-      const [c, m] = findWaiting('claim', (x) => x.requestId === msg.requestId);
+      const [c, m] = findWaiting('claim', (x) => x.requestId === msg.requestId && x.codeExpires > now());
       if (!c) throw notFound(`no join request ${msg.requestId}`);
-      const playerId = msg.playerId ?? m.wants;
-      if (!playerExists(playerId)) throw notFound(`no player ${playerId}`);
-      const at = now();
-      commit(state, { at, by: 'gm', action: sanitizeAction({ ...msg, playerId, name: m.name }), system: false });
-      logEvent({ at, kind: 'action', action: sanitizeAction({ ...msg, playerId, name: m.name }) });
+      let playerId;
+      if (msg.create === true) {
+        if (msg.playerId != null) throw bad('choose a new or existing character');
+        const action = { t: 'player.approve', role: 'gm', requestId: m.requestId, name: m.name, create: true };
+        playerId = apply(action, (st, a, ctx) => reduce(st, { t: 'player.add', role: 'gm', name: a.name }, ctx)).result.playerId;
+      } else {
+        playerId = msg.playerId ?? m.wants;
+        if (!playerExists(playerId)) throw notFound(`no player ${playerId}`);
+        const at = now();
+        const action = sanitizeAction({ ...msg, playerId, name: m.name });
+        commit(state, { at, by: 'gm', action, system: false });
+        logEvent({ at, kind: 'action', action });
+      }
       send(c, { t: 'token', token: state.host.playerTokens[playerId], playerId });
       authed(c, m, 'player', { playerId });
       return { playerId };
@@ -931,10 +953,14 @@ export function createHost(opts) {
         room: state.room, gmToken: state.gmToken, stageToken: state.stageToken,
         host: { ...cur, playerTokens: tokens, lastSnapshotAt: t },
       };
+      const campaignChanged = next.campaign.id !== state.campaign.id;
       commit(ensureAccess(next, L.tokenBytes), { at: t, by: 'gm', action: sanitizeAction(msg), system: false });
       logEvent({ at: t, kind: 'action', action: sanitizeAction(msg) });
       voice.clear();
-      for (const [c, m] of [...conns]) if (m.role === 'player' && !playerExists(m.playerId)) dropConn(c, CLOSE.removed, 'removed');
+      for (const [c, m] of [...conns]) {
+        if (m.role === 'player' && !playerExists(m.playerId)) dropConn(c, CLOSE.removed, 'removed');
+        if (m.role === 'claim' && campaignChanged) closeChangedClaim(c);
+      }
       scheduleViews();
       return { restored: msg.id, backup: before };
     },
@@ -1108,6 +1134,7 @@ export function createHost(opts) {
     checkGm,
     apply,
     importCampaign,
+    joinCampaign,
     has: (conn) => conns.has(conn),
     canAccept: () => conns.size < L.maxSockets,
     setBase(b) {

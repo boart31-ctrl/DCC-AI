@@ -15,11 +15,21 @@
 </head>
 <body class="play tool-page">
 
+  <section id="join-returning" class="join tool" hidden>
+    <div class="join-head">
+      <p class="join-brand">The System</p>
+      <h1 class="join-title" id="return-title">Welcome back</h1>
+      <p class="dim">This phone has a saved player login.</p>
+    </div>
+    <button type="button" class="btn btn-primary" id="return-continue">Continue</button>
+    <button type="button" class="btn btn-quiet" id="return-switch">Join another campaign</button>
+  </section>
+
   <!-- Join: room + PIN keypad -->
   <section id="join" class="join tool" hidden>
     <div class="join-head">
       <p class="join-brand">The System</p>
-      <h1 class="join-title">Join the game</h1>
+      <h1 class="join-title" id="pin-title">Join the game</h1>
       <p class="dim">Type the room code from the TV and the 4-digit PIN your GM gave you.</p>
     </div>
     <label class="room-line">
@@ -41,12 +51,12 @@
     <button type="button" class="btn btn-quiet btn-sm" id="join-claim">No PIN? Ask the GM to let you in</button>
   </section>
 
-  <!-- Join request: name → pick your crawler → the GM lets you in (personal QR link is the normal way) -->
+  <!-- Join request: name → GM approval → build or reopen a crawler -->
   <section id="claim" class="join tool" hidden>
     <div class="join-head">
       <p class="join-brand">The System</p>
-      <h1 class="join-title">Join the game</h1>
-      <p class="dim" id="claim-lead">The quickest way: scan the QR code the GM shows you for your crawler. No QR at hand? Ask to join here.</p>
+      <h1 class="join-title" id="claim-title">Join the game</h1>
+      <p class="dim">Ask the GM to join and build your own crawler. If you already have a personal QR code, scan it to open your sheet.</p>
     </div>
     <form id="claim-form" class="claim-form" autocomplete="off">
       <label class="claim-label">Your name
@@ -56,11 +66,12 @@
     </form>
     <div id="claim-wait" class="claim-wait" hidden>
       <p class="claim-status" id="claim-status">Waiting for the GM to let you in.</p>
-      <p class="dim">Which crawler are you?</p>
+      <p class="dim" id="claim-existing" hidden>Already have a crawler here? Select it below.</p>
       <div id="claim-chars" class="claim-chars"></div>
       <button type="button" class="btn btn-quiet btn-sm" id="claim-cancel">Cancel</button>
     </div>
     <p class="join-err" id="claim-err" role="alert"></p>
+    <a class="btn btn-quiet" id="claim-current" href="/join" hidden>Open the current campaign</a>
     <button type="button" class="btn btn-quiet btn-sm" id="claim-pin" hidden>I have a room code and PIN</button>
   </section>
 
@@ -73,7 +84,7 @@
       <span class="grow"></span>
       <button type="button" class="btn btn-quiet btn-sm" id="log-btn" aria-controls="log-rail" aria-expanded="false">Dice log <span class="tab-n" id="log-n"></span></button>
       <button type="button" class="icon-btn" id="theme-btn" aria-label="Switch theme (dark, light, neon)"></button>
-      <button type="button" class="btn btn-quiet btn-sm" id="leave" title="Leave this device">Leave</button>
+      <button type="button" class="btn btn-quiet btn-sm" id="leave">Switch campaign</button>
     </header>
     <div class="app-cols">
       <div class="app-sheet">

@@ -797,7 +797,7 @@ test('demo pack: ruleset, spells, buffs and item effects load cleanly', () => {
   assert.deepEqual(sh.computed.warnings.filter((w) => w.kind !== 'unverified'), []);
 });
 
-const DCC = '/home/claude/dcc-ai-private/packs/dcc';
+const DCC = process.env.DCC_PACK || path.resolve(here, '../../../dcc-ai-private/packs/dcc');
 test('private DCC pack (skipped when absent): sheet model works end to end', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
   const { pack: dcc, warnings } = loadPack(DCC);
   assert.deepEqual(warnings.filter((w) => !w.includes('not found')), []);

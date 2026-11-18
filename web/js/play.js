@@ -22,6 +22,7 @@ const KEY = 'system.player';
 /* ---------- room + PIN ---------- */
 
 const params = new URLSearchParams(location.search);
+const invitedCampaign = params.get('campaign');
 let saved = {};
 try { saved = JSON.parse(store.get('localStorage', KEY) || '{}') || {}; } catch { saved = {}; }
 let room = (params.get('room') || saved.room || '').toUpperCase();
@@ -30,8 +31,9 @@ let entry = '';
 // Personal link: /p/<token> (QR from the GM). Stored so "Add to Home Screen" (start_url /play) still works.
 const TOKEN_KEY = 'system.playerToken';
 const pathToken = (/^\/p\/([A-Za-z0-9_-]{16,128})\/?$/.exec(location.pathname) || [])[1] || '';
-if (pathToken) store.set('localStorage', TOKEN_KEY, pathToken);
-let token = pathToken || store.get('localStorage', TOKEN_KEY) || '';
+let token = pathToken;
+let campaign = null;
+let claimCampaignId;
 let claimName = ''; // set while asking the GM to let us in
 let cloud = false; // server has no room/PIN login (Cloudflare edition)
 
@@ -43,8 +45,9 @@ let view = null;
 let me = null;
 let everJoined = false;
 
-function remember() {
-  store.set('localStorage', KEY, JSON.stringify({ room, pin }));
+function remember(campaignName) {
+  store.set('localStorage', KEY, JSON.stringify({ room, pin, campaignName }));
+  if (token) store.set('localStorage', TOKEN_KEY, token);
 }
 function forget() {
   store.del('localStorage', KEY);
@@ -53,34 +56,45 @@ function forget() {
 }
 
 function showClaim(err = '', waiting = false) {
+  const wrongInvite = invitedCampaign && campaign && invitedCampaign !== campaign.id;
+  $('#join-returning').hidden = true;
   $('#claim').hidden = false;
   $('#join').hidden = true;
   $('#app').hidden = true;
   $('#reconnect').hidden = true;
-  $('#claim-form').hidden = waiting;
+  $('#claim-title').textContent = campaign?.name ? `Join ${campaign.name}` : 'Join the game';
+  $('#claim-form').hidden = waiting || !!wrongInvite;
   $('#claim-wait').hidden = !waiting;
-  $('#claim-pin').hidden = cloud;
-  $('#claim-err').textContent = err;
-  if (!waiting) setTimeout(() => $('#claim-name').focus(), 50);
+  $('#claim-pin').hidden = cloud || !!wrongInvite;
+  $('#claim-current').hidden = !wrongInvite;
+  $('#claim-err').textContent = wrongInvite ? 'This invitation is for a different campaign.' : err;
+  if (!waiting && !wrongInvite) setTimeout(() => $('#claim-name').focus(), 50);
 }
 
-function claimChars(list, requestId) {
+function claimChars(list, targetCampaign) {
+  if (targetCampaign) {
+    campaign = targetCampaign;
+    claimCampaignId = targetCampaign.id;
+    showClaim('', true);
+  }
   let picked = null;
   const draw = () => $('#claim-chars').replaceChildren(...list.map((c) => h('button.claim-char', {
     type: 'button', style: { '--cc': c.color }, 'aria-pressed': String(picked === c.id),
     onclick: () => { picked = c.id; client.raw({ t: 'claim.pick', playerId: c.id }); draw(); buzz(8); },
   }, h('span.cdot', { 'aria-hidden': 'true' }), c.name, c.connected ? h('small', 'already playing') : null)));
   draw();
-  $('#claim-status').textContent = list.length ? 'Waiting for the GM to let you in. Pick your crawler meanwhile.' : 'Waiting for the GM to let you in.';
-  $('#claim-wait').dataset.request = requestId;
+  $('#claim-existing').hidden = !list.length;
+  $('#claim-status').textContent = 'Waiting for the GM to let you in.';
 }
 
 function showJoin(err = '') {
   if (cloud) return showClaim(err);
+  $('#join-returning').hidden = true;
   $('#claim').hidden = true;
   $('#join').hidden = false;
   $('#app').hidden = true;
   $('#reconnect').hidden = true;
+  $('#pin-title').textContent = campaign?.name ? `Join ${campaign.name}` : 'Join the game';
   $('#room-input').value = room;
   $('#join-err').textContent = err;
   entry = '';
@@ -142,8 +156,10 @@ $('#claim-form').addEventListener('submit', (e) => {
   const name = $('#claim-name').value.trim();
   if (!name) return;
   claimName = name;
+  claimCampaignId = invitedCampaign || campaign?.id;
   showClaim('', true);
   $('#claim-chars').replaceChildren();
+  $('#claim-existing').hidden = true;
   $('#claim-status').textContent = 'Asking the GM.';
   client.retry();
 });
@@ -156,23 +172,26 @@ $('#claim-pin').addEventListener('click', () => { claimName = ''; client.close()
 $('#join-claim').addEventListener('click', () => { client.close(); showClaim(); });
 
 client.on('message', (m) => {
-  if (m.t === 'claim') claimChars(m.characters || [], m.requestId);
+  if (m.t === 'claim') claimChars(m.characters || [], m.campaign);
   else if (m.t === 'token' && typeof m.token === 'string') {
     // The GM let us in: from now on this phone uses the personal link.
     token = m.token;
     claimName = '';
-    store.set('localStorage', TOKEN_KEY, token);
   }
 });
 
-$('#leave').addEventListener('click', async () => {
-  if (!(await ask('Leave on this phone? You can rejoin with your QR code (or PIN).', { ok: 'Leave' }))) return;
+function openAnotherCampaign() {
   forget();
-  claimName = '';
+  room = '';
   pin = '';
+  claimName = '';
   everJoined = false;
   client.close();
-  showJoin();
+  location.assign('/join');
+}
+
+$('#leave').addEventListener('click', async () => {
+  if (await ask('Switch campaign on this phone? You can return with your QR code or PIN.', { ok: 'Switch campaign' })) openAnotherCampaign();
 });
 
 /* ---------- connection ---------- */
@@ -186,9 +205,17 @@ client.on('status', (s) => {
   if (s.status === 'rejected') {
     const hadToken = !!token;
     const asked = !!claimName;
+    const storedToken = store.get('localStorage', TOKEN_KEY);
+    if ((hadToken && token === storedToken) || (!hadToken && !asked && room === saved.room && pin === saved.pin)) forget();
+    else token = '';
     pin = '';
     claimName = '';
-    forget();
+    if (location.pathname.startsWith('/p/')) history.replaceState(null, '', '/join');
+    if (s.code === 'campaign_changed') {
+      everJoined = false;
+      loadJoinInfo().then(() => showClaim('The GM switched campaigns. Check the campaign name and ask again.'));
+      return;
+    }
     const msg = s.code === 'removed'
       ? 'The GM removed you from this game. Ask them for a new QR code.'
       : s.code === 'relinked'
@@ -216,15 +243,16 @@ client.on('status', (s) => {
   }
 });
 
-client.on('welcome', () => {
+client.on('welcome', (m) => {
   everJoined = true;
-  remember();
+  if (!ext.hosted) remember(m.view?.campaign?.name);
   // Keep the personal link in the address bar so "Add to Home Screen" saves it.
   if (token && !location.pathname.startsWith('/p/')) {
     try { history.replaceState(null, '', `/p/${token}`); } catch {}
   }
   $('#claim').hidden = true;
   $('#join').hidden = true;
+  $('#join-returning').hidden = true;
   $('#app').hidden = false;
   $('#reconnect').hidden = true;
   requestWakeLock();
@@ -445,7 +473,7 @@ const sheet = createSheet({
     // Printable cheat sheets from the pack (pack.json "cheats", player ones only).
     ...(view?.pack?.cheats || []).map((c) => ({ icon: 'info', label: c.label, sub: 'Cheat sheet: one page, also printable', onClick: () => window.open(c.url, '_blank', 'noopener') })),
     { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
-    ext.hosted ? null : { icon: 'x', label: 'Leave on this phone', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
+    ext.hosted ? null : { icon: 'x', label: 'Switch campaign', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
   ].filter(Boolean),
 });
 // Reaction rounds (server/reaction.js): my actions, attacks on me, interrupts, Evade rolls.
@@ -822,34 +850,55 @@ export function mountPlay(transport, opts = {}) {
   return { client };
 }
 
-function bootNode() {
-const transport = new SystemClient({
-  hello: () => token ? { role: 'player', token }
-    : claimName ? { role: 'player', claim: true, name: claimName }
-      : { role: 'player', room, pin },
-});
-client.attach(transport);
-const rejoin = (label) => {
-  $('#join').hidden = true;
-  $('#reconnect').hidden = false;
-  $('#reconnect .sys-title').textContent = 'Rejoining.';
-  $('#reconnect-msg').textContent = label;
-  everJoined = true; // show reconnect overlay rather than keypad while we try
-  client.on('welcome', () => { $('#reconnect .sys-title').textContent = 'Signal lost.'; });
-  client.connect();
-};
-if (token) {
-  rejoin('Opening your crawler');
-} else if (room && pin) {
-  rejoin(`Room ${room}`);
+async function loadJoinInfo() {
+  try {
+    const response = await fetch('/api/info', { cache: 'no-store' });
+    if (!response.ok) return;
+    const info = await response.json();
+    cloud = info.legacy === false;
+    campaign = info.campaign || null;
+  } catch {}
 }
-// Which login does this server offer? (Cloudflare: personal links + join requests only.)
-fetch('/api/info', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)).catch(() => null).then((info) => {
-  cloud = info?.legacy === false;
-  $('#join-claim').hidden = false;
-  if (!token && !(room && pin) && !everJoined) showJoin();
-});
-registerSW();
+
+function bootNode() {
+  const transport = new SystemClient({
+    hello: () => token ? { role: 'player', token }
+      : claimName ? { role: 'player', claim: true, name: claimName, campaignId: claimCampaignId }
+        : { role: 'player', room, pin },
+  });
+  client.attach(transport);
+  const rejoin = (label) => {
+    $('#join-returning').hidden = true;
+    $('#reconnect').hidden = false;
+    $('#reconnect .sys-title').textContent = 'Rejoining.';
+    $('#reconnect-msg').textContent = label;
+    everJoined = true;
+    client.connect();
+  };
+  client.on('welcome', () => { $('#reconnect .sys-title').textContent = 'Signal lost.'; });
+  if (token) rejoin('Opening your crawler');
+  loadJoinInfo().then(() => {
+    if (pathToken) {
+      if (!token && !everJoined && !$('#claim').hidden) showClaim($('#claim-err').textContent);
+      return;
+    }
+    const savedToken = store.get('localStorage', TOKEN_KEY) || '';
+    const hasRoom = !!params.get('room');
+    if (!invitedCampaign && !hasRoom && (savedToken || (room && pin))) {
+      $('#return-title').textContent = saved.campaignName ? `Return to ${saved.campaignName}` : 'Welcome back';
+      $('#join-returning').hidden = false;
+      $('#return-continue').onclick = () => {
+        token = savedToken;
+        rejoin(token ? 'Opening your crawler' : `Room ${room}`);
+      };
+      $('#return-switch').onclick = openAnotherCampaign;
+    } else if (cloud || location.pathname === '/join') {
+      showClaim();
+    } else {
+      showJoin();
+    }
+  });
+  registerSW();
 }
 
 if (!isHosted()) bootNode();

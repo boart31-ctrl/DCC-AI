@@ -264,19 +264,25 @@ function drawTvButton() {
 
 function requestRow(r) {
   const ps = gmv().playersFull || [];
+  const wantsExisting = ps.some((p) => p.id === r.wants);
   const sel = h('select.inp', { 'aria-label': `Crawler for ${r.name}` },
-    h('option', { value: '' }, 'Which crawler?'),
-    ps.map((p) => h('option', { value: p.id, selected: p.id === r.wants }, `${p.name}${isOn(p.id) ? ' (on a phone)' : ''}`)),
+    h('option', { value: '', selected: !wantsExisting }, 'Create new character'),
+    ps.length ? h('optgroup', { label: 'Assign existing character' },
+      ps.map((p) => h('option', { value: p.id, selected: p.id === r.wants }, `${p.name}${isOn(p.id) ? ' (on a phone)' : ''}`)),
+    ) : null,
   );
+  sel.addEventListener('blur', () => setTimeout(drawRequests, 0));
   return h('li.ob-req',
-    h('div.ob-req-who', h('b', r.name), h('span.dim', ` asked ${timeAgo(r.at)}${r.wants ? '' : ', no crawler picked yet'}`)),
+    h('div.ob-req-who', h('b', r.name), h('span.dim', ` asked ${timeAgo(r.at)}`)),
     h('div.ob-req-act',
       sel,
       h('button.btn.btn-primary.btn-sm', {
         type: 'button',
-        onclick: () => {
-          if (!sel.value) { toast('Pick the crawler first.', { error: true }); sel.focus(); return; }
-          act({ t: 'player.approve', requestId: r.id, playerId: sel.value }, `${r.name} is in.`);
+        onclick: async (e) => {
+          const button = e.currentTarget;
+          button.disabled = true;
+          const choice = sel.value ? { playerId: sel.value } : { create: true };
+          if (!(await act({ t: 'player.approve', requestId: r.id, ...choice }, `${r.name} is in.`))) button.disabled = false;
         },
       }, 'Approve'),
       h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: () => act({ t: 'player.deny', requestId: r.id }, 'Declined.') }, 'Decline'),
@@ -309,12 +315,12 @@ function drawRequests() {
   const box = $('#join-reqs');
   if (!box) return;
   const sig = JSON.stringify([joins, origins.map((p) => [p.id, p.sheet.pending]), (gmv().playersFull || []).map((p) => [p.id, p.name]), players().map((p) => p.connected)]);
-  if (sig === reqSig || box.contains(document.activeElement)) return;
+  if (sig === reqSig || (box.contains(document.activeElement) && document.activeElement.tagName === 'SELECT')) return;
   reqSig = sig;
   box.hidden = !reqs.length;
   box.replaceChildren(
     ...(joins.length ? [
-      h('div.ob-req-head', icon('phone', { size: 16 }), h('b', joins.length === 1 ? 'A phone wants to join' : `${joins.length} phones want to join`), h('span.dim', 'Pick their crawler, then approve.')),
+      h('div.ob-req-head', icon('phone', { size: 16 }), h('b', joins.length === 1 ? 'A phone wants to join' : `${joins.length} phones want to join`), h('span.dim', 'Approve a new character or assign an existing one.')),
       h('ul.ob-reqs', joins.map(requestRow)),
     ] : []),
     ...(origins.length ? [
@@ -325,6 +331,21 @@ function drawRequests() {
 }
 
 /* ---------- setup checklist ---------- */
+
+function openJoinInvite() {
+  const url = new URL('/join', gmv().joinUrl || location.origin);
+  if (view?.campaign?.id) url.searchParams.set('campaign', view.campaign.id);
+  const m = modal({ label: 'Invite a new player', cls: 'ob-invite' });
+  const qr = h('div.ob-qr', { role: 'img', 'aria-label': 'QR code for new players' });
+  qr.innerHTML = qrSvg(url.href, { ecl: 'M', margin: 2 });
+  m.dlg.append(
+    h('header.ob-head', h('h2', 'Invite a new player'), closeBtn(m.close)),
+    h('div.ob-body', qr, h('p.dim', 'Scan to ask the GM to join and build a character.'),
+      h('a', { href: url.href, target: '_blank', rel: 'noopener' }, url.href),
+      h('div.ob-row', h('button.btn.btn-primary', { type: 'button', onclick: () => copy(url.href, 'Join link') }, 'Copy join link'))),
+  );
+  m.open();
+}
 
 const HIDE_KEY = 'system.gm.setupHidden';
 let setupSig = '';
@@ -359,8 +380,7 @@ function drawSetup() {
       empty ? h('p.dim', 'Three steps. They tick themselves off.') : h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: () => { try { localStorage.setItem(HIDE_KEY, '1'); } catch {} setupSig = ''; drawSetup(); } }, 'Hide'),
     ),
     h('ol.ob-steps',
-      step(sAdd, 1, 'Add crawlers', sAdd.done ? `${ps.length} in the game.` : 'One per player. You can build sheets later.',
-        h('button.btn.btn-primary', { type: 'button', onclick: openAddCrawler }, icon('plus', { size: 14 }), sAdd.done ? 'Add another' : 'Add crawler')),
+      step(sAdd, 1, 'Add crawlers', sAdd.done ? `${ps.length} in the game.` : 'Use Invite a new player to let them join and build their own crawler.'),
       step(sScan, 2, 'Players scan their QR', !ps.length ? 'Each crawler gets a personal QR code.' : `${sScan.on} of ${sScan.total} phones connected. Tap a name to show its code.`, inviteChips),
       step(sTv, 3, 'Pair the TV', sTv.done ? 'On air.' : `On the TV, open ${tvAddress()} and type the code it shows.`, sTv.done ? null : pairForm()),
     ),
@@ -371,6 +391,7 @@ function drawSetup() {
 
 function render(v) {
   view = v;
+  $('#invite-player-btn').hidden = !access() || ext.hosted;
   drawTvButton();
   drawRequests();
   drawSetup();
@@ -379,6 +400,7 @@ function render(v) {
 }
 
 ext.openAddCrawler = openAddCrawler;
+$('#invite-player-btn').addEventListener('click', openJoinInvite);
 ext.openInvite = openInvite;
 ext.openTv = openTv;
 ext.afterRender.push(render);

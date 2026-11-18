@@ -306,7 +306,7 @@ export async function startServer(opts = {}) {
         res.writeHead(200, { 'content-type': 'text/plain' });
         return res.end('ok');
       }
-      if (p === '/api/info') return sendJson(res, 200, { edition: 'node', legacy: true, keyLogin: !!env.GM_KEY?.trim() });
+      if (p === '/api/info') return sendJson(res, 200, { edition: 'node', legacy: true, keyLogin: !!env.GM_KEY?.trim(), campaign: host.joinCampaign() });
       const ttsPath = /^\/api\/tts\/([0-9a-f]{64})\.mp3$/.exec(p);
       if (ttsPath || p.startsWith('/api/tts')) {
         // GM only: X-GM-Key (or the legacy X-GM-Token). Same failure rate limit as the GM login.

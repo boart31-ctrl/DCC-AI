@@ -14,7 +14,7 @@ Client → server, first message (one of):
 ```json
 { "t": "hello", "role": "gm",     "key": "<GM_KEY>" }
 { "t": "hello", "role": "player", "token": "<playerToken>" }
-{ "t": "hello", "role": "player", "claim": true, "name": "Lucie" }
+{ "t": "hello", "role": "player", "claim": true, "name": "Lucie", "campaignId": "c_…" }
 { "t": "hello", "role": "stage",  "pair": true }
 { "t": "hello", "role": "stage",  "tvToken": "<tvToken>" }
 { "t": "hello", "role": "stage",  "key": "<GM_KEY>" }
@@ -44,7 +44,7 @@ After `bad_auth` / `rate_limited` the server closes the socket (code 4001). `bad
 |-----|-----|
 | GM | Secret `GM_KEY` (Cloudflare secret; Node: `.env`). The GM page asks once, keeps it in `localStorage` (`system.gmKey`), sends `hello {role:'gm', key}`. Constant-time compare. 5 failures per minute per IP → `rate_limited` (even for the right key). No key configured → nobody gets in (`bad_auth`, msg mentions `GM_KEY`). |
 | Player | Every player gets a random link token (32 url-safe chars) when created. The GM sees `gm.playersFull[].joinUrl` = `<origin>/p/<token>` (QR on the desk). The page at `/p/<token>` stores the token (`localStorage` `system.playerToken`) so "Add to Home Screen" (manifest `start_url` `/play`) reopens the character. `player.relink` makes a new token: the old one stops working and its sockets are closed (4001 `relinked`). Removing the player drops the token (4004). |
-| Player without a link | `hello {role:'player', claim:true, name}` → `{ "t": "claim", "requestId": "rq_…", "characters": [{id, name, color, connected}] }`. The phone may send `{ "t": "claim.pick", "playerId": "p_…" }` (ack). The GM gets event `joinRequest` and `gm.requests[]`, then `player.approve {requestId, playerId?}` → the phone receives `{ "t": "token", "token": "…", "playerId": "p_…" }` followed by `welcome` (it stores the token like a `/p/` link). `player.deny {requestId}` → error `denied`, close 4001. Requests expire after 10 min (close 4002), max 6 waiting. |
+| Player without a link | `hello {role:'player', claim:true, name, campaignId?}` → `{t:'claim', requestId, campaign:{id,name}, characters:[{id,name,color,connected}]}`. The phone may send `claim.pick {playerId}` (ack). The GM gets `joinRequest` and `gm.requests[]`, then approves a new character with `player.approve {requestId, create:true}` or assigns an existing one with `player.approve {requestId, playerId?}`. The phone receives `{t:'token', token, playerId}` followed by `welcome`. A stale campaign ID or a switch while waiting closes with `campaign_changed` (4001). `player.deny {requestId}` closes with `denied` (4001). Requests expire after 10 min (4002), max 6 waiting. |
 | TV | `/tv` sends `hello {role:'stage', pair:true}` → `{ "t": "pairing", "code": "KJAM", "expiresAt": 0 }` (4 letters, no I/L/O, per socket, valid 10 min, then close 4002 and the page reconnects for a new one). GM `tv.pair {code, label?}` → that socket gets `{ "t": "paired", "tvToken": "…", "tvId": "tv_…" }` and `welcome` as `stage`. Later: `hello {role:'stage', tvToken}`. `tv.unpair {tvId}` revokes (sockets closed 4001 `revoked`). Max 3 TVs, max 6 screens waiting with a code. The GM's own browser may open the stage with the GM key instead. |
 
 Secrets are never sent to non-GM roles: player views carry no tokens; a TV token is sent once, to that TV;
@@ -313,7 +313,7 @@ Access, devices and backups (handled by `server/host.js`, both editions):
 | `t` | Fields | Effect |
 |-----|--------|--------|
 | `player.relink` | `playerId` | New personal link; old token refused, its sockets closed (4001 `relinked`). Ack `result: {playerId, joinUrl}` |
-| `player.approve` | `requestId`, `playerId?` (default: what the phone picked) | Lets a join request in as that player (see §1a). Ack `result: {playerId}` |
+| `player.approve` | `requestId`, either `create:true` or `playerId?` (defaults to the phone's pick) | Creates a character named after the request or assigns an existing character (see §1a). Ack `result: {playerId}` |
 | `player.deny` | `requestId` | Declines a join request |
 | `tv.pair` | `code` (4 letters, case-insensitive), `label?` | Pairs the screen showing that code. Ack `result: {tvId}`. Max 3 TVs |
 | `tv.unpair` | `tvId` | Revokes that TV |
@@ -779,7 +779,7 @@ WebAudio on the audio device; the voice line after a boss intro / defeat waits f
 | `/tv` | alias of `/stage` |
 | `/join` | player page (join request when there is no personal link) |
 | `/p/<token>` | player page for a personal link (`Cache-Control: no-store`) |
-| `/api/info` | `{ edition, legacy, keyLogin }` — tells the player page whether room + PIN login exists |
+| `/api/info` | `{ edition, legacy, keyLogin, campaign:{id,name} }` — room and PIN availability and the campaign accepting new requests |
 | `/api/tts/<hash>.mp3` | GM only, header `X-GM-Key` (Node also `X-GM-Token`), same failure rate limit as the GM login; `401` / `429` / `404`. Cached System voice audio (`audio/mpeg`, `no-store`). The desk fetches it into a blob URL, so no credential ever sits in a URL |
 | `/sfx/manifest.json`, `/sfx/*.mp3` | Core SFX pads (static, generated by `tools/gen_sfx.mjs`) |
 | `/api/export?kind=session\|campaign` | GM only, header `X-GM-Key: <GM_KEY>` (Node also `X-GM-Token: <gmToken>`); same rate limit as the GM login. JSON download `{ format: "the-system-export/1", kind, edition, exportedAt, pack, session, state, log, snapshots }`. `session` = log since the current session started, `campaign` = everything. `state` contains the secrets (links, legacy tokens): treat the file like a password |

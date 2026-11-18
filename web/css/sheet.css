@@ -497,7 +497,7 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 .cr-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 8px; }
 .cr-cards-sm { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); }
 .cr-card { display: grid; gap: 3px; text-align: left; padding: 10px; border-radius: 10px; border: 1px solid var(--c-line-2); background: var(--c-raised, transparent); color: var(--c-ink); cursor: pointer; min-height: 64px; }
-.cr-card span { font-size: 12px; color: var(--c-dim, #aaa); }
+.cr-card span { font-size: 13px; color: var(--c-ink-2); }
 .cr-card[aria-pressed="true"] { border-color: var(--c-accent); box-shadow: 0 0 0 2px var(--c-accent); }
 .cr-card:disabled { opacity: 0.4; cursor: not-allowed; }
 .cr-pick { margin-top: 14px; padding: 12px; border-radius: 12px; border: 1px solid var(--c-accent); display: grid; gap: 8px; scroll-margin: 12px; }

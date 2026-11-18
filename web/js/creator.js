@@ -26,7 +26,7 @@ export function openCreator({ model: M, player, gm, act }) {
   const skillOf = (id) => M.lib.skill.find((s) => s.id === id) || rs.skills.catalog.find((s) => s.id === id) || null;
   const statAbbr = (id) => rs.stats.find((s) => s.id === id)?.abbr || (id ? id.toUpperCase() : '');
   const draft = load(player.id) || {
-    name: M.sheet.identity?.name || player.name || '', pronouns: M.sheet.identity?.pronouns || M.sheet.fields?.pronouns || '',
+    name: M.sheet.identity?.name || player.name || '',
     bg: {}, weapon: null, method: cr.statMethods.array.length ? 'array' : 'roll', stats: {}, stuff: {},
   };
   const save = () => keep(player.id, draft);
@@ -109,7 +109,6 @@ export function openCreator({ model: M, player, gm, act }) {
       return h('div.bld-step',
         head('Who are you?', null, 'The name the System will shout when you do something stupid.'),
         h('label.lbl', h('span.lbl-t', 'Name'), field(draft.name, { onCommit: (v) => { draft.name = v.trim(); save(); paint(); }, attrs: { autocomplete: 'off' } })),
-        h('label.lbl', h('span.lbl-t', 'Pronouns (optional)'), field(draft.pronouns, { placeholder: 'she/her, he/him, they/them…', onCommit: (v) => { draft.pronouns = v.trim(); save(); } })),
         (base.species || []).length ? speciesPick() : null,
         h('p.dim.cr-note', icon('lock', { size: 12 }), ' Level, floor, crawler number and AI Favor come from the System (your GM).'));
     },
@@ -268,7 +267,6 @@ export function openCreator({ model: M, player, gm, act }) {
     if (bad.length) { go(bad[0].step); toast(bad[0].text, { error: true }); return; }
     next.disabled = true;
     const ops = [{ t: 'sheet.set', path: 'identity.name', value: draft.name }];
-    if (draft.pronouns) ops.push(rs.identity.includes('pronouns') ? { t: 'sheet.set', path: 'identity.pronouns', value: draft.pronouns } : { t: 'sheet.set', path: 'fields.pronouns', value: draft.pronouns });
     const stuff = Object.fromEntries(Object.entries(draft.stuff).filter(([, v]) => v && (v.itemId || v.name)));
     const sp = species();
     ops.push({ t: 'creation.apply', background: draft.bg, ...(cr.combat ? { weapon: draft.weapon } : {}), stats: draft.stats, method: draft.method, stuff, ...(sp ? { species: sp.id, ...(draft.size ? { size: draft.size } : {}), ...(draft.animal ? { animal: draft.animal } : {}) } : {}) });

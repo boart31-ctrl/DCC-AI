@@ -264,6 +264,60 @@ test('claim → pick → GM approves: the phone gets its token and becomes that 
   void a;
 });
 
+test('claim → create: approval saves one new character and its token before sending welcome', async () => {
+  const { sock, gm, gmView, host, trace, persisted } = setup();
+  const g = gm();
+  const ph = sock();
+  const campaign = host.joinCampaign();
+  ph.send({ t: 'hello', role: 'player', claim: true, name: 'New player', campaignId: campaign.id });
+  const claim = ph.last('claim');
+  assert.deepEqual(claim.campaign, campaign);
+  assert.deepEqual(claim.characters, []);
+  assert.equal(host.state.players.length, 0);
+
+  const approval = { t: 'player.approve', requestId: claim.requestId, create: true };
+  assert.equal((await act(g, { ...approval, playerId: 'p_other' })).error, 'bad_request');
+  trace.length = 0;
+  const result = await act(g, approval);
+  const id = result.result.playerId;
+  assert.deepEqual(host.state.players.map((p) => [p.id, p.name]), [[id, 'New player']]);
+  assert.equal(ph.last('welcome').view.me.id, id);
+  const { token } = ph.last('token');
+  assert.equal(host.state.host.playerTokens[id], token);
+  assert.ok(trace.indexOf('persist') < trace.indexOf('send:token'));
+  assert.equal(persisted.at(-1).action.t, 'player.approve');
+  assert.equal(gmView(g).gm.requests.length, 0);
+  assert.equal((await act(g, approval)).error, 'not_found');
+  assert.equal(host.state.players.length, 1);
+
+  const returning = sock();
+  returning.send({ t: 'hello', role: 'player', token });
+  assert.equal(returning.last('welcome').playerId, id);
+});
+
+test('new-character approval can be retried after failed persistence and rejects expired requests', async () => {
+  let writable = true;
+  const { sock, gm, host, clock: c } = setup({ persist() { if (!writable) throw new Error('disk unavailable'); } });
+  const g = gm();
+  const phone = sock();
+  phone.send({ t: 'hello', role: 'player', claim: true, name: 'First' });
+  const action = { t: 'player.approve', requestId: phone.last('claim').requestId, create: true };
+  writable = false;
+  assert.equal((await act(g, action)).error, 'internal');
+  assert.equal(host.state.players.length, 0);
+  assert.deepEqual(host.state.host.playerTokens, {});
+  assert.equal(phone.last('token'), undefined);
+  writable = true;
+  assert.equal((await act(g, action)).ok, true);
+
+  const expired = sock();
+  expired.send({ t: 'hello', role: 'player', claim: true, name: 'Expired' });
+  c.advance(LIMITS.claimTtlMs);
+  assert.deepEqual(expired.closed, { code: 4002, reason: 'request_expired' });
+  assert.equal((await act(g, { ...action, requestId: expired.last('claim').requestId })).error, 'not_found');
+  assert.equal(host.state.players.length, 1);
+});
+
 test('TV pairing: code → tv.pair → tvToken, reconnect with tvToken, max 3, unpair revokes, codes expire', async () => {
   const { sock, gm, gmView, host, clock: c } = setup();
   const g = gm();
@@ -470,10 +524,13 @@ test('campaigns: new campaign with another ruleset, switch back, import a backup
     save: (id, meta, state) => store.set(id, { meta, state: JSON.parse(JSON.stringify(state)) }),
     remove: (id) => store.delete(id),
   };
-  const { host, gm, gmView } = setup({ host: { campaigns } });
+  const { host, gm, gmView, sock } = setup({ host: { campaigns } });
   const g = gm();
   await act(g, { t: 'player.add', name: 'Carl' });
   const first = host.state.campaign;
+  const waiting = sock();
+  waiting.send({ t: 'hello', role: 'player', claim: true, name: 'Waiting', campaignId: first.id });
+  const oldRequest = waiting.last('claim').requestId;
   let r = await act(g, { t: 'campaign.list' });
   assert.equal(r.ok, true);
   assert.deepEqual(r.result.choices.map((c) => c.id), ['default', 'dnd5e', 'dnd2024', 'pf2e']);
@@ -482,6 +539,12 @@ test('campaigns: new campaign with another ruleset, switch back, import a backup
   assert.equal(host.state.campaign.ruleset, 'pf2e');
   assert.equal(host.state.players.length, 0);
   assert.equal(gmView(g).campaign.name, 'Rise of the Runelords');
+  assert.equal(waiting.last('error').code, 'campaign_changed');
+  assert.equal((await act(g, { t: 'player.approve', requestId: oldRequest, create: true })).error, 'not_found');
+  const staleInvite = sock();
+  staleInvite.send({ t: 'hello', role: 'player', claim: true, name: 'Stale link', campaignId: first.id });
+  assert.equal(staleInvite.last('error').code, 'campaign_changed');
+  assert.deepEqual(gmView(g).gm.requests, []);
   assert.equal(store.size, 1, 'the old campaign is parked');
   await act(g, { t: 'player.add', name: 'Seoni' });
   assert.equal(host.state.players[0].sheet.skills.length, 17, 'PF2e sheet');

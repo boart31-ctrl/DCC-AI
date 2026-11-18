@@ -210,6 +210,16 @@ async function main() {
   assert.equal((await phone2.next((m) => m.t === 'welcome')).playerId, donut);
   step('join request approved, phone got its token');
 
+  const info = await (await fetch(base + '/api/info')).json();
+  assert.equal(info.edition, 'cloud');
+  const newcomer = await hello(base, { role: 'player', claim: true, name: 'New player', campaignId: info.campaign.id });
+  const newClaim = await newcomer.next((m) => m.t === 'claim');
+  assert.deepEqual(newClaim.campaign, info.campaign);
+  const joined = await gm.call({ t: 'player.approve', requestId: newClaim.requestId, create: true });
+  const newToken = (await newcomer.next((m) => m.t === 'token')).token;
+  assert.equal((await newcomer.next((m) => m.t === 'welcome')).view.me.name, 'New player');
+  step('GM approves a new character without adding one first');
+
   // gameplay
   const achId = (await gm.next((m) => m.t === 'view')).view.gm.achievementsCatalog[0].id;
   await gm.call({ t: 'ach.award', playerId: carl, achId });
@@ -256,7 +266,7 @@ async function main() {
   const gm2 = await hello(base, { role: 'gm', key: KEY });
   const w2 = await gm2.next((m) => m.t === 'welcome');
   const p2 = w2.view.gm.playersFull;
-  assert.deepEqual(p2.map((p) => p.name), ['Carl', 'Donut']);
+  assert.deepEqual(p2.map((p) => p.name), ['Carl', 'Donut', 'New player']);
   const c2 = p2.find((p) => p.id === carl);
   assert.equal(c2.gold, 99, 'last acked change survived the crash');
   assert.equal(c2.notes, 'remember the duck');
@@ -269,6 +279,8 @@ async function main() {
   assert.equal((await dn2.next((m) => m.t === 'welcome')).playerId, donut);
   const tv2 = await hello(base, { role: 'stage', tvToken });
   assert.equal((await tv2.next((m) => m.t === 'welcome')).role, 'stage', 'TV reconnects without pairing again');
+  const newcomer2 = await hello(base, { role: 'player', token: newToken });
+  assert.equal((await newcomer2.next((m) => m.t === 'welcome')).playerId, joined.playerId);
   r = await fetch(base + big.url, { headers: { 'X-GM-Key': KEY } });
   assert.equal((await r.arrayBuffer()).byteLength, BIG, 'voice cache survived the crash');
   assert.ok(w2.view.gm.tts.configured && w2.view.gm.tts.usage.chars >= 'Hello crawlers.BIG LINE'.length);
@@ -285,7 +297,7 @@ async function main() {
   assert.equal(exp.log.at(-1).action.gold, 99, 'last action is in the log');
   assert.ok(exp.log.every((e, i) => i === 0 || e.seq > exp.log[i - 1].seq));
   const logText = JSON.stringify(exp.log);
-  for (const secret of [carlToken, donutToken, tvToken, KEY, code]) assert.equal(logText.includes(secret), false, 'no secrets in the log');
+  for (const secret of [carlToken, donutToken, newToken, tvToken, KEY, code]) assert.equal(logText.includes(secret), false, 'no secrets in the log');
   assert.equal(exp.state.host.playerTokens[carl], carlToken, 'GM export carries the state incl. links');
   r = await fetch(`${base}/api/export?kind=session`, { headers: { 'X-GM-Key': KEY } });
   const sess = await r.json();

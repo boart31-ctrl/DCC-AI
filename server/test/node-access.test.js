@@ -57,7 +57,10 @@ test('routes: /p/<token>, /tv, /join pages, /api/info, security headers', async 
   assert.equal(await (await fetch(`${base}/tv`)).text(), '<h1>stage.html</h1>');
   assert.equal(await (await fetch(`${base}/join`)).text(), '<h1>play.html</h1>');
   assert.equal((await fetch(`${base}/p/short`)).status, 404);
-  assert.deepEqual(await (await fetch(`${base}/api/info`)).json(), { edition: 'node', legacy: true, keyLogin: true });
+  assert.deepEqual(await (await fetch(`${base}/api/info`)).json(), {
+    edition: 'node', legacy: true, keyLogin: true,
+    campaign: { id: srv.state.campaign.id, name: srv.state.campaign.name },
+  });
   assert.equal((await fetch(`${base}/api/nope`)).status, 404);
 });
 
@@ -109,4 +112,26 @@ test('GM key + player link + TV pairing over the wire; export needs the key; for
   assert.equal(r.status, 200, 'legacy GM token works for export in Node');
 
   for (const c of [gm, ph, tv]) c.ws.close();
+});
+
+test('a new phone can request a character in an empty campaign and reconnect by personal token', async (t) => {
+  const gm = client();
+  const phone = client();
+  const returning = client();
+  t.after(() => { for (const c of [gm, phone, returning]) c.ws.close(); });
+  await Promise.all([gm.opened, phone.opened, returning.opened]);
+  gm.send({ t: 'hello', role: 'gm', key: 'node-gm-key-123456' });
+  await gm.next((m) => m.t === 'welcome');
+  gm.send({ t: 'campaign.new', name: 'New campaign', rid: 'new' });
+  const { campaign } = (await gm.next((m) => m.rid === 'new')).result;
+
+  phone.send({ t: 'hello', role: 'player', claim: true, name: 'New player', campaignId: campaign.id });
+  const claim = await phone.next((m) => m.t === 'claim');
+  assert.deepEqual(claim.characters, []);
+  gm.send({ t: 'player.approve', create: true, requestId: claim.requestId, rid: 'approve' });
+  const { token, playerId } = await phone.next((m) => m.t === 'token');
+  assert.equal((await gm.next((m) => m.rid === 'approve')).result.playerId, playerId);
+  assert.equal((await phone.next((m) => m.t === 'welcome')).view.me.name, 'New player');
+  returning.send({ t: 'hello', role: 'player', token });
+  assert.equal((await returning.next((m) => m.t === 'welcome')).playerId, playerId);
 });
