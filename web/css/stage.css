@@ -697,3 +697,4 @@ body.has-crawlers .hype { width: 20rem; }
 .hold-in { display: grid; gap: 1rem; }
 .hold-in b { font: 900 7rem/1 var(--f-ui, sans-serif); text-transform: uppercase; letter-spacing: 0.08em; }
 .hold-in span { font: 600 2.4rem var(--f-ui, sans-serif); opacity: 0.7; }
+.cr-floor { white-space: nowrap; }
