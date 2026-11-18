@@ -27,7 +27,17 @@ export function createRxPhone({ send, toast, onAttack = null }) {
     const c = view?.combat;
     const rx = c?.rx;
     const mine = rx && me ? c.combatants.find((x) => x.type === 'crawler' && x.playerId === me.id) : null;
-    if (!rx || !mine) { el.hidden = true; sig = ''; return; }
+    if (!rx || !mine) { el.hidden = true; sig = ''; pad = null; return; }
+    // A pending dice pad is only valid in the current reaction step for a still-open declaration.
+    // When the GM advances the round while a player is looking at their phone, close the stale pad.
+    if (pad) {
+      const decl = rx.decls.find((d) => d.id === pad.declId);
+      const valid = rx.step === 'react' && decl && !decl.result
+        && (pad.kind === 'evade'
+          ? rx.evading.includes(mine.uid) && decl.targetUid === mine.uid && !decl.evade && !decl.caught
+          : rx.intervene.includes(mine.uid) && decl.targetUid !== mine.uid && !!decl.evade);
+      if (!valid) pad = null;
+    }
     const s = JSON.stringify([rx, pad, mine.uid]);
     if (s === sig) return;
     sig = s;
