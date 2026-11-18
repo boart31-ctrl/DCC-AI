@@ -44,6 +44,7 @@ export function createRollPad({ send, getView, getMe }) {
     document.body.classList.remove('rp-open');
     st.step = 'pick';
     st.result = null;
+    st.favorOpen = false;
   }
 
   /** Opens the pad for one roll (from a tap on the sheet). */
@@ -55,6 +56,7 @@ export function createRollPad({ send, getView, getMe }) {
     st.bonus = 0;
     st.adv = null;
     st.result = null;
+    st.favorOpen = false;
     st.after = null;
     st.step = 'roll';
     // Keep aiming at the monster you just attacked (5 minutes), else the only one standing.
@@ -73,6 +75,7 @@ export function createRollPad({ send, getView, getMe }) {
     if (!me()) return;
     st.step = 'pick';
     st.result = null;
+    st.favorOpen = false;
     draw();
     el.hidden = false;
     document.body.classList.add('rp-open');
@@ -125,6 +128,7 @@ export function createRollPad({ send, getView, getMe }) {
     st.digits = '';
     st.bonus = 0;
     st.result = null;
+    st.favorOpen = false;
     st.step = 'roll';
     draw();
   }
@@ -233,19 +237,24 @@ export function createRollPad({ send, getView, getMe }) {
     const nat = r.roll?.natural ?? r.natural;
     const left = Number(m?.sheet?.fields?.aiFavor ?? fdef.default ?? 0);
     if (nat === 1 || !(left > 0)) return null;
-    return h('button.btn', { type: 'button', title: 'Spend 1 AI Favor: roll the d20 again (type the new die, or let the phone roll)', onclick: async () => {
-      const n = window.prompt(`Reroll with AI Favor (${left} left). Roll your d20 again and type it, or leave empty to let the phone roll:`, '');
-      if (n === null) return;
-      const a = { t: 'roll.favor', rollId: r.rollId };
-      if (n.trim()) { const v = Number(n); if (!Number.isInteger(v) || v < 1 || v > 20) { toast('Type 1 to 20', { error: true }); return; } a.entered = v; }
+    const go = async (entered) => {
+      const a = { t: 'roll.favor', rollId: r.rollId, ...(entered ? { entered } : {}) };
       try {
         const res = await send(a);
         const vs = res?.result?.vs || {};
+        st.favorOpen = false;
         st.result = { ...st.result, total: res?.result?.total, hit: vs.hit, crit: vs.crit, degree: vs.degree, deg7: vs.deg7, natural: res?.result?.natural, favored: true, roll: { ...(st.result.roll || {}), natural: res?.result?.natural } };
         buzz(vs.hit ? [20, 40, 20] : 15);
         draw();
       } catch (err) { toast(err.message, { error: true }); }
-    } }, icon('sparkle', { size: 16 }), `AI Favor reroll (${left})`);
+    };
+    if (st.favorOpen) {
+      return h('div.rp-favor',
+        h('p', h('b', `AI Favor (${left} left)`), ' Roll your d20 again and tap what it shows, or let the phone roll.'),
+        h('div.rp-favor-keys', Array.from({ length: 20 }, (_, i) => h('button.btn', { type: 'button', onclick: () => go(i + 1) }, String(i + 1)))),
+        h('div.row-start', h('button.btn.btn-primary', { type: 'button', onclick: () => go(null) }, icon('dice', { size: 16 }), 'Phone rolls'), h('button.btn.btn-quiet', { type: 'button', onclick: () => { st.favorOpen = false; draw(); } }, 'Cancel')));
+    }
+    return h('button.btn', { type: 'button', title: 'Spend 1 AI Favor: roll the d20 again', onclick: () => { st.favorOpen = true; draw(); } }, icon('sparkle', { size: 16 }), `AI Favor reroll (${left})`);
   }
 
   function draw() {

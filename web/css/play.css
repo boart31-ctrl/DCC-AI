@@ -296,3 +296,7 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 .ivn p { margin: 0; }
 .ivn-row { display: flex; flex-wrap: wrap; gap: 6px; }
 .ivn-row button.num { width: 44px; height: 44px; font-size: 18px; font-weight: 800; }
+.rp-favor { flex-basis: 100%; display: grid; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid var(--c-accent); }
+.rp-favor p { margin: 0; }
+.rp-favor-keys { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.rp-favor-keys .btn { min-height: 40px; font-weight: 800; }
