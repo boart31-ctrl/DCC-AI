@@ -184,10 +184,25 @@ function loadMeta(raw, warnings) {
     theme: loadTheme(raw.theme, warnings),
     crawlers: normalizeCrawlersConfig(raw.crawlers, warnings), // crawlers.js: worldwide head count
     prep: normalizePrepConfig(raw.prep, warnings), // prep.js: session-prep templates
+    cheats: loadCheats(raw.cheats, warnings), // printable cheat sheets (pack docs/), linked on phones and the GM desk
     lootTiers,
     audience: { startViewers, sponsorHypeThreshold },
     autoBudget,
   };
+}
+
+/**
+ * pack.json "cheats": [{ id, label, file, audience: 'player' | 'gm' }] — HTML pages in the pack's docs/
+ * folder (served under /pack/docs/, printable). Players see only the player ones.
+ */
+function loadCheats(v, warnings) {
+  if (v == null) return [];
+  if (!Array.isArray(v)) { warnings.push('pack.json "cheats" must be an array'); return []; }
+  return v.slice(0, 12).map((c, i) => {
+    const ok = c && /^[a-z0-9_-]{1,40}$/.test(c.id ?? '') && isStr(c.label) && /^[A-Za-z0-9_./-]{1,80}\.(html|pdf)$/.test(c.file ?? '') && !String(c.file).includes('..');
+    if (!ok) { warnings.push(`pack.json cheats[${i}]: needs id, label and a docs/ file (.html or .pdf)`); return null; }
+    return { id: c.id, label: c.label.trim().slice(0, 60), url: `/pack/docs/${c.file}`, audience: c.audience === 'gm' ? 'gm' : 'player' };
+  }).filter(Boolean);
 }
 
 /** Default look for the GM desk + player sheets ("dark" | "light" | "neon"); each device may override it. */
@@ -758,6 +773,7 @@ export function fallbackPack() {
     ui: null,
     crawlers: normalizeCrawlersConfig(null),
     prep: normalizePrepConfig(null),
+    cheats: [],
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },
     autoBudget: 6,

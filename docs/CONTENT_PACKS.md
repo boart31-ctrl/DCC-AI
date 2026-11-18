@@ -418,3 +418,7 @@ Library entries (boss, monster, NPC, location) may carry `sounds: { <slot>: [ref
 `moments: [{ label, sounds, text?, chance, on: intro|phase|defeat|attack|kill }]` (chance 0 = a button in the Fight tracker
 only). Resolution: the entry's own slot → its `group`'s slot in `cues.json` → the event default. Voice lines carry
 `category` and `source: { kind, id }` in the `play` message so the desk knows whose sound to use.
+
+## Cheat sheets: `cheats` (pack.json)
+
+`[{ "id": "player", "label": "Player cheat sheet", "file": "player.html", "audience": "player" | "gm" }]` — HTML (or PDF) files in the pack's `docs/` folder, served under `/pack/docs/` (the cloud build copies html, pdf, css and pictures from there). Player sheets show in the phone menu, all of them in Prep's side list. Write them to print well (`@page` size, `@media print`).

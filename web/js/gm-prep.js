@@ -222,7 +222,9 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
         advTpls.length > 1
           ? select([{ value: '', label: '+ New…' }, ...advTpls.map((t) => ({ value: t.id, label: t.label }))], '', { cls: 'inp-sm', label: 'New adventure from template', onChange: (v) => v && newAdventure(v) })
           : h('button.btn.btn-sm', { type: 'button', onclick: () => newAdventure(null) }, icon('plus', { size: 14 }), 'New')),
-      adv.length ? h('ul.pp-docs', adv.map(docRow)) : h('p.empty-s', 'An adventure holds what lasts several evenings: a neighbourhood, a quest, a dungeon.'));
+      adv.length ? h('ul.pp-docs', adv.map(docRow)) : h('p.empty-s', 'An adventure holds what lasts several evenings: a neighbourhood, a quest, a dungeon.'),
+      (view?.pack?.cheats || []).length ? [h('div.pp-side-head', h('h2', 'Cheat sheets')),
+        h('ul.pp-docs', view.pack.cheats.map((c) => h('li', h('a.pp-doc', { href: c.url, target: '_blank', rel: 'noopener' }, h('span.pp-doc-t', c.label), h('span.dim', c.audience === 'gm' ? 'GM · print A4' : 'Players · on their phones too')))))] : null);
   }
 
   /* ---------- right: one doc ---------- */

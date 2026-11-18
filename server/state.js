@@ -1010,6 +1010,7 @@ function common(state, pack, opts) {
       ruleset: pack.ruleset,
       theme: pack.theme ?? null,
       ui: pack.ui ?? null, // ui.json art (URLs only); the UI falls back to its CSS look per missing asset
+      cheats: (pack.cheats ?? []).filter((c) => opts.role === 'gm' || c.audience === 'player'),
     },
     audience: { viewers: a.viewers, hype: Math.round(hypeOf(a, opts.now) * 100) / 100 },
     feed: state.feed,
@@ -1032,7 +1033,7 @@ function common(state, pack, opts) {
 export function viewFor(state, basePack, role, opts = {}) {
   const pack = packOf(state, basePack);
   const now = opts.now ?? Date.now();
-  const v = common(state, pack, { ...opts, now });
+  const v = common(state, pack, { ...opts, now, role });
   const q = opts.queue ?? { queue: [], pendingAuto: [], playing: null };
   const library = libraryOf(state, pack);
   v.rolls = rollsFor(state, role, opts.playerId);

@@ -440,6 +440,8 @@ const sheet = createSheet({
     { icon: 'dice', label: 'Dice on this phone', sub: DICE_LABEL[me?.diceMode ?? 'enter'], onClick: () => setDiceMode({ off: 'enter', enter: 'digital', digital: 'off' }[me?.diceMode ?? 'enter']) },
     { icon: 'dice', label: 'Dice log', sub: 'Every roll at the table', onClick: () => setLogOpen(true) },
     { icon: 'book', label: 'Rules', sub: view?.pack?.ruleset?.system?.short || 'How this game is played', onClick: openRules },
+    // Printable cheat sheets from the pack (pack.json "cheats", player ones only).
+    ...(view?.pack?.cheats || []).map((c) => ({ icon: 'info', label: c.label, sub: 'Cheat sheet: one page, also printable', onClick: () => window.open(c.url, '_blank', 'noopener') })),
     { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
     ext.hosted ? null : { icon: 'x', label: 'Leave on this phone', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
   ].filter(Boolean),
