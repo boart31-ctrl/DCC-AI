@@ -40,7 +40,7 @@ export function fitToParty(view, payload, ratio) {
   const size = Math.max(1, (view?.players || []).length);
   const list = mobsOf(view, payload);
   const role = (m) => (m.kind === 'boss' ? 'boss' : m.e?.role || 'standard');
-  const fixed = list.filter((m) => ['boss', 'elite'].includes(role(m))).length * size;
+  const fixed = list.filter((m) => ['boss', 'elite'].includes(role(m))).reduce((total, m) => total + (m.count || 1) * size, 0);
   const scal = list.filter((m) => !['boss', 'elite'].includes(role(m)));
   if (!scal.length) return null;
   const per = (m) => (role(m) === 'minion' ? 0.5 : 1);
@@ -60,7 +60,7 @@ export function fitToParty(view, payload, ratio) {
   }
   return list.map(({ e, ...m }) => {
     const i = scal.findIndex((x) => x.sourceId === m.sourceId && x.kind === m.kind);
-    return i < 0 ? { ...m, count: 1 } : { ...m, count: cnt[i] };
+    return i < 0 ? m : { ...m, count: cnt[i] };
   });
 }
 
