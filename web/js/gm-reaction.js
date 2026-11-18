@@ -3,7 +3,7 @@
 // damage) → act (crawlers strike back) → next round.
 //
 // rxPanel({ act, view }) → Node | null
-import { h } from './client.js';
+import { h, ask } from './client.js';
 import { icon, select } from './ui.js';
 
 const STEP_LABEL = { declare: '1 Mobs choose', react: '2 Crawlers react', resolve: '3 Hits land', act: '4 Crawlers act', cleanup: '5 Clean up' };
@@ -39,7 +39,14 @@ export function rxPanel({ act, view }) {
     onclick: async () => {
       if (next.round) return act({ t: 'rx.round' }, `Round ${rx.round + 1}.`);
       const ok = await act({ t: 'rx.step', to: next.to });
-      if (!ok && next.to === 'resolve') act({ t: 'rx.step', to: 'resolve', force: true }, 'Resolved (missing Evade rolls counted as no roll).');
+      if (!ok && next.to === 'resolve') {
+        // Only offer force after a known missing Evade roll. Other failures must remain errors.
+        const missing = rx.decls.filter((d) => rx.evading.includes(d.targetUid) && !d.caught && !d.evade);
+        if (!missing.length) return;
+        const names = [...new Set(missing.map((d) => nameOf(d.targetUid)))].join(', ');
+        const yes = await ask(`Still waiting for ${missing.length} Evade roll${missing.length === 1 ? '' : 's'} (${names}). Unresolved rolls will count as no Evade. Continue?`, { ok: 'Resolve without Evade', danger: true });
+        if (yes) await act({ t: 'rx.step', to: 'resolve', force: true }, 'Unresolved Evade rolls skipped by GM.');
+      }
     },
   }, next.label);
 
