@@ -1081,3 +1081,19 @@ test('untrained checks: forced Disadvantage, Stat Mod only, learn one at Rank 1 
   assert.throws(() => reducePlayerAction(st, { t: 'roll', what: { kind: 'untrained', skillId: pick.id } }, c({ playerId: pid })), /already has/);
   void lib;
 });
+
+test('untrained Disadvantage is cancelled by Advantage (DCC pack)', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  assert.equal(dcc.ruleset.combat.advantage, true);
+  assert.equal(dcc.ruleset.combat.sizeGap, 4);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  let st = reduce(createState(dcc, 0), { role: 'gm', t: 'player.add', name: 'Carl' }, c()).state;
+  const pid = st.players[0].id;
+  const skills = JSON.parse(fs.readFileSync(path.join(DCC, 'skills.json'), 'utf8'));
+  const pick = skills.find((x) => x.checkType !== 'Passive' && x.tags.includes('book'));
+  const seq = [14, 4];
+  st = reducePlayerAction(st, { t: 'roll', what: { kind: 'untrained', skillId: pick.id }, adv: 'adv' }, c({ playerId: pid, dieInt: () => seq.shift() })).state;
+  const rec = st.rolls.at(-1);
+  assert.equal(rec.adv, undefined, 'plain roll');
+  assert.equal(rec.natural, 15);
+});

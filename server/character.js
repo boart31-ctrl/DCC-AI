@@ -1119,7 +1119,8 @@ export const SHEET = {
     // Untrained check (ruleset skills.untrained): always with the ruleset's Disadvantage, no Ranks.
     const unt = w.kind === 'untrained' ? rs.skills?.untrained : null;
     if (w.kind === 'untrained' && !unt) throw bad('this game has no untrained checks');
-    const adv = unt?.adv ? unt.adv : a.adv === undefined || a.adv === null ? null : ['adv', 'dis'].includes(a.adv) ? a.adv : (() => { throw bad('adv must be adv or dis'); })();
+    // Untrained Disadvantage + a reason for Advantage cancel out (R4S p.13): a plain roll.
+    const adv = unt?.adv ? (a.adv && a.adv !== unt.adv ? null : unt.adv) : a.adv === undefined || a.adv === null ? null : ['adv', 'dis'].includes(a.adv) ? a.adv : (() => { throw bad('adv must be adv or dis'); })();
     const bonus = a.bonus === undefined ? 0 : int(a.bonus, 'bonus', -50, 50);
     const natural = { first: null, kept: null, other: null };
     const base = ctx0.dieInt ?? ctx0.rollInt ?? ctx0.randInt;

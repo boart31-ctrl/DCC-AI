@@ -780,6 +780,7 @@ export const COMBAT_GM = {
         ...(e.role && e.role !== 'standard' ? { role: e.role } : {}),
         ...(e.flat ? { flat: true } : {}),
         ...(Number.isInteger(e.surprise) ? { surprise: e.surprise } : {}),
+        ...(Number.isInteger(e.size?.value) ? { size: e.size.value } : {}),
         ...(e.resist?.length ? { resist: [...e.resist] } : {}),
         ...(e.vulnerable?.length ? { vulnerable: [...e.vulnerable] } : {}),
         ...(e.immune?.length ? { immune: [...e.immune] } : {}),
@@ -1076,6 +1077,8 @@ export function combatView(state, pack, role) {
       group: x.sourceKey ?? null, // same library monster → one pack on the TV
       hpPct: hpFraction(x.hp, x.hpMax), down: x.hp <= 0,
       conditions: (x.conditions ?? []).map((k) => ({ id: k.id ?? null, name: k.name, ...(k.rounds ? { rounds: k.rounds } : {}) })),
+      // Size class (book stat blocks): the phone suggests Advantage / Disadvantage from the size gap.
+      ...(Number.isInteger(x.size) ? { size: x.size } : {}),
     };
     if (c.showMobHp) Object.assign(row, { hp: x.hp, hpMax: x.hpMax });
     combatants.push(row);

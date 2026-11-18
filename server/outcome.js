@@ -23,6 +23,7 @@ export function combatRules(pack, settings = DEFAULT_SETTINGS) {
     useDr: fixed ? !!cr.dr : true,
     defenseLabel: cr.defenseLabel || 'Evade',
     advantage: !!cr.advantage,
+    ...(cr.sizeGap ? { sizeGap: cr.sizeGap, crawlerSize: cr.crawlerSize } : {}),
     // Mob numbers as "base + floor" (crawler books: Evade 10 + Dex + F, to hit 10 + mod + F).
     // mobBase is added to a mob's Evade and to-hit bonus; floorScaled adds the world's current floor.
     mobBase: Number.isInteger(cr.mobBase) ? cr.mobBase : 0,

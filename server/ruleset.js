@@ -565,6 +565,8 @@ function normalizeCombatRules(raw, derived, unv) {
     // 'seven' = the crawler books' seven degrees on attacks / checks vs a target (outcome.js degree7).
     degreeScale: r.degreeScale === 'seven' ? 'seven' : null,
     advantage: r.advantage === true,
+    // Size classes 4+ apart: attacks against the bigger target with Advantage, the smaller with Disadvantage.
+    ...(Number.isInteger(r.sizeGap) && r.sizeGap >= 1 && r.sizeGap <= 20 ? { sizeGap: r.sizeGap, crawlerSize: Number.isInteger(r.crawlerSize) ? r.crawlerSize : 4 } : {}),
     initiative: { enabled: ini.enabled === true || raw?.initiative === true, derived: has(ini.derived) ? ini.derived : null },
     hpModel: r.hpModel === 'pool' ? 'pool' : r.hpModel === 'slots' ? 'slots' : null,
     // Mob numbers written as "base + floor" (outcome.js mobDefense / mobAttackDc).

@@ -224,3 +224,10 @@ Untrained checks: any library skill not on the sheet can be rolled (`roll` with 
 `adv`, the `formula` instead of Rank + Stat Mod. Check types in `noCheckTypes` cannot be tried. With `learn`, tried skills
 gather in `sheet.untried`; `untrained.learn` turns one into Rank 1 and wipes the list (only up to `learnMaxFloor`, 0 = any
 floor). `hideTags`: library skills with these tags stay out of the players' pickers (kept for old references).
+
+### combat.sizeGap / combat.crawlerSize
+
+`"sizeGap": 4, "crawlerSize": 4` (DCC): when a crawler attacks a revealed mob whose size class (book stat block
+`size.value`) is `sizeGap` or more above the crawler's, the phone preselects Advantage; that far below, Disadvantage.
+The crawler's size comes from its `size` field (animal crawlers: Tiny … Gargantuan), else `crawlerSize`. Needs
+`combat.advantage`.

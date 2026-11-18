@@ -60,6 +60,8 @@ export function createRollPad({ send, getView, getMe }) {
     st.favorOpen = false;
     st.after = null;
     st.step = 'roll';
+    st.cancel = false;
+    st.advTouched = false;
     if (what.kind === 'untrained' && rs().skills?.untrained?.adv) st.adv = rs().skills.untrained.adv;
     // Keep aiming at the monster you just attacked (5 minutes), else the only one standing.
     const alive = mobs();
@@ -95,6 +97,7 @@ export function createRollPad({ send, getView, getMe }) {
     if (st.target) a.target = st.target;
     if (st.target === undefined) { toast('Pick who you attack, or No target', { error: true }); return; }
     if (st.adv && digital) a.adv = st.adv;
+    if (st.what?.kind === 'untrained' && st.cancel) a.adv = 'adv';
     if (st.bonus) a.bonus = st.bonus;
     if (st.after) a.after = st.after;
     st.busy = true;
@@ -166,21 +169,40 @@ export function createRollPad({ send, getView, getMe }) {
       !attacks.length && !skills.length ? h('p.hint', 'Your sheet has nothing to roll yet. Ask the GM to set it up.') : null));
   }
 
+  const SIZES = { tiny: 1, small: 2, petite: 3, medium: 4, large: 5, huge: 6, colossal: 7, gargantuan: 8 };
+  /** Book size rule: a target sizeGap+ classes bigger → Advantage, smaller → Disadvantage. */
+  function sizeHint() {
+    const R = rules();
+    if (!R.sizeGap || !isAttack() || !st.target) return null;
+    const m = mobs().find((x) => x.uid === st.target);
+    if (!Number.isInteger(m?.size)) return null;
+    const mine = SIZES[String(me()?.sheet?.fields?.size || '').toLowerCase()] || R.crawlerSize || 4;
+    const gap = m.size - mine;
+    if (gap >= R.sizeGap) return { adv: 'adv', text: `${m.name} is much bigger: Advantage.` };
+    if (-gap >= R.sizeGap) return { adv: 'dis', text: `${m.name} is much smaller: Disadvantage.` };
+    return null;
+  }
+
   function targetRow() {
     const list = mobs();
     if (!(isAttack() || isDamage()) || !list.length) return null;
     return h('div.rp-targets', h('span.rp-l', isDamage() ? 'Damage to' : 'Attack'),
-      h('div.rp-chips', list.map((m) => h('button.chip', { type: 'button', 'aria-pressed': String(st.target === m.uid), onclick: () => { st.target = st.target === m.uid ? null : m.uid; draw(); } }, m.name)),
+      h('div.rp-chips', list.map((m) => h('button.chip', { type: 'button', 'aria-pressed': String(st.target === m.uid), onclick: () => { st.target = st.target === m.uid ? null : m.uid; if (!st.advTouched) st.adv = sizeHint()?.adv ?? null; draw(); } }, m.name)),
         h('button.chip', { type: 'button', 'aria-pressed': String(st.target === null), onclick: () => { st.target = null; draw(); } }, 'No target')),
       st.target === undefined ? h('span.rp-need', 'Who do you attack?') : null);
   }
 
   function modsRow() {
     const b = bonusOf(st.what);
-    const advOn = !!rules().advantage && !isDamage() && st.what?.kind !== 'untrained';
+    const unt = st.what?.kind === 'untrained' ? rs().skills?.untrained : null;
+    const advOn = !!rules().advantage && !isDamage() && !unt;
+    const sz = sizeHint();
     return h('div.rp-mods',
       b == null ? null : h('span.rp-mod', `Your modifier ${signed(b)}`),
-      advOn ? h('div.rp-adv', ['adv', 'dis'].map((k) => h('button.chip', { type: 'button', 'aria-pressed': String(st.adv === k), onclick: () => { st.adv = st.adv === k ? null : k; draw(); } }, k === 'adv' ? 'Advantage' : 'Disadvantage'))) : null,
+      advOn ? h('div.rp-adv', ['adv', 'dis'].map((k) => h('button.chip', { type: 'button', 'aria-pressed': String(st.adv === k), onclick: () => { st.adv = st.adv === k ? null : k; st.advTouched = true; draw(); } }, k === 'adv' ? 'Advantage' : 'Disadvantage'))) : null,
+      // Untrained: Disadvantage, cancelled by any reason for Advantage (cover, high ground, size…).
+      unt?.adv ? h('div.rp-adv', h('button.chip', { type: 'button', 'aria-pressed': String(st.cancel === true), onclick: () => { st.cancel = !st.cancel; st.adv = st.cancel ? null : unt.adv; draw(); } }, 'I have Advantage (cancels it)')) : null,
+      advOn && sz ? h('span.rp-hint', sz.text) : null,
       isDamage() ? null : h('div.rp-bonus', h('span.rp-l', 'Extra'),
         h('button.btn.btn-sm', { type: 'button', 'aria-label': 'Minus one', onclick: () => { st.bonus -= 1; draw(); } }, '−'),
         h('b', signed(st.bonus)),
