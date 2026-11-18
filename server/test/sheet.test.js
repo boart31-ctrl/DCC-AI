@@ -7,6 +7,7 @@ import { loadPack, readPackFiles, serializePack, deserializePack, normalizePack 
 import { createState, normalizeState, reduce, reducePlayerAction, viewFor, ActionError } from '../state.js';
 import { normalizeRuleset, computeSheet, makeLibrary } from '../ruleset.js';
 import { tmpDir, writePack, seq } from './fixtures.js';
+import { computeFor, libraryOf } from '../character.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 
@@ -971,4 +972,24 @@ test('private DCC pack: dying at 0 health — Con mod rounds, −1 per clean up 
   st = gm(st, { t: 'combat.damage', uid: x().uid, amount: 99 }).state;
   for (let i = 0; i < 3; i++) st = gm(st, { t: 'rx.round' }).state;
   assert.equal(x().dead, true);
+});
+
+test('private DCC pack: injuries after the fight (Evade major fail → minor, a second → long-term), −2 to checks', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  const gm = (s, a) => reduce(s, { role: 'gm', ...a }, c());
+  let st = gm(createState(dcc, 0), { t: 'player.add', name: 'Fargo' }).state;
+  const pid = st.players[0].id;
+  const before = computeFor(st.players[0], dcc, libraryOf(st, dcc)).computed;
+  for (let round = 0; round < 2; round++) {
+    st = gm(st, { t: 'combat.start' }).state;
+    const x = st.combat.combatants.find((y) => y.type === 'crawler');
+    x.injuries = ['minor'];
+    st = gm(st, { t: 'combat.end' }).state;
+  }
+  const buffs = st.players[0].sheet.buffs.map((b) => b.buffId);
+  assert.deepEqual(buffs, ['long_minor_injury'], 'the second minor injury became long-term');
+  const after = computeFor(st.players[0], dcc, libraryOf(st, dcc)).computed;
+  assert.equal(after.derived.evade.value, before.derived.evade.value - 2);
+  void pid;
 });

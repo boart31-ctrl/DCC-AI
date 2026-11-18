@@ -251,6 +251,7 @@ client.on('event', (e) => {
     return;
   }
   if (e.kind === 'dying' && e.playerId === me.id) { buzz([80, 60, 80, 60, 80]); toast(`You are dying: ${e.rounds} round${e.rounds === 1 ? '' : 's'} left. Someone has to heal you to 10 %.`, { error: true, ms: 7000 }); return; }
+  if (e.kind === 'injury' && e.playerId === me.id) { buzz([60, 40, 60]); toast(`After the fight: ${e.injury}. It is on your sheet (Buffs).`, { error: true, ms: 6000 }); return; }
   if (e.kind === 'dying.saved' && e.playerId === me.id) { buzz(30); toast('Saved. You are back on your feet.', { ms: 4000 }); return; }
   if (e.kind === 'dying.dead' && e.playerId === me.id) { buzz([200, 100, 400]); toast('You died. The GM decides what happens next.', { error: true, ms: 9000 }); return; }
   if (e.kind === 'rollUpdate') { if (e.why === 'intervene') { document.querySelector('.ivn')?.remove(); if (e.playerId === me.id) toast(`${e.by} intervened: +${e.d6}${e.hit ? '. It worked!' : '. Still not enough.'}`, { ms: 4000 }); } return; }

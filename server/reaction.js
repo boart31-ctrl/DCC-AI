@@ -155,6 +155,10 @@ function resolveDecl(st, ctx, out, rx, d) {
   }
   if (deg === 'major') bonus = floorOfState(st);
   if (deg === 'critfail') mult *= 2;
+  // Injuries after the fight (ruleset combat.injuries): Evade Major Fail → minor, natural 1 → major.
+  if (target.type === 'crawler' && (deg === 'major' || deg === 'critfail') && ctx.pack.ruleset.combat?.injuries) {
+    target.injuries = [...(target.injuries ?? []), deg === 'critfail' ? 'major' : 'minor'].slice(0, 10);
+  }
   let rolled = 0;
   try { rolled = rollDice(d.attack.damage, { randInt: ctx.randInt }).total; } catch { rolled = 1; }
   const amount = Math.max(0, Math.floor(rolled * mult) + bonus);

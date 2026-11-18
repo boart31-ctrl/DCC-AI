@@ -850,6 +850,30 @@ function giveStarterAttack(st, p, ctx) {
   if (heal) GM['combat.heal'] = (st, a, ctx, out) => { heal(st, a, ctx, out); const x = st.combat?.combatants?.find((c) => c.uid === a.uid); if (x?.type === 'crawler') dyingTick(st, ctx, out, 'heal', x.uid); };
 }
 {
+  // Injuries marked during the fight become debuffs on the sheets when it ends.
+  const end = GM['combat.end'];
+  GM['combat.end'] = (st, a, ctx, out) => {
+    const inj = ctx.pack.ruleset.combat?.injuries;
+    const marks = inj ? (st.combat?.combatants ?? []).filter((x) => x.type === 'crawler' && x.injuries?.length).map((x) => [x.playerId, x.injuries]) : [];
+    end(st, a, ctx, out);
+    const lib = libraryOf(st, ctx.pack);
+    for (const [pid, list] of marks) {
+      const p = st.players.find((y) => y.id === pid);
+      if (!p) continue;
+      for (const kind of list) {
+        const has = (id) => id && p.sheet.buffs.some((b) => b.buffId === id);
+        const long = kind === 'major' ? inj.majorLong : inj.minorLong;
+        const base = kind === 'major' ? inj.major : inj.minor;
+        let give = base;
+        if (has(base) && long) { p.sheet.buffs = p.sheet.buffs.filter((b) => b.buffId !== base); give = long; }
+        if (!lib.get('buff', give) || has(give)) continue;
+        GM['buff.add'](st, { playerId: pid, buffId: give }, ctx, { ...out, result: null });
+        out.emit({ kind: 'injury', playerId: pid, name: p.name, injury: lib.get('buff', give).name }, 'all');
+      }
+    }
+  };
+}
+{
   const start = GM['combat.start'];
   GM['combat.start'] = (st, a, ctx, out) => {
     for (const p of st.players) giveStarterAttack(st, p, ctx);

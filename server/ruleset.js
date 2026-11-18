@@ -526,6 +526,9 @@ function normalizeCombatRules(raw, derived, unv) {
     flow: r.flow === 'reaction' ? 'reaction' : 'phases',
     // Dying at 0 health (reaction rounds): rounds left = this formula (DCC: Con mod); −1 each clean up and each
     // time a dying crawler is damaged; at 0 they die. Healed above 0 = no longer dying.
+    // Injuries after combat: buff ids for { minor, major, minorLong, majorLong }; a second one of the same
+    // kind becomes the long-term one (reaction.js marks them, state.js gives them on combat.end).
+    injuries: isObj(r.injuries) && ['minor', 'major'].every((k) => isStr(r.injuries[k])) ? { minor: r.injuries.minor, major: r.injuries.major, minorLong: isStr(r.injuries.minorLong) ? r.injuries.minorLong : null, majorLong: isStr(r.injuries.majorLong) ? r.injuries.majorLong : null } : null,
     dyingRounds: isStr(r.dyingRounds) && !validateFormula(r.dyingRounds, {}) ? r.dyingRounds.trim() : null,
     // Every crawler can fight without gear: given when a crawler is created or a fight starts and they have no attack.
     // { name, skill (library skill id, optional), rank, stat, dice }
