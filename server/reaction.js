@@ -128,7 +128,8 @@ export function suggestDecls(st, ctx) {
   const pickAttack = (m) => (m.attackMode === 'random' ? Math.floor(ctx.rng() * m.attacks.length) : 0);
   for (const m of mobs) {
     const big = m.sourceKind === 'boss' || m.role === 'elite' || m.role === 'boss';
-    if (big) { for (const t of targets) { out.push({ mobUid: m.uid, attackIndex: pickAttack(m), targetUid: t.uid }); load.set(t.uid, load.get(t.uid) + 1); } continue; }
+    // One action per crawler in the fight, even the fallen ones (the book): extra attacks go round the standing.
+    if (big) { const n = crawlers(st).filter((x) => !x.dead).length; for (let i = 0; i < n; i++) { const t = targets[i % targets.length]; out.push({ mobUid: m.uid, attackIndex: pickAttack(m), targetUid: t.uid }); load.set(t.uid, load.get(t.uid) + 1); } continue; }
     let target;
     if (m.targetMode === 'focus' && load.has(m.focus)) target = m.focus;
     else {
