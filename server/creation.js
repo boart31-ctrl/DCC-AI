@@ -5,7 +5,9 @@
 //   { background: { [stageId]: { option, skills: [skillId…] } },   life stages: one option, `pick` skills
 //     weapon: { index } | { name, like: index } | { none: true },   starting combat skill + attack
 //     stats: { [statId]: n }, method: 'array' | 'roll',            base stats (array = a permutation)
-//     stuff: { [stuffId]: { itemId } | { name, icon? } } }         starting things → a request for the GM
+//     stuff: { [stuffId]: { itemId } | { name, icon? } },          starting things → a request for the GM
+//     species?, size?, animal? }   another kind of character (ruleset creation.species): its stages / combat,
+//                                  start AI Favor, size, the race text (Animal: Cat)
 // Skills a character already has are raised to the stage rank, never duplicated; attacks are not doubled.
 //
 // Starting things never land in the inventory directly: they wait in sheet.gearRequest until the GM
@@ -50,8 +52,13 @@ export function makeCreation(GM) {
       const p = targetOf(st, a, ctx, 'sheet');
       const gm = ctx.actor.role === 'gm';
       const rs = ctx.pack.ruleset;
-      const cr = rs.creation;
-      if (!cr) throw bad('this ruleset has no guided creation');
+      const base = rs.creation;
+      if (!base) throw bad('this ruleset has no guided creation');
+      // A species (DCC: animal crawler) brings its own life stages / combat; the rest is shared.
+      const sp = a.species ? base.species.find((x) => x.id === a.species) : null;
+      if (a.species && !sp) throw bad(`unknown species ${a.species}`);
+      const cr = sp ? { ...base, backgrounds: sp.backgrounds ?? base.backgrounds, combat: sp.combat ?? base.combat } : base;
+      if (sp?.sizes.length && a.size !== undefined && !sp.sizes.some((z) => z.value === String(a.size))) throw bad('unknown size');
       const lib = libraryOf(st, ctx.pack);
       const who = gm ? { playerId: p.id } : {};
       const sub = () => ({ ...out, result: null });
@@ -126,6 +133,22 @@ export function makeCreation(GM) {
         const same = p.sheet.attacks.find((x) => x.name === k.name || (uid && x.skillUid === uid && x.dice === k.dice));
         if (same) continue;
         GM['attack.add'](st, { ...who, name: k.name, dice: k.dice, stat: k.stat, ...(uid ? { skillUid: uid } : {}), ...(k.damageStat !== undefined && k.damageStat !== k.stat ? { dmgStat: k.damageStat || 'none' } : {}), ...(k.damageType ? { dtype: k.damageType, effects: [k.damageType, k.note].filter(Boolean).join(', ') } : {}) }, ctx, sub());
+      }
+      if (sp?.combat?.fixed) {
+        // The ruleset's starter attack (human Unarmed Combat) is not theirs: the species has its own.
+        const sa = rs.combat?.starterAttack;
+        if (sa && sa.skill !== sp.combat.fixed.skill) {
+          const sk = p.sheet.skills.find((x) => x.skillId === sa.skill);
+          p.sheet.attacks = p.sheet.attacks.filter((k) => !(k.name === sa.name && (!sk || k.skillUid === sk.uid || !k.skillUid)));
+          if (sk && !p.sheet.attacks.some((k) => k.skillUid === sk.uid)) p.sheet.skills = p.sheet.skills.filter((x) => x !== sk);
+        }
+      }
+      if (sp) {
+        // Species facts are part of creation, not later edits: written directly (AI Favor is GM-only otherwise).
+        p.sheet.fields = { ...(p.sheet.fields ?? {}), ...(sp.aiFavor != null ? { aiFavor: sp.aiFavor } : {}), ...(a.size !== undefined ? { size: sp.sizes.find((z) => z.value === String(a.size))?.label ?? String(a.size) } : {}) };
+        const what = text(a.animal, 40);
+        p.sheet.identity = { ...(p.sheet.identity ?? {}), race: [sp.race || sp.label, what].filter(Boolean).join(': ').slice(0, 60) };
+        p.sheet.species = sp.id;
       }
       // The background here is the life stages the rules ask for, not an origin needing approval: written directly.
       if (labels.length) { p.sheet.identity = { ...(p.sheet.identity ?? {}), background: labels.join(' · ').slice(0, 120) }; }

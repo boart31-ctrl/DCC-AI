@@ -19,7 +19,9 @@ export function hasCreator(model) { return !!model?.rs?.creation; }
 
 export function openCreator({ model: M, player, gm, act }) {
   const rs = M.rs;
-  const cr = rs.creation;
+  const base = rs.creation;
+  // The active creation rules: a species (DCC: animal crawler) swaps in its own stages and combat.
+  let cr = base;
   const skillName = (id) => (M.lib.skill.find((s) => s.id === id) || rs.skills.catalog.find((s) => s.id === id))?.name || id;
   const skillOf = (id) => M.lib.skill.find((s) => s.id === id) || rs.skills.catalog.find((s) => s.id === id) || null;
   const statAbbr = (id) => rs.stats.find((s) => s.id === id)?.abbr || (id ? id.toUpperCase() : '');
@@ -28,15 +30,22 @@ export function openCreator({ model: M, player, gm, act }) {
     bg: {}, weapon: null, method: cr.statMethods.array.length ? 'array' : 'roll', stats: {}, stuff: {},
   };
   const save = () => keep(player.id, draft);
-  const steps = [
-    { id: 'name', label: 'Name' },
-    ...cr.backgrounds.map((g) => ({ id: `bg:${g.id}`, label: g.label, g })),
-    ...(cr.combat ? [{ id: 'weapon', label: 'Weapon' }] : []),
-    { id: 'stats', label: 'Stats' },
-    ...(cr.stuff.length ? [{ id: 'stuff', label: 'Your stuff' }] : []),
-    { id: 'story', label: 'Story' },
-    { id: 'review', label: 'Ready' },
-  ];
+  const species = () => (draft.species ? (base.species || []).find((x) => x.id === draft.species) : null);
+  let steps = [];
+  function rebuild() {
+    const sp = species();
+    cr = sp ? { ...base, backgrounds: sp.backgrounds || base.backgrounds, combat: sp.combat || base.combat } : base;
+    steps = [
+      { id: 'name', label: 'Name' },
+      ...cr.backgrounds.map((g) => ({ id: `bg:${g.id}`, label: g.label, g })),
+      ...(cr.combat ? [{ id: 'weapon', label: sp ? 'Strike' : 'Weapon' }] : []),
+      { id: 'stats', label: 'Stats' },
+      ...(cr.stuff.length ? [{ id: 'stuff', label: 'Your stuff' }] : []),
+      { id: 'story', label: 'Story' },
+      { id: 'review', label: 'Ready' },
+    ];
+  }
+  rebuild();
   let step = Math.min(draft.step || 0, steps.length - 1);
   const dlg = h('dialog.builder.tool.creator', { 'aria-label': 'Create your crawler' });
   const bar = h('div.cr-progress');
@@ -74,6 +83,26 @@ export function openCreator({ model: M, player, gm, act }) {
   }
   const modOf = (v) => (rs.statMod ? evaluate(rs.statMod.formula, { resolve: (n) => (n === 'x' ? Number(v) : undefined) }).value : Number(v));
 
+  /** Human (the default) or another species: switching clears the stages and weapon picked so far. */
+  function speciesPick() {
+    const sp = species();
+    const setSp = async (id) => {
+      if ((draft.species || null) === id) return;
+      if (Object.keys(draft.bg).length && !(await ask('Switch? Your life stages and weapon picks start over.', { ok: 'Switch' }))) return;
+      draft.species = id; draft.bg = {}; draft.weapon = null; draft.size = null; save(); rebuild(); paint();
+    };
+    return h('div.cr-species',
+      h('h4', 'What are you?'),
+      h('div.cr-cards',
+        h('button.cr-card', { type: 'button', 'aria-pressed': String(!sp), onclick: () => setSp(null) }, h('b', 'Human'), h('span', 'The usual. Starts with 1 AI Favor.')),
+        base.species.map((x) => h('button.cr-card', { type: 'button', 'aria-pressed': String(sp?.id === x.id), onclick: () => setSp(x.id) }, h('b', x.label), h('span', x.desc)))),
+      sp ? [
+        h('label.lbl', h('span.lbl-t', 'Which animal?'), field(draft.animal || '', { placeholder: 'Cat, ferret, goat…', onCommit: (v) => { draft.animal = v.trim(); save(); } })),
+        sp.sizes.length ? h('div.lbl', h('span.lbl-t', 'Size'), h('div.cr-vals', sp.sizes.map((z) => h('button.cr-card.cr-size', { type: 'button', 'aria-pressed': String(draft.size === z.value), onclick: () => { draft.size = z.value; save(); paint(); } }, h('b', z.label), h('span', z.example))))) : null,
+        sp.help ? h('p.cr-info', sp.help) : null,
+      ] : null);
+  }
+
   /* ---------- steps ---------- */
   const render = {
     name() {
@@ -81,6 +110,7 @@ export function openCreator({ model: M, player, gm, act }) {
         head('Who are you?', null, 'The name the System will shout when you do something stupid.'),
         h('label.lbl', h('span.lbl-t', 'Name'), field(draft.name, { onCommit: (v) => { draft.name = v.trim(); save(); paint(); }, attrs: { autocomplete: 'off' } })),
         h('label.lbl', h('span.lbl-t', 'Pronouns (optional)'), field(draft.pronouns, { placeholder: 'she/her, he/him, they/them…', onCommit: (v) => { draft.pronouns = v.trim(); save(); } })),
+        (base.species || []).length ? speciesPick() : null,
         h('p.dim.cr-note', icon('lock', { size: 12 }), ' Level, floor, crawler number and AI Favor come from the System (your GM).'));
     },
     stage(g) {
@@ -119,7 +149,7 @@ export function openCreator({ model: M, player, gm, act }) {
       const pickIdx = (i) => { draft.weapon = { index: i }; save(); paint(); };
       const dmg = (x) => `${x.dice}${x.damageStat ? ` + ${statAbbr(x.damageStat)}` : ''}`;
       return h('div.bld-step',
-        head('Your weapon', 'weapon', cr.combat.fixed ? `Everyone has ${cr.combat.fixed.name} (${cr.combat.fixed.dice} + ${statAbbr(cr.combat.fixed.damageStat || cr.combat.fixed.stat)}). Pick what you carried: it starts at Rank ${cr.combat.rank}.` : ''),
+        head(species() ? 'Your strike' : 'Your weapon', 'weapon', cr.combat.fixed ? `${species() ? 'You have' : 'Everyone has'} ${cr.combat.fixed.name} (${cr.combat.fixed.dice} + ${statAbbr(cr.combat.fixed.damageStat || cr.combat.fixed.stat)}). Pick what you carried: it starts at Rank ${cr.combat.rank}.` : ''),
         groups.map((gr) => h('div.cr-group', h('h4', gr),
           h('div.cr-cards.cr-cards-sm', list.map((x, i) => (x.group !== gr ? null : h('button.cr-card', { type: 'button', 'aria-pressed': String(w?.index === i || w?.like === i), disabled: taken.has(x.skill), title: taken.has(x.skill) ? `Already a skill from ${taken.get(x.skill)}` : '', onclick: () => pickIdx(i) },
             h('b', x.name), h('span', `${dmg(x)} ${x.damageType || ''} · to hit ${statAbbr(x.stat)}`), x.note ? h('span.dim', x.note) : null)))))),
@@ -207,6 +237,7 @@ export function openCreator({ model: M, player, gm, act }) {
       const rows = [
         ['Name', draft.name || '—'],
         ...cr.backgrounds.map((g) => [g.label, draft.bg[g.id] ? `${draft.bg[g.id].option}: ${(draft.bg[g.id].skills || []).map(skillName).join(', ') || '(no skills picked)'} — Rank ${g.rank}` : '—']),
+        ...(species() ? [['Species', `${species().label}${draft.animal ? `: ${draft.animal}` : ''}${draft.size ? ` · ${species().sizes.find((z) => z.value === draft.size)?.label}` : ''} · AI Favor ${species().aiFavor ?? '—'}`]] : []),
         ...(cr.combat ? [['Combat', [cr.combat.fixed?.name, draft.weapon && !draft.weapon.none ? (draft.weapon.name || cr.combat.weapons[draft.weapon.index]?.name) : null].filter(Boolean).join(' + ') + ` — Rank ${cr.combat.rank}`]] : []),
         ['Stats', rs.stats.map((s) => `${s.abbr} ${draft.stats[s.id] ?? '–'}`).join(' · ')],
         ...cr.stuff.filter((s) => !s.auto).map((s) => [s.label, draft.stuff[s.id]?.itemId ? M.lib.item.find((x) => x.id === draft.stuff[s.id].itemId)?.name : draft.stuff[s.id]?.name || '—']),
@@ -223,6 +254,7 @@ export function openCreator({ model: M, player, gm, act }) {
   function problems() {
     const out = [];
     if (!draft.name) out.push({ step: 0, text: 'Give your crawler a name.' });
+    if (species()?.sizes.length && !draft.size) out.push({ step: 0, text: 'Pick your size.' });
     steps.forEach((s, i) => {
       if (s.g && (draft.bg[s.g.id]?.skills || []).length !== s.g.pick) out.push({ step: i, text: `${s.g.label}: pick a description and ${s.g.pick} skills.` });
       if (s.id === 'weapon' && !draft.weapon) out.push({ step: i, text: 'Pick a weapon.' });
@@ -238,7 +270,8 @@ export function openCreator({ model: M, player, gm, act }) {
     const ops = [{ t: 'sheet.set', path: 'identity.name', value: draft.name }];
     if (draft.pronouns) ops.push(rs.identity.includes('pronouns') ? { t: 'sheet.set', path: 'identity.pronouns', value: draft.pronouns } : { t: 'sheet.set', path: 'fields.pronouns', value: draft.pronouns });
     const stuff = Object.fromEntries(Object.entries(draft.stuff).filter(([, v]) => v && (v.itemId || v.name)));
-    ops.push({ t: 'creation.apply', background: draft.bg, ...(cr.combat ? { weapon: draft.weapon } : {}), stats: draft.stats, method: draft.method, stuff });
+    const sp = species();
+    ops.push({ t: 'creation.apply', background: draft.bg, ...(cr.combat ? { weapon: draft.weapon } : {}), stats: draft.stats, method: draft.method, stuff, ...(sp ? { species: sp.id, ...(draft.size ? { size: draft.size } : {}), ...(draft.animal ? { animal: draft.animal } : {}) } : {}) });
     for (const op of ops) {
       if (!(await act(op))) { next.disabled = false; return; }
     }

@@ -99,6 +99,7 @@ export function migrateSheet(sheet, legacy, ruleset) {
     originsLocked: !!s.originsLocked,
     // Guided creation finished (server/creation.js): the phone stops offering the creator.
     ...(s.created ? { created: true } : {}),
+    ...(typeof s.species === 'string' && /^[a-z0-9_-]{1,30}$/.test(s.species) ? { species: s.species } : {}),
     // Starting things from guided creation, waiting for the GM (server/creation.js gear.approve / deny).
     gearRequest: arr(s.gearRequest).slice(0, 8).map((r) => ({ slot: String(r.slot ?? '').slice(0, 80), name: String(r.name ?? '').slice(0, 60), ...(typeof r.itemId === 'string' ? { itemId: r.itemId } : {}), ...(typeof r.icon === 'string' ? { icon: r.icon } : {}) })).filter((r) => r.name),
   };
@@ -223,6 +224,7 @@ export function characterOf(p, ruleset) {
     originsLocked: !!sh.originsLocked,
     gearRequest: sh.gearRequest ?? [],
     created: !!sh.created,
+    species: sh.species ?? null,
   };
 }
 

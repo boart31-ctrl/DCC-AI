@@ -578,6 +578,13 @@ function normalizeCreation(c, warnings) {
   const strList = (v, dflt) => (Array.isArray(v) ? [...new Set(v.filter((x) => typeof x === 'string' && /^[A-Za-z0-9_.-]{1,60}$/.test(x)))].slice(0, 30) : dflt);
   const str = (v, max = 400) => (typeof v === 'string' ? v.slice(0, max) : '');
   const ints = (v, lo, hi) => (Array.isArray(v) ? v.filter((x) => Number.isInteger(x) && x >= lo && x <= hi).slice(0, 12) : []);
+  const normBgs = (list) => (Array.isArray(list) ? list : []).slice(0, 8).map((g) => ({
+    id: str(g?.id, 40) || 'stage', label: str(g?.label, 60) || 'Background', pick: Number.isInteger(g?.pick) ? Math.max(1, Math.min(5, g.pick)) : 2,
+    rank: Number.isInteger(g?.rank) ? g.rank : 1, roll: isStr(g?.roll) ? g.roll : null,
+    options: (Array.isArray(g?.options) ? g.options : []).slice(0, 30).map((o) => ({ name: str(o?.name, 80), desc: str(o?.desc, 300), skills: strList(o?.skills, []).slice(0, 6) })).filter((o) => o.name && o.skills.length),
+  })).filter((g) => g.options.length);
+  const atk = (w) => (w && isStr(w.name) && isStr(w.skill) && /^\d*d\d+/.test(w.dice ?? '') ? { name: str(w.name, 60), group: str(w.group, 40), skill: w.skill, stat: str(w.stat, 20), dice: w.dice, damageStat: isStr(w.damageStat) ? w.damageStat : null, damageType: str(w.damageType, 40), note: str(w.note, 120), rank: Number.isInteger(w.rank) ? w.rank : null } : null);
+  const normCombat = (cb) => (cb && typeof cb === 'object' ? { fixed: atk(cb.fixed), rank: Number.isInteger(cb.rank) ? cb.rank : 1, weapons: (Array.isArray(cb.weapons) ? cb.weapons : []).slice(0, 60).map(atk).filter(Boolean), custom: cb.custom !== false } : null);
   const sm = c.statMethods && typeof c.statMethods === 'object' ? c.statMethods : {};
   const out = {
     statMethods: {
@@ -589,21 +596,21 @@ function normalizeCreation(c, warnings) {
     statPart: isStr(c.statPart) ? c.statPart.trim() : null,
     mirrorParts: strList(c.mirrorParts, []),
     noDouble: c.noDouble !== false,
-    backgrounds: (Array.isArray(c.backgrounds) ? c.backgrounds : []).slice(0, 8).map((g) => ({
-      id: str(g?.id, 40) || 'stage', label: str(g?.label, 60) || 'Background', pick: Number.isInteger(g?.pick) ? Math.max(1, Math.min(5, g.pick)) : 2,
-      rank: Number.isInteger(g?.rank) ? g.rank : 1, roll: isStr(g?.roll) ? g.roll : null,
-      options: (Array.isArray(g?.options) ? g.options : []).slice(0, 30).map((o) => ({ name: str(o?.name, 80), desc: str(o?.desc, 300), skills: strList(o?.skills, []).slice(0, 6) })).filter((o) => o.name && o.skills.length),
-    })).filter((g) => g.options.length),
-    combat: null,
+    backgrounds: normBgs(c.backgrounds),
+    combat: normCombat(c.combat),
+    // Other kinds of character (DCC: an animal crawler): own stages / combat, start AI Favor, sizes, race text.
+    species: (Array.isArray(c.species) ? c.species : []).slice(0, 6).map((sp) => (sp && /^[a-z0-9_-]{1,30}$/.test(sp.id ?? '') && isStr(sp.label) ? {
+      id: sp.id, label: str(sp.label, 40), desc: str(sp.desc, 400), race: str(sp.race, 40), help: str(sp.help, 600),
+      aiFavor: Number.isInteger(sp.aiFavor) ? sp.aiFavor : null,
+      backgrounds: sp.backgrounds ? normBgs(sp.backgrounds) : null,
+      combat: sp.combat ? normCombat(sp.combat) : null,
+      sizes: (Array.isArray(sp.sizes) ? sp.sizes : []).slice(0, 10).map((z) => ({ value: str(String(z?.value ?? ''), 20), label: str(z?.label, 40), example: str(z?.example, 80) })).filter((z) => z.value && z.label),
+    } : null)).filter(Boolean),
     stuff: (Array.isArray(c.stuff) ? c.stuff : []).slice(0, 8).map((x) => ({ id: str(x?.id, 40), label: str(x?.label, 80), hint: str(x?.hint, 200), auto: x?.auto === 'weapon' ? 'weapon' : null, catalog: x?.catalog === true, custom: x?.custom === true })).filter((x) => x.id && x.label),
     derived: (Array.isArray(c.derived) ? c.derived : []).slice(0, 12).map((x) => ({ label: str(x?.label, 60), text: str(x?.text, 300) })).filter((x) => x.label),
     basicActions: (Array.isArray(c.basicActions) ? c.basicActions : []).slice(0, 20).map((x) => ({ name: str(x?.name, 60), text: str(x?.text, 300) })).filter((x) => x.name),
     help: Object.fromEntries(Object.entries(c.help && typeof c.help === 'object' ? c.help : {}).filter(([k, v]) => /^[a-z_]{1,30}$/.test(k) && isStr(v)).map(([k, v]) => [k, v.slice(0, 600)])),
   };
-  if (c.combat && typeof c.combat === 'object') {
-    const atk = (w) => (w && isStr(w.name) && isStr(w.skill) && /^\d*d\d+/.test(w.dice ?? '') ? { name: str(w.name, 60), group: str(w.group, 40), skill: w.skill, stat: str(w.stat, 20), dice: w.dice, damageStat: isStr(w.damageStat) ? w.damageStat : null, damageType: str(w.damageType, 40), note: str(w.note, 120), rank: Number.isInteger(w.rank) ? w.rank : null } : null);
-    out.combat = { fixed: atk(c.combat.fixed), rank: Number.isInteger(c.combat.rank) ? c.combat.rank : 1, weapons: (Array.isArray(c.combat.weapons) ? c.combat.weapons : []).slice(0, 60).map(atk).filter(Boolean), custom: c.combat.custom !== false };
-  }
   if (!out.backgrounds.length && !out.statMethods.array.length && !out.combat) { warnings?.push?.('ruleset.creation: nothing usable, ignored'); return null; }
   return out;
 }

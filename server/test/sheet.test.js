@@ -743,7 +743,7 @@ test('views: me.sheet and gm.playersFull[].sheet = raw + computed; pack.ruleset;
   const pv = viewFor(state, pack, 'player', { playerId: id });
   const gv = viewFor(state, pack, 'gm', {});
   assert.deepEqual(gv.gm.playersFull[0].sheet, pv.me.sheet);
-  assert.deepEqual(Object.keys(pv.me.sheet).sort(), ['attacks', 'buffs', 'computed', 'created', 'fields', 'gearRequest', 'hotlist', 'identity', 'inventory', 'level', 'name', 'originsLocked', 'pending', 'pools', 'portrait', 'skills', 'spells', 'stats', 'story', 'tracks']);
+  assert.deepEqual(Object.keys(pv.me.sheet).sort(), ['attacks', 'buffs', 'computed', 'created', 'fields', 'gearRequest', 'hotlist', 'identity', 'inventory', 'level', 'name', 'originsLocked', 'pending', 'pools', 'portrait', 'skills', 'species', 'spells', 'stats', 'story', 'tracks']);
   assert.deepEqual(Object.keys(pv.me.sheet.computed).sort(), ['attacks', 'buffs', 'derived', 'effects', 'externalBuffs', 'fields', 'skills', 'spells', 'stats', 'tracks', 'warnings']);
   assert.equal(pv.pack.ruleset.id, 'test-rules');
   assert.deepEqual(pv.me.resources, { hp: { cur: 10, max: 10 }, mana: { cur: 6, max: 6 } });
@@ -1030,4 +1030,28 @@ test('private DCC pack: heal interrupt (2 Mana → 2 slots), debuff damage at cl
   const ratHp = rat.hp;
   st = gm(st, { t: 'combat.damage', uid: rat.uid, amount: 9, dr: true, dtype: 'fire' }).state;
   assert.equal(st.combat.combatants.find((y) => y.uid === rat.uid).hp, ratHp);
+});
+
+test('private DCC pack: animal crawler — own stages, Slice Attack, no AI Favor, size', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  let st = reduce(createState(dcc, 0), { role: 'gm', t: 'player.add', name: 'Mongo' }, c()).state;
+  const pid = st.players[0].id;
+  const sp = dcc.ruleset.creation.species.find((x) => x.id === 'animal');
+  assert.equal(sp.backgrounds.length, 4);
+  const taken = new Set();
+  const bg = {};
+  for (const g of sp.backgrounds) for (const o of g.options) { const free = o.skills.filter((x) => !taken.has(x)); if (free.length >= 2) { bg[g.id] = { option: o.name, skills: free.slice(0, 2) }; free.slice(0, 2).forEach((x) => taken.add(x)); break; } }
+  const ids = dcc.ruleset.stats.map((s) => s.id);
+  const bite = sp.combat.weapons.findIndex((w) => w.name === 'Bite');
+  assert.throws(() => reducePlayerAction(st, { t: 'creation.apply', species: 'animal', size: '9', background: bg }, c({ playerId: pid })), /size/);
+  st = reducePlayerAction(st, { t: 'creation.apply', species: 'animal', size: '2', animal: 'Cat', background: bg, weapon: { index: bite }, stats: Object.fromEntries(ids.map((k, i) => [k, [2, 6, 3, 4, 5][i]])), method: 'array' }, c({ playerId: pid })).state;
+  const p = st.players[0];
+  assert.equal(p.sheet.fields.aiFavor, 0);
+  assert.equal(p.sheet.fields.size, 'Small');
+  assert.equal(p.sheet.identity.race, 'Animal: Cat');
+  assert.ok(p.sheet.attacks.some((k) => k.name === 'Slice Attack'));
+  assert.ok(p.sheet.attacks.some((k) => k.name === 'Bite' && k.dtype === 'piercing'));
+  assert.equal(p.sheet.species, 'animal');
+  assert.ok(!p.sheet.attacks.some((k) => k.name === 'Unarmed Combat'), 'no human Unarmed Combat');
 });
