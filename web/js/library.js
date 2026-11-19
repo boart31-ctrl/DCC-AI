@@ -43,7 +43,7 @@ function blank(kind, rs) {
   return e;
 }
 
-export function createLibrary({ act, getView, aiDraft, hasAi }) {
+export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
   const st = { kind: 'all', source: 'all', tag: '', q: '', sel: null, draft: null, dirty: false };
   let view = null;
   let rs = null;
@@ -55,17 +55,67 @@ export function createLibrary({ act, getView, aiDraft, hasAi }) {
   const sourceSel = select([{ value: 'all', label: 'Pack and homebrew' }, { value: 'pack', label: 'Pack only' }, { value: 'homebrew', label: 'Homebrew only' }], 'all', { cls: 'inp-sm', label: 'Source', onChange: (v) => { st.source = v; drawList(true); } });
   const tagSel = h('select.inp.inp-sm', { 'aria-label': 'Tag', onchange: (e) => { st.tag = e.target.value; drawList(true); } });
   const newSel = select([{ value: '', label: 'New entry…' }, ...LIB_KINDS.map((k) => ({ value: k.id, label: `New ${k.label.toLowerCase()}` }))], '', { cls: 'inp-sm lib-new', label: 'Create', onChange: (v) => { if (v) { startNew(v); newSel.value = ''; } } });
+  const importFile = h('input', { type: 'file', accept: '.zip,application/zip', hidden: true, onchange: importContent });
+  const importStatus = h('p.dim', { role: 'status', hidden: true });
+  const importButton = h('button.btn', { type: 'button', onclick: () => importFile.click() }, icon('plus', { size: 15 }), 'Import ZIP');
   const count = h('span.dim');
   const list = h('ul.lib-list', { role: 'listbox', 'aria-label': 'Library entries' });
   const editor = h('div.lib-editor');
   const el = h('div.library',
-    h('div.view-head', h('h1', 'Library'), count, h('span.grow'), newSel),
+    h('div.view-head', h('h1', 'Library'), count, h('span.grow'), importButton, importFile, newSel),
+    importStatus,
     kindSeg,
     h('div.lib-cols',
       h('div.lib-side', search, h('div.lib-filters', sourceSel, tagSel), list),
       editor,
     ),
   );
+
+  async function importContent() {
+    const file = importFile.files[0];
+    importFile.value = '';
+    if (!file) return;
+    const campaignId = view?.campaign?.id;
+    const cred = getCredential?.();
+    importStatus.hidden = false;
+    if (!campaignId || (!cred?.key && !cred?.token)) {
+      importStatus.textContent = 'Sign in as GM and open the campaign to import.';
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      importStatus.textContent = 'The ZIP must be 5 MiB or smaller.';
+      return;
+    }
+    importStatus.textContent = 'Importing content…';
+    importButton.disabled = true;
+    try {
+      const response = await fetch('/api/content/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/zip',
+          'X-System-Campaign-Id': campaignId,
+          ...(cred.key ? { 'X-GM-Key': cred.key } : { 'X-GM-Token': cred.token }),
+        },
+        body: file,
+      });
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(result.msg || (response.status === 401 ? 'GM sign-in required.' : `Import failed (${response.status}).`));
+      const missing = result.missingImages.length;
+      importStatus.textContent = `Imported ${result.entries.length} entries.${missing ? ` ${missing} image references were missing.` : ''}`;
+      if (view?.campaign?.id === campaignId) {
+        st.kind = 'all';
+        st.source = sourceSel.value = 'homebrew';
+        st.tag = tagSel.value = '';
+        st.q = search.value = '';
+        drawKinds();
+        drawList(true);
+      }
+    } catch (err) {
+      importStatus.textContent = err.message;
+    } finally {
+      importButton.disabled = false;
+    }
+  }
 
   /* ---------- list ---------- */
 

@@ -1090,6 +1090,7 @@ const library = createLibrary({
   send: (a) => client.send(a),
   act,
   getView: () => view,
+  getCredential: () => ext.credential,
   aiDraft: (...args) => ext.libraryDraft?.(...args),
   hasAi: () => !!ext.libraryDraft,
 });
