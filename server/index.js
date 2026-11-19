@@ -15,6 +15,7 @@ import { createHost, LIMITS } from './host.js';
 import { createAI } from './ai.js';
 import { fileTtsStore } from './tts-node.js';
 import { pageFor, isSecretPath, securityHeaders } from './routes.js';
+import { contentArtResponse, importContentResponse } from './content-http.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SAVE_DEBOUNCE_MS = 500;
@@ -233,6 +234,12 @@ export async function startServer(opts = {}) {
     close: (ws, code, reason) => ws.close(code, reason),
     // Actions are written right away (atomic rename); background ticks are batched.
     persist: (state, entry) => {
+      if (entry.action?.t === 'lib.importContent') {
+        // Content import must surface a failed disk write to the host before it acknowledges.
+        writeJsonAtomic(stateFile, state);
+        latest = state;
+        return;
+      }
       latest = state;
       if (entry.system) scheduleSave();
       else saveNow();
@@ -276,15 +283,19 @@ export async function startServer(opts = {}) {
     res.end(body);
   }
 
+  async function sendContentResponse(res, response) {
+    res.writeHead(response.status, { ...baseHeaders(), ...Object.fromEntries(response.headers) });
+    res.end(response.body ? Buffer.from(await response.arrayBuffer()) : undefined);
+  }
+
   async function onRequest(req, res) {
     try {
-      // POST only for the campaign import (GM key checked there); everything else is read-only.
-      const isImport = req.method === 'POST' && new URL(req.url, 'http://x').pathname === '/api/import';
+      const url = new URL(req.url, 'http://x');
+      const isImport = req.method === 'POST' && ['/api/import', '/api/content/import'].includes(url.pathname);
       if (req.method !== 'GET' && req.method !== 'HEAD' && !isImport) {
         res.writeHead(405, { allow: 'GET, HEAD' });
         return res.end();
       }
-      const url = new URL(req.url, 'http://x');
       let p;
       try {
         p = decodeURIComponent(url.pathname);
@@ -326,10 +337,15 @@ export async function startServer(opts = {}) {
         const data = { format: 'the-system-export/1', kind, edition: 'node', exportedAt: now(), pack: { id: pack.id, version: pack.version }, state: st, log: host.log };
         return sendJson(res, 200, data, { 'content-disposition': `attachment; filename="system-${kind}-${new Date(now()).toISOString().slice(0, 10)}.json"` });
       }
-      if (p === '/api/import' && req.method === 'POST') {
+      if (isImport) {
         if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) return sendJson(res, 403, { error: 'forbidden origin' });
         const r = host.checkGm({ key: req.headers['x-gm-key'], token: req.headers['x-gm-token'] }, req.socket.remoteAddress ?? '?');
         if (r !== 'ok') return sendJson(res, r === 'rate_limited' ? 429 : 401, { error: r });
+        if (p === '/api/content/import') {
+          return await sendContentResponse(res, await importContentResponse(host, {
+            body: req.iterator({ destroyOnReturn: false }), campaignId: req.headers['x-system-campaign-id'], contentType: req.headers['content-type'],
+          }));
+        }
         const chunks = [];
         let size = 0;
         for await (const c of req) {
@@ -344,6 +360,7 @@ export async function startServer(opts = {}) {
         }
       }
       if (p.startsWith('/api/')) return notFoundRes(res);
+      if (p.startsWith('/pack/content/')) return await sendContentResponse(res, contentArtResponse(host.state, p, req.method === 'HEAD'));
       if (p.startsWith('/pack/')) {
         const file = pack.dir && safeJoin(pack.dir, p.slice('/pack/'.length));
         return file ? sendFile(req, res, file) : notFoundRes(res);

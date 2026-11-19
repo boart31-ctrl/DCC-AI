@@ -21,7 +21,7 @@
 //   gmKey                              GM secret; hello {role:'gm', key}
 //   legacy                             also accept the v1 hello forms (gm/stage token, room + PIN)
 //   urls(base, state) -> { join, stage, gm }, playerUrl(base, token)
-import { normalizeState, createState, reduce, reducePlayerAction, viewFor, genId, ActionError } from './state.js';
+import { normalizeState, createState, reduce, reducePlayerAction, packOf, viewFor, genId, ActionError } from './state.js';
 import { rulesetChoices } from './systems.js';
 import { VoiceQueue } from './quips.js';
 import { voiceFor, recordedAudio } from './pack-core.js';
@@ -29,6 +29,9 @@ import { makeToken } from './random.js';
 import { safeEqual, RateLimiter, TokenBucket, authenticate, makePairCode } from './access.js';
 import { createTtsHost } from './tts-host.js';
 import { createChat } from './chat.js';
+import { ARCHIVE_LIMIT, boundedBytes, readContentArchive } from './content-archive.js';
+import { validateManifest } from './content-schema.js';
+import { prepareContentImport } from './content-import.js';
 
 export const LIMITS = {
   maxMessage: 16 * 1024,
@@ -800,6 +803,26 @@ export function createHost(opts) {
     return { campaign: state.campaign };
   }
 
+  let importingContent = false;
+  async function importContent(body, campaignId) {
+    const checkCampaign = () => {
+      if (!campaignId || campaignId !== state.campaign.id) throw new ActionError('conflict', 'campaign changed; open the target campaign and try again');
+    };
+    checkCampaign();
+    if (importingContent) throw new ActionError('conflict', 'an import is already running');
+    importingContent = true;
+    try {
+      const archive = await readContentArchive(await boundedBytes(body, ARCHIVE_LIMIT), validateManifest);
+      checkCampaign();
+      const { next, result } = prepareContentImport(state, packOf(state, pack), archive);
+      commitAccess(next, { t: 'lib.importContent', count: result.entries.length }, 'gm');
+      scheduleViews();
+      return result;
+    } finally {
+      importingContent = false;
+    }
+  }
+
   const HOST_GM = {
     ...Object.fromEntries(Object.entries(tts.handlers).map(([k, fn]) => [k, (msg) => fn(msg, ttsCtx)])),
     'audio.started': audioStarted,
@@ -1134,6 +1157,7 @@ export function createHost(opts) {
     checkGm,
     apply,
     importCampaign,
+    importContent,
     joinCampaign,
     has: (conn) => conns.has(conn),
     canAccept: () => conns.size < L.maxSockets,

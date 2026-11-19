@@ -1,0 +1,727 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "THE_SYSTEM_CONTENT_V1",
+  "type": "object",
+  "properties": {
+    "format": {
+      "enum": [
+        "THE_SYSTEM_CONTENT_V1"
+      ]
+    },
+    "entities": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/entity"
+      },
+      "minItems": 1,
+      "maxItems": 50
+    }
+  },
+  "required": [
+    "format",
+    "entities"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9_-]{0,63}$",
+      "not": {
+        "enum": [
+          "constructor",
+          "prototype"
+        ]
+      }
+    },
+    "image": {
+      "type": "string",
+      "pattern": "^images/[a-z0-9][a-z0-9_-]{0,63}\\.png$"
+    },
+    "dice": {
+      "type": "string",
+      "pattern": "^(?:[0-9]{1,3}|(?:[1-9]|1[0-9]|20)d(?:[2-9]|[1-9][0-9]|100)(?:[+-][0-9]{1,3})?)$"
+    },
+    "mobAttack": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 60,
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "toHit": {
+          "type": "integer",
+          "minimum": -99,
+          "maximum": 99
+        },
+        "damage": {
+          "$ref": "#/$defs/dice"
+        },
+        "buffs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "maxItems": 10,
+          "uniqueItems": true
+        },
+        "effects": {
+          "type": "string",
+          "maxLength": 400
+        },
+        "area": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "range": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "dtype": {
+          "type": "string",
+          "pattern": "^[a-z][a-z -]{0,29}$"
+        }
+      },
+      "required": [
+        "name",
+        "toHit",
+        "damage"
+      ],
+      "additionalProperties": false
+    },
+    "phase": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "maxLength": 60,
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "atHp": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 998
+        },
+        "image": {
+          "$ref": "#/$defs/image"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "itemAttack": {
+      "type": "object",
+      "properties": {
+        "stat": {
+          "$ref": "#/$defs/id"
+        },
+        "skill": {
+          "$ref": "#/$defs/id"
+        },
+        "dice": {
+          "$ref": "#/$defs/dice"
+        },
+        "effects": {
+          "type": "string",
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "dice"
+      ],
+      "additionalProperties": false
+    },
+    "itemEffect": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "type": "string",
+          "pattern": "^[A-Za-z][A-Za-z0-9_-]*(?:\\.[A-Za-z0-9_-]+){0,3}$"
+        },
+        "op": {
+          "enum": [
+            "add",
+            "set"
+          ]
+        },
+        "value": {
+          "type": "integer",
+          "minimum": -999,
+          "maximum": 999
+        },
+        "when": {
+          "enum": [
+            "equipped",
+            "carried",
+            "always"
+          ]
+        },
+        "label": {
+          "type": "string",
+          "maxLength": 80
+        }
+      },
+      "required": [
+        "target",
+        "op",
+        "value",
+        "when"
+      ],
+      "additionalProperties": false
+    },
+    "itemUse": {
+      "type": "object",
+      "properties": {
+        "target": {
+          "enum": [
+            "self"
+          ]
+        },
+        "consume": {
+          "type": "boolean"
+        },
+        "heal": {
+          "type": "object",
+          "properties": {
+            "track": {
+              "$ref": "#/$defs/id"
+            },
+            "amount": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 999
+            }
+          },
+          "required": [
+            "track",
+            "amount"
+          ],
+          "additionalProperties": false
+        },
+        "applyBuff": {
+          "$ref": "#/$defs/id"
+        },
+        "removeBuff": {
+          "$ref": "#/$defs/id"
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "target",
+        "consume"
+      ],
+      "additionalProperties": false
+    },
+    "monster": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "monster"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "desc": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "image": {
+          "$ref": "#/$defs/image"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "floor": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "hpSlots": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "slotValue": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "evade": {
+          "type": "integer",
+          "minimum": -99,
+          "maximum": 99
+        },
+        "dr": {
+          "type": "integer",
+          "minimum": -99,
+          "maximum": 99
+        },
+        "attacks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mobAttack"
+          },
+          "minItems": 1,
+          "maxItems": 12
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "tactics": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "intro": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "resist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z -]{0,29}$"
+          },
+          "minItems": 0,
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "vulnerable": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z -]{0,29}$"
+          },
+          "minItems": 0,
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "immune": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z -]{0,29}$"
+          },
+          "minItems": 0,
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "group": {
+          "type": "string",
+          "maxLength": 40
+        },
+        "role": {
+          "enum": [
+            "standard",
+            "elite",
+            "minion"
+          ]
+        },
+        "variants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/image"
+          },
+          "minItems": 0,
+          "maxItems": 16,
+          "uniqueItems": true
+        },
+        "lootItems": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/id"
+          },
+          "minItems": 0,
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "flavor": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "lootHint": {
+          "type": "string",
+          "maxLength": 300
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "name",
+        "hpSlots",
+        "evade",
+        "dr",
+        "attacks"
+      ],
+      "additionalProperties": false
+    },
+    "boss": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "boss"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "desc": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "image": {
+          "$ref": "#/$defs/image"
+        },
+        "title": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "floor": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "hpSlots": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 999
+        },
+        "slotValue": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 50
+        },
+        "evade": {
+          "type": "integer",
+          "minimum": -99,
+          "maximum": 99
+        },
+        "dr": {
+          "type": "integer",
+          "minimum": -99,
+          "maximum": 99
+        },
+        "attacks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/mobAttack"
+          },
+          "minItems": 1,
+          "maxItems": 12
+        },
+        "notes": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "tactics": {
+          "type": "string",
+          "maxLength": 3000
+        },
+        "intro": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "resist": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z -]{0,29}$"
+          },
+          "minItems": 0,
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "vulnerable": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z -]{0,29}$"
+          },
+          "minItems": 0,
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "immune": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z][a-z -]{0,29}$"
+          },
+          "minItems": 0,
+          "maxItems": 12,
+          "uniqueItems": true
+        },
+        "phases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/phase"
+          },
+          "minItems": 1,
+          "maxItems": 10
+        },
+        "imageSquare": {
+          "$ref": "#/$defs/image"
+        },
+        "imageKo": {
+          "$ref": "#/$defs/image"
+        },
+        "lootTier": {
+          "$ref": "#/$defs/id"
+        },
+        "lootHint": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "defeatLine": {
+          "type": "string",
+          "maxLength": 300
+        },
+        "flavor": {
+          "type": "string",
+          "maxLength": 600
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "name",
+        "hpSlots",
+        "evade",
+        "dr",
+        "attacks",
+        "phases"
+      ],
+      "additionalProperties": false
+    },
+    "npc": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "npc"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "desc": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "image": {
+          "$ref": "#/$defs/image"
+        },
+        "role": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "floor": {
+          "type": "string",
+          "maxLength": 20
+        },
+        "personality": {
+          "type": "string",
+          "maxLength": 1200
+        },
+        "intro": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "voice": {
+          "type": "string",
+          "maxLength": 600
+        },
+        "hooks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 400,
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "maxItems": 20
+        },
+        "secrets": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 400,
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "maxItems": 20
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "name"
+      ],
+      "additionalProperties": false
+    },
+    "item": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "item"
+          ]
+        },
+        "id": {
+          "$ref": "#/$defs/id"
+        },
+        "name": {
+          "type": "string",
+          "maxLength": 80,
+          "minLength": 1,
+          "pattern": "\\S"
+        },
+        "desc": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 30,
+            "minLength": 1,
+            "pattern": "\\S"
+          },
+          "minItems": 0,
+          "maxItems": 20,
+          "uniqueItems": true
+        },
+        "image": {
+          "$ref": "#/$defs/image"
+        },
+        "rarity": {
+          "enum": [
+            "common",
+            "uncommon",
+            "rare",
+            "epic",
+            "legendary"
+          ]
+        },
+        "slot": {
+          "$ref": "#/$defs/id"
+        },
+        "stackable": {
+          "type": "boolean"
+        },
+        "flavor": {
+          "type": "string",
+          "maxLength": 2000
+        },
+        "attack": {
+          "$ref": "#/$defs/itemAttack"
+        },
+        "effects": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/itemEffect"
+          },
+          "minItems": 0,
+          "maxItems": 20
+        },
+        "use": {
+          "$ref": "#/$defs/itemUse"
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "name",
+        "rarity"
+      ],
+      "additionalProperties": false
+    },
+    "entity": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/monster"
+        },
+        {
+          "$ref": "#/$defs/boss"
+        },
+        {
+          "$ref": "#/$defs/npc"
+        },
+        {
+          "$ref": "#/$defs/item"
+        }
+      ]
+    }
+  }
+}

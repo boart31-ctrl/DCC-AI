@@ -8,6 +8,7 @@ import { makeToken, makeRoomCode, makePin, randInt, genId } from './random.js';
 import { MODES, pickQuip, markQuipUsed, quipsLeft, categoryPool } from './quips.js';
 import { STANDARD_CATEGORIES } from './constants.js';
 import { packForRuleset, rulesetChoices } from './systems.js';
+import { normalizeContentMedia } from './content-media.js';
 import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView } from './scenes.js';
 import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, fillMissingMobArt, combatView, onSheetRoll, applyMobDamage } from './combat.js';
@@ -116,6 +117,7 @@ export function createState(basePack, now = Date.now(), campaign = {}) {
     prep: initPrep(), // prep.js: adventures + session plans (GM only)
     maps: initMaps(), // maps.js: images + zones + fog (+ tokens for online play)
     library: emptyHomebrew(),
+    contentMedia: {},
     libArt: normalizeLibArt(null),
     rolls: [],
     rollUndo: [], // roll ids the GM undo chip takes back, newest last (character.js)
@@ -156,6 +158,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.session.hold = s.session.hold === true;
   if (!PLAYER_EDIT.includes(s.session.permissions?.playerEdit)) s.session.permissions = { playerEdit: 'sheet' };
   s.library = normalizeHomebrew(raw.library);
+  s.contentMedia = normalizeContentMedia(raw.contentMedia);
   s.libArt = normalizeLibArt(raw.libArt);
   s.rolls = Array.isArray(raw.rolls) ? raw.rolls.filter((r) => r && typeof r === 'object').slice(-MAX_ROLLS) : [];
   const rollIds = new Set(s.rolls.map((r) => r.id));

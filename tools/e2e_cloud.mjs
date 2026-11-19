@@ -17,6 +17,9 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { build } from './build_cloud.mjs';
+import { sampleZip } from '../server/test/content-fixture.js';
+import { readContentArchive } from '../server/content-archive.js';
+import { validateManifest } from '../server/content-schema.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const WRANGLER = path.join(ROOT, 'node_modules', '.bin', process.platform === 'win32' ? 'wrangler.cmd' : 'wrangler');
@@ -176,6 +179,24 @@ async function main() {
   assert.equal((await bad.closed).code, 4001);
   const gm = await hello(base, { role: 'gm', key: KEY });
   assert.equal((await gm.next((m) => m.t === 'welcome')).role, 'gm');
+  const campaignId = (await (await fetch(base + '/api/info')).json()).campaign.id;
+  const contentHeaders = { 'Content-Type': 'application/zip', 'X-System-Campaign-Id': campaignId };
+  const contentZip = process.env.E2E_CONTENT_ZIP ? fs.readFileSync(process.env.E2E_CONTENT_ZIP) : sampleZip();
+  const { assets } = await readContentArchive(contentZip, validateManifest);
+  const upload = (headers) => fetch(base + '/api/content/import', { method: 'POST', headers, body: contentZip });
+  const gmZipHeaders = { ...contentHeaders, 'X-GM-Key': KEY };
+  r = await upload(gmZipHeaders);
+  assert.equal(r.status, 201, await r.clone().text());
+  const zipResult = await r.json();
+  assert.deepEqual(zipResult.entries.map((e) => e.type), ['monster', 'boss', 'npc', 'item']);
+  const zipped = await gm.next((m) => m.t === 'view' && m.view.library?.monster?.some((e) => e.id === 'zip_lantern_guard'));
+  const importedArt = zipped.view.library.monster.find((e) => e.id === 'zip_lantern_guard').image;
+  r = await fetch(base + importedArt);
+  assert.equal(r.headers.get('content-type'), 'image/png');
+  assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
+  assert.equal((await upload(gmZipHeaders)).status, 409);
+  step('GM ZIP import, strict classification, PNG serving and conflict rejection');
+
   const carl = (await gm.call({ t: 'player.add', name: 'Carl' })).playerId;
   const donut = (await gm.call({ t: 'player.add', name: 'Donut' })).playerId;
   const gv = await gm.next((m) => m.t === 'view' && m.view.gm.playersFull.length === 2 && m.view.gm.playersFull.every((p) => p.joinUrl));
@@ -265,6 +286,8 @@ async function main() {
 
   const gm2 = await hello(base, { role: 'gm', key: KEY });
   const w2 = await gm2.next((m) => m.t === 'welcome');
+  assert.ok(w2.view.library.monster.some((e) => e.id === 'zip_lantern_guard' && e.image === importedArt));
+  assert.equal((await fetch(base + importedArt)).status, 200, 'imported PNG survived the crash');
   const p2 = w2.view.gm.playersFull;
   assert.deepEqual(p2.map((p) => p.name), ['Carl', 'Donut', 'New player']);
   const c2 = p2.find((p) => p.id === carl);
@@ -292,6 +315,7 @@ async function main() {
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-disposition'), /attachment; filename="system-campaign-/);
   const exp = await r.json();
+  assert.equal(Object.keys(exp.state.contentMedia).length, new Set([...assets.values()].map((asset) => asset.id)).size);
   const types = exp.log.map((e) => e.action.t);
   for (const t of ['player.add', 'tv.pair', 'player.approve', 'ach.award', 'me.notes', 'msg.send', 'player.update']) assert.ok(types.includes(t), `log has ${t}: ${types.join(',')}`);
   assert.equal(exp.log.at(-1).action.gold, 99, 'last action is in the log');
@@ -335,6 +359,7 @@ async function main() {
   const pv = await gm2.next((m) => m.t === 'view' && m.view.campaign?.name === 'Second', 5000, 'new campaign view');
   assert.equal(pv.view.campaign.ruleset, 'pf2e');
   assert.equal(pv.view.gm.playersFull.length, 0);
+  assert.equal((await fetch(base + importedArt)).status, 404, 'the parked campaign art is unavailable');
   const pfExport = await (await fetch(`${base}/api/export?kind=campaign`, { headers: { 'X-GM-Key': KEY } })).text();
   const lst = await gm2.call({ t: 'campaign.list' });
   assert.equal(lst.campaigns.length, 1, 'the first campaign is parked');
@@ -343,8 +368,13 @@ async function main() {
   r = await fetch(`${base}/api/import`, { method: 'POST', headers: { 'X-GM-Key': KEY, 'content-type': 'application/json' }, body: pfExport });
   assert.equal(r.status, 200, await r.clone().text());
   await gm2.next((m) => m.t === 'view' && m.view.campaign?.name === 'Second', 5000, 'imported view');
+  r = await fetch(`${base}/api/import`, { method: 'POST', headers: { 'X-GM-Key': KEY, 'content-type': 'application/json' }, body: JSON.stringify(exp) });
+  assert.equal(r.status, 200, await r.clone().text());
+  await gm2.next((m) => m.t === 'view' && m.view.campaign?.id === first.id, 5000, 'restored content campaign');
+  assert.equal((await fetch(base + importedArt)).status, 200, 'restored export carries the image');
   r = await fetch(`${base}/api/import`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: pfExport });
   assert.equal(r.status, 401, 'import needs the GM key');
+  assert.equal((await upload(contentHeaders)).status, 401, 'content import needs the GM key');
   step('campaigns: new PF2e campaign, switch back, restore from an export file (GM key only)');
 
   for (const c of [gm2, dn2]) c.ws.close();

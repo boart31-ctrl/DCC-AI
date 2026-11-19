@@ -790,3 +790,7 @@ inline styles allowed, images also from `https:` and `data:`, `connect-src 'self
 `frame-ancestors 'self'`). `/ws` and `/api/*` are never cached. Cloudflare: a non-WebSocket request to `/ws`
 gets 426, unknown routes 404, raw pack JSON (`/pack/*.json`) is never served (the pack is compiled into the
 worker).
+
+### GM content ZIP import
+
+`POST /api/content/import` accepts an `application/zip` body with `THE_SYSTEM_CONTENT_V1` content. It requires `X-GM-Key` (or `X-GM-Token` in the local legacy edition) and `X-System-Campaign-Id` for the open campaign. Requests with a browser Origin must be same-origin. A successful response is `201 { campaignId, entries: [{type,id,name}], missingImages: [path] }`. The updated library arrives in the normal state view. Failure responses carry `{error,msg}` when validation supplies details. A collision, campaign change, or concurrent import is `409`. The audit action is `lib.importContent` with a count. The HTTP host emits it after a single durable save. See [content import contract](CONTENT_IMPORT.md).
