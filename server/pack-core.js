@@ -690,6 +690,7 @@ export function normalizePack(raw, opts = {}) {
   const io = { assetExists: opts.assetExists ?? (() => true), baseUrl: opts.baseUrl ?? '/pack/' };
   const warnings = [];
   const meta = loadMeta(raw.pack, warnings);
+  if (raw.adventures !== undefined) meta.prep = normalizePrepConfig({ ...meta.prep, adventures: raw.adventures }, warnings);
   const quips = loadQuips(io, raw.quips, warnings, meta.voices);
   const quipsById = new Map(quips.map((q) => [q.id, q]));
   const achievements = loadAchievements(raw.achievements, quipsById, warnings);

@@ -3,7 +3,7 @@
 // state.scene = { id, kind, data, since }   — one scene at a time; `since` = when it was set
 // state.show  = { audioDevice: 'gm' | 'stage' } — which page plays the System voice + stingers
 //
-// GM actions (docs/PROTOCOL.md §3a): scene.set, scene.update, scene.roll, show.audio,
+// GM actions (docs/PROTOCOL.md §3a): scene.set, scene.update, scene.roll, scene.check, show.audio,
 // boss.intro, boss.damage, boss.heal, boss.phase, boss.defeat,
 // countdown.start, countdown.pause, countdown.add, countdown.reset.
 // Players never get any of these (they are not in the PLAYER table → bad_request).
@@ -260,7 +260,7 @@ function lootMerge(st, ctx, prev, patch) {
   return out;
 }
 
-function rollMerge(st, prev, patch) {
+function rollMerge(st, prev, patch, fresh) {
   const out = { ...prev };
   for (const [k, v] of Object.entries(patch)) {
     if (k === 'playerId') {
@@ -272,6 +272,7 @@ function rollMerge(st, prev, patch) {
       }
     } else if (k === 'name') out.name = txt(v, 'name', 40);
     else if (k === 'label') out.label = T.label(v);
+    else if (k === 'dc' && fresh) out.dc = intIn(v, 'dc', -10, 99);
     else throw bad(`unknown field ${k} for scene roll (use scene.roll to roll)`);
   }
   return out;
@@ -361,7 +362,7 @@ function mergeData(st, ctx, kind, prev, patch, fresh) {
     return out;
   }
   if (kind === 'loot') return lootMerge(st, ctx, prev, patch);
-  if (kind === 'roll') return rollMerge(st, prev, patch);
+  if (kind === 'roll') return rollMerge(st, prev, patch, fresh);
   if (kind === 'npc') return npcMerge(st, ctx, prev, patch);
   if (kind === 'finale') return finaleMerge(prev, patch, ctx);
   throw bad(`unknown scene kind ${kind}`);
@@ -544,6 +545,54 @@ export const SCENE_GM = {
     };
     setScene(st, ctx, 'roll', data);
     out.result = { ...(out.result ?? {}), rollId: rec.id, total: rec.total, sceneId: st.scene.id };
+  },
+
+  'scene.check'(st, a, ctx, out) {
+    const rs = ctx.pack.ruleset;
+    if (rs.system.family !== 'crawler' || rs.combat?.degreeScale !== 'seven') throw bad('scored show checks are unavailable in this campaign');
+    const dc = intIn(a.dc, 'dc', -10, 99);
+    const party = a.mode === 'party';
+    if (!party && a.mode !== 'single') throw bad('check mode must be single or party');
+    if (!Array.isArray(a.entries) || !a.entries.length || a.entries.length > st.players.length || (!party && a.entries.length !== 1)) throw bad('select the crawlers making this check');
+    const skill = a.skillId !== undefined ? libraryOf(st, ctx.pack).get('skill', a.skillId) : null;
+    if (a.skillId !== undefined && !skill) throw notFound(`unknown skill ${a.skillId}`);
+    if (skill && (a.statId !== undefined || ['passive', 'evade'].includes(skill.checkType?.toLowerCase()))) throw bad('choose one active skill for the check');
+    const stat = !skill && !party ? rs.stats.find((s) => s.id === a.statId) : null;
+    if (!skill && !stat) throw bad(party ? 'choose a skill for the party check' : 'choose a skill or stat');
+    const label = a.label == null ? '' : T.label(a.label);
+    const seen = new Set();
+    const results = a.entries.map((entry) => {
+      if (!isObj(entry) || typeof entry.playerId !== 'string' || seen.has(entry.playerId)) throw bad('each crawler can roll once');
+      const p = st.players.find((p) => p.id === entry.playerId);
+      if (!p) throw notFound(`no player ${entry.playerId}`);
+      seen.add(p.id);
+      const trained = skill && p.sheet.skills.find((s) => s.skillId === skill.id);
+      const what = stat ? { kind: 'stat', id: stat.id }
+        : trained ? { kind: 'skill', uid: trained.uid } : { kind: 'untrained', skillId: skill.id };
+      const sub = { ...out, result: undefined };
+      SHEET.roll(st, { t: 'roll', what, playerId: p.id, dc, entered: entry.entered }, { ...ctx, partyCheck: party }, sub);
+      const { roll } = sub.result;
+      return {
+        rollId: roll.id, playerId: p.id, name: p.name, color: p.color, total: roll.total, natural: roll.natural,
+        modifier: roll.total - roll.natural, otherDie: roll.otherDie ?? null, untrained: what.kind === 'untrained',
+        degree: roll.vs.deg7, success: roll.vs.hit,
+      };
+    });
+    let verdict = null;
+    if (party) {
+      const successes = results.filter((r) => r.success).sort((a, b) => a.total - b.total);
+      const failures = results.filter((r) => !r.success).sort((a, b) => b.total - a.total);
+      const helps = successes.filter((r) => r.degree === 'amazing' || r.degree === 'crit').length;
+      const harms = failures.filter((r) => r.degree === 'major' || r.degree === 'critfail').length;
+      for (const r of failures.slice(0, helps)) r.shift = 'helped';
+      for (const r of successes.slice(0, harms)) r.shift = 'hindered';
+      const passed = results.filter((r) => r.shift ? r.shift === 'helped' : r.success).length;
+      const required = Math.ceil(results.length / 2);
+      verdict = { passed, required, success: passed >= required };
+    }
+    const data = { ...DEFAULTS.roll(), dc, label: label || skill?.name || `${stat?.label} check`, check: { verdict, results }, at: ctx.now };
+    setScene(st, ctx, 'roll', data);
+    out.result = { ...data.check, sceneId: st.scene.id };
   },
 
   'show.audio'(st, a) {

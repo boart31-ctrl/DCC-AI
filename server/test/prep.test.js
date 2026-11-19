@@ -189,3 +189,41 @@ test('view: GM only; normalize repairs junk; actions registered', () => {
   assert.deepEqual(normalizePrep(undefined), { docs: [], current: null });
   for (const t of ['prep.adventure.add', 'prep.session.add', 'prep.item.add', 'prep.section.add']) assert.ok(GM_ACTIONS.includes(t));
 });
+
+test('prepared adventure loads linked encounters and rewards once without changing the live fight', () => {
+  const seed = { id: 'starter', title: 'Ready adventure', families: ['crawler'], sections: [
+    { key: 'scenes', label: 'Scenes', kind: 'parts', items: [{ id: 'opening', title: 'Opening', text: 'GM-only secret', pin: true,
+      links: [{ kind: 'encounter', id: 'ambush' }, { kind: 'item', id: 'map' }, { kind: 'loot', id: 'bronze' }] }] },
+  ], encounters: [{ id: 'ambush', label: 'Ambush', mobs: [{ sourceId: 'guard' }], items: [{ id: 'map', qty: 2 }] }] };
+  const packed = loadPack(writePack(tmpDir(), {
+    'adventures.json': [seed, { ...seed, id: 'broken', encounters: [{ ...seed.encounters[0], items: [{ id: 'missing' }] }] }],
+    'items.json': [{ id: 'map', name: 'Map' }],
+    'monsters.json': [{ id: 'guard', name: 'Guard', hpSlots: 4 }],
+  })).pack;
+  const p = deserializePack(serializePack(packed));
+  const act = (s, a) => reduce(s, { role: 'gm', ...a }, { ...ctx(), pack: p });
+  const initial = createState(p, 0);
+  const session = act(initial, { t: 'prep.session.add', title: 'Tonight' });
+  const s = session.state;
+  assert.throws(() => act(s, { t: 'prep.adventure.load', id: 'broken' }), /missing item/);
+  assert.equal(s.prepCards.length, 0);
+  const loaded = act(s, { t: 'prep.adventure.load', id: 'starter' });
+  const [enc] = loaded.state.prepCards;
+  const id = loaded.result.id;
+  assert.deepEqual(loaded.state.combat, s.combat);
+  assert.equal(loaded.state.prep.current, session.result.id);
+  assert.deepEqual(loaded.state.prep.docs[1].sections[0].items[0].links[0], { kind: 'encounter', id: enc.id });
+  assert.deepEqual(enc.payload.items, [{ id: 'map', qty: 2 }]);
+  assert.ok(!JSON.stringify(viewFor(loaded.state, p, 'stage')).includes('GM-only secret'));
+  const changed = act(loaded.state, { t: 'prep.doc.update', id, title: 'My adventure' }).state;
+  const repeated = act(changed, { t: 'prep.adventure.load', id: 'starter' });
+  assert.deepEqual(repeated.result, { id, existing: true });
+  assert.equal(repeated.state.prep.docs[1].title, 'My adventure');
+  assert.equal(repeated.state.prepCards.length, 1);
+  const classic = createState(p, 0, { ruleset: 'dnd5e' });
+  assert.deepEqual(viewFor(classic, p, 'gm').gm.prep.adventures, []);
+  assert.throws(() => act(classic, { t: 'prep.adventure.load', id: 'starter' }), /no prepared adventure/);
+  const legacy = act(classic, { t: 'scene.roll', formula: '2d6' });
+  assert.equal(legacy.state.scene.data.dice.length, 2);
+  assert.throws(() => act(classic, { t: 'scene.check' }), /unavailable in this campaign/);
+});

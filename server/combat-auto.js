@@ -247,15 +247,16 @@ function storeRun(c, run, timing, append) {
   } else c.lastAuto = { id: run.id, at: run.at, steps: run.steps, undo: run.undo, undone: false, ...timing };
 }
 
-function needActive(c) {
+function needActive(c, ctx) {
   if (!c.active) throw bad('combat is not running (combat.start first)');
+  if (ctx.pack.ruleset.combat?.flow === 'reaction') throw bad('declare the mob attack and its target in Fight');
 }
 
 export const AUTO_GM = {
   /** The whole mob phase in one go (or the rest of a stepped queue). */
   'combat.auto'(st, a, ctx, out) {
     const c = C(st);
-    needActive(c);
+    needActive(c, ctx);
     const dry = a.dryRun === undefined ? false : flag(a.dryRun, 'dryRun');
     let run;
     let uids;
@@ -292,7 +293,7 @@ export const AUTO_GM = {
    */
   'combat.mobAct'(st, a, ctx, out) {
     const c = C(st);
-    needActive(c);
+    needActive(c, ctx);
     const m = c.combatants.find((x) => x.uid === a.uid && x.type === 'mob');
     if (!m) throw notFound(`no mob ${a.uid}`);
     if (m.hp <= 0) throw bad(`${m.name} is down`);
@@ -320,7 +321,7 @@ export const AUTO_GM = {
   /** One mob at a time: builds the queue on the first call, resolves the next mob on each call. */
   'combat.autoStep'(st, a, ctx, out) {
     const c = C(st);
-    needActive(c);
+    needActive(c, ctx);
     let q = c.autoQueue;
     let run;
     if (!q || c.lastAuto?.id !== q.id || !c.lastAuto.undo) {

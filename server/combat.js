@@ -165,6 +165,11 @@ export function normalizeCombat(raw) {
     if (m.type === 'crawler') {
       m.aggro = Number.isInteger(m.aggro) && m.aggro >= AGGRO_MIN && m.aggro <= AGGRO_MAX ? m.aggro : AGGRO_DEFAULT;
       m.noTarget = m.noTarget === true;
+      if (Array.isArray(m.injuries)) m.injuries = m.injuries.slice(0, 10).map((injury, i) => ({
+        id: injury?.id || `legacy-${m.uid}-${i}`,
+        severity: injury?.severity ?? injury,
+        desc: typeof injury?.desc === 'string' ? injury.desc.slice(0, 180) : '',
+      })).filter((injury) => ['minor', 'major'].includes(injury.severity));
       continue;
     }
     m.conditions = Array.isArray(m.conditions) ? m.conditions.filter(isObj) : [];
@@ -378,7 +383,7 @@ function changeHp(st, a, ctx, out, sign) {
       const line = a.line === false ? null : comboLine(st, ctx, 'crawler_down', 900);
       if (line) out.lines.push(line);
     }
-    out.result = { hp: cur.cur, max: cur.max, amount, drApplied };
+    out.result = { hp: cur.cur, max: cur.max, amount, actualAmount: Math.abs(before - cur.cur), drApplied };
     return;
   }
   const from = x.hp;
@@ -998,6 +1003,7 @@ export const COMBAT_GM = {
       SHEET.roll(st, { t: 'roll', what: { kind: 'custom', formula, label: label.slice(0, 80) }, secret: !pub }, ctx, sub);
       return sub.result;
     };
+    if (ctx.pack.ruleset.combat?.flow === 'reaction') throw bad('declare the mob attack and its target in Fight');
     const toHit = atk.toHit ? `d20${atk.toHit > 0 ? '+' : ''}${atk.toHit}` : 'd20';
     const hit = roll(toHit, `${m.name}: ${atk.name}`);
     const rec = st.rolls.find((r) => r.id === hit.rollId);

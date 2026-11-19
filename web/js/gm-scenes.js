@@ -25,7 +25,6 @@ const SCENES = [
   { kind: 'countdown', label: 'Countdown', key: 'F5', hint: 'Floor collapse timer' },
   { kind: 'roll', label: 'Big roll', key: 'F6', hint: 'Dice on the TV' },
   { kind: 'recap', label: 'Recap', key: 'F7', hint: 'Previously on…' },
-  { kind: 'blank', label: 'Stand by', key: 'F8', hint: 'Logo only' },
 ];
 const TOOLS = [
   { id: 'crawlers', label: 'Crawlers', icon: 'skull', hint: 'Crawlers remaining: announce, events elsewhere, floor collapse, deaths' },
@@ -84,7 +83,7 @@ export function minionRows(combat) {
   return out;
 }
 
-export function createScenes({ client, act, getView, getCues = () => null }) {
+export function createScenes({ client, act, getView, getCues = () => null, chooseAttack = () => {} }) {
   const audio = createGmAudio({ client, getView });
   const view = () => getView() || {};
   // Drafts per scene kind (what F-keys / GO LIVE send). Persisted per device.
@@ -97,6 +96,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   const pref = { pv: store.get('pv2', true) };
   // One switch for every mob roll (Boss screen, Fight attack buttons, Mobs act): the fight's `public` setting.
   const atkTv = () => view().combat?.settings?.public !== false;
+  const reaction = () => view().pack?.ruleset?.combat?.flow === 'reaction';
   const ui = { openAtk: new Set(), bossTarget: null, editOpen: false };
   const parts = { fight: null, npcs: null, sound: null, desk: null, crawlers: null, goLiveFight: null };
 
@@ -105,7 +105,9 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   const soundState = h('span.sc-sound');
   const barExtra = h('span.sh-bar-extra'); // gm-crawlers.js badge
   const reachSlot = h('div.sh-reach-slot'); // gm-prep.js: "Within reach" strip (tonight's pinned prep)
-  const chips = h('div.sh-chips.sh-controls', { 'aria-label': 'Show controls' });
+  const sceneTabs = h('div.sh-chips', { role: 'tablist', 'aria-label': 'Show scenes' });
+  const showShortcuts = h('div.sh-shortcuts');
+  const chips = h('div.sh-controls', sceneTabs, showShortcuts);
   let fightBossOnMap = null;
   const currentMap = () => {
     const maps = view().maps ?? [];
@@ -220,18 +222,30 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
 
   /* ---------- chips ---------- */
   function drawChips() {
-    const entries = [...SCENES.map((s) => ({ id: s.kind, label: s.label })), ...TOOLS];
-    const menu = select(entries.map((e) => ({ value: e.id, label: e.label })), tab, {
-      cls: 'inp-sm sh-scene-menu', label: 'Show scene', onChange: pick,
-    });
-    chips.replaceChildren(
-      menu,
-      h('button.btn.btn-sm.sh-fight-shortcut', { type: 'button', role: 'tab', 'aria-selected': String(tab === 'fight'), onclick: () => pick('fight') }, icon('swords', { size: 14 }), 'Fight'),
-      h('span.grow'),
+    const live = liveChip();
+    const chip = (id, label, opts) => h('button.sh-chip', {
+      type: 'button', role: 'tab', 'aria-selected': String(tab === id),
+      class: `sh-chip${live === id ? ' is-live' : ''}${opts.icon ? ' tool-chip' : ''}`,
+      title: opts.key ? `${opts.hint} (${opts.key})` : opts.hint,
+      onclick: () => pick(id),
+    }, live === id ? h('i.sh-live-dot', { 'aria-label': 'On air' }) : null, opts.icon ? icon(opts.icon, { size: 13 }) : null, label);
+    sceneTabs.replaceChildren(
+      ...SCENES.map((s) => chip(s.kind, s.label, s)),
+      h('span.sh-sep', { 'aria-hidden': 'true' }),
+      ...TOOLS.map((t) => chip(t.id, t.label, t)));
+    const selected = sceneTabs.querySelector('[aria-selected="true"]');
+    if (selected) {
+      const { left, right } = selected.getBoundingClientRect();
+      const bounds = sceneTabs.getBoundingClientRect();
+      if (left < bounds.left) sceneTabs.scrollLeft += left - bounds.left;
+      if (right > bounds.right) sceneTabs.scrollLeft += right - bounds.right;
+    }
+    showShortcuts.replaceChildren(...[
       tab === 'map' && D('map').mapId && !isLive('map') ? h('button.btn.btn-sm', { type: 'button', onclick: () => goLive('map') }, icon('tv', { size: 14 }), 'Map on TV') : null,
       ['fight', 'map'].includes(tab) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(pref.pv), onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawAll(); } }, pref.pv ? 'Hide preview' : 'Show preview') : null,
-      h('button.btn.btn-sm.sh-map-switch', { type: 'button', onclick: () => ['fight', 'map'].includes(tab) ? switchMapFight() : pick('map') },
-        icon(tab === 'map' ? 'swords' : 'map', { size: 14 }), tab === 'map' ? 'Switch to fight' : tab === 'fight' ? 'Switch to map' : 'Maps'));
+      ['fight', 'map'].includes(tab) ? h('button.btn.btn-sm.sh-map-switch', { type: 'button', onclick: switchMapFight },
+        icon(tab === 'map' ? 'swords' : 'map', { size: 14 }), tab === 'map' ? 'Switch to fight' : 'Switch to map') : null,
+    ].filter(Boolean));
   }
 
   function pick(id) {
@@ -261,7 +275,11 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       const tier = d.tier || v.pack?.lootTiers?.[0]?.id || null;
       return { ...(pid ? { playerId: pid } : {}), ...(tier ? { tier } : {}) };
     }
-    if (kind === 'roll') return d.playerId ? { playerId: d.playerId, label: d.label || '' } : { label: d.label || '' };
+    if (kind === 'roll') {
+      const check = rollCheck();
+      if (check) return { dc: check.dc, label: check.label };
+      return d.playerId ? { playerId: d.playerId, label: d.label || '' } : { label: d.label || '' };
+    }
     if (kind === 'explore') {
       const out = { location: d.location || '', floor: d.floor || '', image: d.image || null, text: d.text || '', showFeed: d.showFeed !== false };
       if (d.locationId) out.locationId = d.locationId;
@@ -269,7 +287,6 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     }
     if (kind === 'lobby') return { title: d.title || '', subtitle: d.subtitle || '', showQr: d.showQr !== false };
     if (kind === 'recap') return { title: d.title || '', text: d.text ?? (v.recap || '') };
-    if (kind === 'blank') return { text: d.text || '' };
     if (kind === 'combat') return { title: D('fight').title || '' };
     if (kind === 'npc') {
       const id = d.npcId || v.library?.npc?.[0]?.id;
@@ -483,6 +500,13 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     if (kind === 'boss') return bossLive(sc);
     if (kind === 'countdown') return countdownControls(sc);
     if (kind === 'loot') return lootControls(sc);
+    if (kind === 'roll' && scoredRolls()) {
+      const { dc, check, label, total, name } = sc.data;
+      if (dc == null) return total != null ? h('p.sc-line', `${name} rolled ${total}.`) : null;
+      const verdict = check?.verdict;
+      return h('p.sc-line', h('b', `${label} · DC ${dc}`), verdict ? ` · Party ${verdict.success ? 'succeeds' : 'fails'} (${verdict.passed}/${check.results.length})`
+        : check?.results?.[0] ? ` · ${check.results[0].name} rolled ${check.results[0].total}` : ' · Waiting for dice');
+    }
     if (kind === 'roll') return h('div.sc-live-row', h('p.sc-line', sc.data.total == null ? `Waiting: ${sc.data.name || 'someone'} is up.` : `${sc.data.name} rolled ${sc.data.total}${sc.data.nat20 ? ' (natural 20)' : sc.data.nat1 ? ' (natural 1)' : ''}.`),
       h('button.btn.btn-primary', { type: 'button', onclick: rollOnTv }, icon('dice', { size: 15 }), 'Roll again'));
     if (kind === 'explore') return exploreLive(sc);
@@ -577,8 +601,8 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   /** Attack buttons (max 3 + "more"): tap rolls it for real, ⓘ opens the details. */
   function attackButtons(attacks, ownerKey, roll, { disabled = false } = {}) {
     // Everything at a glance (review 15 Nov): name, numbers and what it does; the whole card rolls it.
-    const one = (a) => h('button.sh-atk.sh-atk-full', { type: 'button', disabled, onclick: () => roll(attacks.indexOf(a)), title: disabled ? a.effects || a.name : `Roll ${a.name}` },
-      h('span.sh-atk-top', h('b', a.name), h('span.sh-atk-k', `${sign(a.toHit)} to hit${hasDmg(a) ? ` · ${a.damage}` : ''}`)),
+    const one = (a) => h('button.sh-atk.sh-atk-full', { type: 'button', disabled, onclick: () => roll(attacks.indexOf(a)), title: disabled ? a.effects || a.name : `${reaction() ? 'Choose' : 'Roll'} ${a.name}` },
+      h('span.sh-atk-top', h('b', a.name), h('span.sh-atk-k', reaction() ? `${a.damage || '0'} dmg` : `${sign(a.toHit)} to hit${hasDmg(a) ? ` · ${a.damage}` : ''}`)),
       a.effects ? h('span.sh-atk-fx', a.effects) : null,
       a.buffs?.length ? h('span.sh-atk-k', a.buffs.join(', ')) : null);
     const shown = attacks.slice(0, MAX_ATTACKS).map(one);
@@ -597,7 +621,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   function attackSection(name, attacks, fighter, bossId, { boss = false, prep = false } = {}) {
     if (prep) {
       return h('div.sc-batk',
-        h('div.sc-batk-head', h('b', 'Attacks'), h('span.dim', 'You roll them here once he is on air')),
+        h('div.sc-batk-head', h('b', 'Attacks'), h('span.dim', reaction() ? 'Choose attacks and targets in Fight' : 'You roll them here once he is on air')),
         attackButtons(attacks, `prep:${bossId || name}`, () => {}, { disabled: true }));
     }
     const roll = async (i) => {
@@ -608,13 +632,14 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       }
       if (!uid) return;
       if (!view().combat?.active && !(await act({ t: 'combat.start' }, null))) return;
+      if (reaction()) { pick('fight'); chooseAttack(uid, i); return; }
       const r = await act({ t: 'combat.mobAct', uid, attackIndex: i, tv: atkTv(), ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
       attackToast(attacks[i].name, r);
     };
     return h('div.sc-batk',
-      h('div.sc-batk-head', h('b', boss ? 'Attacks' : `${name}: attacks`), h('span.grow'), tvSwitch()),
-      h('div.sc-batk-head', h('span.dim', 'Target'), targetSeg() || h('span.dim', 'everyone (the fight starts on the first attack)')),
-      attackButtons(attacks, fighter?.uid || bossId || name, roll, { disabled: fighter ? fighter.hp <= 0 : false }));
+      h('div.sc-batk-head', h('b', boss ? 'Attacks' : `${name}: attacks`), h('span.grow'), reaction() ? h('span.dim', 'Choose the target in Fight') : tvSwitch()),
+      reaction() ? null : h('div.sc-batk-head', h('span.dim', 'Target'), targetSeg() || h('span.dim', 'everyone (the fight starts on the first attack)')),
+      attackButtons(attacks, fighter?.uid || bossId || name, roll, { disabled: !!(fighter && fighter.hp <= 0) || !!(reaction() && view().combat?.rx && view().combat.rx.step !== 'declare') }));
   }
 
   /* minions: single mobs and packs, with HP and their attacks */
@@ -629,6 +654,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       if (!alive.length) return;
       const m = alive[Math.floor(Math.random() * alive.length)]; // a pack: whoever is in front
       if (!view().combat?.active && !(await act({ t: 'combat.start' }, null))) return;
+      if (reaction()) { pick('fight'); chooseAttack(m.uid, i); return; }
       if (m.hidden) await act({ t: 'combat.reveal', uid: m.uid }, null);
       const res = await act({ t: 'combat.mobAct', uid: m.uid, attackIndex: i, tv: atkTv(), ...(ui.bossTarget ? { targetUid: ui.bossTarget } : {}) }, null);
       attackToast(`${m.name}: ${m.attacks[i].name}`, res);
@@ -654,7 +680,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
           h('button.icon-btn.xs', { type: 'button', 'aria-label': `Heal ${r.name} 1`, onclick: () => heal(r) }, icon('plus', { size: 13 })),
           h('button.icon-btn.xs', { type: 'button', 'aria-label': `Remove ${r.name}`, title: 'Remove from the fight', onclick: async () => { for (const m of r.members) await act({ t: 'combat.remove', uid: m.uid }, null); } }, icon('x', { size: 13 }))),
         r.pack ? h('div.sh-pips', r.members.map((m) => h('i', { class: m.down ? 'gone' : '' }))) : h('div.sh-hpbar', h('i', { style: { width: `${first.hpMax ? (first.hp / first.hpMax) * 100 : 0}%` } })),
-        first.attacks?.length && alive.length ? attackButtons(first.attacks, r.key, (i) => rollMob(r, i)) : null);
+        first.attacks?.length && alive.length ? attackButtons(first.attacks, r.key, (i) => rollMob(r, i), { disabled: reaction() && view().combat?.rx?.step !== 'declare' }) : null);
     };
     if (!addPick || !mons.some((m) => m.id === addPick)) addPick = mons[0]?.id || '';
     const add = mons.length ? h('div.sh-min-add',
@@ -832,6 +858,85 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     ];
   }
 
+  const enteredDice = new Map();
+  let rolling = false;
+  function scoredRolls() {
+    const rs = view().pack?.ruleset;
+    return rs?.system?.family === 'crawler' && rs.combat?.degreeScale === 'seven';
+  }
+
+  function rollMode() { return scoredRolls() ? D('roll').mode || 'single' : 'free'; }
+
+  function rollSkills() {
+    return (view().library?.skill || []).filter((s) => !['passive', 'evade'].includes(s.checkType?.toLowerCase()) && !s.tags?.includes('legacy'))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  function rollCheck() {
+    const mode = rollMode();
+    if (mode === 'free') return null;
+    const d = D('roll');
+    const skills = rollSkills();
+    const stats = view().pack?.ruleset?.stats ?? [];
+    const selection = mode === 'party' ? d.partyCheck : d.check;
+    const stat = mode === 'single' && stats.find((s) => `stat:${s.id}` === selection);
+    const skill = !stat && (skills.find((s) => `skill:${s.id}` === selection) ?? skills.find((s) => s.id === 'stealth') ?? skills[0]);
+    const ability = stat || skill;
+    const players = view().players || [];
+    const participants = mode === 'party' ? players.filter((p) => !d.excluded?.includes(p.id))
+      : [players.find((p) => p.id === d.checkPlayerId) ?? players[0]].filter(Boolean);
+    const floor = view().crawlers?.floor || 1;
+    const baseDc = 10 + floor * (skill?.checkType?.toLowerCase() === 'unopposed' ? 2 : 1);
+    return { mode, stats, skills, ability, skill, stat, participants, dc: d.dc ?? baseDc, label: ability ? skill ? skill.name : `${stat.label} check` : 'Skill check' };
+  }
+
+  function rollForm() {
+    const d = D('roll');
+    const check = rollCheck();
+    const mode = rollMode();
+    const update = (key, value) => { d[key] = value; saveDraft(); drawBody(); changed(); };
+    const modes = scoredRolls() ? h('div.seg.seg-sm.span-all.sc-roll-modes', { 'aria-label': 'Roll type' },
+      [['single', 'Single check'], ['party', 'Party check'], ['free', 'Free roll']].map(([id, label]) => h('button', {
+        type: 'button', 'aria-pressed': String(mode === id), onclick: () => { enteredDice.clear(); update('mode', id); },
+      }, label))) : null;
+    if (!check) return [modes, crawlerSelect('roll', { allowNone: true }), txt('roll', 'formula', 'Dice', { placeholder: 'd20', max: 60 }), txt('roll', 'label', 'What for', { placeholder: 'Save vs. the jukebox', max: 80 })];
+    const players = view().players || [];
+    const isParty = mode === 'party';
+    const opts = [{ label: 'Skills', options: check.skills.map((s) => ({ value: `skill:${s.id}`, label: s.name })) }];
+    if (!isParty) opts.unshift({ label: 'Stats', options: check.stats.map((s) => ({ value: `stat:${s.id}`, label: s.label })) });
+    const required = Math.ceil(check.participants.length / 2);
+    return [modes,
+      labeled('Check', select(opts, check.ability ? `${check.skill ? 'skill' : 'stat'}:${check.ability.id}` : '', { label: 'Check', onChange: (value) => update(isParty ? 'partyCheck' : 'check', value) })),
+      labeled('Target DC', h('input.inp', { type: 'number', min: -10, max: 99, value: check.dc,
+        oninput: (e) => {
+          const n = e.target.valueAsNumber;
+          if (!Number.isInteger(n) || n < -10 || n > 99) return;
+          d.dc = n;
+          saveDraft(); changed();
+        },
+        onblur: (e) => { e.target.value = rollCheck().dc; },
+      })),
+      isParty ? h('div.span-all.sc-check-party',
+        h('div.sc-check-people', players.map((p) => h('label.chk', h('input', { type: 'checkbox', checked: !d.excluded?.includes(p.id), onchange: (e) => {
+          const excluded = new Set(d.excluded);
+          if (e.target.checked) excluded.delete(p.id); else excluded.add(p.id);
+          update('excluded', [...excluded]);
+        } }), h('span', p.name)))),
+        players.length ? h('p.dim', required ? `${required} of ${check.participants.length} need to succeed. Exceptional rolls can swing a teammate’s result.` : 'Select crawlers for this check.') : null)
+        : labeled('Crawler', select(players.map((p) => ({ value: p.id, label: p.name })), check.participants[0]?.id, { label: 'Crawler', onChange: (id) => update('checkPlayerId', id) })),
+      !players.length ? h('p.dim.span-all', 'Add a crawler to roll a check.') : null,
+      players.length ? labeled('Dice', select([{ value: 'digital', label: 'Digital d20' }, { value: 'physical', label: 'Enter physical d20' }], d.dice || 'digital', { label: 'Dice', onChange: (value) => update('dice', value) })) : null,
+      d.dice === 'physical' && check.participants.length ? h('div.span-all.sc-check-dice',
+        check.participants.map((p) => labeled(`${p.name} · d20`, h('input.inp', {
+          type: 'number', min: 1, max: 20, inputmode: 'numeric', value: enteredDice.get(p.id) || '',
+          oninput: (e) => { enteredDice.set(p.id, e.target.value); drawGoLive(); },
+        }))), h('p.dim', check.skill ? 'Enter the kept die before adding modifiers. For an untrained skill, roll with Disadvantage.' : 'Enter the die before adding modifiers.')) : null];
+  }
+
+  function readyCheck(check) {
+    return check.ability && check.participants.length && (D('roll').dice !== 'physical' || check.participants.every((p) => /^(?:[1-9]|1[0-9]|20)$/.test(enteredDice.get(p.id))));
+  }
+
   function formBody(kind) {
     const v = view();
     if (kind === 'lobby') return [txt('lobby', 'title', 'Title', { placeholder: v.pack?.systemName || 'The System', max: 80 }), txt('lobby', 'subtitle', 'Subtitle', { placeholder: 'Grab your phone. The show starts soon.', max: 160, cls: 'span-2' }), chk('lobby', 'showQr', 'Show the join QR')];
@@ -844,9 +949,8 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
         labeled('Seconds', field(D('countdown').seconds ?? 0, { type: 'number', attrs: { min: 0, max: 59 }, onCommit: (x) => { D('countdown').seconds = x; saveDraft(); changed(); } })),
         chk('countdown', 'autostart', 'Start right away', false)];
     }
-    if (kind === 'roll') return [crawlerSelect('roll', { allowNone: true }), txt('roll', 'formula', 'Dice', { placeholder: 'd20', max: 60 }), txt('roll', 'label', 'What for', { placeholder: 'Save vs. the jukebox', max: 80 })];
+    if (kind === 'roll') return rollForm();
     if (kind === 'recap') return [txt('recap', 'text', 'Recap text', { rows: 6, max: 4000, cls: 'span-all', dflt: v.recap || '', placeholder: 'Last time, our crawlers…' }), txt('recap', 'title', 'Show title', { placeholder: v.pack?.systemName || 'The System', max: 80 })];
-    if (kind === 'blank') return [txt('blank', 'text', 'Line under the logo', { placeholder: 'Stand by', max: 160, cls: 'span-2' })];
     if (kind === 'npc') {
       const list = v.library?.npc || [];
       return list.length
@@ -874,9 +978,19 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     if (isTool(id) || id === 'fight' || id === 'map') { golive.replaceChildren(); golive.hidden = true; return; }
     const live = id === 'fight' ? fightOnAir() : isLive(id);
     golive.hidden = false;
+    if (id === 'roll' && scoredRolls()) {
+      const check = rollCheck();
+      golive.classList.toggle('is-live', live);
+      golive.replaceChildren(h('span.grow'), ...[
+        check ? h('button.btn', { type: 'button', disabled: rolling, onclick: () => goLive('roll') }, icon('tv', { size: 14 }), `Show DC ${check.dc}`) : null,
+        h('button.btn.btn-primary.sh-golive-btn', { type: 'button', disabled: rolling || !!(check && !readyCheck(check)), onclick: rollOnTv },
+          icon('dice', { size: 16 }), check?.mode === 'party' ? 'Roll party check' : 'Roll on TV', h('kbd', 'F6')),
+      ].filter(Boolean));
+      return;
+    }
     const meta = sceneOf(id);
     if (live) {
-      const canUpdate = ['lobby', 'explore', 'recap', 'blank'].includes(id);
+      const canUpdate = ['lobby', 'explore', 'recap'].includes(id);
       golive.replaceChildren(...[
         canUpdate ? h('button.btn', { type: 'button', onclick: () => act({ t: 'scene.update', data: (() => { const x = dataFor(id); delete x.locationId; return x; })() }, 'TV updated.') }, 'Update the TV') : null,
         h('span.grow'),
@@ -931,7 +1045,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     const out = [];
     if (live) out.push(h('div.sc-live', liveControls(id)));
     const form = h('div.form-grid', formBody(id).flat().filter(Boolean));
-    if (live && id !== 'npc') {
+    if (live && id !== 'npc' && !(id === 'roll' && scoredRolls())) {
       out.push(h('details.sh-edit', { open: ui.editOpen || null, ontoggle: (e) => { ui.editOpen = e.target.open; } }, h('summary', id === 'boss' ? 'Another boss (restarts the boss screen)' : 'Change it'), h('div.sc-form', form,
         id === 'boss' ? h('div.row-end', h('button.btn', { type: 'button', onclick: () => goLiveBoss(bossDraftData()) }, 'Restart with this boss + intro')) : null)));
     } else out.push(h('div.sc-form', form));
@@ -951,16 +1065,30 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
 
   async function rollOnTv() {
     const d = D('roll');
+    const check = rollCheck();
+    if (check) {
+      if (rolling || !readyCheck(check)) return;
+      rolling = true;
+      drawGoLive();
+      const entries = check.participants.map((p) => ({ playerId: p.id, ...(d.dice === 'physical' ? { entered: Number(enteredDice.get(p.id)) } : {}) }));
+      try {
+        if (await act({ t: 'scene.check', mode: check.mode, dc: check.dc, entries, ...(check.skill ? { skillId: check.skill.id } : { statId: check.stat.id }) }, null)) enteredDice.clear();
+      } finally {
+        rolling = false;
+        if (tab === 'roll') { drawBody(); drawGoLive(); }
+      }
+      return;
+    }
     const a = { t: 'scene.roll', formula: (d.formula || 'd20').trim() || 'd20' };
     if (d.playerId) a.playerId = d.playerId;
     if (d.label) a.label = d.label;
     await act(a, null);
   }
 
-  /* ---------- keyboard: F1–F8 (pressed twice) = go live with that scene's draft ---------- */
+  /* ---------- keyboard: F1–F7 (pressed twice) = go live with that scene's draft ---------- */
   const armed = { key: null, at: 0 };
   document.addEventListener('keydown', (e) => {
-    const m = /^F([1-8])$/.exec(e.key);
+    const m = /^F([1-7])$/.exec(e.key);
     if (!m || e.ctrlKey || e.metaKey || e.altKey) return;
     if (document.querySelector('dialog[open]')) return;
     const s = SCENES.find((x) => x.key === e.key);
@@ -984,7 +1112,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     audio.update(v);
     drawAudio();
     const c = v.combat || {};
-    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, tab, v.players, v.library?.boss?.length, v.library?.monster?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show, v.maps?.map((m) => m.id), c.mapId,
+    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, tab, v.players, v.campaign?.ruleset, v.crawlers?.floor, v.library?.skill?.length, v.library?.boss?.length, v.library?.monster?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show, v.maps?.map((m) => m.id), c.mapId,
       [c.active, c.round, c.phase, (c.combatants || []).map((x) => [x.uid, x.hp, x.hidden, x.down, x.name, x.type === 'crawler' ? x.hpMax : x.attacks?.length])]]);
     if (s !== sig) { sig = s; drawAll(); } else pvPost();
   }
@@ -1033,6 +1161,9 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
       if (!(lib.boss || []).some((x) => x.id === data.bossId)) return false;
       bossPick = data.bossId;
       Object.assign(D('boss'), { bossId: data.bossId, mode: 'library' });
+    } else if (kind === 'loot') {
+      if (!(view().pack?.lootTiers || []).some((t) => t.id === data.tier)) return false;
+      Object.assign(D('loot'), { tier: data.tier, playerId: null });
     } else return false;
     saveDraft();
     pick(kind);

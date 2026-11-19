@@ -1091,6 +1091,7 @@ export const SHEET = {
    */
   'roll.intervene'(st, a, ctx, out) {
     const rec = rollOf(st, a.rollId);
+    if (rec.partyCheck) throw bad('no Intervene on a party check');
     const me = ctx.actor.role === 'gm' ? (a.playerId ? playerOf(st, a.playerId) : null) : playerOf(st, ctx.actor.playerId);
     if (me && rec.playerId === me.id) throw bad('you cannot intervene on your own roll');
     if (!rec.vs || rec.vs.damage !== undefined || rec.vs.defense == null) throw bad('only a check or attack against a target');
@@ -1173,6 +1174,7 @@ export const SHEET = {
         rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown.parts ?? []), { label: 'Situational', value: bonus, source: 'bonus' }] };
       }
       rec.natural = rec.dice.find((d) => d.die === 'd20')?.value ?? null;
+      if (ctx0.partyCheck) rec.partyCheck = true;
       if (rec.natural !== 20) rec.nat20 = false;
       if (rec.natural !== 1) rec.nat1 = false;
       if (ctx0.actor.role === 'player' && a.card !== false) rec.card = true;

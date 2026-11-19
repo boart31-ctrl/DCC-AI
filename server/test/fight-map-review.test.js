@@ -15,9 +15,11 @@ const packDir = writePack(tmpDir(), {
     stats: [{ id: 'con', label: 'Constitution', parts: ['base'], default: { base: 6 } }],
     statMod: { from: 'base', formula: 'x' },
     tracks: [{ id: 'hp', label: 'Health', kind: 'slots', default: 10, slotValue: 'mod.con' }],
-    combat: { injuries: { minor: 'minor', major: 'major', minorLong: 'minor_long', majorLong: 'major_long',
+    combat: { degreeScale: 'seven', injuries: { minor: 'minor', major: 'major', minorLong: 'minor_long', majorLong: 'major_long',
       minorDescriptions: ['Bruised thumb', 'Twisted ankle'], majorDescriptions: ['Fractured leg'] } },
+    skills: { check: { roll: 'd20', formula: 'skill.rank + mod.{stat}' }, untrained: { adv: 'dis', formula: 'mod.{stat}' }, usedTracking: true },
   },
+  'skills.json': [{ id: 'sneak', name: 'Sneak', stat: 'con', checkType: 'Opposed' }],
   'monsters.json': [{ id: 'beetle', name: 'Beetle', hpSlots: 2, lootItems: ['duck'], image: 'duck.webp', variants: ['alt.webp'] }],
   'buffs.json': ['minor', 'major', 'minor_long', 'major_long'].map((id) => ({ id, name: id, desc: 'Mechanical effect' })),
 });
@@ -67,6 +69,73 @@ test('injury narratives vary by severity and persist in the original debuffs', (
   const restored = normalizeState(state(), pack);
   assert.deepEqual(restored.players[0].sheet.buffs.map((b) => [b.buffId, b.desc]),
     [['minor_long', 'Twisted ankle Mechanical effect'], ['major', 'Fractured leg Mechanical effect']]);
+});
+
+test('one injury can be canceled without removing other queued or applied injuries', () => {
+  const { act, view, state } = setup();
+  const { playerId } = act({ t: 'player.add', name: 'Runner' });
+  act({ t: 'combat.start' });
+  const { uid } = view().combat.combatants[0];
+  for (const severity of ['minor', 'minor', 'major']) act({ t: 'combat.injury', uid, severity });
+  const [first, second, third] = view().combat.combatants[0].pendingInjuries;
+  act({ t: 'combat.injury.remove', uid, injuryId: first.id });
+  act({ t: 'combat.injury.remove', uid, injuryId: first.id });
+  assert.deepEqual(view().combat.combatants[0].pendingInjuries, [second, third]);
+  act({ t: 'combat.end', outcome: 'truce' });
+  const [minor, major] = state().players[0].sheet.buffs;
+  assert.equal(minor.desc, 'Twisted ankle Mechanical effect');
+  act({ t: 'buff.remove', playerId, uid: minor.uid });
+  assert.deepEqual(state().players[0].sheet.buffs, [major]);
+  assert.equal(major.desc, 'Fractured leg Mechanical effect');
+});
+
+test('queued injuries from old saves get stable IDs and stay removable', () => {
+  const { act, view, state } = setup();
+  act({ t: 'player.add', name: 'Runner' });
+  act({ t: 'combat.start' });
+  const raw = structuredClone(state());
+  raw.combat.combatants[0].injuries = ['minor', { severity: 'major', desc: 'Sore ribs' }];
+  const s = normalizeState(raw, pack);
+  const { uid, injuries: [minor, major] } = s.combat.combatants[0];
+  assert.deepEqual(normalizeState(s, pack).combat.combatants[0].injuries.map((i) => i.id), [minor.id, major.id]);
+  const cleared = reduce(s, { role: 'gm', t: 'combat.injury.remove', uid, injuryId: minor.id }, { pack }).state;
+  assert.deepEqual(cleared.combat.combatants[0].injuries, [major]);
+  assert.equal(viewFor(cleared, pack, 'gm').combat.combatants[0].pendingInjuries[0].desc, 'Sore ribs');
+});
+
+test('TV party check uses sheet rolls and adjusts both directions before counting half', () => {
+  const { act, view, state } = setup();
+  const ids = ['R1', 'R2', 'R3', 'R4', 'R5', 'R6'].map((name) => act({ t: 'player.add', name }).playerId);
+  act({ t: 'skill.add', playerId: ids[1], skillId: 'sneak', rank: 4 });
+  const payload = { t: 'scene.check', mode: 'party', skillId: 'sneak', dc: 17,
+    entries: ids.map((playerId, i) => ({ playerId, entered: [20, 7, 10, 1, 8, 5][i] })) };
+  const { verdict, results } = act(payload);
+  assert.deepEqual(results.map((r) => [r.degree, r.shift]), [
+    ['crit', undefined], ['success', 'hindered'], ['near', 'helped'], ['critfail', undefined], ['fail', undefined], ['fail', undefined],
+  ]);
+  assert.deepEqual(verdict, { passed: 2, required: 3, success: false });
+  assert.equal(results[1].modifier, 10);
+  assert.equal(results[2].untrained, true);
+  assert.equal(state().players[1].sheet.skills[0].used, true);
+  assert.equal(state().rolls.length, 6);
+  assert.throws(() => act({ t: 'roll.intervene', rollId: results[2].rollId, entered: 3 }), /no Intervene on a party check/);
+  assert.deepEqual(view('stage').scene.data.check, { verdict, results });
+  assert.throws(() => act({ ...payload, entries: [payload.entries[0], payload.entries[0]] }), /once/);
+  assert.throws(() => act({ ...payload, entries: [{ playerId: ids[0], entered: 21 }] }), /higher than d20/);
+  assert.equal(state().rolls.length, 6);
+
+  const half = act({ ...payload, entries: [payload.entries[1], payload.entries[4]] });
+  assert.deepEqual(half.verdict, { passed: 1, required: 1, success: true });
+  const single = act({ t: 'scene.check', mode: 'single', statId: 'con', dc: 16, entries: [{ playerId: ids[0], entered: 10 }] });
+  assert.equal(single.verdict, null);
+  assert.equal(single.results[0].total, 16);
+  assert.equal(single.results[0].degree, 'success');
+  const pre = act({ t: 'scene.preview', kind: 'roll', data: { dc: 17, label: 'Sneak' } });
+  assert.equal(pre.scene.data.dc, 17);
+  assert.equal(pre.scene.data.check, undefined);
+  assert.equal(view('stage').scene.data.dc, 16);
+  act({ t: 'scene.roll', formula: '2d6' });
+  assert.equal(view('stage').scene.data.dc, undefined);
 });
 
 test('linked tokens follow the same combatants, reveal, images and saved positions', () => {

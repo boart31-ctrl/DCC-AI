@@ -275,7 +275,15 @@ client.on('event', (e) => {
     const r = e.roll || e;
     if (r.playerId === me.id && !r.vs && !r.card) showRollCard(r, { meId: me.id });
     // A friend's near miss (seven degrees): offer to Intervene with +1d6.
-    if (r.playerId && r.playerId !== me.id && r.vs?.deg7 === 'near' && r.vs.damage === undefined) intervenePrompt(r);
+    if (!r.partyCheck && r.playerId && r.playerId !== me.id && r.vs?.deg7 === 'near' && r.vs.damage === undefined) intervenePrompt(r);
+    return;
+  }
+  if (e.kind === 'rx.react') {
+    const self = view?.combat?.combatants.find((x) => x.type === 'crawler' && x.playerId === me.id);
+    if (self && e.targets?.includes(self.uid)) {
+      buzz([50, 45, 100]);
+      toast('You are targeted. Choose Evade to react before the attacks land.', { ms: 6000 });
+    }
     return;
   }
   if (e.kind === 'dying' && e.playerId === me.id) { buzz([80, 60, 80, 60, 80]); toast(`You are dying: ${e.rounds} round${e.rounds === 1 ? '' : 's'} left. Someone has to heal you to 10 %.`, { error: true, ms: 7000 }); return; }

@@ -58,9 +58,10 @@ export function createRxPhone({ send, toast, onAttack = null }) {
 
     const incoming = atMe.length ? h('ul.rxp-list', atMe.map((d) => h('li',
       h('span', h('b', d.mob), ` · ${d.attack}`, d.area ? ' (area)' : ''),
-      d.evade ? h('span.rxp-deg', { class: `rxp-deg rx-deg-${d.evade.degree}` }, d.evade.label)
+      d.result ? h('span.rxp-deg', d.result === 'evaded' ? 'Evaded' : `Hit · ${d.slots != null ? `${d.slots} slot${d.slots === 1 ? '' : 's'} lost` : `${d.damage ?? 0} HP before DR`}`)
+        : d.evade ? h('span.rxp-deg', { class: `rxp-deg rx-deg-${d.evade.degree}` }, d.evade.label)
         : react && evading && !d.caught ? h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => { pad = { declId: d.id, kind: 'evade', sides: 20 }; sig = ''; update(view, me); } }, 'Roll Evade')
-          : d.result ? h('span.rxp-deg', d.result === 'evaded' ? 'Missed you' : `Hit · ${d.damage ?? ''}`) : d.caught ? h('span.dim', 'You caught it') : null))) : null;
+          : d.caught ? h('span.dim', 'You caught it') : null))) : null;
 
     const buttons = [];
     const opt = (label, sub, onclick, primary = false) => h('button.btn.rxp-opt', { type: 'button', class: primary ? 'btn btn-primary rxp-opt' : 'btn rxp-opt', onclick }, h('b', label), h('small', sub));
@@ -83,7 +84,7 @@ export function createRxPhone({ send, toast, onAttack = null }) {
 
     const allies = react && atOthers.length ? h('details.rxp-allies', h('summary', `Attacks on your friends (${atOthers.length})`),
       h('ul.rxp-list', atOthers.map((d) => h('li',
-        h('span', h('b', d.mob), ` attacks ${crawlerName(d.targetUid)}`, d.evade ? ` · ${d.evade.label}` : ''),
+        h('span', h('b', d.mob), ` · ${d.attack} → ${crawlerName(d.targetUid)}`, d.evade ? ` · ${d.evade.label}` : ''),
         left > 0 && !d.result ? h('span.rxp-mini',
           h('button.btn.btn-sm', { type: 'button', title: 'Step in and take the hit for them (you cannot dodge it)', onclick: () => call({ t: 'rx.interrupt', kind: 'catcher', declId: d.id }) }, 'Take the hit'),
           h('button.btn.btn-sm', { type: 'button', title: 'Draw the attack to you (Taunt check)', onclick: async () => {

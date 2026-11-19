@@ -49,6 +49,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   document.body.append(toastEl);
 
   const C = () => view?.combat || { active: false, round: 1, phaseIndex: 0, phases: ['Crawlers', 'Mobs'], combatants: [] };
+  const reaction = () => view?.pack?.ruleset?.combat?.flow === 'reaction';
+  const rxDraft = {};
   const lib = () => libraryOf(view);
   const libEntry = (m) => (m.sourceKind ? (lib()[m.sourceKind] || []).find((e) => e.id === m.sourceId) : null);
   const onTv = () => ['combat', 'finale'].includes(view?.scene?.kind) || (view?.scene?.kind === 'boss' && C().combatants.some((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === view?.scene?.data?.bossId));
@@ -391,10 +393,28 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       x.type === 'mob' ? h('button.icon-btn.cbt-rm', { type: 'button', title: 'Remove from the fight', 'aria-label': `Remove ${x.name}`, onclick: () => act({ t: 'combat.remove', uid: x.uid }, `${x.name} removed.`) }, icon('x', { size: 15 })) : null);
   }
 
+  function isInjury(buffId) {
+    const injuries = view.pack?.ruleset?.combat?.injuries;
+    return !!buffId && !!injuries && [injuries.minor, injuries.major, injuries.minorLong, injuries.majorLong].includes(buffId);
+  }
+
+  function injuryRows(x, applied) {
+    const pending = x.pendingInjuries ?? [];
+    const injuries = applied.filter((b) => isInjury(b.buffId));
+    if (!pending.length && !injuries.length) return null;
+    const row = (name, description, timing, remove) => h('li.cc-injury',
+      h('div', h('b', name), h('small.dim', timing), h('p', description)),
+      h('button.icon-btn.cond-x', { type: 'button', title: `Remove ${name.toLowerCase()}`, 'aria-label': `Remove ${name.toLowerCase()} from ${x.name}: ${description}`, onclick: () => act(remove) }, icon('x', { size: 14 })));
+    return h('ul.cc-injuries',
+      pending.map((i) => row(i.severity === 'major' ? 'Major injury' : 'Minor injury', i.desc || 'No description recorded.', 'After combat',
+        { t: 'combat.injury.remove', uid: x.uid, injuryId: i.id })),
+      injuries.map((b) => row(b.name, b.desc || 'No description recorded.', 'Active', { t: 'buff.remove', playerId: x.playerId, uid: b.uid })));
+  }
+
   function conditions(x) {
     const buffs = lib().buff || [];
     const have = new Set(x.conditions.map((k) => k.id || k.name.toLowerCase()));
-    const chips = x.conditions.map((k) => {
+    const chips = x.conditions.filter((k) => x.type !== 'crawler' || !isInjury(k.id)).map((k) => {
       const def = k.id ? buffs.find((b) => b.id === k.id) : null;
       const neg = (def?.tags || []).includes('debuff');
       return h('span.cond', { class: neg ? 'cond neg' : 'cond', title: `${k.desc || def?.desc || k.name}${k.rounds ? `\n${k.rounds} round${k.rounds === 1 ? '' : 's'} left` : ''}` },
@@ -476,19 +496,24 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
             h('b.cc-aggro-n', String(x.aggro ?? 3)),
             h('button.icon-btn', { type: 'button', 'aria-label': `Raise ${x.name}'s aggro`, disabled: x.aggro >= 9, onclick: () => act({ t: 'combat.target', uid: x.uid, aggro: x.aggro + 1 }) }, icon('up', { size: 14 }))),
           h('label.chk', { title: 'Hidden, playing dead, out of reach: mobs never pick this crawler by themselves' }, h('input', { type: 'checkbox', checked: !!x.noTarget, onchange: (e) => act({ t: 'combat.target', uid: x.uid, noTarget: e.target.checked }) }), h('span', "Don't target"))),
-        x.pendingInjuries?.map((i) => h('p.cc-injury', h('b', (i.severity ?? i) === 'major' ? 'Major injury · ' : 'Minor injury · '), i.desc || 'Applied when combat ends.')) ?? [],
+        injuryRows(x, p?.sheet?.buffs ?? []),
         conditions(x)) : null,
     );
   }
 
-  async function mobRollAndShow(m, i) { await mobRoll(m, i); }
+  function chooseAttack(uid, attackIndex) {
+    if (C().rx && C().rx.step !== 'declare') return;
+    Object.assign(rxDraft, { mob: uid, atk: attackIndex, target: '', round: C().rx?.round ?? 1 });
+    redraw();
+    el.querySelector('.rx-add select[aria-label="Target"]')?.focus();
+  }
 
   async function mobRoll(m, i) {
     const atk = m.attacks[i];
     try {
       const r = await send({ t: 'combat.mobRoll', uid: m.uid, attackIndex: i, public: C().settings?.public !== false });
       const res = r?.result || {};
-      ui.lastRoll = { at: Date.now(), name: m.name, uid: m.uid, attack: atk, ...res };
+      ui.lastRoll = { fightId: C().id, name: m.name, attack: atk, ...res };
       const nat = res.nat20 ? ' (natural 20!)' : res.nat1 ? ' (natural 1)' : '';
       toast(`${m.name}, ${atk.name}: ${res.total} to hit${nat}${res.damage != null ? `, ${res.damage} damage` : ''}${C().settings?.public !== false ? '' : ' (secret)'}`, { ms: 5000 });
       redraw();
@@ -507,9 +532,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.cc-block',
         h('span.mini-l', 'Attacks'),
         m.attacks.length ? h('div.cbt-atks', m.attacks.map((a, i) => h('button.btn.btn-sm.cbt-atk', {
-          type: 'button', disabled: m.down, onclick: () => mobRollAndShow(m, i),
-          title: `Roll ${a.name}: d20${a.toHit ? signed(a.toHit) : ''}${a.damage && a.damage !== '0' ? `, ${a.damage} damage` : ''}${a.effects ? `. ${a.effects}` : ''}`,
-        }, icon('dice', { size: 13 }), h('span', a.name), h('small', `${signed(a.toHit)}${a.damage && a.damage !== '0' ? ` · ${a.damage}` : ''}`), a.buffs?.length ? h('small.cbt-atk-buff', a.buffs.join(', ')) : null))) : h('span.dim', 'No attacks: it never acts in auto mode.'),
+          type: 'button', disabled: m.down || (reaction() && C().rx?.step !== 'declare'), onclick: () => reaction() ? chooseAttack(m.uid, i) : mobRoll(m, i),
+          title: reaction() ? `Choose ${a.name}, then set its target in the round controls` : `Roll ${a.name}: d20${a.toHit ? signed(a.toHit) : ''}${a.damage && a.damage !== '0' ? `, ${a.damage} damage` : ''}${a.effects ? `. ${a.effects}` : ''}`,
+        }, icon(reaction() ? 'target' : 'dice', { size: 13 }), h('span', a.name), h('small', reaction() ? `${a.damage || '0'} dmg` : `${signed(a.toHit)}${a.damage && a.damage !== '0' ? ` · ${a.damage}` : ''}`), a.buffs?.length ? h('small.cbt-atk-buff', a.buffs.join(', ')) : null))) : h('span.dim', 'No attacks.'),
         m.attacks.length > 1 ? h('div.seg.seg-sm.cbt-amode', { role: 'radiogroup', 'aria-label': 'Which attack in auto mode' },
           [['first', 'First'], ['random', 'Random']].map(([v, l]) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(m.attackMode === v), 'aria-pressed': String(m.attackMode === v), onclick: () => act({ t: 'combat.target', uid: m.uid, attackMode: v }) }, l))) : null),
       h('div.cc-block',
@@ -800,22 +825,45 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   }
 
   function lastRollCard() {
-    const r = ui.lastRoll;
+    const r = ui.lastRoll?.fightId === C().id ? ui.lastRoll : null;
     const vis = h('label.chk.cbt-pub', { title: 'Public rolls show in everyone\'s dice log and can trigger the nat 20 / nat 1 lines' },
       h('input', { type: 'checkbox', checked: C().settings?.public !== false, onchange: (e) => act({ t: 'combat.set', settings: { public: e.target.checked } }, e.target.checked ? 'Mob rolls on the TV (Boss and Fight).' : 'Mob rolls GM only (Boss and Fight).') }), h('span', 'Mob rolls on TV'));
-    if (!r) return h('section.panel.cbt-last', h('div.sec-head', h('h2', 'Mob attacks'), h('span.grow'), vis), h('p.dim', 'Press an attack on a mob row: d20 + to hit, then damage, straight into the dice log (secret unless public).'));
+    if (!r) return null;
     const crawlers = C().combatants.filter((x) => x.type === 'crawler');
     const bufs = (r.buffs || []).map((id) => (lib().buff || []).find((b) => b.id === id)).filter(Boolean);
     return h('section.panel.cbt-last', { class: `panel cbt-last${r.nat20 ? ' nat20' : r.nat1 ? ' nat1' : ''}` },
-      h('div.sec-head', h('h2', 'Last mob attack'), h('span.grow'), vis),
-      h('p.cbt-last-who', h('b', r.name), ` · ${r.attack?.name}`, r.public ? null : h('span.pill', icon('lock', { size: 11 }), 'secret')),
+      h('div.sec-head', h('h2', r.attack ? 'Last mob attack' : 'Last damage roll'), h('span.grow'), reaction() ? null : vis),
+      r.attack ? h('p.cbt-last-who', h('b', r.name), ` · ${r.attack.name}`, r.public ? null : h('span.pill', icon('lock', { size: 11 }), 'secret')) : null,
       h('div.cbt-last-nums',
-        h('div', h('small', 'To hit'), h('b', String(r.total)), r.nat20 ? h('span.nat-tag', 'NAT 20') : r.nat1 ? h('span.nat-tag', 'NAT 1') : null),
-        r.damage != null ? h('div', h('small', 'Damage'), h('b', String(r.damage))) : null),
+        r.total != null ? h('div', h('small', 'To hit'), h('b', String(r.total)), r.nat20 ? h('span.nat-tag', 'NAT 20') : r.nat1 ? h('span.nat-tag', 'NAT 1') : null) : null,
+        r.damage != null ? h('div', h('small', 'Raw damage'), h('b', `${r.damage} HP`)) : null),
       r.attack?.effects ? h('p.cbt-last-fx', r.attack.effects) : null,
-      r.damage != null && crawlers.length ? h('div.cbt-apply', h('span.mini-l', `Apply ${r.damage} to`), crawlers.map((x) => h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.damage', uid: x.uid, amount: r.damage }, `${x.name} takes ${r.damage}.`) }, x.name))) : null,
+      r.damage > 0 && crawlers.length ? h('div.cbt-apply', h('span.mini-l', 'Apply damage to'), crawlers.map((x) => h('button.btn.btn-sm', { type: 'button', onclick: async () => {
+        const ack = await act({ t: 'combat.damage', uid: x.uid, amount: Math.min(999, r.damage), dr: true }, null);
+        if (!ack) return;
+        const applied = ack.result?.actualAmount || 0;
+        toast(!applied ? `${x.name} loses no health.` : `${x.name} loses ${applied} ${x.slotValue ? `slot${applied === 1 ? '' : 's'}` : 'HP'}.`);
+      } }, x.name))) : null,
       bufs.length && crawlers.length ? bufs.map((b) => h('div.cbt-apply', h('span.mini-l', `${b.name} on`), crawlers.map((x) => h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'combat.condition', uid: x.uid, buffId: b.id, on: true }, `${x.name}: ${b.name}.`) }, x.name)))) : null,
     );
+  }
+
+  function manualDamageRoll() {
+    if (!C().active || !reaction()) return null;
+    const dice = h('input.inp.inp-sm', { 'aria-label': 'Damage dice', maxlength: 60, placeholder: 'e.g. 1d6+2', value: ui.damageFormula || '', required: true,
+      oninput: (e) => { ui.damageFormula = e.target.value; } });
+    return h('details.cbt-manual', { open: ui.manualDamageOpen || null, ontoggle: (e) => { ui.manualDamageOpen = e.target.open; } },
+      h('summary', 'Manual damage'),
+      h('form', { onsubmit: async (e) => {
+        e.preventDefault();
+        if (dice.disabled || !dice.value.trim()) return;
+        const fightId = C().id;
+        dice.disabled = true;
+        try {
+          const r = await act({ t: 'roll', what: { kind: 'custom', formula: dice.value.trim(), label: 'Manual damage' }, secret: true }, null);
+          if (r && C().id === fightId) { ui.lastRoll = { fightId, damage: r.result.total }; redraw(); }
+        } finally { dice.disabled = false; }
+      } }, dice, h('button.btn.btn-sm', { type: 'submit' }, 'Roll damage')));
   }
 
   function redrawKeepFocus(input) {
@@ -829,7 +877,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   function draw(force = false) {
     if (!view) return;
     const c = C();
-    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait)]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, view.library?.item?.length, view.gm?.drops, ui.endMenu, ui.special != null, (view.gm?.prepCards || []).filter((x) => x.kind === 'encounter').map((x) => [x.id, x.label]), view.players?.length, view.pack?.lootTiers?.length, sfx?.on, playingLeft() > 0]);
+    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait), p.sheet?.buffs]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, view.library?.item?.length, view.gm?.drops, ui.endMenu, ui.special != null, (view.gm?.prepCards || []).filter((x) => x.kind === 'encounter').map((x) => [x.id, x.label]), view.players?.length, view.pack?.lootTiers?.length, sfx?.on, playingLeft() > 0]);
     if (!force && s === sig) return;
     if (!force && el.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]), textarea')) return;
     sig = s;
@@ -843,7 +891,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.sec-head', h('h2', 'Crawlers'), c.active ? h('span.dim', c.phase || '') : null),
       !c.active && c.previewCrawlers?.length ? h('ul.cbt-preview-party', c.previewCrawlers.map((p) => {
         const player = view.players?.find((x) => x.id === p.playerId);
-        return h('li', avatar(p.name, { size: 32, src: player?.portrait, color: p.color }), h('b', p.name));
+        const sheet = view.gm?.playersFull?.find((x) => x.id === p.playerId)?.sheet;
+        return h('li', avatar(p.name, { size: 32, src: player?.portrait, color: p.color }), h('div.cbt-preview-person', h('b', p.name), injuryRows(p, sheet?.buffs ?? [])));
       })) : crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', 'No crawlers in the fight.'),
       lateJoin(c, crawlers)),
       h('section.cbt-mob-col',
@@ -867,13 +916,15 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const plan = !finale ? prizePanel() : null;
     const payout = loot && (pendingLoot || finale ? loot : h('details.cbt-compact-tools', h('summary', 'Corpse loot'), loot));
     const side = h('div.cbt-side', c.active && plan ? h('details.cbt-compact-tools', h('summary', 'Victory loot settings'), plan) : null,
-      c.active && !c.rx ? h('details.cbt-compact-tools', h('summary', 'Combat settings and log'), autoPanel()) : null, c.active && !c.init?.on ? initPanel() : null, lastRollCard());
+      c.active && !c.rx && !reaction() ? h('details.cbt-compact-tools', h('summary', 'Combat settings and log'), autoPanel()) : null, c.active && !c.init?.on ? initPanel() : null);
     // Keep scroll positions across redraws (adding 3 monsters must not jump to the top of the list).
     const keep = [...el.querySelectorAll('.cbt-picks')].map((x) => x.scrollTop);
     const page = el.closest('.gm-main');
     const pageTop = page?.scrollTop;
+    const round = rxPanel({ act, view, draft: rxDraft });
+    const last = lastRollCard();
     el.replaceChildren(...[
-      h('div.cbt-command', header(), rxPanel({ act, view }), c.init?.on ? initPanel() : null, ui.editPhases ? phaseEditor() : null),
+      h('div.cbt-command', header(), round && last ? h('div.cbt-round-work', round, last) : [round, last], manualDamageRoll(), c.init?.on ? initPanel() : null, ui.editPhases ? phaseEditor() : null),
       finale,
       !c.active && plan,
       !c.active && payout,
@@ -903,7 +954,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     act({ t: 'combat.next' });
   });
 
-  return { el, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; draw(); } };
+  return { el, chooseAttack, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; draw(); } };
 }
 
 export { signed };

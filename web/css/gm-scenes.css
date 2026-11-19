@@ -308,10 +308,18 @@
 .sc-peek { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; font-size: 13px; background: var(--c-raised); border: 1px dashed var(--c-line-2); border-radius: var(--r-1); }
 .sc-peek-art { width: 36px; height: 36px; border-radius: 6px; border-width: 1px; }
 
-/* GM's scene picker and the adjacent Fight/Map shortcuts occupy one line. */
-.sh-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; padding: 0; }
-.sh-controls .sh-scene-menu { min-width: 130px; width: auto; max-width: 48%; }
-.sh-fight-shortcut[aria-selected="true"] { border-color: var(--c-accent); color: var(--c-accent); }
+/* Scroll the scene tabs independently of the Fight/Map shortcuts. */
+.sh-controls { display: flex; align-items: center; min-width: 0; gap: 6px; }
+.sh-controls .sh-chips { flex: 1; min-width: 0; gap: 4px; }
+.sh-controls .sh-chip { height: 31px; padding-inline: 9px; }
+.sh-shortcuts { display: flex; flex: none; gap: 4px; }
+.sh-shortcuts:empty { display: none; }
+.sc-roll-modes { justify-self: start; flex-wrap: wrap; }
+.sc-check-party { display: grid; gap: 5px; }
+.sc-check-people { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.sc-check-party p, .sc-check-dice p { margin: 0; }
+.sc-check-dice { display: grid; grid-template-columns: repeat(auto-fit, minmax(105px, 1fr)); gap: 6px; }
+.sc-check-dice p { grid-column: 1 / -1; }
 .sh-bar { gap: 5px; }
 .sh-compact .sh-bar-top:has(.sh-onair[hidden]) { display: none; }
 .sh-compact .sh-panel { padding-top: 4px; }
@@ -322,4 +330,8 @@
 @media (max-width: 900px) {
   .sh-compact .sh-grid { grid-template-columns: minmax(0, 1fr); }
   .sh-compact .sh-pv { order: 1; width: min(100%, 290px); }
+}
+@media (max-width: 640px) {
+  .sh-controls { flex-direction: column; align-items: stretch; }
+  .sh-shortcuts { justify-content: flex-end; flex-wrap: wrap; }
 }

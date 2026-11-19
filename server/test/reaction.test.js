@@ -53,6 +53,33 @@ test('suggest: mobs spread evenly, an elite attacks every crawler once', () => {
   assert.equal(swine.length, 3, 'one action per crawler');
 });
 
+test('announce publishes the selected attack and target before any damage roll', () => {
+  let s = fight();
+  const uid = crawlerUid(s, 'Carl');
+  const { state, result } = gm(s, { t: 'combat.addAdhoc', name: 'Guard', hp: 5,
+    attacks: [{ name: 'Stab', toHit: 2, damage: '1d4' }, { name: 'Slam', toHit: 4, damage: '1d6' }] });
+  s = state;
+  const [mobUid] = result.uids;
+  const noDice = { rollInt: () => { assert.fail('no rolls during declaration or announcement'); } };
+  assert.throws(() => gm(s, { t: 'rx.declare', mobUid }, noDice), /no crawler/);
+  const queued = gm(s, { t: 'rx.declare', mobUid, attackIndex: 0, targetUid: uid }, noDice);
+  s = gm(queued.state, { t: 'rx.retarget', declId: queued.result.declId, attackIndex: 1 }, noDice).state;
+  assert.equal(viewFor(s, pack, 'stage').combat.rx.decls.length, 0);
+  assert.throws(() => gm(s, { t: 'rx.step', to: 'resolve' }), /announce the attacks/);
+  const announced = gm(s, { t: 'rx.step', to: 'react' }, noDice);
+  assert.deepEqual(announced.events.find((x) => x.event.kind === 'rx.react').event.targets, [uid]);
+  const [decl] = viewFor(announced.state, pack, 'stage').combat.rx.decls;
+  assert.equal(decl.attack, 'Slam');
+  assert.equal(decl.targetUid, uid);
+  assert.equal(decl.damage, null);
+  assert.equal(decl.dc, undefined);
+  assert.throws(() => gm(announced.state, { t: 'rx.retarget', declId: decl.id, attackIndex: 0 }), /declare step/);
+  const dice = [];
+  const resolved = gm(announced.state, { t: 'rx.step', to: 'resolve' }, { rollInt: (sides) => { dice.push(sides); return 4; } });
+  assert.deepEqual(dice, [6]);
+  assert.equal(resolved.state.combat.rx.decls[0].damage, 5);
+});
+
 test('a full round: suggest, evade (spends an action), rolls, intervene on a near miss, damage, next round', () => {
   let s = fight();
   const carl = crawlerUid(s, 'Carl');

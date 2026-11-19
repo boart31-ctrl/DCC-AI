@@ -20,10 +20,11 @@
 // ({ templates: [{ id, label, scope, families?, sections: [{ key, label, kind, hint?, carry?, refKinds? }] }] }).
 // A template with `families` only shows up in campaigns whose ruleset family matches.
 import { bad, notFound } from './errors.js';
+import { libraryOf } from './character.js';
 
 export const DOC_TYPES = ['adventure', 'session'];
 export const SECTION_KINDS = ['text', 'list', 'refs', 'parts'];
-export const REF_KINDS = ['encounter', 'monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff', 'card', 'map'];
+export const REF_KINDS = ['encounter', 'monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff', 'card', 'map', 'loot'];
 export const MAX_LINKS = 12;
 export const MAX_DOCS = 80;
 export const MAX_SECTIONS = 30;
@@ -121,7 +122,19 @@ export function normalizePrepConfig(raw, warnings = []) {
     if (t.default === true) tpl.default = true;
     templates.push(tpl);
   }
-  return { templates };
+  const adventures = (Array.isArray(raw.adventures) ? raw.adventures : []).slice(0, 12).map((d) => {
+    if (!isObj(d) || !KEY_RE.test(d.id ?? '') || !isStr(d.title) || !Array.isArray(d.sections)) {
+      warnings.push('prepared adventure needs an id, title and sections');
+      return null;
+    }
+    const doc = normalizeDoc({ ...d, type: 'adventure' });
+    if (!doc?.sections.length) return null;
+    return {
+      id: doc.id, title: doc.title, families: Array.isArray(d.families) ? d.families.filter(isStr).slice(0, 8) : null,
+      sections: doc.sections, encounters: (Array.isArray(d.encounters) ? d.encounters : []).filter((e) => isObj(e) && ID_RE.test(e.id ?? '')).slice(0, 80),
+    };
+  }).filter(Boolean);
+  return { templates, ...(adventures.length ? { adventures } : {}) };
 }
 
 /** Templates a campaign can use: the pack's (matching its ruleset family) first, then the built-ins. */
@@ -229,9 +242,47 @@ export function prepView(state, pack) {
   return {
     docs: p.docs,
     current: p.current,
+    adventures: (pack.prep?.adventures ?? []).filter((d) => !d.families || d.families.includes(pack.ruleset.system.family)).map(({ id, title }) => ({ id, title })),
     templates: templatesFor(pack).map(({ id, label, scope, desc, sections }) => ({ id, label, scope, desc: desc ?? '', sections })),
     defaults: { adventure: defaultTemplate(pack, 'adventure'), session: defaultTemplate(pack, 'session') },
   };
+}
+
+/** Copies the pack's prepared scenes and encounter cards into this campaign without touching the live fight. */
+export function loadPreparedAdventure(st, a, ctx, out, saveEncounter) {
+  const seed = ctx.pack.prep?.adventures?.find((d) => d.id === a.id && (!d.families || d.families.includes(ctx.pack.ruleset.system.family)));
+  if (!seed) throw notFound(`no prepared adventure ${a.id}`);
+  const prep = ensurePrep(st);
+  const existing = prep.docs.find((d) => d.type === 'adventure' && d.template === seed.id);
+  if (existing) { out.result = { id: existing.id, existing: true }; out.changed = false; return; }
+  checkRoom(prep);
+  const library = libraryOf(st, ctx.pack);
+  const encounters = new Map();
+  const requireEntry = (kind, id) => {
+    if (!library.get(kind, id)) throw notFound(`prepared adventure ${seed.id} references missing ${kind} ${id}`);
+  };
+  for (const enc of seed.encounters) {
+    if (encounters.has(enc.id)) throw bad(`duplicate prepared encounter ${enc.id}`);
+    for (const m of enc.mobs ?? []) requireEntry(m.kind ?? 'monster', m.sourceId);
+    for (const it of enc.items ?? []) requireEntry('item', it.id);
+    const sub = { ...out, result: undefined };
+    saveEncounter(st, { label: enc.label, mobs: enc.mobs, items: enc.items, notes: enc.notes }, ctx, sub);
+    encounters.set(enc.id, sub.result.id);
+  }
+  const link = (ref) => {
+    if (ref.kind === 'encounter') {
+      if (!encounters.has(ref.id)) throw notFound(`no prepared encounter ${ref.id}`);
+      return { kind: 'encounter', id: encounters.get(ref.id) };
+    }
+    if (ref.kind === 'loot') {
+      if (!ctx.pack.tiersById.has(ref.id)) throw notFound(`no loot tier ${ref.id}`);
+    } else requireEntry(ref.kind, ref.id);
+    return { ...ref };
+  };
+  const sections = seed.sections.map((s) => ({ ...s, items: s.items.map((it) => ({ ...it, ref: it.ref ? link(it.ref) : null, links: it.links.map(link) })) }));
+  const id = ctx.genId('pa');
+  prep.docs.push({ id, title: seed.title, type: 'adventure', template: seed.id, adventureId: null, createdAt: ctx.now, sections });
+  out.result = { id, encounters: encounters.size };
 }
 
 // ---------- helpers ----------

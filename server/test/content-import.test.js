@@ -43,7 +43,10 @@ test('ZIP safety: paths, media signatures, checksums, duplicate keys and decompr
 test('GM ZIP endpoint imports atomically, plays attacks and restores both records and art', async (t) => {
   const dataDir = tmpDir();
   const second = tmpDir();
-  const packDir = writePack(tmpDir(), { 'buffs.json': [{ id: 'test_mark', name: 'Marked', effects: [] }] });
+  const packDir = writePack(tmpDir(), {
+    'ruleset.json': { id: 'table', combat: { flow: 'reaction' } },
+    'buffs.json': [{ id: 'test_mark', name: 'Marked', effects: [] }],
+  });
   const start = (dir) => startServer({
     packDir, dataDir: dir, port: 0, host: '127.0.0.1', publicHost: '127.0.0.1',
     env: { GM_KEY: KEY }, rng: () => 0.75, log: { log() {}, warn() {}, error() {} },
@@ -117,12 +120,14 @@ test('GM ZIP endpoint imports atomically, plays attacks and restores both record
   act({ t: 'combat.start' });
   assert.deepEqual(new Set(server.state.combat.combatants.filter((row) => row.sourceId === mob.id).map((row) => row.image)), new Set(images));
   const crawler = server.state.combat.combatants.find((row) => row.type === 'crawler');
-  const attack = act({ t: 'combat.mobAct', uid: bossUid, attackIndex: 0, targetUid: crawler.uid, tv: false });
-  const step = attack.result.sequence[0];
-  assert.equal(step.attack, 'Pendulum');
-  assert.equal(step.hit, true);
-  assert.equal(step.hpBefore - step.hpAfter, 2);
-  assert.deepEqual(step.buffs, ['Marked']);
+  act({ t: 'rx.declare', mobUid: bossUid, attackIndex: 0, targetUid: crawler.uid });
+  act({ t: 'rx.step', to: 'react' });
+  act({ t: 'rx.step', to: 'resolve' });
+  const [step] = server.state.combat.rx.decls;
+  assert.equal(step.attack.name, 'Pendulum');
+  assert.equal(step.result, 'hit');
+  assert.equal(step.damage, 2);
+  assert.deepEqual(server.state.players[0].sheet.buffs.map((b) => b.name), ['Marked']);
   act({ t: 'item.give', playerId, itemId: 'zip_salve' });
   const [salve] = server.state.players.find((p) => p.id === playerId).inventory;
   const use = act({ t: 'item.use', playerId, uid: salve.uid }).result;

@@ -107,12 +107,17 @@ function crawlerEvade(st, ctx, x) {
   } catch { return 0; }
 }
 
-function addDecl(st, ctx, rx, mob, attackIndex, targetUid) {
+function declaredAttack(st, ctx, mob, index) {
+  const atk = Number.isInteger(index) && mob.attacks?.[index];
+  if (!atk) throw bad(`${mob.name} has no attack ${index}`);
+  return { name: atk.name || 'Attack', damage: atk.damage || '0', dc: attackDc(atk, combatRules(ctx.pack, C(st).settings), mob.flat ? 0 : floorOfState(st)), area: !!atk.area, buffs: atk.buffs ?? [] };
+}
+
+function addDecl(st, ctx, rx, mob, attackIndex = 0, targetUid) {
   if (rx.decls.length >= MAX_DECLS) throw bad(`max ${MAX_DECLS} declared attacks`);
-  const atk = (mob.attacks ?? [])[attackIndex ?? 0];
-  if (!atk) throw bad(`${mob.name} has no attack ${attackIndex ?? 0}`);
+  if (mob.hp <= 0) throw bad(`${mob.name} is down`);
   const t = crawlerOf(st, targetUid);
-  const d = { id: ctx.genId('dc'), mobUid: mob.uid, attack: { name: atk.name || 'Attack', damage: atk.damage || '1d4', dc: attackDc(atk, combatRules(ctx.pack, C(st).settings), mob.flat ? 0 : floorOfState(st)), area: !!atk.area }, targetUid: t.uid, caught: false, taunted: false, evade: null, result: null, damage: null };
+  const d = { id: ctx.genId('dc'), mobUid: mob.uid, attackIndex, attack: declaredAttack(st, ctx, mob, attackIndex), targetUid: t.uid, caught: false, taunted: false, evade: null, result: null, damage: null };
   rx.decls.push(d);
   return d;
 }
@@ -162,7 +167,7 @@ function resolveDecl(st, ctx, out, rx, d) {
     markInjury(st, ctx, target, deg === 'critfail' ? 'major' : 'minor');
   }
   let rolled = 0;
-  try { rolled = rollDice(d.attack.damage, { randInt: ctx.randInt }).total; } catch { rolled = 1; }
+  try { rolled = rollDice(d.attack.damage, { randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt }).total; } catch { /* Bad legacy damage formula. */ }
   const amount = Math.max(0, Math.floor(rolled * mult) + bonus);
   d.result = mult < 1 ? 'half' : 'hit';
   d.damage = amount;
@@ -172,9 +177,13 @@ function resolveDecl(st, ctx, out, rx, d) {
     const wasDying = target.type === 'crawler' && target.dying != null;
     COMBAT_GM['combat.damage'](st, { uid: target.uid, amount, dr: true }, ctx, sub);
     if (sub.result?.slotValue || (target.type === 'crawler' && ctx.pack.ruleset.tracks.some((t) => t.id === hpTrackOf(ctx.pack)?.id && t.slotValue))) {
-      d.slots = sub.result?.amount ?? 0;
+      d.slots = sub.result?.actualAmount ?? 0;
     }
-    onCrawlerDamage(st, ctx, out, target, wasDying);
+    if (!sub.result?.blocked) onCrawlerDamage(st, ctx, out, target, wasDying);
+  }
+  const library = libraryOf(st, ctx.pack);
+  for (const buffId of d.attack.buffs ?? []) {
+    if (library.get('buff', buffId)) COMBAT_GM['combat.condition'](st, { uid: target.uid, buffId, on: true }, ctx, { ...out, result: undefined });
   }
 }
 
@@ -187,13 +196,19 @@ function markInjury(st, ctx, target, severity, description) {
   if (injuries.length >= 10) return;
   const p = st.players.find((x) => x.id === target.playerId);
   if (!p) return;
-  injuries.push({ severity, desc: nextInjuryDescription(p, rules, severity, description) });
+  injuries.push({ id: ctx.genId('inj'), severity, desc: nextInjuryDescription(p, rules, severity, description) });
 }
 
 export const REACTION_GM = {
   'combat.injury'(st, a, ctx) {
     if (!C(st).active) throw bad('start combat to record an injury');
     markInjury(st, ctx, crawlerOf(st, a.uid), a.severity, a.description);
+  },
+
+  'combat.injury.remove'(st, a) {
+    if (typeof a.injuryId !== 'string') throw bad('injuryId required');
+    const target = crawlerOf(st, a.uid);
+    target.injuries = (target.injuries ?? []).filter((injury) => injury.id !== a.injuryId);
   },
 
   /** Start (or re-sync) reaction rounds for the running fight. */
@@ -210,11 +225,18 @@ export const REACTION_GM = {
     out.result = { declId: d.id };
   },
 
-  /** Change who a declared attack goes for: `{ declId, targetUid }` (declare step). */
-  'rx.retarget'(st, a) {
+  /** Edit a declaration while the GM is still planning. */
+  'rx.retarget'(st, a, ctx) {
     const rx = rxOf(st);
     if (rx.step !== 'declare') throw bad('targets change in the declare step');
-    declOf(rx, a.declId).targetUid = crawlerOf(st, a.targetUid).uid;
+    const d = declOf(rx, a.declId);
+    if (a.targetUid !== undefined) d.targetUid = crawlerOf(st, a.targetUid).uid;
+    if (a.attackIndex !== undefined) {
+      d.attack = declaredAttack(st, ctx, mobOf(st, d.mobUid), a.attackIndex);
+      d.attackIndex = a.attackIndex;
+      d.attack.dc += d.adv === 'adv' ? 5 : d.adv === 'dis' ? -5 : 0;
+      d.splash = false;
+    }
   },
 
   /**
@@ -248,6 +270,7 @@ export const REACTION_GM = {
 
   'rx.undeclare'(st, a) {
     const rx = rxOf(st);
+    if (rx.step !== 'declare') throw bad('attacks change in the declare step');
     declOf(rx, a.declId);
     rx.decls = rx.decls.filter((x) => x.id !== a.declId);
   },
@@ -266,6 +289,7 @@ export const REACTION_GM = {
     const rx = rxOf(st);
     if (!STEPS.includes(a.to)) throw bad(`to must be one of ${STEPS.join(', ')}`);
     if (a.to === 'resolve' && rx.step !== 'resolve') {
+      if (rx.step !== 'react') throw bad('announce the attacks before resolving damage');
       const missing = rx.decls.filter((d) => rx.evading.includes(d.targetUid) && !d.caught && !d.evade);
       if (missing.length && a.force !== true) {
         out.result = { waiting: missing.map((d) => d.id) };
@@ -276,8 +300,14 @@ export const REACTION_GM = {
       out.emit({ kind: 'rx.resolved', round: rx.round }, 'all');
       return;
     }
+    if (a.to === 'react' && rx.step === 'declare') {
+      for (const uid of new Set(rx.decls.map((d) => d.mobUid))) {
+        const m = C(st).combatants.find((x) => x.uid === uid);
+        if (m?.hidden) COMBAT_GM['combat.reveal'](st, { uid }, ctx, { ...out, result: undefined });
+      }
+      out.emit({ kind: 'rx.react', round: rx.round, targets: [...new Set(rx.decls.map((d) => d.targetUid))] }, 'all');
+    }
     rx.step = a.to;
-    if (a.to === 'react') out.emit({ kind: 'rx.react', round: rx.round, targets: [...new Set(rx.decls.map((d) => d.targetUid))] }, 'all');
   },
 
   /**
@@ -400,6 +430,7 @@ export function onCrawlerDamage(st, ctx, out, x, wasDying) {
 
 function evadeRoll(st, ctx, out, a, playerId) {
   const rx = rxOf(st);
+  if (rx.step !== 'react') throw bad('it is not the reaction step');
   const d = declOf(rx, a.declId);
   const x = crawlerOf(st, d.targetUid);
   if (playerId && x.playerId !== playerId) throw bad('that attack is not aimed at you');
@@ -506,10 +537,10 @@ export function reactionView(state, role) {
   const rx = c.rx;
   const gm = role === 'gm';
   const mobs = new Map(c.combatants.filter((x) => x.type === 'mob').map((x) => [x.uid, x]));
-  const decls = rx.decls.filter((d) => gm || !mobs.get(d.mobUid)?.hidden).map((d) => {
+  const decls = rx.decls.filter((d) => gm || (rx.step !== 'declare' && !mobs.get(d.mobUid)?.hidden)).map((d) => {
     const m = mobs.get(d.mobUid);
     const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, splash: !!d.splash, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, ...(d.slots != null ? { slots: d.slots } : {}), evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
-    return gm ? { ...base, dc: d.attack.dc, damageDice: d.attack.damage, evadeTotal: d.evade?.total ?? null } : base;
+    return gm ? { ...base, attackIndex: d.attackIndex, dc: d.attack.dc, damageDice: d.attack.damage, evadeTotal: d.evade?.total ?? null } : base;
   });
   const advantage = (rx.advantage ?? []).filter((v) => gm || !mobs.get(v.mobUid)?.hidden).map((v) => ({ uid: v.uid, mobUid: v.mobUid, mob: mobs.get(v.mobUid)?.name ?? '?' }));
   return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5) };

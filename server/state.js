@@ -20,7 +20,7 @@ import {
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
-import { PREP_GM, initPrep, normalizePrep, prepView } from './prep.js';
+import { PREP_GM, initPrep, loadPreparedAdventure, normalizePrep, prepView } from './prep.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
 import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage } from './reaction.js';
 import { makeEncounterGM } from './encounters.js';
@@ -825,6 +825,7 @@ const PLAYER = {
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
 Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM, REACTION_GM);
 Object.assign(GM, makeEncounterGM(GM));
+GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
 const CREATION = makeCreation(GM);
 Object.assign(GM, CREATION.player, CREATION.gm);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
@@ -856,7 +857,7 @@ function giveStarterAttack(st, p, ctx) {
     const x = st.combat?.combatants?.find((c) => c.uid === a.uid);
     const wasDying = x?.type === 'crawler' && x.dying != null;
     dmg(st, a, ctx, out);
-    onCrawlerDamage(st, ctx, out, x, wasDying);
+    if (!out.result?.blocked) onCrawlerDamage(st, ctx, out, x, wasDying);
   };
   const heal = GM['combat.heal'];
   if (heal) GM['combat.heal'] = (st, a, ctx, out) => { heal(st, a, ctx, out); const x = st.combat?.combatants?.find((c) => c.uid === a.uid); if (x?.type === 'crawler') dyingTick(st, ctx, out, 'heal', x.uid); };

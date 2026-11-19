@@ -391,6 +391,14 @@
 .cbt-command .rx { padding: 8px; gap: 4px; }
 .cbt-command .rx p { margin: 1px 0; }
 .cbt-command .rx-decls { max-height: 112px; overflow: auto; }
+.cbt-command .cbt-last { padding: 6px 8px; gap: 4px 10px; grid-template-columns: auto minmax(0, 1fr); align-items: center; }
+.cbt-command .cbt-last .sec-head, .cbt-command .cbt-last-fx { grid-column: 1 / -1; }
+.cbt-command .cbt-last-nums b { font-size: 19px; }
+.cbt-manual { font-size: 13px; color: var(--c-ink-2); }
+.cbt-manual > summary { cursor: pointer; width: fit-content; }
+.cbt-manual form { display: flex; gap: 4px; margin-top: 4px; }
+.cbt-manual .inp { max-width: 160px; }
+.cbt-round-work { display: grid; grid-template-columns: minmax(0, 1fr) minmax(170px, .35fr); align-items: start; gap: 6px; }
 .cbt-list-panel { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 10px; padding: 8px; }
 .cbt-list-panel .sec-head { margin-bottom: 4px; gap: 5px; flex-wrap: wrap; }
 .cbt-party-col, .cbt-mob-col { min-width: 0; }
@@ -413,9 +421,15 @@
 .cbt-victory-items li { display: flex; align-items: center; gap: 3px; }
 .cbt-compact-tools { margin-top: 6px; }
 .cbt-compact-tools > summary { cursor: pointer; color: var(--c-dim); }
-.cc-injury, .cc-more > p { margin: 0; }
+.cc-more > p, .cc-injury p { margin: 0; }
+.cc-injuries { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.cc-injury, .cbt-preview-party li.cc-injury { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; border-left: 2px solid var(--c-bad); background: var(--c-raised); }
+.cc-injury small { margin-left: 6px; }
+.cc-injury .cond-x { flex: none; }
+.cbt-preview-person { min-width: 0; }
 @container (max-width: 690px) {
   .cbt-list-panel { grid-template-columns: minmax(0, 1fr); }
+  .cbt-round-work { grid-template-columns: minmax(0, 1fr); }
 }
 .cbt-command .rx { margin-bottom: 0; }
 .cbt-command .rx .sec-head { flex-wrap: wrap; margin-bottom: 2px; gap: 5px; }

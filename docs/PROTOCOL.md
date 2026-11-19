@@ -270,6 +270,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `loot.confirm` | `dropId` or defeated `uid`, `playerId?` | Take all remaining items in one transaction. Falls back to the credited killer when the GM omits the recipient. |
 | `combat.victoryLoot` | `items`: up to 20 entries `{id,qty}` | Stage item rewards for victory. The final credited blow suggests the recipient. |
 | `combat.injury` | crawler `uid`, `severity` (minor or major), `description?` | Queue an injury for the end of the combat. The ruleset supplies a description when omitted. |
+| `combat.injury.remove` | crawler `uid`, `injuryId` from `pendingInjuries` | Remove a specific queued injury. Use `buff.remove` for injuries already applied to a sheet. |
 | `loot.take` | `dropId`, `key`, `playerId` | Hand one item of a pile to a crawler (a dead crawler's own item moves). Event `loot.take` to all |
 | `loot.clear` | `dropId` | Forget a pile |
 | `session.aiMute` | `on`: bool | Mute AI: System lines go out as text only (`play` gets `silent: true`, no audio/TTS), the audience chat stops, AUTO turns off and cannot be turned on while muted. Kept across `session.new` |
@@ -284,6 +285,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.card.remove` | `id` | |
 | `prep.card.fire` | `id`, `playerId?`, `to?` | Runs the card's action with its payload (`playerId`/`to` override it), marks the card `used`. Same events/voice lines as the underlying action |
 | `prep.adventure.add` | `title`, `template?` | Příprava: new adventure (neighbourhood, quest, dungeon) from an adventure template (default: the pack's flagged one, else built-in `adventure`); ack `result.id`. GM-only data in `view.gm.prep` |
+| `prep.adventure.load` | `id` from `view.gm.prep.adventures` | Copy a pack's ready-made adventure and encounters into the campaign. Resolve library, loot-tier and encounter links atomically. Reopening an existing import keeps GM edits and returns its ID. |
 | `prep.session.add` | `title?`, `template?`, `adventureId?`, `carryFrom?` | New session plan from a session template (default: pack's, else `lazy_session`). Unfinished items of `carry` sections are copied from `carryFrom` (default: current session); inherits its adventure unless `adventureId` is given (`null` = none). Becomes current. Ack `result {id, carried}` |
 | `prep.session.current` | `id` (session) or `null` | Marks tonight's plan (drives "Within reach" on the Show tab) |
 | `prep.doc.update` | `id`, `title?`, `adventureId?` (sessions only, `null` unlinks) | |
@@ -360,6 +362,7 @@ Location `features` are GM-only too.
 | `scene.preview` | `kind`, `data?` | Dry run of `scene.set` for the desk's preview: same validation, nothing changes. Ack `result: {scene}` (the stage's scene view; a boss is already revealed) |
 | `scene.update` | `data` | Shallow merge into the current scene's data, same validation (no transition on the TV). Boss: `hp`, `phase`, `revealed`, `defeated`, `lootHint`, `bossId`/`boss` (swap). Countdown: `label`, `seconds` (resets), `running` |
 | `scene.roll` | `playerId?`, `formula?` [d20] **or** `what?` (as `roll.what`), `label?`, `name?` — or `rollId` (re-show a public dice-log roll) | Rolls exactly like `roll` (dice log, `roll` event, nat1/nat20 line), then sets the `roll` scene. Ack `result: {rollId, total, sceneId}` |
+| `scene.check` | `mode` (single or party), `dc` (−10..99), `skillId` or `statId` (single only), `entries: [{playerId, entered?}]`, `label?` | In seven-degree crawler campaigns, roll one check per selected crawler using their sheet. `entered` is a kept physical d20. Party checks apply exceptional results to other members and need at least half to pass. Sets the `roll` scene with individual results and the verdict. A fresh `scene.set` or `scene.preview` of kind `roll` may carry `data.dc` to display the target before rolling. |
 | `show.audio` | `device`: `"gm"` / `"stage"` | Which page plays the System voice and the stingers (default `gm`). Both pages receive `play`/`stop`; only the device plays and acks `audio.done`, the other shows the subtitle |
 | `boss.intro` | `line?` [true] | `revealed = true`; event `boss.intro`; feed line; P1 voice line = boss `intro` text, else a quip from category `boss` |
 | `boss.damage` | `amount?` [1] (1..100) | HP − amount (min 0); event `boss.hit`; ack `result: {hp, max, suggestPhase}` |
@@ -530,10 +533,10 @@ Round = `declare` → `react` → `resolve` → `act` → `cleanup`. Each crawle
 | `rx.surprise` | — | Before round 1 (no declarations): the crawlers surprised the mobs → round 0, step act, one free action each; `rx.round` then starts round 1 |
 | `rx.area` | `declId`, `area` full\|splash\|null | Mark a declared hit as Area of Effect (Evade halves) or splash ring (half damage; Evade leaves a quarter) |
 | `rx.adv` | `declId`, `adv` adv\|dis\|null | Mob attack with Advantage (+5 to the Evade difficulty) / Disadvantage (−5), before it is evaded |
-| `rx.retarget` | `declId`, `targetUid` | Declare step: change who a declared attack goes for |
+| `rx.retarget` | `declId`, `targetUid?`, `attackIndex?` | Declare step: change the target, the selected attack, or both. |
 | `rx.undeclare` | `declId` | |
 | `rx.suggest` | | Replaces declarations: revealed living mobs 1 attack each spread evenly (focus respected), elites / bosses one per crawler; ack `result.count` |
-| `rx.step` | `to` (step), `force?` | `resolve` resolves every attack (refused while an evading crawler's roll is missing, unless `force`): success → no damage (area: half), major fail → +floor, crit fail → double; damage rolled, DR applied through `combat.damage`. Events `rx.react`, `rx.resolved` |
+| `rx.step` | `to` (step), `force?` | `react` publishes the declarations, reveals the attackers, and emits `rx.react {round, targets}`. `resolve` follows reactions, rolls damage for attacks that hit, and applies DR and whole slots through `combat.damage`. A missing Evade roll requires `force`. Success → no damage (area: half), major fail → +floor, crit fail → double. |
 | `rx.round` | | Next round: declare, actions reset, timed mob conditions count down. Event `rx.round` |
 | `rx.evade` | `declId`, `die` (1..20) | GM enters a crawler's physical roll (same rules as the player action) |
 | `rx.actions` | `uid`, `delta` (−3..3) | AI Favor extra action, a debuff, a house rule |

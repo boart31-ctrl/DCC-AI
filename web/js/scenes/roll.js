@@ -1,6 +1,6 @@
 // Big dice roll on the TV: a d20 tumbles with flickering faces, lands, then the total slams in.
 // Nat 20: light rays + gold slam. Nat 1: the die cracks and the banner droops.
-import { h, replay } from './common.js';
+import { h, portraitTile, replay } from './common.js';
 import { uiOf, uiAsset, artEl } from '../ui-art.js';
 
 const D20 = `<svg viewBox="0 0 200 200" aria-hidden="true">
@@ -10,7 +10,62 @@ const D20 = `<svg viewBox="0 0 200 200" aria-hidden="true">
   <g class="cracks"><polyline points="100,48 92,80 106,98 96,124"/><polyline points="150,136 132,120 138,104"/><polyline points="50,136 70,122 62,104"/></g>
 </svg>`;
 
+const CHECK_DEGREES = {
+  crit: 'Critical success', amazing: 'Amazing success', success: 'Success', near: 'Near miss',
+  fail: 'Failure', major: 'Major failure', critfail: 'Critical failure',
+};
+
+function scoredRoll(root, sc, env) {
+  const heading = h('h1.rq-title.show-type');
+  const dc = h('b');
+  const target = h('div.rq-target', h('span', 'DC'), dc);
+  const verdict = h('div.rq-verdict');
+  const cards = h('div.rq-cards');
+  root.classList.add('sc-check');
+  root.append(h('header.rq-head', heading, target), cards, verdict);
+  let shown = null;
+
+  function update(scene, view) {
+    const d = scene.data;
+    heading.textContent = d.label || 'Skill check';
+    dc.textContent = d.dc;
+    const check = d.check;
+    if (!check) {
+      root.classList.add('rq-waiting');
+      verdict.textContent = 'Roll to meet or beat the DC';
+      return;
+    }
+    if (shown === check.results[0]?.rollId) return;
+    shown = check.results[0]?.rollId;
+    root.classList.toggle('rq-party', !!check.verdict);
+    root.classList.toggle('rq-many', check.results.length > 6);
+    const animate = !env.reduced && env.clock.now() - (d.at || 0) < 8000;
+    root.classList.toggle('rq-reveal', animate);
+    cards.replaceChildren(...check.results.map((r, i) => {
+      const p = view.players?.find((x) => x.id === r.playerId);
+      const naturalNeeded = Math.max(2, d.dc - r.modifier);
+      const needs = naturalNeeded >= 20 ? 'Needs natural 20' : `Needs ${naturalNeeded}+ on d20`;
+      const netSuccess = r.shift ? r.shift === 'helped' : r.success;
+      const arithmetic = `${r.natural} ${r.modifier < 0 ? '−' : '+'} ${Math.abs(r.modifier)}`;
+      return h('article.rq-card', { 'data-result': netSuccess ? 'pass' : 'fail', 'data-degree': r.degree, style: { '--pc': r.color || '#2ef2ff', '--delay': `${520 + i * 55}ms` } },
+        h('div.rq-player', portraitTile('rq-portrait', p, { name: r.name }), h('div', h('b.rq-name', r.name), h('small', needs))),
+        h('div.rq-number', h('b', String(r.total)), h('div', h('span', arithmetic), r.untrained ? h('small', r.otherDie == null ? 'Untrained' : `Untrained · other d20 ${r.otherDie}`) : null)),
+        h('div.rq-result', h('b', CHECK_DEGREES[r.degree]), r.shift ? h('small', r.shift === 'helped' ? 'Team help → Success' : 'Team setback → Failure') : null));
+    }));
+    const v = check.verdict;
+    verdict.hidden = !v;
+    if (v) {
+      verdict.dataset.result = v.success ? 'pass' : 'fail';
+      verdict.style.setProperty('--delay', `${800 + check.results.length * 55}ms`);
+      verdict.replaceChildren(h('b.show-type', v.success ? 'Party succeeds' : 'Party fails'), h('span', `${v.passed}/${check.results.length} passed · needed ${v.required}`));
+    }
+  }
+  update(sc, env.view);
+  return { update };
+}
+
 export default function roll(root, sc, env) {
+  if (sc.data?.dc != null) return scoredRoll(root, sc, env);
   const who = h('div.rl-who');
   const label = h('p.rl-label');
   const face = h('b.rl-face');

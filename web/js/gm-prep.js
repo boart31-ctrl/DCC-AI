@@ -24,7 +24,7 @@ import { pickFromLibrary, KIND_LABEL } from './lib-picker.js';
 import { encounterEditor, strengthBadge } from './gm-encounter.js';
 import { createMaps } from './gm-maps.js';
 
-const REF_LABEL = KIND_LABEL;
+const REF_LABEL = { ...KIND_LABEL, loot: 'Loot box' };
 const LIB_REF = ['monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff'];
 const SCENE_LINKS = ['encounter', 'map', 'npc', 'location', 'boss', 'monster', 'item', 'card'];
 const store = {
@@ -52,12 +52,13 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   const cards = () => view?.gm?.prepCards || [];
   const family = () => view?.pack?.ruleset?.system?.family || 'crawler';
   const party = () => (view?.players || []).map((p) => ({ level: p.level || 1 }));
-  const tplLabel = (id) => (P().templates || []).find((t) => t.id === id)?.label || id;
+  const tplLabel = (id) => (P().templates || []).find((t) => t.id === id)?.label || P().adventures?.find((a) => a.id === id)?.title || id;
 
   function entryOf(ref) {
     if (!ref) return null;
     if (ref.kind === 'card' || ref.kind === 'encounter') return cards().find((c) => c.id === ref.id) || null;
     if (ref.kind === 'map') return (view?.maps || []).find((m) => m.id === ref.id) || null;
+    if (ref.kind === 'loot') return (view?.pack?.lootTiers || []).find((t) => t.id === ref.id) || null;
     return (lib()[ref.kind] || []).find((e) => e.id === ref.id) || null;
   }
   function refName(ref) {
@@ -96,6 +97,10 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     const r = await act({ t: 'prep.adventure.add', title: 'New adventure', ...(template ? { template } : {}) }, 'Adventure created.');
     if (r?.result?.id) select_(r.result.id);
   }
+  async function loadAdventure(seed) {
+    const r = await act({ t: 'prep.adventure.load', id: seed.id });
+    if (r?.result?.id) select_(r.result.id);
+  }
   async function newSession(fromAdventure) {
     const r = await act({ t: 'prep.session.add', ...(fromAdventure ? { adventureId: fromAdventure } : {}) });
     if (r?.result?.id) {
@@ -132,9 +137,20 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
       if (await act({ t: 'prep.card.fire', id: ref.id }, `${e.label || 'Card'} fired.`) && e.kind === 'encounter') { showView('show'); scenes.pick('fight'); }
       return;
     }
+    if (ref.kind === 'loot') {
+      showView('show');
+      scenes.loadDraft('loot', { tier: ref.id });
+      return;
+    }
+    if (ref.kind === 'item' && view.players?.length) {
+      openDrawer({ title: `Give ${e.name}`, body: h('div.pp-head-row', view.players.map((p) => h('button.btn.btn-sm', { type: 'button', onclick: async () => {
+        if (await act({ t: 'item.give', playerId: p.id, itemId: e.id }, `Gave ${e.name} to ${p.name}.`)) closeDrawer();
+      } }, p.name))) });
+      return;
+    }
     openInLibrary(ref.kind, ref.id);
   }
-  const useLabel = (ref) => ({ encounter: 'Run', map: 'Preview', location: 'Preview', npc: 'Preview', boss: 'Preview', monster: 'Add to fight', card: 'Fire' }[ref.kind] || 'Open');
+  const useLabel = (ref) => ({ encounter: 'Run', map: 'Preview', location: 'Preview', npc: 'Preview', boss: 'Preview', monster: 'Add to fight', card: 'Fire', loot: 'Preview', item: view.players?.length ? 'Give' : 'Open' }[ref.kind] || 'Open');
   /** In Prep: open it for editing (encounters and maps here, the rest in the Library). Never live. */
   function openRef(ref) {
     if (ref.kind === 'encounter') { select_(`enc:${ref.id}`); return; }
@@ -222,7 +238,8 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
         advTpls.length > 1
           ? select([{ value: '', label: '+ New…' }, ...advTpls.map((t) => ({ value: t.id, label: t.label }))], '', { cls: 'inp-sm', label: 'New adventure from template', onChange: (v) => v && newAdventure(v) })
           : h('button.btn.btn-sm', { type: 'button', onclick: () => newAdventure(null) }, icon('plus', { size: 14 }), 'New')),
-      adv.length ? h('ul.pp-docs', adv.map(docRow)) : h('p.empty-s', 'An adventure holds what lasts several evenings: a neighbourhood, a quest, a dungeon.'),
+      P().adventures?.length ? h('ul.pp-docs', P().adventures.map((a) => h('li', h('button.pp-doc', { type: 'button', onclick: () => loadAdventure(a) }, h('span.pp-doc-t', a.title), h('span.dim', 'Load prepared adventure'))))) : null,
+      adv.length ? h('ul.pp-docs', adv.map(docRow)) : P().adventures?.length ? null : h('p.empty-s', 'An adventure holds what lasts several evenings: a neighbourhood, a quest, a dungeon.'),
       (view?.pack?.cheats || []).length ? [h('div.pp-side-head', h('h2', 'Cheat sheets')),
         h('ul.pp-docs', view.pack.cheats.map((c) => h('li', h('a.pp-doc', { href: c.url, target: '_blank', rel: 'noopener' }, h('span.pp-doc-t', c.label), h('span.dim', c.audience === 'gm' ? 'GM · print A4' : 'Players · on their phones too')))))] : null);
   }
@@ -266,7 +283,8 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     return h('div.pp-links',
       h('span.dim', 'Needs:'),
       links.map((l) => h('span.pp-link', { class: entryOf(l) ? 'pp-link' : 'pp-link missing' },
-        h('button', { type: 'button', title: `${REF_LABEL[l.kind]}: ${openLabel(l)}`, onclick: () => openRef(l) }, h('span.pp-kind', REF_LABEL[l.kind]), refName(l)),
+        h('button', { type: 'button', disabled: !entryOf(l), title: `${useLabel(l)}: ${refName(l)}`, onclick: () => useRef(l) }, h('span.pp-kind', useLabel(l), ' · '), refName(l)),
+        l.kind !== 'loot' ? h('button.icon-btn.xs', { type: 'button', title: `${openLabel(l)} ${refName(l)}`, 'aria-label': `${openLabel(l)} ${refName(l)}`, onclick: () => openRef(l) }, icon('edit', { size: 12 })) : null,
         h('button.icon-btn.xs', { type: 'button', 'aria-label': 'Unlink', onclick: () => setLinks(links.filter((x) => x !== l)) }, icon('x', { size: 12 })))),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => pickFromLibrary({ view, kinds: SCENE_LINKS, title: `What ${it.title || 'this scene'} needs`, multi: true, exclude: new Set(links.map((l) => `${l.kind}:${l.id}`)), onPick: (list) => setLinks([...links, ...list.map(({ kind, id }) => ({ kind, id }))].slice(0, 12)) }) }, icon('plus', { size: 12 }), links.length ? 'Add' : 'Encounter, map, NPC…'),
       !links.some((l) => l.kind === 'encounter') ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'A new encounter for this scene, linked here', onclick: () => newEncounter((id) => setLinks([...links, { kind: 'encounter', id }])) }, icon('swords', { size: 12 }), 'New encounter') : null);
@@ -314,7 +332,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     const body = s.kind === 'text'
       ? [field(s.text, { multiline: true, rows: s.key === 'notes' ? 4 : 3, placeholder: s.hint || '', onCommit: (v) => act({ t: 'prep.section.update', id: d.id, key: s.key, text: v }) })]
       : s.kind === 'list' ? listBody(d, s) : s.kind === 'parts' ? partsBody(d, s) : refsBody(d, s);
-    return h('section.panel.pp-sec', { class: `panel pp-sec pp-k-${s.kind}` },
+    return h('section.panel.pp-sec', { class: `panel pp-sec pp-k-${s.kind}`, 'data-prep-section': s.key },
       h('header.pp-sec-head',
         h('button.pp-sec-t', { type: 'button', 'aria-expanded': String(!closed), onclick: toggle }, icon(closed ? 'chevron' : 'down', { size: 14 }), h('h3', s.label),
           s.kind !== 'text' && s.items.length ? h('span.tab-n', s.kind === 'refs' ? String(s.items.length) : `${open}/${s.items.length}`) : null,
@@ -382,7 +400,11 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
         h('div.pp-head-row', h('button.btn.btn-primary', { type: 'button', onclick: () => newSession(null) }, icon('plus', { size: 14 }), 'New session plan'),
           h('button.btn', { type: 'button', onclick: () => newAdventure(null) }, icon('plus', { size: 14 }), 'New adventure'))));
     }
-    return h('div.pp-main', docHead(d), d.sections.filter((s) => !s.hidden).map((s) => section(d, s)), hiddenRow(d));
+    const visible = d.sections.filter((s) => !s.hidden);
+    const prepared = P().adventures?.some((a) => a.id === d.template);
+    return h('div.pp-main', docHead(d), prepared ? h('nav.pp-head-row', { 'aria-label': 'Adventure sections' }, visible.map((s) => h('button.btn.btn-sm', {
+      type: 'button', onclick: () => el.querySelector(`[data-prep-section="${s.key}"]`)?.scrollIntoView({ block: 'start' }),
+    }, s.label))) : null, visible.map((s) => section(d, s)), hiddenRow(d));
   }
 
   /* ---------- within reach (Show tab) ---------- */

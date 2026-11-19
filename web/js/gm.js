@@ -1097,7 +1097,7 @@ const library = createLibrary({
 $('#view-library').append(library.el);
 // Show = the broadcast switcher (gm-scenes.js): scenes, the fight tracker, NPCs, sound and the old desk.
 // Hoisted use in render() is safe: views arrive after boot.
-const scenes = createScenes({ client, act, getView: () => view, getCues: () => cues });
+const scenes = createScenes({ client, act, getView: () => view, getCues: () => cues, chooseAttack: (uid, index) => combat.chooseAttack(uid, index) });
 scenes.audio.credential = () => ext.credential; // the audio fetches use the desk's login
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
