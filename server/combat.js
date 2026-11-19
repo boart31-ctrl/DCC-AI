@@ -281,7 +281,7 @@ function combatArt(st, library, m) {
   if (override?.phase === phase && override.defeated === defeated) return m.image ?? null;
   const base = boss?.imageSquare || boss?.image || null;
   // Older fights can already contain a custom picture before any phase change.
-  if (!override && phase === 0 && !defeated && m.image !== undefined && m.image !== base) return m.image;
+  if (!override && phase === 0 && !defeated && m.image && m.image !== base) return m.image;
   return (defeated && boss?.imageKo)
     || boss?.phases?.[phase]?.image || m.image || boss?.imageSquare || boss?.image || null;
 }
@@ -471,7 +471,9 @@ function familyPicker(st, ctx, kind, e, sourceKey) {
   const pool = [...new Set([base, ...(kind === 'monster' && Array.isArray(e.variants) ? e.variants : [])].filter(Boolean))];
   if (pool.length < 2) return () => base;
   const uses = new Map(pool.map((p) => [p, 0]));
-  for (const x of C(st).combatants) if (x.sourceKey === sourceKey && uses.has(x.image)) uses.set(x.image, uses.get(x.image) + 1);
+  for (const x of C(st).combatants) {
+    if ((x.sourceKey ?? `${x.sourceKind}:${x.sourceId}`) === sourceKey && uses.has(x.image)) uses.set(x.image, uses.get(x.image) + 1);
+  }
   const rnd = typeof ctx.rng === 'function' ? ctx.rng : Math.random;
   return () => {
     const min = Math.min(...uses.values());
@@ -481,6 +483,24 @@ function familyPicker(st, ctx, kind, e, sourceKey) {
     uses.set(img, uses.get(img) + 1);
     return img;
   };
+}
+
+/** Saved lineups can predate their pack artwork. Fill those portraits once when loading a snapshot. */
+export function fillMissingMobArt(st, pack) {
+  const missing = C(st).combatants.filter((m) => m.sourceKind === 'monster' && !m.image && !m.imageSet);
+  if (!missing.length) return;
+  const library = libraryOf(st, pack);
+  const pickers = new Map();
+  for (const m of missing) {
+    const key = m.sourceKey ?? `monster:${m.sourceId}`;
+    if (!pickers.has(key)) {
+      const entry = library.get('monster', m.sourceId);
+      if (!entry) continue;
+      pickers.set(key, familyPicker(st, { rng: () => 0 }, 'monster', entry, key));
+    }
+    m.sourceKey = key;
+    m.image = pickers.get(key)();
+  }
 }
 
 // ---------- initiative (turn order) ----------
@@ -858,6 +878,7 @@ export const COMBAT_GM = {
     if (a.hidden !== undefined) m.hidden = flag(a.hidden, 'hidden');
     if (a.image !== undefined) {
       m.image = mobImage(a.image);
+      if (m.sourceKind === 'monster') m.imageSet = true;
       if (m.sourceKind === 'boss') {
         const { phase, defeated } = bossArtState(st, m);
         m.bossArtOverride = { phase, defeated };

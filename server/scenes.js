@@ -147,10 +147,11 @@ export function normalizeBoss(raw, ctx) {
   };
 }
 
-function bossFromLibrary(st, ctx, id) {
+function bossFromLibrary(st, ctx, id, required = true) {
   if (typeof id !== 'string' || !ID_RE.test(id)) throw bad('bossId must be an id');
   const e = libraryOf(st, ctx.pack).get('boss', id);
-  if (!e) throw notFound(`unknown boss ${id}`);
+  if (!e && required) throw notFound(`unknown boss ${id}`);
+  if (!e) return null;
   // Library entries are already normalized; normalizeBoss again keeps one shape for both paths.
   return normalizeBoss({
     name: e.name, title: e.title, image: e.image, imageSquare: e.imageSquare, imageKo: e.imageKo, hpSlots: e.hpSlots,
@@ -162,6 +163,26 @@ function bossFromLibrary(st, ctx, id) {
 }
 
 const BOSS_KEYS = new Set(['bossId', 'boss', 'phase', 'hp', 'revealed', 'defeated', 'lootHint']);
+
+/** Restore art added to the pack since this linked scene was saved. */
+export function fillMissingBossArt(st, pack) {
+  if (st.scene.kind !== 'boss') return;
+  const d = st.scene.data;
+  if (typeof d.bossId !== 'string' || !ID_RE.test(d.bossId)) return;
+  const current = bossFromLibrary(st, { pack }, d.bossId, false);
+  if (!current) return;
+  const saved = d.boss;
+  const phases = Array.isArray(saved.phases) ? saved.phases : [];
+  const boss = { ...saved };
+  for (const field of ['image', 'imageSquare', 'imageKo']) {
+    if (!saved[field] && current[field]) boss[field] = current[field];
+  }
+  boss.phases = phases.length ? phases.map((p, i) => {
+    const image = current.phases[i]?.image;
+    return !p?.image && image ? { ...p, image } : p;
+  }) : current.phases;
+  d.boss = boss;
+}
 
 function bossMerge(st, ctx, prev, patch, fresh) {
   for (const k of Object.keys(patch)) if (!BOSS_KEYS.has(k)) throw bad(`unknown field ${k} for scene boss`);

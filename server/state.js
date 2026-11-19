@@ -9,8 +9,8 @@ import { MODES, pickQuip, markQuipUsed, quipsLeft, categoryPool } from './quips.
 import { STANDARD_CATEGORIES } from './constants.js';
 import { packForRuleset, rulesetChoices } from './systems.js';
 import { ActionError, bad, notFound } from './errors.js';
-import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, sceneView, showView } from './scenes.js';
-import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, combatView, onSheetRoll, applyMobDamage } from './combat.js';
+import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView } from './scenes.js';
+import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, fillMissingMobArt, combatView, onSheetRoll, applyMobDamage } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import { LOOT_GM, normalizeDrops } from './loot.js';
 import { CRAWLERS_GM, CRAWLERS_SYSTEM, initCrawlers, normalizeCrawlers, crawlersView } from './crawlers.js';
@@ -162,8 +162,10 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.rollUndo = Array.isArray(raw.rollUndo) ? raw.rollUndo.filter((id) => rollIds.has(id)).slice(-30) : [];
   s.rollRedo = Array.isArray(raw.rollRedo) ? raw.rollRedo.filter((id) => rollIds.has(id)).slice(-30) : [];
   s.scene = normalizeScene(raw.scene, now);
+  fillMissingBossArt(s, pack);
   s.show = normalizeShow(raw.show);
   s.combat = normalizeCombat(raw.combat);
+  fillMissingMobArt(s, pack);
   s.drops = normalizeDrops(raw.drops);
   s.crawlers = normalizeCrawlers(raw.crawlers, pack, now);
   s.combatLog = Array.isArray(raw.combatLog) ? raw.combatLog.filter((x) => x && typeof x === 'object').slice(-MAX_COMBAT_LOG) : [];

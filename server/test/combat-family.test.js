@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { loadPack } from '../pack.js';
-import { createState, reduce, viewFor } from '../state.js';
+import { createState, normalizeState, reduce, viewFor } from '../state.js';
 import { tmpDir, writePack, seq } from './fixtures.js';
 
 const MONSTERS = [
@@ -52,6 +52,26 @@ test('avatar families reach player views and a character can save a pack portrai
   assert.equal(art.src, '/pack/images/fox.webp');
   s = gm(s, { t: 'sheet.set', playerId, path: 'portrait', value: art.src });
   assert.equal(viewFor(s, pack, 'stage').players[0].portrait, art.src);
+});
+
+test('a loaded lineup gets its newly available art and keeps intentional silhouettes', () => {
+  let s = gm(createState(pack, 0), { t: 'combat.addMob', sourceId: 'gob', count: 3 });
+  s.combat.combatants[0].image = null;
+  s.combat.combatants[1].image = null;
+  s = gm(s, { t: 'combat.update', uid: s.combat.combatants[2].uid, image: null });
+  s = gm(s, { t: 'combat.addMob', kind: 'boss', sourceId: 'chief' });
+  s.combat.combatants[3].image = null;
+  const rows = viewFor(normalizeState(s, pack, 1_000_000), pack, 'gm').combat.combatants;
+  assert.deepEqual(rows.map((m) => m.image), [
+    '/pack/images/gob.webp', '/pack/images/gob_a.webp', null, '/pack/images/chief_p1.webp',
+  ]);
+  s = gm(s, { t: 'scene.set', kind: 'boss', data: { bossId: 'chief', hp: 7, revealed: true } });
+  s.scene.data.boss.phases = [];
+  s.scene.data.boss.imageKo = null;
+  const stage = viewFor(normalizeState(s, pack, 1_000_000), pack, 'stage').scene.data;
+  assert.equal(stage.boss.phases[1].image, '/pack/images/chief_p2.webp');
+  assert.equal(stage.boss.imageKo, '/pack/images/chief_ko.webp');
+  assert.equal(stage.hp, 7);
 });
 
 test('idle fight preview includes every crawler without adding combatants to the real fight', () => {
