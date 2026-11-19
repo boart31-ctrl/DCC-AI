@@ -15,7 +15,7 @@
 // A scene (part) lists what it needs at the table (its encounter, map, NPCs, location): pin the scene and
 // all of it waits within reach.
 //
-// createPrep({ act, getView, scenes, showView, openInLibrary }) → { el, reach, update(view) }
+// createPrep({ act, getView, scenes, showView, openInLibrary, getCredential }) → { el, reach, update(view) }
 import { h, toast, ask } from './client.js';
 import { icon, field, select, openDrawer, closeDrawer } from './ui.js';
 import { libraryOf } from './rules.js';
@@ -32,7 +32,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(`system.prep.${k}`, JSON.stringify(v)); } catch {} },
 };
 
-export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
+export function createPrep({ act, getView, scenes, showView, openInLibrary, getCredential }) {
   let view = null;
   let sig = '';
   let reachSig = '';
@@ -41,7 +41,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary }) {
   const el = h('div.prep2');
   const reach = h('div.sh-reach', { hidden: true });
   // One map editor for Prep (Maps + an encounter's battle map); never touches the TV.
-  const mapEd = createMaps({ act, getView, scenes, showView, mode: 'prep', openInLibrary });
+  const mapEd = createMaps({ act, getView, scenes, showView, getCredential, mode: 'prep', openInLibrary });
   const selKind = () => (typeof st.sel === 'string' && /^(enc|map):/.test(st.sel) ? st.sel.split(':')[0] : 'doc');
   const selId = () => (selKind() === 'doc' ? st.sel : st.sel.slice(4));
 

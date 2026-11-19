@@ -380,3 +380,50 @@
 .rx-deg-near { color: #ffb020; border-color: #ffb020; }
 .rx-deg-fail, .rx-deg-major, .rx-deg-critfail { color: #ff2448; border-color: #ff2448; }
 .rx-log ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+
+/* At the table, round controls stay above the scrollable rosters and attack log. */
+.cbt-command { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; margin-bottom: 7px; }
+.cbt-command .cbt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.cbt-command .cbt-title { flex: 1 0 auto; gap: 6px; }
+.cbt-command .cbt-title h1 { font-size: 18px; }
+.cbt-command .cbt-turn, .cbt-command .cbt-auto-bar { gap: 5px; }
+.cbt-command .cbt-turn button, .cbt-command .cbt-auto-bar button { min-height: 30px; }
+.cbt-command .rx { padding: 8px; gap: 4px; }
+.cbt-command .rx p { margin: 1px 0; }
+.cbt-command .rx-decls { max-height: 112px; overflow: auto; }
+.cbt-list-panel { display: grid; grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr); gap: 10px; padding: 8px; }
+.cbt-list-panel .sec-head { margin-bottom: 4px; gap: 5px; flex-wrap: wrap; }
+.cbt-party-col, .cbt-mob-col { min-width: 0; }
+.cbt-list-panel .cbt-mobs-head { margin-top: 0; padding-top: 0; border-top: 0; }
+.cbt-list-panel .cc { gap: 4px 6px; padding: 5px 7px; }
+.cbt-list-panel .cc:not(:has(.cc-more)) { grid-template-columns: minmax(0, 1fr) minmax(40px, .65fr) auto; grid-template-areas: "who hp dmg" "sub sub sub"; }
+.cbt-list-panel .cc:not(:has(.cc-more)) .cbt-amt,
+.cbt-list-panel .cc:not(:has(.cc-more)) .cbt-more-dmg,
+.cbt-list-panel .cc:not(:has(.cc-more)) .cbt-dmg button[title="Heal the typed amount"] { display: none; }
+.cbt-list-panel .cc:not(:has(.cc-more)) .cbt-dmg .btn { min-width: 29px; min-height: 27px; padding: 0 4px; }
+.cbt-list-panel .cc:not(:has(.cc-more)) .cbt-art { width: 29px; height: 29px; }
+.cbt-list-panel .cc:not(:has(.cc-more)) .cbt-slots .slot { height: 11px; }
+.cbt-list-panel .cc-sub { padding: 1px 0 0; min-height: 18px; }
+.cbt-list-panel .cc-who { min-width: 0; gap: 4px; }
+.cbt-list-panel .cc-nm { min-width: 0; overflow-wrap: anywhere; }
+.cbt-list-panel .cc-nm b { font-size: 14px; }
+.cbt-prize-plan { margin: 6px 0; padding: 5px 8px; border: 1px solid var(--c-line); border-radius: 5px; }
+.cbt-prize-plan .cbt-loot { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.cbt-victory-items { display: flex; gap: 4px 9px; flex-wrap: wrap; margin: 4px 0 0; padding: 0; list-style: none; }
+.cbt-victory-items li { display: flex; align-items: center; gap: 3px; }
+.cbt-compact-tools { margin-top: 6px; }
+.cbt-compact-tools > summary { cursor: pointer; color: var(--c-dim); }
+.cc-injury, .cc-more > p { margin: 0; }
+@container (max-width: 690px) {
+  .cbt-list-panel { grid-template-columns: minmax(0, 1fr); }
+}
+.cbt-command .rx { margin-bottom: 0; }
+.cbt-command .rx .sec-head { flex-wrap: wrap; margin-bottom: 2px; gap: 5px; }
+.cbt-command .rx h2, .cbt-command .rx-steps li { white-space: nowrap; }
+.cbt-command .rx-steps { flex-wrap: wrap; margin-left: 3px; }
+.cbt-command .rx-add { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr) auto; gap: 5px; }
+.cbt-command .rx-add select { width: 100%; min-width: 0; }
+.cbt-list-panel .cbt-mobs-head .btn { gap: 4px; padding-inline: 6px; min-height: 27px; font-size: 12px; }
+@container (max-width: 470px) {
+  .cbt-command .rx-add { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}

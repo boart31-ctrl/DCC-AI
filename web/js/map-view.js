@@ -13,7 +13,8 @@
 //   canMoveToken(token)      who may drag which token (default: nobody)
 //   onToken(token)           a token was clicked without moving it
 // A zone counts as revealed when `revealed` is true or missing (public maps only carry revealed zones).
-import { h } from './client.js';
+import { h, portraitSrc, onPortraits } from './client.js';
+import { imageRef } from './portrait.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const isRevealed = (z) => z.revealed !== false;
@@ -54,6 +55,7 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   let map = null;
   let opts = {};
   let lastSig = '';
+  let tokenDragging = false;
   // fit: scale the map to fit inside the element (TV), "contain" style, instead of full width.
   function fitNow() {
     if (!fit || !map) return;
@@ -148,22 +150,30 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   };
 
   function drawTokens() {
+    if (tokenDragging) return;
     tokens.replaceChildren();
     if (!map) return;
     for (const t of map.tokens || []) {
       const mine = canMoveToken(t);
+      const face = h('span.mv-tok-face', short(t.label));
+      const url = imageRef(portraitSrc(t.image) || (String(t.image || '').startsWith('portrait:') ? null : t.image));
+      if (url) {
+        const art = h('img', { src: url, alt: '', draggable: false, onerror: () => art.remove() });
+        face.append(art);
+      }
       const tk = h('div.mv-tok', {
         class: `mv-tok mv-${t.kind}${t.hidden ? ' hid' : ''}${t.down ? ' down' : ''}${mine ? ' mine' : ''}${opts.selectedToken === t.id ? ' sel' : ''}`,
         style: { left: `${t.x * 100}%`, top: `${t.y * 100}%`, '--tk': t.color },
         title: `${t.label}${t.down ? ' (down)' : t.hidden ? ' (hidden from the players)' : ''}`,
-      }, h('span', short(t.label)), gm || opts.names ? h('i.mv-tok-n', t.label) : null);
+      }, face, gm || opts.names || t.image ? h('i.mv-tok-n', t.label) : null);
       if (onTokenMove || onToken) {
         tk.addEventListener('pointerdown', (e) => {
           const mine = canMoveToken(t); // the tool may have changed since this token was drawn
-          if (!mine && !onToken) return;
+          if ((!mine && !onToken) || (gm && tool() !== 'move') || e.button !== 0) return;
           e.preventDefault();
           e.stopPropagation();
           tk.setPointerCapture(e.pointerId);
+          tokenDragging = true;
           const start = toLocal(e);
           let moved = false;
           const move = (ev) => {
@@ -177,11 +187,15 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
           const up = (ev) => {
             tk.removeEventListener('pointermove', move);
             tk.removeEventListener('pointerup', up);
+            tk.removeEventListener('pointercancel', up);
             tk.classList.remove('drag');
+            tokenDragging = false;
+            if (ev.type === 'pointercancel') { drawTokens(); return; }
             if (moved) { const p = toLocal(ev); onTokenMove(t, p.x, p.y); } else onToken?.(t);
           };
           tk.addEventListener('pointermove', move);
           tk.addEventListener('pointerup', up);
+          tk.addEventListener('pointercancel', up);
         });
       }
       tokens.append(tk);
@@ -216,7 +230,7 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   // GM drag: a rectangle for a zone, a reveal or a cover.
   if (onDrag || onPen || onPoly) {
     stage.addEventListener('pointerdown', (e) => {
-      if (e.button !== 0 || e.target.closest('.mv-tok')) return;
+      if (e.button !== 0) return;
       const mode = tool();
       if (mode === 'move') return;
       if (mode === 'poly') {
@@ -228,7 +242,7 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
         drawPoly();
         return;
       }
-      if (mode === 'pen') {
+      if (mode === 'pen' || mode === 'freezone') {
         stage.setPointerCapture(e.pointerId);
         const pts = [[toLocal(e).x, toLocal(e).y]];
         const line = document.createElementNS(SVGNS, 'polyline');
@@ -243,14 +257,23 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
           pts.push([p.x, p.y]);
           line.setAttribute('points', pts.map(([x, y]) => `${x * 1000},${y * 1000}`).join(' '));
         };
-        const up = () => {
+        const up = (ev) => {
           stage.removeEventListener('pointermove', move);
           stage.removeEventListener('pointerup', up);
-          if (pts.length >= 2) onPen?.(pts.length > 300 ? pts.filter((_, i) => i % Math.ceil(pts.length / 300) === 0) : pts);
-          else line.remove();
+          stage.removeEventListener('pointercancel', up);
+          line.remove();
+          if (ev.type === 'pointercancel') return;
+          move(ev);
+          if (mode === 'freezone' && pts.length >= 3) {
+            const count = Math.min(40, pts.length);
+            onPoly?.(Array.from({ length: count }, (_, i) => pts[Math.round(i * (pts.length - 1) / (count - 1))]));
+          } else if (mode === 'pen' && pts.length >= 2) {
+            onPen?.(pts.length > 300 ? pts.filter((_, i) => i % Math.ceil(pts.length / 300) === 0) : pts);
+          }
         };
         stage.addEventListener('pointermove', move);
         stage.addEventListener('pointerup', up);
+        stage.addEventListener('pointercancel', up);
         return;
       }
       if (!onDrag) return;
@@ -294,5 +317,6 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
     drawTokens();
   }
 
+  onPortraits(() => { if (map && el.isConnected) drawTokens(); });
   return { el, set, toLocal, cancelPoly: () => { poly = []; drawPoly(); } };
 }

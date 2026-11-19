@@ -8,7 +8,9 @@
 // markers) and Zones (read-aloud, GM notes, links).
 //
 // createMaps({ act, getView, scenes, showView, mode, openInLibrary }) → { el, update(view), newMap, select(id) }
-import { h, toast, ask } from './client.js';
+import { h, toast, ask, portraitSrc } from './client.js';
+import { entryArt } from './portrait.js';
+import { statBlock, hasStatBlock } from './statblock.js';
 import { icon, field, select, openDrawer, closeDrawer } from './ui.js';
 import { libraryOf } from './rules.js';
 import { createMapView } from './map-view.js';
@@ -22,6 +24,7 @@ const TOOLS = [
   { id: 'move', label: 'Move', icon: 'target', hint: 'Drag tokens. Click a token to find it in the list.' },
   { id: 'zone', label: 'Zone', icon: 'map', hint: 'Drag a rectangle over a room or street to make a zone you can reveal with one tap.' },
   { id: 'poly', label: 'Shape', icon: 'edit', hint: 'Click the corners of an odd-shaped zone. Click the first corner again, double-click or press Enter to finish. Esc cancels.' },
+  { id: 'freezone', label: 'Freehand zone', icon: 'edit', hint: 'Trace the boundary of a zone and release to close it.' },
   { id: 'pen', label: 'Pen', icon: 'edit', hint: 'Draw freehand: walls, arrows, a trap, a note. "GM only" lines never reach the TV.' },
   { id: 'reveal', label: 'Reveal', icon: 'eye', hint: 'Drag a rectangle to uncover that part of the fog.' },
   { id: 'cover', label: 'Cover', icon: 'lock', hint: 'Drag a rectangle to cover that part again.' },
@@ -38,15 +41,44 @@ function measure(url) {
   });
 }
 
-export function createMaps({ act, getView, scenes, showView, mode = 'live', openInLibrary = null }) {
+async function mapPng(file) {
+  if (!file || file.size > 20 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+    throw new Error('Choose a PNG, JPEG or WebP picture up to 20 MiB.');
+  }
+  const url = URL.createObjectURL(file);
+  try {
+    const image = new Image();
+    image.src = url;
+    await image.decode();
+    const { naturalWidth: width, naturalHeight: height } = image;
+    if (!width || !height || width * height > 64_000_000 || width / height < 0.2 || width / height > 5) {
+      throw new Error('Choose a picture with an aspect ratio between 1:5 and 5:1 and at most 64 megapixels.');
+    }
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    for (let size = 2048; size >= 320; size = Math.floor(size * 0.8)) {
+      const scale = Math.min(1, size / Math.max(width, height));
+      canvas.width = Math.max(1, Math.round(width * scale));
+      canvas.height = Math.max(1, Math.round(height * scale));
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const blob = await new Promise((resolve) => canvas.toBlob(resolve, 'image/png'));
+      if (blob && blob.size <= 1536 * 1024) return blob;
+    }
+    throw new Error('The picture is too large after resizing.');
+  } finally { URL.revokeObjectURL(url); }
+}
+
+export function createMaps({ act, getView, scenes, showView, getCredential, mode = 'live', openInLibrary = null }) {
   const live = mode === 'live';
   let view = null;
   let sig = '';
   let pending = false;
+  let awaitingMap = null;
   const st = { sel: store.get(`sel.${mode}`, null), tool: store.get('tool', 'move'), zone: null, token: null, side: store.get('side', 'tokens'), pen: store.get('pen', PEN_COLORS[0]), penGm: store.get('penGm', false) };
   const el = h('div.gmap', { class: `gmap gmap-${mode}` });
   const mv = createMapView({
     gm: true,
+    fit: true,
     tool: () => st.tool,
     onDrag: (rect) => onDrag(rect),
     onPen: (pts) => cur() && act({ t: 'map.stroke.add', id: cur().id, pts, color: st.pen, gm: st.penGm }),
@@ -98,29 +130,70 @@ export function createMaps({ act, getView, scenes, showView, mode = 'live', open
     });
   }
 
-  /** New map; `then(id)` runs after it exists (an encounter attaches it). */
-  function newMap(then = null) {
+  /** New map; then(id) runs after it exists so a prep card can attach it. */
+  function newMap(then = null, existing = null) {
     const locs = (lib().location || []).filter((l) => l.image);
+    let dropped = null;
+    const file = h('input.inp', { type: 'file', name: 'picture', accept: 'image/png,image/jpeg,image/webp' });
+    const status = h('p.dim', { role: 'status' });
+    file.addEventListener('change', () => { dropped = null; status.textContent = file.files[0]?.name || ''; });
+    const submit = h('button.btn.btn-primary', { type: 'submit' }, existing ? 'Replace picture' : 'Create map');
     const form = h('form.gmap-new', {
+      ondragover: (e) => e.preventDefault(),
+      ondrop: (e) => {
+        e.preventDefault();
+        dropped = e.dataTransfer.files[0] ?? null;
+        if (dropped) status.textContent = dropped.name;
+      },
       onsubmit: async (e) => {
         e.preventDefault();
-        const f = e.target;
-        const image = (f.url.value.trim() || f.loc?.value || '').trim();
-        const name = f.n.value.trim() || f.loc?.selectedOptions?.[0]?.textContent || 'Map';
-        if (!image) { toast('Pick a picture or paste an image URL.', { error: true }); return; }
-        const aspect = await measure(image);
-        if (!aspect) { toast('That image does not load. Check the URL.', { error: true }); return; }
-        const r = await act({ t: 'map.add', name, image, aspect }, 'Map created.');
-        if (r?.result?.id) { closeDrawer(true); pick(r.result.id); then?.(r.result.id); }
+        if (submit.disabled) return;
+        submit.disabled = true;
+        try {
+          const f = form.elements;
+          const local = dropped || file.files[0];
+          const locationName = f.loc?.value ? f.loc.selectedOptions[0]?.textContent : '';
+          const name = existing?.name || f.n?.value.trim() || locationName || local?.name.replace(/\.[^.]+$/, '').slice(0, 80) || 'Map';
+          let id;
+          if (local) {
+            const campaignId = getView()?.campaign?.id;
+            const cred = getCredential?.();
+            if (!campaignId || (!cred?.key && !cred?.token)) throw new Error('Sign in as GM before uploading a map.');
+            status.textContent = 'Preparing picture…';
+            const body = await mapPng(local);
+            const query = new URLSearchParams(existing ? { mapId: existing.id } : { name });
+            const res = await fetch(`/api/maps/image?${query}`, { method: 'POST', body, headers: {
+              'Content-Type': 'image/png', 'X-System-Campaign-Id': campaignId,
+              ...(cred.key ? { 'X-GM-Key': cred.key } : { 'X-GM-Token': cred.token }),
+            } });
+            const result = await res.json().catch(() => ({}));
+            if (!res.ok) throw new Error(result.msg || `Upload failed (${res.status}).`);
+            id = result.id;
+          } else {
+            const image = (f.url.value.trim() || f.loc?.value || '').trim();
+            if (!image) throw new Error('Choose a file, library picture or image URL.');
+            const aspect = await measure(image);
+            if (!aspect) throw new Error('That image does not load. Check the URL.');
+            const r = await act(existing ? { t: 'map.update', id: existing.id, image, aspect } : { t: 'map.add', name, image, aspect });
+            id = existing ? r && existing.id : r?.result?.id;
+          }
+          if (id) {
+            closeDrawer(true);
+            if (maps().some((m) => m.id === id)) pick(id); else awaitingMap = id;
+            then?.(id);
+          }
+        } catch (err) { status.textContent = err.message; }
+        finally { submit.disabled = false; }
       },
     },
-    h('label.lbl', h('span.lbl-t', 'Name'), h('input.inp', { name: 'n', maxlength: 80, placeholder: 'Bogbricks, north quarter' })),
-    locs.length ? h('label.lbl', h('span.lbl-t', 'Picture of a library location'), select([{ value: '', label: 'None' }, ...locs.map((l) => ({ value: l.image, label: l.name }))], '', { label: 'Location picture' })) : null,
-    h('label.lbl', h('span.lbl-t', 'Or an image URL'), h('input.inp', { name: 'url', placeholder: 'https://… or /pack/maps/…' }), h('span.lbl-hint', 'Any picture works: a bought battle map, an AI picture, a screenshot. Files in the content pack go under /pack/.')),
-    h('button.btn.btn-primary', { type: 'submit' }, 'Create map'));
+    existing ? null : h('label.lbl', h('span.lbl-t', 'Name'), h('input.inp', { name: 'n', maxlength: 80, placeholder: 'Map name' })),
+    h('label.lbl.gmap-upload', h('span.lbl-t', 'Choose or drop a map picture'), file),
+    locs.length ? h('label.lbl', h('span.lbl-t', 'Library location'), select([{ value: '', label: 'None' }, ...locs.map((l) => ({ value: l.image, label: l.name }))], '', { label: 'Location picture' })) : null,
+    h('label.lbl', h('span.lbl-t', 'Image URL'), h('input.inp', { name: 'url', placeholder: 'https://…' })),
+    status, submit);
     const sel = form.querySelector('select');
     if (sel) sel.name = 'loc';
-    openDrawer({ title: 'New map', body: form });
+    openDrawer({ title: existing ? 'Map picture' : 'New map', body: form });
   }
 
   /* ---------- zones ---------- */
@@ -156,7 +229,10 @@ export function createMaps({ act, getView, scenes, showView, mode = 'live', open
   }
   function zonesPanel(m) {
     return [
-      h('p.dim.pp-hint', 'Zone or Shape tool: draw over a room or street. At the table, Reveal uncovers it on the TV with one tap.'),
+      h('div.gmap-zone.gmap-zone-zero', h('b', 'Zone 0'), h('span.dim', 'Outside the drawn zones'),
+        h('div.gmap-actions',
+          h('button.btn.btn-sm', { type: 'button', 'aria-pressed': String(m.zoneZero === true), onclick: () => act({ t: 'map.zone.reveal', id: m.id, zoneId: '0', on: true }) }, 'Reveal Zone 0'),
+          h('button.btn.btn-sm', { type: 'button', 'aria-pressed': String(m.zoneZero === false), onclick: () => act({ t: 'map.zone.reveal', id: m.id, zoneId: '0', on: false }) }, 'Cover Zone 0'))),
       m.zones.length ? h('ul.gmap-list', m.zones.map((z) => zoneCard(m, z))) : h('p.empty-s', 'No zones yet.'),
     ];
   }
@@ -174,9 +250,8 @@ export function createMaps({ act, getView, scenes, showView, mode = 'live', open
       onPick: async (list) => {
         let i = 0;
         for (const p of list) {
-          const name = entryName(view, p) || p.id;
           for (let k = 0; k < p.count; k++) {
-            await act({ t: 'map.token.add', id: m.id, kind: 'mob', label: (p.count > 1 ? `${name} ${k + 1}` : name).slice(0, 40), x: Math.min(0.95, 0.5 + (i % 5) * 0.05), y: Math.min(0.95, 0.5 + Math.floor(i / 5) * 0.07), hidden: true, ...(p.kind === 'boss' ? { color: '#ff9900' } : {}) });
+            await act({ t: 'map.token.add', id: m.id, kind: 'mob', sourceKind: p.kind, sourceId: p.id, x: Math.min(0.95, 0.5 + (i % 5) * 0.05), y: Math.min(0.95, 0.5 + Math.floor(i / 5) * 0.07), hidden: true, ...(p.kind === 'boss' ? { color: '#ff9900' } : {}) });
             i++;
           }
         }
@@ -188,7 +263,7 @@ export function createMaps({ act, getView, scenes, showView, mode = 'live', open
     const c = combatantOf(t);
     const state = t.down ? 'down' : t.hidden ? 'hidden' : 'visible';
     return h('li.gmap-tok', { class: `gmap-tok${st.token === t.id ? ' sel' : ''}${t.down ? ' down' : ''}`, onclick: () => { st.token = st.token === t.id ? null : t.id; sig = ''; draw(); } },
-      h('span.gmap-tok-dot', { style: { '--tk': t.color } }),
+      entryArt({ ...t, name: t.label, image: portraitSrc(t.image) }, { cls: 'gmap-tok-art' }),
       h('b', t.label),
       h('span.dim', t.kind === 'pc' ? 'crawler' : t.kind === 'mark' ? 'marker' : c ? `in the fight · ${state}` : t.ref ? 'left the fight' : state),
       h('span.grow'),
@@ -205,11 +280,27 @@ export function createMaps({ act, getView, scenes, showView, mode = 'live', open
     ].filter(([, list]) => list.length);
     const players = view?.players || [];
     const missingPc = players.filter((p) => !m.tokens.some((t) => t.kind === 'pc' && t.ref === p.id)).length;
+    const token = m.tokens.find((t) => t.id === st.token);
+    const details = token && (() => {
+      const src = (lib()[token.sourceKind] || []).find((e) => e.id === token.sourceId);
+      const c = combatantOf(token);
+      const def = c ? { ...src, ...c } : src;
+      return h('section.gmap-details',
+        h('h4', token.label),
+        def?.desc ? h('p', def.desc) : null,
+        c ? h('p.dim', `${c.hp} / ${c.hpMax} · ${c.hidden ? 'Hidden' : c.down ? 'Defeated' : 'In the fight'}`) : null,
+        def && hasStatBlock(def) ? statBlock(def, view?.pack?.ruleset?.combat || {}) : null,
+        def?.tactics ? h('p', def.tactics) : null,
+        def?.notes ? h('p', def.notes) : null,
+        field(token.label, { cls: 'inp-sm', attrs: { 'aria-label': 'Token label', maxlength: 40 }, onCommit: (label) => label.trim() && act({ t: 'map.token.update', id: m.id, tokenId: token.id, label }) }),
+        field(token.notes || '', { multiline: true, rows: 3, placeholder: 'GM notes for this token', attrs: { 'aria-label': 'Token notes', maxlength: 2000 }, onCommit: (notes) => act({ t: 'map.token.update', id: m.id, tokenId: token.id, notes }) }));
+    })();
     return [
       h('div.gmap-actions',
         players.length ? h('button.btn.btn-sm', { type: 'button', disabled: !missingPc, title: 'One token per crawler, top left: drag them where the party starts', onclick: () => act({ t: 'map.token.party', id: m.id }, 'Crawler tokens placed top left: drag them to the start.') }, icon('users', { size: 14 }), missingPc ? 'Crawlers’ start' : 'Crawlers placed') : null,
         h('button.btn.btn-sm', { type: 'button', onclick: () => addMobTokens(m) }, icon('skull', { size: 14 }), 'Monsters'),
         h('button.btn.btn-sm', { type: 'button', onclick: async () => { const n = await promptName('Marker', 'Stairs'); if (n) act({ t: 'map.token.add', id: m.id, kind: 'mark', label: n, x: 0.5, y: 0.5 }); } }, icon('flag', { size: 14 }), 'Marker')),
+      details,
       encs.length ? h('ul.gmap-encs', encs.map((e) => {
         const n = (e.payload?.mobs || []).reduce((a, x) => a + (x.count || 1), 0);
         const placed = m.tokens.filter((t) => t.enc === e.id).length;
@@ -262,6 +353,9 @@ export function createMaps({ act, getView, scenes, showView, mode = 'live', open
       h('div.gmap-top',
         h('span.gmap-pick', select(maps().map((x) => ({ value: x.id, label: x.name })), m.id, { cls: 'inp-sm', label: 'Map', onChange: pick }),
           h('button.btn.btn-sm', { type: 'button', onclick: () => newMap() }, icon('plus', { size: 14 }), 'New map')),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => newMap(null, m) }, 'Change picture'),
+        live ? h('button.btn.btn-sm', { type: 'button', 'aria-pressed': String(view?.combat?.mapId === m.id),
+          onclick: () => act({ t: 'map.bindCombat', id: view?.combat?.mapId === m.id ? null : m.id }) }, view?.combat?.mapId === m.id ? 'Linked to fight' : 'Link to fight') : null,
         h('button.icon-btn', { type: 'button', title: 'Rename', onclick: async () => { const n = await promptName('Rename map', m.name); if (n) act({ t: 'map.update', id: m.id, name: n }); } }, icon('edit', { size: 14 })),
         h('button.icon-btn', { type: 'button', title: 'Delete map', onclick: async () => { if (await ask(`Delete map "${m.name}"?`, { ok: 'Delete', danger: true })) { await act({ t: 'map.remove', id: m.id }, 'Map deleted.'); st.sel = null; sig = ''; draw(); } } }, icon('trash', { size: 14 })),
         h('span.grow'),
@@ -277,7 +371,12 @@ export function createMaps({ act, getView, scenes, showView, mode = 'live', open
 
   function update(v) {
     view = v;
-    const s = JSON.stringify([v.maps, cards().filter((c) => c.kind === 'encounter').map((c) => [c.id, c.label, c.used, c.payload]), Object.values(lib()).map((x) => x.length), (v.players || []).length, combatants().map((c) => [c.uid, c.hidden])]);
+    if (awaitingMap && maps().some((m) => m.id === awaitingMap)) {
+      const id = awaitingMap;
+      awaitingMap = null;
+      pick(id);
+    }
+    const s = JSON.stringify([v.maps, cards().filter((c) => c.kind === 'encounter').map((c) => [c.id, c.label, c.used, c.payload]), Object.values(lib()).map((x) => x.length), (v.players || []).length, combatants().map((c) => [c.uid, c.hidden, c.hp]), v.combat?.mapId]);
     if (s === sig) return;
     sig = s;
     draw();

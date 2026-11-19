@@ -105,11 +105,31 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   const soundState = h('span.sc-sound');
   const barExtra = h('span.sh-bar-extra'); // gm-crawlers.js badge
   const reachSlot = h('div.sh-reach-slot'); // gm-prep.js: "Within reach" strip (tonight's pinned prep)
-  const chips = h('div.sh-chips', { role: 'tablist', 'aria-label': 'Show' });
+  const chips = h('div.sh-chips.sh-controls', { 'aria-label': 'Show controls' });
+  let fightBossOnMap = null;
+  const currentMap = () => {
+    const maps = view().maps ?? [];
+    return [view().combat?.mapId, D('map').mapId, view().scene?.data?.mapId, maps[0]?.id]
+      .find((id) => maps.some((m) => m.id === id)) ?? null;
+  };
+  async function switchMapFight() {
+    if (tab === 'map') {
+      const boss = fightBossOnMap && view().combat?.combatants?.some((m) => m.sourceKind === 'boss' && m.sourceId === fightBossOnMap && !m.down);
+      const kind = boss ? 'boss' : 'combat';
+      if (await act({ t: 'scene.set', kind, data: boss ? { bossId: fightBossOnMap } : {} }, null)) pick('fight');
+      return;
+    }
+    const mapId = currentMap();
+    if (!mapId) { pick('map'); return; }
+    fightBossOnMap = view().scene?.kind === 'boss' ? view().scene.data?.bossId : null;
+    if (view().combat?.mapId !== mapId && !(await act({ t: 'map.bindCombat', id: mapId }, null))) return;
+    parts.mapEditor?.select(mapId);
+    await act({ t: 'scene.set', kind: 'map', data: { mapId } }, null);
+  }
   const head = h('div.sh-head');
   const body = h('div.sh-body');
   const pvBox = h('div.sc-preview');
-  const pvToggle = h('button.btn.btn-sm.btn-quiet.sh-pv-toggle', { type: 'button', onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawPanel(); } });
+  const pvToggle = h('button.btn.btn-sm.btn-quiet.sh-pv-toggle', { type: 'button', onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawAll(); } });
   const pvK = h('span.sh-pv-k', 'Preview');
   const pvSub = h('span.dim', 'Not on the TV yet');
   const pvCol = h('div.sh-pv', h('div.sh-pv-head', pvK, pvSub, h('span.grow'), pvToggle), pvBox);
@@ -183,6 +203,8 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
 
   function drawOnair() {
     const sc = view().scene;
+    onair.hidden = ['fight', 'map'].includes(tab) || ['combat', 'finale'].includes(sc?.kind);
+    el.classList.toggle('sh-compact', ['fight', 'map'].includes(tab));
     const k = liveChip();
     let what = sc ? (sceneOf(k)?.label || sc.kind) : 'Nothing';
     if (sc?.kind === 'combat') what = 'Fight: arena';
@@ -198,23 +220,18 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
 
   /* ---------- chips ---------- */
   function drawChips() {
-    const live = liveChip();
-    const chip = (id, label, extra = {}) => h('button.sh-chip', {
-      type: 'button', role: 'tab', 'aria-selected': String(tab === id), 'data-id': id,
-      class: `sh-chip${live === id ? ' is-live' : ''}${extra.tool ? ' tool-chip' : ''}`,
-      title: extra.hint || null,
-      onclick: () => pick(id),
-    }, live === id ? h('i.sh-live-dot', { 'aria-label': 'on air' }) : null, extra.icon ? icon(extra.icon, { size: 14 }) : null, label, extra.key ? h('kbd', extra.key) : null);
-    chips.replaceChildren(
-      ...SCENES.map((s) => chip(s.kind, s.label, { key: s.key, hint: s.hint })),
-      h('span.sh-sep', { 'aria-hidden': 'true' }),
-      ...TOOLS.map((t) => chip(t.id, t.label, { tool: true, icon: t.icon, hint: t.hint })));
-    // Keep the picked chip in view (horizontal only: never scroll the page).
-    const cur = chips.querySelector('[aria-selected="true"]');
-    if (cur) requestAnimationFrame(() => {
-      const l = cur.offsetLeft - chips.offsetLeft;
-      if (l < chips.scrollLeft || l + cur.offsetWidth > chips.scrollLeft + chips.clientWidth) chips.scrollLeft = Math.max(0, l - 24);
+    const entries = [...SCENES.map((s) => ({ id: s.kind, label: s.label })), ...TOOLS];
+    const menu = select(entries.map((e) => ({ value: e.id, label: e.label })), tab, {
+      cls: 'inp-sm sh-scene-menu', label: 'Show scene', onChange: pick,
     });
+    chips.replaceChildren(
+      menu,
+      h('button.btn.btn-sm.sh-fight-shortcut', { type: 'button', role: 'tab', 'aria-selected': String(tab === 'fight'), onclick: () => pick('fight') }, icon('swords', { size: 14 }), 'Fight'),
+      h('span.grow'),
+      tab === 'map' && D('map').mapId && !isLive('map') ? h('button.btn.btn-sm', { type: 'button', onclick: () => goLive('map') }, icon('tv', { size: 14 }), 'Map on TV') : null,
+      ['fight', 'map'].includes(tab) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(pref.pv), onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawAll(); } }, pref.pv ? 'Hide preview' : 'Show preview') : null,
+      h('button.btn.btn-sm.sh-map-switch', { type: 'button', onclick: () => ['fight', 'map'].includes(tab) ? switchMapFight() : pick('map') },
+        icon(tab === 'map' ? 'swords' : 'map', { size: 14 }), tab === 'map' ? 'Switch to fight' : tab === 'fight' ? 'Switch to map' : 'Maps'));
   }
 
   function pick(id) {
@@ -360,7 +377,9 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     const lineup = !pvLive && !c.active && ['combat', 'boss'].includes(scene?.kind)
       ? [...(c.previewCrawlers || []), ...shown.filter((x) => x.type === 'mob')]
       : shown;
-    return { ...v, players, scene, combat: { ...c, active: c.active || scene?.kind === 'boss', combatants: lineup } };
+    const maps = (v.maps || []).map((m) => ({ ...m,
+      tokens: m.tokens.filter((t) => !pvLive || !t.hidden).map((t) => ({ ...t, image: portraitSrc(t.image) })) }));
+    return { ...v, players, maps, scene, combat: { ...c, active: c.active || scene?.kind === 'boss', combatants: lineup } };
   }
   function pvPost() {
     if (!pvReady || !(pvLive ? view().scene : pvScene) || !pvFrame?.contentWindow) return;
@@ -392,6 +411,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     pvCol.classList.toggle('is-live', live);
     pvToggle.replaceChildren(icon('tv', { size: 14 }), pref.pv ? 'Hide' : 'Show preview');
     pvCol.classList.toggle('off', !pref.pv);
+    panel.classList.toggle('no-pv', !pref.pv && ['fight', 'map'].includes(tab));
     if (!wantPv) { pvDrop(); return; }
     if (live) {
       pvEnsureFrame();
@@ -551,7 +571,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     if (ui.bossTarget && !crawlers.some((x) => x.uid === ui.bossTarget)) ui.bossTarget = null;
     return h('div.seg.seg-sm.sc-batk-tgt', { role: 'radiogroup', 'aria-label': 'Target' },
       h('button', { type: 'button', role: 'radio', 'aria-checked': String(!ui.bossTarget), onclick: () => { ui.bossTarget = null; sig = ''; drawAll(); } }, 'Auto'),
-      ...crawlers.map((x) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(ui.bossTarget === x.uid), disabled: x.down, title: `${x.name}: ${x.hp}/${x.hpMax} HP, Evade ${x.evade ?? '?'}`, onclick: () => { ui.bossTarget = x.uid; sig = ''; drawAll(); } }, x.name)));
+      ...crawlers.map((x) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(ui.bossTarget === x.uid), disabled: x.down, title: `${x.name}: ${x.slotValue ? `${Math.round(100 * x.hp / (x.hpMax || 1))}% · ${x.slotValue} HP/slot` : `${x.hp}/${x.hpMax} HP`}, Evade ${x.evade ?? '?'}`, onclick: () => { ui.bossTarget = x.uid; sig = ''; drawAll(); } }, x.name)));
   }
 
   /** Attack buttons (max 3 + "more"): tap rolls it for real, ⓘ opens the details. */
@@ -851,7 +871,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   }
   function drawGoLive() {
     const id = tab;
-    if (isTool(id)) { golive.replaceChildren(); golive.hidden = true; return; }
+    if (isTool(id) || id === 'fight' || id === 'map') { golive.replaceChildren(); golive.hidden = true; return; }
     const live = id === 'fight' ? fightOnAir() : isLive(id);
     golive.hidden = false;
     const meta = sceneOf(id);
@@ -875,6 +895,8 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   function drawHead() {
     const id = tab;
     const tool = TOOLS.find((t) => t.id === id);
+    head.hidden = id === 'fight' || id === 'map';
+    if (head.hidden) return;
     if (tool) { head.replaceChildren(...[h('h2', tool.label), tool.hint ? h('span.dim', tool.hint) : null].filter(Boolean)); return; }
     const meta = sceneOf(id);
     const live = id === 'fight' ? fightOnAir() : isLive(id);
@@ -903,8 +925,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     if (id === 'desk' || id === 'crawlers') return;
     if (id === 'map') { slots.scene.replaceChildren(); return; }
     if (id === 'fight') {
-      const sc = view().scene;
-      slots.scene.replaceChildren(sc?.kind === 'boss' ? h('p.sh-note', icon('tv', { size: 14 }), 'The TV shows the boss screen. Boss HP, phases and his attacks are on the Boss chip.', h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => pick('boss') }, 'Boss controls')) : '');
+      slots.scene.replaceChildren();
       return;
     }
     const out = [];
@@ -963,7 +984,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     audio.update(v);
     drawAudio();
     const c = v.combat || {};
-    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, tab, v.players, v.library?.boss?.length, v.library?.monster?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show,
+    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, tab, v.players, v.library?.boss?.length, v.library?.monster?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show, v.maps?.map((m) => m.id), c.mapId,
       [c.active, c.round, c.phase, (c.combatants || []).map((x) => [x.uid, x.hp, x.hidden, x.down, x.name, x.type === 'crawler' ? x.hpMax : x.attacks?.length])]]);
     if (s !== sig) { sig = s; drawAll(); } else pvPost();
   }
@@ -979,7 +1000,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     Object.assign(parts, { fight: p.fight || h('div'), npcs: p.npcs || null, sound: p.sound || h('div'), desk });
     slots.fight.append(parts.fight);
     if (parts.npcs) slots.npc.append(parts.npcs);
-    if (p.maps) slots.map.append(p.maps);
+    if (p.maps) { slots.map.append(p.maps); parts.mapEditor = p.mapEditor; }
     if (p.crawlers) { parts.crawlers = p.crawlers; slots.crawlers.append(p.crawlers); }
     if (p.crawlersBadge) barExtra.append(p.crawlersBadge);
     if (p.reach) reachSlot.append(p.reach);

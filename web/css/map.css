@@ -99,3 +99,20 @@
 .bm-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
 .bm-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
 .bm-give { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+
+.gmap-grid > .mv { height: min(62vh, 640px); min-height: 236px; }
+.gmap-grid .mv-stage { max-height: none; }
+.gmap-details { display: grid; gap: 5px; padding: 8px; background: var(--c-raised); border-radius: 6px; }
+.gmap-details p, .gmap-details h4 { margin: 0; }
+.gmap-upload { padding: 10px; border: 1px dashed var(--c-line-2); border-radius: 6px; }
+.gmap-tok-art { width: 26px; height: 26px; border-radius: 4px; flex: none; overflow: hidden; }
+.gmap-tok-art img, .gmap-tok-art svg { width: 100%; height: 100%; object-fit: cover; }
+.mv-tok { border-color: var(--tk, #ffcc00); background: #23152e; color: #fff; }
+.mv-tok-face { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; display: grid; place-items: center; }
+.mv-tok-face img { position: absolute; width: 100%; height: 100%; object-fit: cover; object-position: center 24%; pointer-events: none; }
+.mv-tok.mv-mark, .mv-tok.sel { z-index: 1; }
+.mv-tok.mv-pc { z-index: 2; }
+.mv-tok.drag { z-index: 4; }
+.mv-tok-n { z-index: 2; }
+.mv-stage[data-tool="freezone"] { cursor: crosshair; }
+.mv-mob .mv-tok-n { display: block; }

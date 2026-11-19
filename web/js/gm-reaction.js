@@ -72,7 +72,7 @@ export function rxPanel({ act, view }) {
       h('span.grow'),
       d.evade ? h('span.pill', { class: `pill rx-deg-${d.evade.degree}` }, `${d.evade.label} (${d.evadeTotal}${d.evade.helped ? `, +${d.evade.helped} help` : ''})`)
         : rx.step === 'react' && evading ? [h('span.dim', 'Evade roll:'), dieIn] : null,
-      d.result ? h('span.pill', { class: d.result === 'evaded' ? 'pill pill-on' : 'pill' }, `${RESULT[d.result]}${d.damage ? ` · ${d.damage}` : ''}`) : null,
+      d.result ? h('span.pill', { class: d.result === 'evaded' ? 'pill pill-on' : 'pill' }, `${RESULT[d.result]}${d.slots != null ? ` · ${d.slots} slot${d.slots === 1 ? '' : 's'}` : d.damage ? ` · ${d.damage}` : ''}`) : null,
       rx.step === 'declare' ? h('button.icon-btn', { type: 'button', title: 'Remove', onclick: () => act({ t: 'rx.undeclare', declId: d.id }) }, icon('x', { size: 13 })) : null);
   };
 
@@ -93,11 +93,10 @@ export function rxPanel({ act, view }) {
   return h('section.panel.rx',
     h('div.sec-head', h('h2', `Round ${rx.round}`), steps, h('span.grow'),
       rx.step === 'declare' ? h('button.btn.btn-sm', { type: 'button', title: 'Mobs attack once each, spread evenly; elites and bosses attack every crawler', onclick: () => act({ t: 'rx.suggest' }, 'Attacks suggested. Change any you like.') }, icon('sparkle', { size: 13 }), 'Suggest') : null,
-      rx.step === 'declare' && rx.round === 1 && !rx.decls.length && !rx.surprised ? h('button.btn.btn-sm', { type: 'button', title: 'The crawlers surprised the mobs (Stealth / Ambush beat their Surprise): one free action each before round 1', onclick: () => act({ t: 'rx.surprise' }, 'Surprise round: one free action each.') }, 'Crawlers surprise') : null,
+      rx.step === 'declare' && rx.round === 1 && !rx.decls.length && !rx.surprised ? h('button.btn.btn-sm', { type: 'button', title: 'The crawlers surprised the mobs (Stealth / Ambush beat their Surprise): one free action each before round 1', onclick: () => act({ t: 'rx.surprise' }, 'Surprise round: one free action each.') }, 'Surprise') : null,
       nextBtn),
     pips,
-    rx.step === 'declare' ? h('p.dim', 'Pick who each mob attacks: Suggest does it by the book (elites and bosses hit everyone), then change any line. Nothing rolls for the mobs.') : null,
-    rx.decls.length ? h('ul.rx-decls', rx.decls.map(declRow)) : h('p.empty-s', rx.step === 'declare' ? 'No attacks yet.' : 'No attacks this round.'),
+    rx.decls.length ? h('ul.rx-decls', rx.decls.map(declRow)) : null,
     adder,
     waiting ? h('p.dim', `${waiting} Evade roll${waiting === 1 ? '' : 's'} still missing (phones, or type the die above).`) : null,
     rx.log.length ? h('details.rx-log', h('summary', 'Round log'), h('ul', rx.log.slice().reverse().map((l) => h('li', l)))) : null);

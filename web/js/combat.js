@@ -9,7 +9,7 @@
 // themselves (3 s toast with Cancel) when every revealed mob / every crawler is down.
 import { h, toast, ask, portraitSrc, onPortraits, itemArt } from './client.js';
 import { rxPanel } from './gm-reaction.js';
-import { createBattleMap, createEncounterLoot } from './gm-battlemap.js';
+import { pickFromLibrary } from './lib-picker.js';
 import { sheetModel, libraryOf } from './rules.js';
 import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
 import { entryArt } from './portrait.js';
@@ -36,12 +36,10 @@ const END_DELAY_S = 3;
 
 export function createCombat({ act, send, getView, sfx = null, openSound = null, goLive = null }) {
   let view = null;
-  const battleMap = createBattleMap({ act, goLiveFight: () => goLive?.() });
-  const encLoot = createEncounterLoot({ act });
   let sig = '';
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
   const ui = {
-    counts: {}, open: new Set(), editPhases: false, lastRoll: null, adhoc: { name: '', hp: 5, evade: 0, dr: 0, count: 1 },
+    counts: {}, damageBy: {}, open: new Set(), editPhases: false, lastRoll: null, adhoc: { name: '', hp: 5, evade: 0, dr: 0, count: 1 },
     endMenu: false, special: null, rules: false, soundPop: false, loot: null, log: true,
     offered: null, // outcome the auto-end toast already offered (until the suggestion clears)
   };
@@ -141,7 +139,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     return h('header.cbt-head', backBtn,
       h('div.cbt-title',
         h('h1', 'Combat'),
-        c.active ? h('span.cbt-round', h('small', 'Round'), h('b', String(c.round))) : h('span.pill', 'Not started'),
+        c.rx ? null : c.active ? h('span.cbt-round', h('small', 'Round'), h('b', String(c.round))) : h('span.pill', 'Not started'),
         h('span.grow'),
         soundButton(),
         h('button.icon-btn.cbt-tvbtn', {
@@ -258,11 +256,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.row-end', h('button.btn.btn-sm', { type: 'button', onclick: () => { ui.editPhases = false; redraw(); } }, 'Cancel'), h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: save }, 'Save phases')));
   }
 
-  async function start() {
-    if (await act({ t: 'combat.start' }, 'Combat! Round 1.')) {
-      if (!onTv()) toast('Tip: the TV button puts the arena on screen.', { ms: 3000 });
-    }
-  }
+  function start() { return act({ t: 'combat.start' }, 'Combat started.'); }
   async function end() {
     const n = C().combatants.filter((x) => x.type === 'mob').length;
     if (n && !confirm(`End combat and clear ${n} mob${n === 1 ? '' : 's'} without a finale?`)) return;
@@ -370,14 +364,23 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
 
   /** Quick −1 / +1 always; −2 −3 and a typed amount on wide screens or in the open line. */
   function quick(x, wide) {
-    const dmg = (n) => act({ t: 'combat.damage', uid: x.uid, amount: n });
-    const custom = h('input.inp.inp-sm.cbt-amt', { type: 'number', min: 1, max: 999, placeholder: x.dr ? `#−${x.dr}` : '#', title: x.dr ? `Rolled damage; DR ${x.dr} comes off. Shift+Enter heals.` : 'Damage (Enter) · Shift+Enter heals', 'aria-label': `Damage amount for ${x.name} (Shift+Enter heals)`, inputmode: 'numeric' });
-    custom.addEventListener('keydown', (e) => {
+    const credit = () => ui.damageBy[x.uid] ? { by: ui.damageBy[x.uid] } : {};
+    const dmg = (n) => act({ t: 'combat.damage', uid: x.uid, amount: n, ...credit() });
+    const custom = h('input.inp.inp-sm.cbt-amt', { type: 'number', min: 1, max: 999, placeholder: x.dr ? `#−${x.dr}` : '#', title: `Rolled damage after DR${x.slotValue ? `. Whole slots of ${x.slotValue} HP` : ''}. Shift+Enter heals.`, 'aria-label': `Damage amount for ${x.name} (Shift+Enter heals)`, inputmode: 'numeric' });
+    custom.addEventListener('keydown', async (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
       const n = Math.round(Number(custom.value));
       // Typed number = the rolled damage: the target's DR comes off on the server (Shift+Enter heals exactly).
-      if (n >= 1) { (e.shiftKey ? act({ t: 'combat.heal', uid: x.uid, amount: n }) : act({ t: 'combat.damage', uid: x.uid, amount: Math.min(999, n), dr: true }, x.dr ? `${x.name}: ${n} − DR ${x.dr}` : null)); custom.value = ''; custom.blur(); }
+      if (n >= 1) {
+        custom.value = '';
+        custom.blur();
+        const ack = await (e.shiftKey
+          ? act({ t: 'combat.heal', uid: x.uid, amount: Math.min(999, n) })
+          : act({ t: 'combat.damage', uid: x.uid, amount: Math.min(999, n), dr: true, ...credit() }));
+        const r = ack?.result;
+        if (r?.belowSlot) toast(`${r.rolled} HP after DR. One slot requires ${r.slotValue} HP.`);
+      }
     });
     return h('div.cbt-dmg', { class: wide ? 'cbt-dmg wide' : 'cbt-dmg' },
       h('button.btn.btn-sm.cbt-hit', { type: 'button', disabled: x.hp <= 0, onclick: () => dmg(1), 'aria-label': `1 damage to ${x.name}` }, '−1'),
@@ -394,7 +397,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const chips = x.conditions.map((k) => {
       const def = k.id ? buffs.find((b) => b.id === k.id) : null;
       const neg = (def?.tags || []).includes('debuff');
-      return h('span.cond', { class: neg ? 'cond neg' : 'cond', title: `${def?.desc || k.name}${k.rounds ? `\n${k.rounds} round${k.rounds === 1 ? '' : 's'} left` : ''}` },
+      return h('span.cond', { class: neg ? 'cond neg' : 'cond', title: `${k.desc || def?.desc || k.name}${k.rounds ? `\n${k.rounds} round${k.rounds === 1 ? '' : 's'} left` : ''}` },
         k.name, k.rounds ? h('b.cond-r', { 'aria-label': `${k.rounds} rounds left` }, String(k.rounds)) : null,
         h('button.cond-x', { type: 'button', 'aria-label': `Remove ${k.name} from ${x.name}`, onclick: () => act({ t: 'combat.condition', uid: x.uid, ...(k.id ? { buffId: k.id } : { name: k.name }), on: false }) }, icon('x', { size: 11 })));
     });
@@ -446,7 +449,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       return n;
     };
     const setHp = (v) => (v < x.hp ? act({ t: 'combat.damage', uid: x.uid, amount: x.hp - v }) : v > x.hp ? act({ t: 'combat.heal', uid: x.uid, amount: v - x.hp }) : null);
-    const status = x.dead ? h('span.cbt-dead', icon('skull', { size: 12 }), 'Dead') : x.dying != null ? h('span.cbt-dead', { title: 'Dying: rounds left; −1 each clean up and each hit; heal to save' }, icon('skull', { size: 12 }), `Dying · ${x.dying}`) : x.down ? h('span.cbt-dead', icon('skull', { size: 12 }), 'Down') : `${x.hp} / ${x.hpMax} HP`;
+    const status = x.dead ? h('span.cbt-dead', icon('skull', { size: 12 }), 'Dead') : x.dying != null ? h('span.cbt-dead', { title: 'Dying: rounds left; −1 each clean up and each hit; heal to save' }, icon('skull', { size: 12 }), `Dying · ${x.dying}`) : x.down ? h('span.cbt-dead', icon('skull', { size: 12 }), 'Down') : x.slotValue ? `${Math.round(100 * x.hp / (x.hpMax || 1))}% · ${x.slotValue} HP/slot` : `${x.hp} / ${x.hpMax} HP`;
     return h('li.cc.cc-crawler', { class: `cc cc-crawler${x.down ? ' down' : ''}${x.noTarget ? ' notarget' : ''}`, 'data-uid': x.uid, style: { '--pc': x.color || 'var(--c-accent)' } },
       h('div.cc-who', avatar(x.name, { color: x.color, size: 36, src: p?.sheet?.portrait || null }),
         h('div.cc-nm', h('b', x.name), h('span.dim', status))),
@@ -456,10 +459,15 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         h('span.cc-stat', `${DEF() === 'Evade' ? 'Ev' : DEF()} ${ev?.value ?? '—'}`),
         drDef ? h('span.cc-stat', `DR ${dr?.value ?? '—'}`) : null,
         x.noTarget ? h('span.cc-flag', 'Not targeted') : aggroDots(x),
-        x.conditions.length ? h('span.cc-conds', x.conditions.map((k) => k.name).join(', ')) : null,
+        x.conditions.length ? h('span.cc-conds', { title: x.conditions.map((k) => k.desc || k.name).join('\n') }, x.conditions.map((k) => k.name).join(', ')) : null,
+        x.pendingInjuries?.length ? h('span.cc-flag', { title: x.pendingInjuries.map((i) => i.desc || i.severity || i).join('\n') }, `${x.pendingInjuries.length} pending`) : null,
         chev(open)),
       open ? h('div.cc-more',
         h('div.cc-more-dmg', h('span.mini-l', 'Damage / heal'), quick(x, true)),
+        x.slotValue ? h('p.dim', `${x.hp} / ${x.hpMax} slots. Each slot represents ${x.slotValue} HP. A hit below that after DR costs no slots. Extra damage below the next slot is discarded.`) : null,
+        (view.pack?.ruleset?.combat?.injuries && C().active) ? h('div.cc-more-row',
+          ['minor', 'major'].map((severity) => h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.injury', uid: x.uid, severity }) },
+            severity === 'minor' ? 'Minor injury' : 'Major injury'))) : null,
         h('div.cc-more-row',
           numEl(ev, evDef, DEF()), drDef ? numEl(dr, drDef, 'DR') : null,
           h('span.grow'),
@@ -468,6 +476,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
             h('b.cc-aggro-n', String(x.aggro ?? 3)),
             h('button.icon-btn', { type: 'button', 'aria-label': `Raise ${x.name}'s aggro`, disabled: x.aggro >= 9, onclick: () => act({ t: 'combat.target', uid: x.uid, aggro: x.aggro + 1 }) }, icon('up', { size: 14 }))),
           h('label.chk', { title: 'Hidden, playing dead, out of reach: mobs never pick this crawler by themselves' }, h('input', { type: 'checkbox', checked: !!x.noTarget, onchange: (e) => act({ t: 'combat.target', uid: x.uid, noTarget: e.target.checked }) }), h('span', "Don't target"))),
+        x.pendingInjuries?.map((i) => h('p.cc-injury', h('b', (i.severity ?? i) === 'major' ? 'Major injury · ' : 'Minor injury · '), i.desc || 'Applied when combat ends.')) ?? [],
         conditions(x)) : null,
     );
   }
@@ -522,6 +531,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         h('label.cbt-mini', h('span.mini-l', 'Max HP'), field(m.hpMax, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 1, max: 999 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, hpMax: Math.max(1, Math.min(999, Math.round(v) || 1)) }) })),
         h('label.cbt-mini', h('span.mini-l', DEF()), field(m.evade, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, evade: Math.round(v) || 0 }) })),
         hasDr() ? h('label.cbt-mini', h('span.mini-l', 'DR'), field(m.dr, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, dr: Math.round(v) || 0 }) })) : null),
+      select([{ value: '', label: 'Choose who dealt the damage' }, ...(view.players ?? []).map((p) => ({ value: p.id, label: `Damage by ${p.name}` }))], ui.damageBy[m.uid] || '', {
+        cls: 'inp-sm', label: 'Damage credit', onChange: (v) => { ui.damageBy[m.uid] = v; },
+      }),
       field(m.notes, { cls: 'inp-sm', placeholder: 'Notes for this one (GM only)', attrs: { maxlength: 500, 'aria-label': `Notes for ${m.name}` }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, notes: v }) }),
       e?.moments?.length ? h('div.row-start.cbt-moments', h('span.mini-l', 'Moments'), ...e.moments.map((mo) => h('button.btn.btn-sm.btn-quiet', { type: 'button', title: `${mo.sounds?.join(', ') || ''}${mo.text ? ` · says: ${mo.text}` : ''}${mo.on ? ` · auto on ${mo.on} (${Math.round(mo.chance * 100)} %)` : ''}`, onclick: () => { window.__cues?.moment(e, mo); if (mo.text) send?.({ t: 'announce', text: mo.text }); } }, icon('speaker', { size: 13 }), mo.label))) : null,
       h('div.row-end',
@@ -567,21 +579,25 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   /** Bodies to loot (downed mobs + crawlers) and the piles to hand out, item by item, to a crawler. */
   function lootPanel() {
     const ds = drops();
-    const bodies = (C().combatants || []).filter((x) => x.down && !looted(x.uid));
+    const bodies = (C().combatants || []).filter((x) => x.down && !looted(x.uid) &&
+      (x.type === 'crawler' || libEntry(x)?.lootItems?.length));
     if (!ds.length && !bodies.length) return null;
     const ps = view?.players || [];
     const name = (id) => ps.find((p) => p.id === id)?.name || '?';
     return h('section.panel.cbt-lootp',
-      h('div.sec-head', h('h2', 'Loot'), h('span.dim', 'from the dead: pick who takes what')),
+      h('div.sec-head', h('h2', 'Loot'), h('span.dim', 'Confirm the killer or choose a crawler')),
       bodies.length ? h('div.cbt-bodies', bodies.map((x) => h('button.btn.btn-sm', {
         type: 'button',
         title: x.type === 'mob' ? 'Its library loot falls on the TV' : 'Everything they carried falls on the TV',
-        onclick: () => act({ t: 'loot.corpse', uid: x.uid }, `${x.name} dropped ${x.type === 'mob' ? 'its loot' : 'everything'}.`),
-      }, icon('gift', { size: 13 }), `Loot ${x.name}`))) : null,
+        onclick: () => x.killedBy && ps.some((p) => p.id === x.killedBy)
+          ? act({ t: 'loot.confirm', uid: x.uid }, `Loot → ${name(x.killedBy)}.`)
+          : act({ t: 'loot.corpse', uid: x.uid }, `${x.name} dropped its loot.`),
+      }, icon('gift', { size: 13 }), x.killedBy && ps.some((p) => p.id === x.killedBy) ? `Confirm ${x.name} → ${name(x.killedBy)}` : `Loot ${x.name}`))) : null,
       [...ds].reverse().map((d) => {
         const left = d.items.filter((it) => !it.takenBy).length;
         return h('div.cbt-drop',
           h('div.cbt-drop-head', h('b', d.from.name), h('span.dim', left ? `${left} left` : 'all taken'), h('span.grow'),
+            left && ps.some((p) => p.id === d.suggestedFor) ? h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => act({ t: 'loot.confirm', dropId: d.id }, `Loot → ${name(d.suggestedFor)}.`) }, `Confirm → ${name(d.suggestedFor)}`) : null,
             h('button.icon-btn', { type: 'button', title: 'Forget this pile', 'aria-label': `Forget the pile of ${d.from.name}`, onclick: () => act({ t: 'loot.clear', dropId: d.id }) }, icon('x', { size: 14 }))),
           h('ul.cbt-drop-items', d.items.map((it) => h('li', { class: it.takenBy ? 'taken' : '' },
             itemArt(it, 'cbt-drop-art'),
@@ -606,32 +622,45 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const names = mobs.map((m) => `${m.count > 1 ? `${m.count}× ` : ''}${(lib()[m.kind] || []).find((e) => e.id === m.sourceId)?.name || m.sourceId}`);
     const label = prompt('Name this encounter', names.slice(0, 2).join(' + '))?.trim();
     if (!label) return;
-    act({ t: 'prep.card.add', kind: 'encounter', label: label.slice(0, 80), payload: { mobs } }, `Saved "${label}". Load it from Fight → Encounters.`);
+    act({ t: 'enc.save', label: label.slice(0, 80), mobs, mapId: C().mapId, items: C().victoryItems ?? [] }, `Saved "${label}". Load it from Fight → Encounters.`);
   }
   function encounterChips() {
     const cards = (view?.gm?.prepCards || []).filter((c) => c.kind === 'encounter');
     if (!cards.length) return null;
     return h('div.cbt-encs', h('span.mini-l', 'Encounters'), cards.map((c) => h('span.cbt-enc',
       h('button.btn.btn-sm', { type: 'button', title: (c.payload?.mobs || []).map((m) => `${m.count || 1}× ${(lib()[m.kind || 'monster'] || []).find((e) => e.id === m.sourceId)?.name || m.sourceId}`).join(', '),
-        onclick: () => act({ t: 'prep.card.fire', id: c.id }, `${c.label}: added (hidden).`) }, icon('plus', { size: 12 }), c.label),
+        onclick: () => act({ t: 'enc.run', id: c.id }, `${c.label}: added (hidden).`) }, icon('plus', { size: 12 }), c.label),
       h('button.icon-btn.xs', { type: 'button', 'aria-label': `Delete encounter ${c.label}`, onclick: async () => { if (await ask(`Delete the encounter "${c.label}"?`, { ok: 'Delete', danger: true })) act({ t: 'prep.card.remove', id: c.id }); } }, icon('x', { size: 12 })))));
   }
 
   /* ---------- victory loot, set up before the fight ---------- */
 
   function prizePanel() {
-    const ps = view?.players || [];
     const tiers = view?.pack?.lootTiers || [];
-    if (!ps.length || !tiers.length) return null;
-    const P = { who: 'mvp', tier: tiers[0].id, auto: false, ...(pref.prize || {}) };
-    const save = (k, v) => { setPref('prize', { ...P, [k]: v }); redraw(); };
-    return h('section.panel.cbt-prize',
-      h('div.sec-head', h('h2', 'Victory loot'), h('span.dim', 'ready before the fight')),
+    const items = C().victoryItems ?? [];
+    const P = pref.prize || {};
+    const pickedTier = P.tier ?? tiers[0]?.id ?? '';
+    const configure = () => pickFromLibrary({
+      view, kinds: ['item'], title: 'Victory loot', multi: true, counts: true,
+      onPick: async (list) => {
+        const stock = new Map(items.map((it) => [it.id, it.qty]));
+        for (const p of list) stock.set(p.id, Math.min(999, (stock.get(p.id) ?? 0) + p.count));
+        await act({ t: 'combat.victoryLoot', items: [...stock].map(([id, qty]) => ({ id, qty })) });
+      },
+    });
+    return h('section.cbt-prize.cbt-prize-plan',
       h('div.cbt-loot',
-        select([{ value: 'mvp', label: 'The MVP' }, ...ps.map((p) => ({ value: p.id, label: p.name }))], P.who, { cls: 'inp-sm', label: 'Who gets it', onChange: (v) => save('who', v) }),
-        select([{ value: '', label: 'No box' }, ...tiers.map((t) => ({ value: t.id, label: t.name }))], P.tier, { cls: 'inp-sm', label: 'Box', onChange: (v) => save('tier', v) })),
-      h('label.chk', h('input', { type: 'checkbox', checked: !!P.auto, onchange: (e) => save('auto', e.target.checked) }), h('span', 'Put it on the TV by itself after a victory')),
-      h('p.hint', 'After a victory it waits ready in the finale bar; you can still change who and which box.'));
+        h('b', 'Victory loot'),
+        tiers.length ? select([{ value: '', label: 'No box' }, ...tiers.map((t) => ({ value: t.id, label: t.name }))], pickedTier, {
+          cls: 'inp-sm', label: 'Victory box', onChange: (v) => setPref('prize', { tier: v }),
+        }) : null,
+        h('button.btn.btn-sm', { type: 'button', onclick: configure }, icon('gift', { size: 13 }), 'Add victory items'),
+        items.length ? h('span.dim', `${items.length} item${items.length === 1 ? '' : 's'}`) : null),
+      items.length ? h('ul.cbt-victory-items', items.map((it, i) => {
+        const label = (lib().item || []).find((e) => e.id === it.id)?.name ?? it.id;
+        return h('li', `${label} ×${it.qty}`, h('button.icon-btn', { type: 'button', 'aria-label': `Remove ${label} from victory loot`,
+          onclick: () => act({ t: 'combat.victoryLoot', items: items.filter((_, j) => j !== i) }) }, icon('x', { size: 12 })));
+      })) : null);
   }
 
   /* ---------- finale follow-up (after combat.end) ---------- */
@@ -643,14 +672,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const ps = view.players || [];
     const tiers = view.pack?.lootTiers || [];
     const P = pref.prize || {};
-    const prizeWho = P.who && P.who !== 'mvp' && ps.some((p) => p.id === P.who) ? P.who : null;
+    const killer = d.summary?.finalBlowPlayerId || '';
     if (!ui.loot || ui.loot.sceneId !== view.scene.id) {
-      ui.loot = { sceneId: view.scene.id, playerId: prizeWho || d.summary?.mvp?.playerId || ps[0]?.id || '', tier: (P.tier && tiers.some((t) => t.id === P.tier) ? P.tier : tiers[0]?.id) || '', placed: false };
-      // Prepared victory loot goes on the TV by itself once the finale has played.
-      if (P.auto && P.tier && d.outcome === 'victory' && ui.loot.playerId) {
-        const L0 = ui.loot;
-        setTimeout(() => { if (view?.scene?.id === L0.sceneId && !L0.placed) { L0.placed = true; act({ t: 'scene.set', kind: 'loot', data: { playerId: L0.playerId, tier: L0.tier } }, 'Victory loot on the TV.'); } }, 7000);
-      }
+      ui.loot = { sceneId: view.scene.id, playerId: ps.some((p) => p.id === killer) ? killer : '', tier: P.tier ?? tiers[0]?.id ?? '', placed: false };
     }
     const L = ui.loot;
     const sum = d.summary;
@@ -660,10 +684,13 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       sum ? h('p.dim', `${sum.rounds} round${sum.rounds === 1 ? '' : 's'} · ${sum.dealt} dealt · ${sum.taken} taken · ${sum.mobsDefeated}/${sum.mobsTotal} mobs · ${sum.downs} down${sum.mvp ? ` · MVP ${sum.mvp.name}` : ''}`) : null,
       ps.length && tiers.length ? h('div.cbt-loot',
         h('span.mini-l', 'Loot!'),
-        select(ps.map((p) => ({ value: p.id, label: p.name })), L.playerId, { cls: 'inp-sm', label: 'Who gets the box', onChange: (v) => { L.playerId = v; } }),
-        select(tiers.map((t) => ({ value: t.id, label: t.name })), L.tier, { cls: 'inp-sm', label: 'Box', onChange: (v) => { L.tier = v; } }),
-        h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: async () => { if (await act({ t: 'scene.set', kind: 'loot', data: { playerId: L.playerId, tier: L.tier } }, 'Loot box on the TV.')) { L.placed = true; } } }, icon('gift', { size: 14 }), 'Box on TV'),
-        h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'loot.open', playerId: L.playerId, tier: L.tier }, 'Box opened.') }, 'Open it')) : null);
+        select([{ value: '', label: 'Choose the killer' }, ...ps.map((p) => ({ value: p.id, label: p.name }))], L.playerId, { cls: 'inp-sm', label: 'Who gets the box', onChange: (v) => { L.playerId = v; redraw(); } }),
+        select([{ value: '', label: 'No box' }, ...tiers.map((t) => ({ value: t.id, label: t.name }))], L.tier, { cls: 'inp-sm', label: 'Box', onChange: (v) => { L.tier = v; redraw(); } }),
+        h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: !L.playerId || !L.tier || L.placed, onclick: async (e) => {
+          e.currentTarget.disabled = true;
+          if (await act({ t: 'scene.set', kind: 'loot', data: { playerId: L.playerId, tier: L.tier } }, 'Loot box on the TV.')) L.placed = true;
+          redraw();
+        } }, icon('gift', { size: 14 }), 'Confirm box on TV')) : null);
   }
 
   /* ---------- auto-end offer (3 s toast with Cancel) ---------- */
@@ -802,7 +829,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   function draw(force = false) {
     if (!view) return;
     const c = C();
-    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait)]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, ui.endMenu, ui.special != null, (view.gm?.prepCards || []).filter((x) => x.kind === 'encounter').map((x) => [x.id, x.label]), view.players?.length, view.pack?.lootTiers?.length, sfx?.on, playingLeft() > 0]);
+    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait)]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, view.library?.item?.length, view.gm?.drops, ui.endMenu, ui.special != null, (view.gm?.prepCards || []).filter((x) => x.kind === 'encounter').map((x) => [x.id, x.label]), view.players?.length, view.pack?.lootTiers?.length, sfx?.on, playingLeft() > 0]);
     if (!force && s === sig) return;
     if (!force && el.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]), textarea')) return;
     sig = s;
@@ -812,35 +839,47 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const dead = mobs.filter((m) => m.down);
     const hiddenN = living.filter((m) => m.hidden).length;
     const list = h('section.panel.cbt-list-panel',
+      h('section.cbt-party-col',
       h('div.sec-head', h('h2', 'Crawlers'), c.active ? h('span.dim', c.phase || '') : null),
       !c.active && c.previewCrawlers?.length ? h('ul.cbt-preview-party', c.previewCrawlers.map((p) => {
         const player = view.players?.find((x) => x.id === p.playerId);
         return h('li', avatar(p.name, { size: 32, src: player?.portrait, color: p.color }), h('b', p.name));
       })) : crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', 'No crawlers in the fight.'),
-      lateJoin(c, crawlers),
+      lateJoin(c, crawlers)),
+      h('section.cbt-mob-col',
       h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), h('span.grow'),
         hiddenN ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, 'Every mob revealed.') }, icon('eye', { size: 13 }), 'Reveal all') : null,
-        mobs.some((m) => m.sourceId) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Keep these mobs as a one-tap encounter for later', onclick: saveEncounter }, icon('plus', { size: 13 }), 'Save as encounter') : null,
+        mobs.some((m) => m.sourceId) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Keep these mobs as a one-tap encounter for later', onclick: saveEncounter }, icon('plus', { size: 13 }), h('span.cbt-roster-action', 'Save as encounter')) : null,
         mobs.length ? h('button.btn.btn-sm.btn-quiet.danger', { type: 'button', onclick: async () => {
           if (!(await ask(`Remove all ${mobs.length} mobs from the fight?`, { ok: 'Remove all', danger: true }))) return;
           for (const m of mobs) await act({ t: 'combat.remove', uid: m.uid }, null);
           toast('Board cleared.');
-        } }, icon('trash', { size: 13 }), 'Remove all') : null),
+        } }, icon('trash', { size: 13 }), h('span.cbt-roster-action', 'Remove all')) : null),
       encounterChips(),
       living.length ? h('ul.cbt-list', living.map(mobCard)) : h('p.empty-s', mobs.length ? 'Every mob is down.' : 'No mobs yet. Add them below.'),
       dead.length ? h('details.cbt-fallen', { open: ui.fallenOpen || null, ontoggle: (e) => { ui.fallenOpen = e.target.open; } },
         h('summary', `Defeated (${dead.length})`), h('ul.cbt-list', dead.map(fallenRow))) : null,
-      h('details.cbt-add', { open: ui.addOpen ?? !mobs.length, ontoggle: (e) => { ui.addOpen = e.target.open; } }, h('summary', icon('plus', { size: 14 }), 'Add mobs'), builder()),
+      h('details.cbt-add', { open: ui.addOpen ?? !mobs.length, ontoggle: (e) => { ui.addOpen = e.target.open; } }, h('summary', icon('plus', { size: 14 }), 'Add mobs'), builder())),
     );
-    const side = h('div.cbt-side', encLoot.el, battleMap.el, lootPanel(), view?.scene?.kind === 'finale' ? null : prizePanel(), c.active ? autoPanel() : null, lastRollCard());
+    const finale = finaleBanner();
+    const loot = lootPanel();
+    const pendingLoot = view.gm?.drops?.some((d) => d.items.some((it) => !it.takenBy));
+    const plan = !finale ? prizePanel() : null;
+    const payout = loot && (pendingLoot || finale ? loot : h('details.cbt-compact-tools', h('summary', 'Corpse loot'), loot));
+    const side = h('div.cbt-side', c.active && plan ? h('details.cbt-compact-tools', h('summary', 'Victory loot settings'), plan) : null,
+      c.active && !c.rx ? h('details.cbt-compact-tools', h('summary', 'Combat settings and log'), autoPanel()) : null, c.active && !c.init?.on ? initPanel() : null, lastRollCard());
     // Keep scroll positions across redraws (adding 3 monsters must not jump to the top of the list).
     const keep = [...el.querySelectorAll('.cbt-picks')].map((x) => x.scrollTop);
     const page = el.closest('.gm-main');
     const pageTop = page?.scrollTop;
     el.replaceChildren(...[
-      h('div.cbt-command', header(), list),
-      h('div.cbt-cols', h('div.cbt-side',
-        rxPanel({ act, view }), initPanel(), ui.editPhases ? phaseEditor() : null, finaleBanner()), side),
+      h('div.cbt-command', header(), rxPanel({ act, view }), c.init?.on ? initPanel() : null, ui.editPhases ? phaseEditor() : null),
+      finale,
+      !c.active && plan,
+      !c.active && payout,
+      list,
+      c.active && payout,
+      side,
     ].filter(Boolean));
     [...el.querySelectorAll('.cbt-picks')].forEach((x, i) => { if (keep[i]) x.scrollTop = keep[i]; });
     if (page && pageTop != null) page.scrollTop = pageTop;
@@ -864,7 +903,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     act({ t: 'combat.next' });
   });
 
-  return { el, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; battleMap.update(v); encLoot.update(v); draw(); } };
+  return { el, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; draw(); } };
 }
 
 export { signed };

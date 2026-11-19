@@ -307,3 +307,19 @@
 .sc-npc-said { margin: 0; font-size: 14px; line-height: 1.45; }
 .sc-peek { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; font-size: 13px; background: var(--c-raised); border: 1px dashed var(--c-line-2); border-radius: var(--r-1); }
 .sc-peek-art { width: 36px; height: 36px; border-radius: 6px; border-width: 1px; }
+
+/* GM's scene picker and the adjacent Fight/Map shortcuts occupy one line. */
+.sh-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; padding: 0; }
+.sh-controls .sh-scene-menu { min-width: 130px; width: auto; max-width: 48%; }
+.sh-fight-shortcut[aria-selected="true"] { border-color: var(--c-accent); color: var(--c-accent); }
+.sh-bar { gap: 5px; }
+.sh-compact .sh-bar-top:has(.sh-onair[hidden]) { display: none; }
+.sh-compact .sh-panel { padding-top: 4px; }
+.sh-compact .sh-head[hidden], .sh-compact .sh-golive[hidden], .sh-compact .sh-panel.no-pv .sh-pv { display: none; }
+.sh-compact .sh-grid { grid-template-columns: minmax(0, 1fr) clamp(185px, 19vw, 270px); gap: 10px; }
+.sh-compact .sh-panel.no-pv .sh-grid { grid-template-columns: minmax(0, 1fr); }
+.sh-compact .sh-pv .sh-pv-toggle { display: none; }
+@media (max-width: 900px) {
+  .sh-compact .sh-grid { grid-template-columns: minmax(0, 1fr); }
+  .sh-compact .sh-pv { order: 1; width: min(100%, 290px); }
+}

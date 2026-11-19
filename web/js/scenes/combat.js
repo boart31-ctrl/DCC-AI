@@ -104,7 +104,7 @@ export default function combat(root, sc, env) {
     portraitTile('ar-face', p, { name: x.name, level: p?.level }),
     h('div.ar-main',
       h('div.ar-name', x.name),
-      h('div.ar-hp', pips(x.hp, x.hpMax, 'crawl', prev != null && prev > x.hp ? prev : null), h('b.ar-num', `${Math.max(0, x.hp)}`)),
+      h('div.ar-hp', pips(x.hp, x.hpMax, 'crawl', prev != null && prev > x.hp ? prev : null), h('b.ar-num', x.slotValue ? `${Math.round(100 * Math.max(0, x.hp) / (x.hpMax || 1))}%` : `${Math.max(0, x.hp)}`)),
       conds(x.conditions)),
     x.dead ? h('div.ar-down.ar-dead', 'Dead') : x.dying != null ? h('div.ar-down.ar-dying', `Dying · ${x.dying}`) : x.down ? h('div.ar-down', 'Down') : null,
     h('i.ar-flash'));

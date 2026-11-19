@@ -1124,11 +1124,11 @@ campaignBox.prepend(h('h2.desk-sec', 'Campaign'));
 // Crawlers remaining (gm-crawlers.js): a live badge in the Show bar + the Crawlers tool.
 const crawlers = createCrawlers({ act, getView: () => view, open: () => { showView('show'); scenes.pick('crawlers'); } });
 // Příprava (gm-prep.js): adventures + session plans; pinned items wait "within reach" in the Show bar.
-const prep = createPrep({ act, getView: () => view, scenes, showView: (v) => showView(v), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
+const prep = createPrep({ act, getView: () => view, getCredential: () => ext.credential, scenes, showView: (v) => showView(v), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
 $('#view-prep').append(prep.el);
 // Maps with fog (gm-maps.js): Show → Map chip.
-const maps = createMaps({ act, getView: () => view, scenes, showView: (v) => showView(v) });
-scenes.mountInto($('#view-show'), { maps: maps.el, fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge, reach: prep.reach });
+const maps = createMaps({ act, getView: () => view, getCredential: () => ext.credential, scenes, showView: (v) => showView(v) });
+scenes.mountInto($('#view-show'), { maps: maps.el, mapEditor: maps, fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge, reach: prep.reach });
 const rewards = createRewards();
 $('#view-rewards').append(rewards.el);
 // Message centre: every conversation with the crawlers (private lines, groups, everyone); unread badge in the nav.
