@@ -15,7 +15,7 @@ import { createHost, LIMITS } from './host.js';
 import { createAI } from './ai.js';
 import { fileTtsStore } from './tts-node.js';
 import { pageFor, isSecretPath, securityHeaders } from './routes.js';
-import { contentArtResponse, importContentResponse } from './content-http.js';
+import { contentArtResponse, importContentResponse, importMapImageResponse } from './content-http.js';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const SAVE_DEBOUNCE_MS = 500;
@@ -234,7 +234,7 @@ export async function startServer(opts = {}) {
     close: (ws, code, reason) => ws.close(code, reason),
     // Actions are written right away (atomic rename); background ticks are batched.
     persist: (state, entry) => {
-      if (entry.action?.t === 'lib.importContent') {
+      if (['lib.importContent', 'map.image'].includes(entry.action?.t)) {
         // Content import must surface a failed disk write to the host before it acknowledges.
         writeJsonAtomic(stateFile, state);
         latest = state;
@@ -291,7 +291,7 @@ export async function startServer(opts = {}) {
   async function onRequest(req, res) {
     try {
       const url = new URL(req.url, 'http://x');
-      const isImport = req.method === 'POST' && ['/api/import', '/api/content/import'].includes(url.pathname);
+      const isImport = req.method === 'POST' && ['/api/import', '/api/content/import', '/api/maps/image'].includes(url.pathname);
       if (req.method !== 'GET' && req.method !== 'HEAD' && !isImport) {
         res.writeHead(405, { allow: 'GET, HEAD' });
         return res.end();
@@ -341,6 +341,12 @@ export async function startServer(opts = {}) {
         if (req.headers.origin && req.headers.origin !== `http://${req.headers.host}` && req.headers.origin !== `https://${req.headers.host}`) return sendJson(res, 403, { error: 'forbidden origin' });
         const r = host.checkGm({ key: req.headers['x-gm-key'], token: req.headers['x-gm-token'] }, req.socket.remoteAddress ?? '?');
         if (r !== 'ok') return sendJson(res, r === 'rate_limited' ? 429 : 401, { error: r });
+        if (p === '/api/maps/image') {
+          return await sendContentResponse(res, await importMapImageResponse(host, {
+            body: req.iterator({ destroyOnReturn: false }), campaignId: req.headers['x-system-campaign-id'],
+            contentType: req.headers['content-type'], search: url.searchParams,
+          }));
+        }
         if (p === '/api/content/import') {
           return await sendContentResponse(res, await importContentResponse(host, {
             body: req.iterator({ destroyOnReturn: false }), campaignId: req.headers['x-system-campaign-id'], contentType: req.headers['content-type'],

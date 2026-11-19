@@ -15,6 +15,7 @@
 // Voice lines and chat bursts carry `delayMs` so they land on their step; the GM desk cues SFX from
 // the same timeline. Unverified rules (hitRule, drMin, crit) are flagged in the GM view.
 import { bad, notFound } from './errors.js';
+import { damageToSlots } from './outcome.js';
 import { FINALE_OUTCOMES } from './scenes.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import {
@@ -53,7 +54,7 @@ function crawlerState(st, ctx, x) {
   const hp = t ? computed.tracks[t.id] : { cur: 0, max: 0 };
   const d = defenseOf(ctx.pack, computed);
   const rules = combatRules(ctx.pack, C(st).settings);
-  return { x, p, hp: hp.cur, max: hp.max, ...d, dr: rules.useDr ? d.dr : 0, evade: d.evade + rules.evadeBase };
+  return { x, p, hp: hp.cur, max: hp.max, slotValue: hp.slotValue ?? 1, ...d, dr: rules.useDr ? d.dr : 0, evade: d.evade + rules.evadeBase };
 }
 
 /** Valid targets: in the fight, not "Don't target", standing (or finishDowned), aggro weight > 0. */
@@ -151,8 +152,10 @@ function resolveMob(st, ctx, out, c, m, run, force = {}) {
     const dr = quietRoll(st, ctx, out, step.crit ? critFormula(dmgFormula, rules) : dmgFormula, `${m.name}: ${pick.atk.name} damage${step.crit ? ' (critical)' : ''}`, !run.public);
     let raw = dr.total;
     if (step.crit) raw *= critMultiplier(rules);
-    const dmg = Math.max(rules.drMin, raw - Math.max(0, target.dr));
-    Object.assign(step, { damageRoll: dr.total, damageRaw: raw, damage: dmg, damageRollId: dr.id });
+    const damageAfterDr = Math.max(rules.drMin, raw - Math.max(0, target.dr));
+    const dmg = damageToSlots(damageAfterDr, target.slotValue);
+    Object.assign(step, { damageRoll: dr.total, damageRaw: raw, damageAfterDr, damage: dmg, damageRollId: dr.id,
+      ...(target.slotValue > 1 ? { slotValue: target.slotValue } : {}) });
     const t = hpTrackOf(ctx.pack);
     if (t && dmg > 0) {
       setTrack(st, target.p, { track: t.id, delta: -dmg }, ctx, out);
@@ -443,6 +446,7 @@ export function summaryOf(st, ctx, c) {
     standing: per.filter((x) => !x.down).length,
     crawlers: per,
     mvp,
+    ...(c.lastKill?.playerId ? { finalBlowPlayerId: c.lastKill.playerId } : {}),
     tracked: per.some((x) => x.dealt > 0),
   };
 }

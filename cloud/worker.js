@@ -14,7 +14,7 @@ import { deserializePack } from '../server/pack-core.js';
 import { createAI } from '../server/ai.js';
 import { sqlTtsStore, HASH_RE } from '../server/tts.js';
 import { pageFor, isSecretPath, securityHeaders } from '../server/routes.js';
-import { contentArtResponse, importContentResponse } from '../server/content-http.js';
+import { contentArtResponse, importContentResponse, importMapImageResponse } from '../server/content-http.js';
 import { qrSvg } from '../web/js/qr.js';
 import packData from './pack.json';
 
@@ -55,7 +55,7 @@ export default {
 
     if (p.startsWith('/api/')) {
       // GM-only writes, same origin when a browser sends it.
-      if (['/api/import', '/api/content/import'].includes(p) && request.method === 'POST') {
+      if (['/api/import', '/api/content/import', '/api/maps/image'].includes(p) && request.method === 'POST') {
         const origin = request.headers.get('Origin');
         if (origin && origin !== url.origin) return json(403, { error: 'forbidden origin' }, url);
         return withHeaders(await campaignStub(env).fetch(request), url, { 'cache-control': 'no-store' });
@@ -220,11 +220,13 @@ export class Campaign extends DurableObject {
     if (url.pathname === '/api/info') return json(200, { edition: 'cloud', legacy: false, keyLogin: true, campaign: this.host.joinCampaign() }, url);
     if (url.pathname === '/api/export') return this.exportResponse(request, url);
     if (url.pathname === '/api/import' && request.method === 'POST') return this.importResponse(request);
-    if (url.pathname === '/api/content/import' && request.method === 'POST') {
+    if (['/api/content/import', '/api/maps/image'].includes(url.pathname) && request.method === 'POST') {
       const r = this.host.checkGm({ key: request.headers.get('X-GM-Key') ?? '' }, ipOf(request));
       if (r !== 'ok') return json(r === 'rate_limited' ? 429 : 401, { error: r }, url);
-      return importContentResponse(this.host, {
-        body: request.body, campaignId: request.headers.get('X-System-Campaign-Id'), contentType: request.headers.get('content-type'),
+      const importFile = url.pathname === '/api/maps/image' ? importMapImageResponse : importContentResponse;
+      return importFile(this.host, {
+        body: request.body, campaignId: request.headers.get('X-System-Campaign-Id'),
+        contentType: request.headers.get('content-type'), search: url.searchParams,
       });
     }
     if (url.pathname.startsWith('/pack/content/')) return contentArtResponse(this.host.state, url.pathname, request.method === 'HEAD');

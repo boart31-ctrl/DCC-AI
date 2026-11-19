@@ -10,7 +10,7 @@ import { bad, notFound } from './errors.js';
 import { libraryOf, giveItem } from './character.js';
 import { combatantOf } from './combat.js';
 
-export const MAX_DROPS = 24;
+export const MAX_DROPS = 128;
 export const MAX_DROP_ITEMS = 40;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const ID_RE = /^[a-z0-9][a-z0-9_-]{0,63}$/;
@@ -20,8 +20,9 @@ export function normalizeDrops(raw) {
   return raw.filter((d) => isObj(d) && typeof d.id === 'string' && isObj(d.from) && Array.isArray(d.items)).slice(-MAX_DROPS).map((d) => ({
     id: d.id,
     at: Number(d.at) || 0,
+    suggestedFor: typeof d.suggestedFor === 'string' ? d.suggestedFor : null,
     from: {
-      type: d.from.type === 'crawler' ? 'crawler' : 'mob',
+      type: ['crawler', 'victory'].includes(d.from.type) ? d.from.type : 'mob',
       uid: typeof d.from.uid === 'string' ? d.from.uid : null,
       name: String(d.from.name ?? '').slice(0, 80),
       image: typeof d.from.image === 'string' ? d.from.image : null,
@@ -47,7 +48,52 @@ const playerOf = (st, id) => {
   return p;
 };
 
+function stock(lib, entryIds, ctx) {
+  return entryIds.flatMap(({ id, qty }) => {
+    const def = lib.get('item', id);
+    return def ? [{ key: ctx.genId('lk'), itemId: id, name: def.name, rarity: def.rarity ?? null, image: def.image ?? null, qty, takenBy: null }] : [];
+  });
+}
+
+function saveDrop(st, ctx, from, items, suggestedFor) {
+  const drop = { id: ctx.genId('dr'), at: ctx.now, from, items, suggestedFor: suggestedFor ?? null };
+  st.drops ??= [];
+  st.drops.push(drop);
+  if (st.drops.length > MAX_DROPS) {
+    const claimed = st.drops.findIndex((d) => d.items.every((it) => it.takenBy));
+    st.drops.splice(claimed < 0 ? 0 : claimed, 1);
+  }
+  return drop;
+}
+
+export function prepareEndLoot(st, ctx, outcome) {
+  const c = st.combat;
+  if (!c) return;
+  const lib = libraryOf(st, ctx.pack);
+  for (const mob of (c.combatants ?? [])) {
+    if (mob.type !== 'mob' || mob.hp > 0 || st.drops?.some((d) => d.from.uid === mob.uid)) continue;
+    const ids = lib.get(mob.sourceKind, mob.sourceId)?.lootItems ?? [];
+    const items = stock(lib, ids.map((id) => ({ id, qty: 1 })), ctx);
+    if (items.length) saveDrop(st, ctx, { type: 'mob', uid: mob.uid, name: mob.name, image: mob.image ?? null }, items, mob.killedBy);
+  }
+  if (outcome === 'victory') {
+    const items = stock(lib, c.victoryItems ?? [], ctx);
+    if (items.length) saveDrop(st, ctx, { type: 'victory', uid: c.id, name: 'Victory loot', image: null }, items, c.lastKill?.playerId);
+  }
+}
+
 export const LOOT_GM = {
+  'combat.victoryLoot'(st, a, ctx) {
+    if (!Array.isArray(a.items) || a.items.length > 20) throw bad('pick up to 20 victory loot entries');
+    const lib = libraryOf(st, ctx.pack);
+    st.combat.victoryItems = a.items.map((it) => {
+      if (!it || typeof it.id !== 'string' || !lib.get('item', it.id)) throw bad('unknown victory loot item');
+      if (!Number.isInteger(it.qty) || it.qty < 1 || it.qty > 999) throw bad('loot quantity must be 1 to 999');
+      return { id: it.id, qty: it.qty };
+    });
+  },
+
+
   /**
    * Loot a body: `uid` = a downed combatant (mob → its library lootItems, crawler → their inventory),
    * optional `itemIds` replaces a mob's list (GM's own pick). One drop per body.
@@ -69,10 +115,7 @@ export const LOOT_GM = {
         const src = x.sourceKind && x.sourceId ? lib.get(x.sourceKind, x.sourceId) : null;
         ids = src?.lootItems ?? [];
       }
-      for (const id of ids) {
-        const def = lib.get('item', id);
-        if (def) items.push({ key: ctx.genId('lk'), itemId: def.id, name: def.name, rarity: def.rarity ?? null, image: def.image ?? null, qty: 1, takenBy: null });
-      }
+      items = stock(lib, ids.map((id) => ({ id, qty: 1 })), ctx);
       from = { type: 'mob', uid: x.uid, name: x.name, image: x.image ?? null };
     } else {
       const p = playerOf(st, x.playerId);
@@ -80,12 +123,26 @@ export const LOOT_GM = {
       from = { type: 'crawler', uid: x.uid, name: p.name, image: null, playerId: p.id };
     }
     if (!items.length) throw bad(x.type === 'mob' ? `${x.name} has nothing to drop (set its loot in the library, or pick items)` : `${from.name} carries nothing`);
-    const drop = { id: ctx.genId('dr'), at: ctx.now, from, items };
-    st.drops.push(drop);
-    while (st.drops.length > MAX_DROPS) st.drops.shift();
+    const drop = saveDrop(st, ctx, from, items, x.type === 'mob' ? x.killedBy : null);
     const ev = out.emit({ kind: 'loot.drop', dropId: drop.id, from: { type: from.type, name: from.name, image: from.image }, items: items.map(pub) }, 'all');
     ctx.h.feedPush?.(st, ev, `${from.name} dropped ${items.length === 1 ? items[0].name : `${items.length} items`}`);
     out.result = { dropId: drop.id, items: items.length };
+  },
+
+  'loot.confirm'(st, a, ctx, out) {
+    let drop = (st.drops ?? []).find((d) => a.dropId != null ? d.id === a.dropId : a.uid != null && d.from.uid === a.uid);
+    if (!drop && a.uid != null && a.dropId == null) {
+      const sub = { ...out, result: null };
+      LOOT_GM['loot.corpse'](st, { uid: a.uid }, ctx, sub);
+      drop = st.drops.find((d) => d.id === sub.result.dropId);
+    }
+    if (!drop) throw notFound('no loot pile');
+    const playerId = a.playerId ?? drop.suggestedFor;
+    if (!playerId) throw bad('choose the crawler who made the kill');
+    const pending = drop.items.filter((it) => !it.takenBy);
+    if (!pending.length) throw bad('this loot was already confirmed');
+    for (const it of pending) LOOT_GM['loot.take'](st, { dropId: drop.id, key: it.key, playerId }, ctx, out);
+    out.result = { dropId: drop.id, playerId, items: pending.length };
   },
 
   /** Hand one item of a drop to a crawler (a dead crawler's own item moves, a mob's is created). */

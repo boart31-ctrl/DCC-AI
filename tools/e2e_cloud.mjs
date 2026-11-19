@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 import assert from 'node:assert/strict';
 import WebSocket from 'ws';
 import { build } from './build_cloud.mjs';
-import { sampleZip } from '../server/test/content-fixture.js';
+import { samplePng, sampleZip } from '../server/test/content-fixture.js';
 import { readContentArchive } from '../server/content-archive.js';
 import { validateManifest } from '../server/content-schema.js';
 
@@ -196,6 +196,13 @@ async function main() {
   assert.equal(r.headers.get('x-content-type-options'), 'nosniff');
   assert.equal((await upload(gmZipHeaders)).status, 409);
   step('GM ZIP import, strict classification, PNG serving and conflict rejection');
+  const mapUpload = await fetch(base + '/api/maps/image?name=Test%20map', { method: 'POST',
+    headers: { 'Content-Type': 'image/png', 'X-System-Campaign-Id': campaignId, 'X-GM-Key': KEY },
+    body: samplePng(12, 47, 112) });
+  assert.equal(mapUpload.status, 201, await mapUpload.clone().text());
+  const mapPicture = await mapUpload.json();
+  assert.equal((await fetch(base + mapPicture.image)).headers.get('content-type'), 'image/png');
+
 
   const carl = (await gm.call({ t: 'player.add', name: 'Carl' })).playerId;
   const donut = (await gm.call({ t: 'player.add', name: 'Donut' })).playerId;
@@ -288,6 +295,8 @@ async function main() {
   const w2 = await gm2.next((m) => m.t === 'welcome');
   assert.ok(w2.view.library.monster.some((e) => e.id === 'zip_lantern_guard' && e.image === importedArt));
   assert.equal((await fetch(base + importedArt)).status, 200, 'imported PNG survived the crash');
+  assert.equal((await fetch(base + mapPicture.image)).status, 200, 'the uploaded map picture survived the crash');
+  assert.equal(w2.view.maps.find((m) => m.id === mapPicture.id)?.image, mapPicture.image);
   const p2 = w2.view.gm.playersFull;
   assert.deepEqual(p2.map((p) => p.name), ['Carl', 'Donut', 'New player']);
   const c2 = p2.find((p) => p.id === carl);
@@ -315,7 +324,7 @@ async function main() {
   assert.equal(r.status, 200);
   assert.match(r.headers.get('content-disposition'), /attachment; filename="system-campaign-/);
   const exp = await r.json();
-  assert.equal(Object.keys(exp.state.contentMedia).length, new Set([...assets.values()].map((asset) => asset.id)).size);
+  assert.equal(Object.keys(exp.state.contentMedia).length, new Set([...assets.values()].map((asset) => asset.id)).size + 1);
   const types = exp.log.map((e) => e.action.t);
   for (const t of ['player.add', 'tv.pair', 'player.approve', 'ach.award', 'me.notes', 'msg.send', 'player.update']) assert.ok(types.includes(t), `log has ${t}: ${types.join(',')}`);
   assert.equal(exp.log.at(-1).action.gold, 99, 'last action is in the log');
@@ -372,6 +381,7 @@ async function main() {
   assert.equal(r.status, 200, await r.clone().text());
   await gm2.next((m) => m.t === 'view' && m.view.campaign?.id === first.id, 5000, 'restored content campaign');
   assert.equal((await fetch(base + importedArt)).status, 200, 'restored export carries the image');
+  assert.equal((await fetch(base + mapPicture.image)).status, 200, 'restored export carries the map picture');
   r = await fetch(`${base}/api/import`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: pfExport });
   assert.equal(r.status, 401, 'import needs the GM key');
   assert.equal((await upload(contentHeaders)).status, 401, 'content import needs the GM key');

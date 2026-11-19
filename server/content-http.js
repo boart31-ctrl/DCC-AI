@@ -37,3 +37,17 @@ export async function importContentResponse(host, { body, campaignId, contentTyp
     return new Response(JSON.stringify({ error: err.code, msg: err.message }), { status: status[err.code] ?? 500, headers });
   }
 }
+
+export async function importMapImageResponse(host, { body, campaignId, contentType, search }) {
+  const headers = { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' };
+  try {
+    if (contentType !== 'image/png') throw new ActionError('unsupported_media', 'expected image/png');
+    const id = search.get('mapId');
+    const name = search.get('name');
+    const result = await host.importMapImage(body, campaignId, { id, name });
+    return new Response(JSON.stringify(result), { status: id ? 200 : 201, headers });
+  } catch (err) {
+    if (!(err instanceof ActionError)) throw err;
+    return new Response(JSON.stringify({ error: err.code, msg: err.message }), { status: status[err.code] ?? (err.code === 'not_found' ? 404 : 500), headers });
+  }
+}

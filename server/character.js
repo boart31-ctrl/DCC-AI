@@ -3,7 +3,7 @@
 import { ActionError, bad, notFound, forbidden } from './errors.js';
 import { computeSheet, enhanceItem, MAX_ENHANCE, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
-import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots, typedDamage } from './outcome.js';
+import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots, typedDamage, recordKillCredit } from './outcome.js';
 
 export const DICE_MODES = ['off', 'enter', 'digital'];
 export const MAX_UNDO = 30;
@@ -411,6 +411,14 @@ function portraitValue(v) {
 
 // ---------- buffs ----------
 
+export function nextInjuryDescription(p, rules, severity, requested) {
+  if (!p.injuryTally || typeof p.injuryTally !== 'object' || Array.isArray(p.injuryTally)) p.injuryTally = {};
+  const index = Number.isSafeInteger(p.injuryTally[severity]) && p.injuryTally[severity] >= 0 ? p.injuryTally[severity] : 0;
+  p.injuryTally[severity] = index + 1;
+  const choices = rules[`${severity}Descriptions`] ?? [];
+  return requested?.trim() || choices[index % choices.length] || '';
+}
+
 function buffFromDef(def, ctx) {
   return { uid: ctx.genId('b'), buffId: def.id, name: def.name, desc: def.desc ?? '', external: !!def.external, effects: def.effects ?? [], until: def.duration ?? '', at: ctx.now };
 }
@@ -547,9 +555,11 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
     rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg, ...(sv > 1 ? { rolled, slotValue: sv } : {}), ...(amazing ? { amazing } : {}), ...(typed.why ? { typed: typed.why, dtype: atk.dtype } : {}) };
     if (dmg > 0 && ctx.h?.applyDamage) {
       const before = target.hp;
+      const previousKill = st.combat.lastKill ?? null;
       ctx.h.applyDamage(st, ctx, out, { uid: target.uid, amount: dmg, by: p.id });
       const after = (st.combat.combatants.find((x) => x.uid === target.uid) ?? target).hp;
-      rec.applied = { uid: target.uid, before, after, delta: after - before };
+      rec.applied = { uid: target.uid, before, after, delta: after - before,
+        ...(before > 0 && after <= 0 ? { previousKill } : {}) };
       rec.vs.down = after <= 0;
       undoPush(st, rec);
     }
@@ -595,7 +605,13 @@ export function voidRoll(st, ctx, out, rec, by) {
   rec.void = { by, at: ctx.now };
   if (rec.applied) {
     const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
-    if (m) m.hp = Math.max(0, Math.min(m.hpMax, m.hp - rec.applied.delta));
+    if (m) {
+      const before = m.hp;
+      const latest = st.combat.lastKill?.uid === m.uid;
+      m.hp = Math.max(0, Math.min(m.hpMax, m.hp - rec.applied.delta));
+      recordKillCredit(st.combat, m, before);
+      if (latest && before <= 0 && m.hp > 0 && Object.hasOwn(rec.applied, 'previousKill')) st.combat.lastKill = rec.applied.previousKill;
+    }
   }
   const I = st.combat?.init;
   if (I?.on && rec.what === 'derived' && rec.whatId === (ctx.pack.ruleset.combat?.initiative?.derived ?? 'initiative')) {
@@ -616,7 +632,11 @@ function unvoidRoll(st, ctx, out, rec) {
   rec.void = null;
   if (rec.applied) {
     const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
-    if (m) m.hp = Math.max(0, Math.min(m.hpMax, m.hp + rec.applied.delta));
+    if (m) {
+      const before = m.hp;
+      m.hp = Math.max(0, Math.min(m.hpMax, m.hp + rec.applied.delta));
+      recordKillCredit(st.combat, m, before, rec.playerId);
+    }
   }
   if (rec.what === 'derived') ctx.h?.onSheetRoll?.(st, ctx, out, rec);
   st.rollRedo = (st.rollRedo ?? []).filter((id) => id !== rec.id);
@@ -1369,6 +1389,13 @@ export const SHEET_GM = {
       };
     }
     const r = addBuff(p, buff, ctx.pack.ruleset);
+    const inj = ctx.pack.ruleset.combat?.injuries;
+    const severity = r.added && inj && buff.buffId && ['minor', 'major'].find((k) => [inj[k], inj[`${k}Long`]].includes(buff.buffId));
+    if (severity) {
+      const flavor = typeof a.injuryDescription === 'string' ? a.injuryDescription.slice(0, 180) : nextInjuryDescription(p, inj, severity);
+      if (flavor) buff.desc = [flavor, buff.desc].filter(Boolean).join(' ');
+    }
+
     out.result = { uid: r.buff.uid, added: r.added };
   },
 

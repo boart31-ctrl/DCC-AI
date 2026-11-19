@@ -9,6 +9,7 @@
 // Players never get any of these (they are not in the PLAYER table → bad_request).
 import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
+import { recordKillCredit } from './outcome.js';
 
 export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map'];
 // combat-auto.js OUTCOMES (kept here too: scenes.js must not import combat-auto.js, which imports combat.js → scenes.js).
@@ -439,7 +440,10 @@ function amountOf(a) {
 function syncBossCombatant(st, d) {
   if (!st.combat?.active || !d.bossId) return;
   for (const m of st.combat.combatants ?? []) {
-    if (m.type === 'mob' && m.sourceKind === 'boss' && m.sourceId === d.bossId) m.hp = Math.max(0, Math.min(m.hpMax, d.hp));
+    if (m.type !== 'mob' || m.sourceKind !== 'boss' || m.sourceId !== d.bossId) continue;
+    const before = m.hp;
+    m.hp = Math.max(0, Math.min(m.hpMax, d.hp));
+    recordKillCredit(st.combat, m, before);
   }
 }
 
@@ -604,6 +608,7 @@ export const SCENE_GM = {
     d.defeated = true;
     d.revealed = true;
     d.hp = 0;
+    syncBossCombatant(st, d);
     const tier = d.boss.lootTier ? ctx.pack.tiersById.get(d.boss.lootTier) : null;
     const lootHint = d.lootHint || (tier ? `${tier.name} incoming` : 'Loot incoming');
     const ev = out.emit({ kind: 'boss.defeat', sceneId: st.scene.id, name: d.boss.name, lootHint, lootTier: d.boss.lootTier, defeatLine: d.boss.defeatLine }, STAGE_GM);

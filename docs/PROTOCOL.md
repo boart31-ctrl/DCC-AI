@@ -267,6 +267,9 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `session.auto` | `on`: bool | Master AUTO switch. Off also clears `pendingAuto` |
 | `combat.mobAct` | `uid`, `attackIndex`?, `targetUid`?, `tv`? [true] | One chosen mob / boss attacks now (GM-picked attack and target, else its own modes). Same resolution, `combat.auto` cinematic and `combat.autoUndo` as Mobs act. `tv: false` = GM-only: secret dice, no cinematic on the TV / phones (damage still lands on the sheet) |
 | `loot.corpse` | `uid`, `itemIds`? | Loot a downed combatant: a mob drops its library `lootItems` (or `itemIds`), a crawler their inventory. One pile per body in `state.drops` (GM view `gm.drops`); event `loot.drop` to all |
+| `loot.confirm` | `dropId` or defeated `uid`, `playerId?` | Take all remaining items in one transaction. Falls back to the credited killer when the GM omits the recipient. |
+| `combat.victoryLoot` | `items`: up to 20 entries `{id,qty}` | Stage item rewards for victory. The final credited blow suggests the recipient. |
+| `combat.injury` | crawler `uid`, `severity` (minor or major), `description?` | Queue an injury for the end of the combat. The ruleset supplies a description when omitted. |
 | `loot.take` | `dropId`, `key`, `playerId` | Hand one item of a pile to a crawler (a dead crawler's own item moves). Event `loot.take` to all |
 | `loot.clear` | `dropId` | Forget a pile |
 | `session.aiMute` | `on`: bool | Mute AI: System lines go out as text only (`play` gets `silent: true`, no audio/TTS), the audience chat stops, AUTO turns off and cannot be turned on while muted. Kept across `session.new` |
@@ -489,7 +492,8 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `map.zone.add` | `id`, `name`, `shape` (`{x,y,w,h}` or `{points:[[x,y]…]}` 3..40), `text?`, `notes?` | Ack `result.zoneId` |
 | `map.zone.update` | `id`, `zoneId`, `name?`, `shape?`, `text?` (read-aloud), `notes?` (GM only), `links?` `[{kind: monster/boss/npc/location/item/card, id}]` | |
 | `map.zone.remove` | `id`, `zoneId` | |
-| `map.zone.reveal` | `id`, `zoneId`, `on?` (default true) | Event `map.reveal {mapId, zoneId, name}` when on air or shared |
+| `map.bindCombat` | map `id` or null | Attach the current combat to a map, add any missing tokens, or detach. |
+| `map.zone.reveal` | `id`, `zoneId` (use `0` for the area outside all drawn zones), `on?` (default true) | Event `map.reveal {mapId, zoneId, name}` when on air or shared |
 | `map.token.add` | `id`, `kind` (`pc` with `ref` = player id, one per crawler · `mob` · `mark`), `label?`, `color?`, `x?`, `y?`, `hidden?` | Mobs start hidden. Ack `result.tokenId` |
 | `map.token.party` | `id` | A token for every crawler without one; ack `result.added` |
 | `map.token.move` | `id`, `tokenId`, `x`, `y` | |
@@ -794,3 +798,9 @@ worker).
 ### GM content ZIP import
 
 `POST /api/content/import` accepts an `application/zip` body with `THE_SYSTEM_CONTENT_V1` content. It requires `X-GM-Key` (or `X-GM-Token` in the local legacy edition) and `X-System-Campaign-Id` for the open campaign. Requests with a browser Origin must be same-origin. A successful response is `201 { campaignId, entries: [{type,id,name}], missingImages: [path] }`. The updated library arrives in the normal state view. Failure responses carry `{error,msg}` when validation supplies details. A collision, campaign change, or concurrent import is `409`. The audit action is `lib.importContent` with a count. The HTTP host emits it after a single durable save. See [content import contract](CONTENT_IMPORT.md).
+
+### GM map image upload
+
+`POST /api/maps/image?name=…` creates a map. Use `?mapId=…` to replace the picture on an existing map. Send `image/png`, `X-System-Campaign-Id`, and `X-GM-Key` (or a GM token on local Node). The same-origin adapter validates the PNG and derives its aspect ratio. The map and its image save together. The response contains `{id,image}`, with status 201 for creation or 200 for replacement. Images use the campaign's existing media allowance and travel in campaign backups.
+
+Solo map tokens may specify `sourceKind` and `sourceId` in `map.token.add` for monster or boss library art. `map.token.update` accepts a GM-only `notes` string up to 2000 characters. Tokens linked to combat follow the combatant's image, visibility, and defeated state. Moving a token updates its map coordinates.

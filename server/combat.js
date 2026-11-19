@@ -22,7 +22,7 @@
 // Views: the GM sees everything. Players and the TV see crawlers + revealed mobs only, mob HP as a
 // rounded fraction (exact numbers only with `showMobHp`), never notes / attacks / library GM fields.
 import { bad, notFound } from './errors.js';
-import { combatRules, mobSlotValue, damageToSlots, typedDamage } from './outcome.js';
+import { combatRules, mobSlotValue, damageToSlots, typedDamage, recordKillCredit } from './outcome.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import { SCENE_GM, introLine } from './scenes.js';
 
@@ -113,7 +113,7 @@ function flag(v, field) {
 export function initCombat() {
   return {
     active: false, round: 1, phaseIndex: 0, phases: [...DEFAULT_PHASES], phasesVerified: false, showMobHp: false, combatants: [],
-    settings: { ...DEFAULT_SETTINGS }, stats: initStats(), startedAt: null, spreadNext: 0, lastAuto: null, autoQueue: null, id: null,
+    settings: { ...DEFAULT_SETTINGS }, stats: initStats(), startedAt: null, spreadNext: 0, lastAuto: null, autoQueue: null, id: null, mapId: null, lastKill: null, victoryItems: [],
     init: initInit(),
   };
 }
@@ -153,6 +153,9 @@ export function normalizeCombat(raw) {
     lastAuto: isObj(raw.lastAuto) ? raw.lastAuto : null,
     autoQueue: isObj(raw.autoQueue) && Array.isArray(raw.autoQueue.uids) ? raw.autoQueue : null,
     id: typeof raw.id === 'string' ? raw.id : null,
+    mapId: typeof raw.mapId === 'string' ? raw.mapId : null,
+    lastKill: isObj(raw.lastKill) && typeof raw.lastKill.uid === 'string' ? raw.lastKill : null,
+    victoryItems: (Array.isArray(raw.victoryItems) ? raw.victoryItems : []).filter((x) => isObj(x) && ID_RE.test(x.id ?? '') && Number.isInteger(x.qty) && x.qty >= 1 && x.qty <= 999).slice(0, 20),
     ...(Array.isArray(raw.manualUndo) && raw.manualUndo.length ? { manualUndo: raw.manualUndo.filter(isObj).slice(-MANUAL_UNDO_MAX) } : {}),
     ...(isObj(raw.rx) && Array.isArray(raw.rx.decls) ? { rx: raw.rx } : {}), // reaction.js round state
   };
@@ -380,6 +383,7 @@ function changeHp(st, a, ctx, out, sign) {
   }
   const from = x.hp;
   x.hp = Math.max(0, Math.min(x.hpMax, x.hp + sign * amount));
+  if (sign > 0) recordKillCredit(c, x, from);
   const ev = out.emit({ kind, uid: x.uid, type: 'mob', name: x.name, amount: Math.abs(x.hp - from), hp: x.hp, max: x.hpMax, down: x.hp <= 0 }, audience(x));
   if (sign < 0 && from > x.hp) {
     const by = attackerOf(st, a, c, ctx.now);
@@ -387,6 +391,10 @@ function changeHp(st, a, ctx, out, sign) {
     if (by) bump(c.stats.dealt, by, from - x.hp); else c.stats.unattributed += from - x.hp;
     if (x.hp === 0) {
       if (by) bump(c.stats.kills, by, 1);
+      // Sheet damage sends its actor. Manual adjustments only credit a player the GM selected.
+      const explicit = typeof a.by === 'string' && st.players.some((p) => p.id === a.by) ? a.by : null;
+      recordKillCredit(c, x, from, explicit);
+
       if (!x.hidden) {
         ctx.h.feedPush(st, ev, `${x.name} is down`);
         const line = a.line === false ? null : comboLine(st, ctx, 'mob_killed', 700);
@@ -870,8 +878,10 @@ export const COMBAT_GM = {
   'combat.update'(st, a) {
     const m = mobOf(st, a.uid);
     if (a.name !== undefined) m.name = txt(a.name, 'name', 80);
+    const previousHp = m.hp;
     if (a.hpMax !== undefined) { m.hpMax = intIn(a.hpMax, 'hpMax', 1, MAX_MOB_HP); m.hp = Math.min(m.hp, m.hpMax); }
     if (a.hp !== undefined) m.hp = intIn(a.hp, 'hp', 0, m.hpMax);
+    recordKillCredit(C(st), m, previousHp);
     if (a.evade !== undefined) m.evade = intIn(a.evade, 'evade', -99, 99);
     if (a.dr !== undefined) m.dr = intIn(a.dr, 'dr', -99, 99);
     if (a.notes !== undefined) m.notes = txt(a.notes, 'notes', 500, { allowEmpty: true });
@@ -1035,12 +1045,12 @@ function crawlerRow(state, pack, library, x, gm) {
   const buffs = p.sheet?.buffs ?? [];
   const row = {
     uid: x.uid, type: 'crawler', playerId: p.id, name: p.name, color: p.color,
-    hp: hp.cur, hpMax: hp.max, down: hp.max > 0 && hp.cur <= 0,
-    conditions: gm ? buffs.map((b) => ({ uid: b.uid, id: b.buffId ?? null, name: b.name, ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })) : buffs.map((b) => ({ id: b.buffId ?? null, name: b.name, ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })),
+    hp: hp.cur, hpMax: hp.max, ...(hp.slotValue != null ? { slotValue: hp.slotValue } : {}), down: hp.max > 0 && hp.cur <= 0,
+    conditions: gm ? buffs.map((b) => ({ uid: b.uid, id: b.buffId ?? null, name: b.name, ...(b.desc ? { desc: b.desc } : {}), ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })) : buffs.map((b) => ({ id: b.buffId ?? null, name: b.name, ...(b.desc ? { desc: b.desc } : {}), ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })),
   };
   if (gm) {
     const d = defenseOf(pack, computed);
-    Object.assign(row, { aggro: x.aggro ?? AGGRO_DEFAULT, noTarget: !!x.noTarget, evade: d.evade, dr: d.dr });
+    Object.assign(row, { pendingInjuries: x.injuries ?? [], aggro: x.aggro ?? AGGRO_DEFAULT, noTarget: !!x.noTarget, evade: d.evade, dr: d.dr });
   }
   // Dying countdown (reaction.js dyingTick): rounds left, or dead.
   if (x.dying != null) row.dying = x.dying;
@@ -1095,7 +1105,7 @@ export function combatView(state, pack, role) {
   if (gm) {
     const la = c.lastAuto;
     Object.assign(head, {
-      id: c.id, startedAt: c.startedAt, settings: c.settings, unverified: UNVERIFIED_RULES, stats: c.stats,
+      id: c.id, mapId: c.mapId, victoryItems: c.victoryItems, lastKill: c.lastKill, startedAt: c.startedAt, settings: c.settings, unverified: UNVERIFIED_RULES, stats: c.stats,
       manualUndo: (state.combat?.manualUndo ?? []).length ? { label: state.combat.manualUndo.at(-1).label, count: state.combat.manualUndo.length } : null,
       lastAuto: la ? { id: la.id, at: la.at, steps: la.steps, canUndo: !!la.undo && !la.undone, undone: !!la.undone, startAt: la.startAt, stepMs: la.stepMs } : null,
       autoQueue: c.autoQueue ? { id: c.autoQueue.id, uids: c.autoQueue.uids, done: c.autoQueue.done ?? 0 } : null,
@@ -1150,7 +1160,7 @@ function undoSnapshot(st, ctx, type, a) {
   const c = C(st);
   const list = type === 'combat.reveal' && a.all === true ? c.combatants.filter((x) => x.type === 'mob') : c.combatants.filter((x) => x.uid === a.uid);
   if (!list.length) return null;
-  const snap = { mobs: [], crawler: null, init: type === 'combat.remove' ? structuredClone(c.init) : null };
+  const snap = { mobs: [], crawler: null, lastKill: c.lastKill ?? null, init: type === 'combat.remove' ? structuredClone(c.init) : null };
   for (const x of list) {
     if (x.type === 'mob') { snap.mobs.push({ idx: c.combatants.indexOf(x), obj: structuredClone(x) }); continue; }
     const { p, t } = crawlerHp(st, ctx, x);
@@ -1192,6 +1202,7 @@ COMBAT_GM['combat.undo'] = function combatUndo(st, a, ctx, out) {
     const diff = obj.hp - (now ? now.hp : obj.hp);
     if (diff && linkedBoss(st, obj)) SCENE_GM[diff > 0 ? 'boss.heal' : 'boss.damage'](st, { amount: Math.abs(diff) }, ctx, out);
   }
+  if (mobs.length && ['combat.damage', 'combat.heal', 'combat.update'].includes(e.type) && Object.hasOwn(e.snap, 'lastKill')) c.lastKill = e.snap.lastKill;
   if (init) c.init = normalizeInit(init, c.combatants.map((x) => x.uid));
   if (crawler) {
     const p = st.players.find((y) => y.id === crawler.playerId);

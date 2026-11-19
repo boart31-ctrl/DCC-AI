@@ -29,9 +29,10 @@ import { makeToken } from './random.js';
 import { safeEqual, RateLimiter, TokenBucket, authenticate, makePairCode } from './access.js';
 import { createTtsHost } from './tts-host.js';
 import { createChat } from './chat.js';
-import { ARCHIVE_LIMIT, boundedBytes, readContentArchive } from './content-archive.js';
+import { ARCHIVE_LIMIT, boundedBytes, readContentArchive, readPngAsset } from './content-archive.js';
 import { validateManifest } from './content-schema.js';
-import { prepareContentImport } from './content-import.js';
+import { mergeContentMedia, prepareContentImport } from './content-import.js';
+import { CONTENT_IMAGE_LIMIT } from './content-media.js';
 
 export const LIMITS = {
   maxMessage: 16 * 1024,
@@ -259,6 +260,7 @@ export function createHost(opts) {
       return ref;
     };
     for (const p of v.players ?? []) p.portrait = swap(p.portrait);
+    for (const m of v.maps ?? []) for (const t of m.tokens) if (t.image?.startsWith('data:')) t.image = swap(t.image);
     if (v.me?.sheet) v.me.sheet = { ...v.me.sheet, portrait: swap(v.me.sheet.portrait) };
     if (v.gm?.playersFull) v.gm.playersFull = v.gm.playersFull.map((p) => (p.sheet ? { ...p, sheet: { ...p.sheet, portrait: swap(p.sheet.portrait) } } : p));
     const sent = portraitSent.get(conn);
@@ -804,23 +806,40 @@ export function createHost(opts) {
   }
 
   let importingContent = false;
-  async function importContent(body, campaignId) {
+  async function importForCampaign(campaignId, work) {
     const checkCampaign = () => {
       if (!campaignId || campaignId !== state.campaign.id) throw new ActionError('conflict', 'campaign changed; open the target campaign and try again');
     };
     checkCampaign();
     if (importingContent) throw new ActionError('conflict', 'an import is already running');
     importingContent = true;
-    try {
+    try { return await work(checkCampaign); } finally { importingContent = false; }
+  }
+
+  function importContent(body, campaignId) {
+    return importForCampaign(campaignId, async (checkCampaign) => {
       const archive = await readContentArchive(await boundedBytes(body, ARCHIVE_LIMIT), validateManifest);
       checkCampaign();
       const { next, result } = prepareContentImport(state, packOf(state, pack), archive);
       commitAccess(next, { t: 'lib.importContent', count: result.entries.length }, 'gm');
       scheduleViews();
       return result;
-    } finally {
-      importingContent = false;
-    }
+    });
+  }
+
+  function importMapImage(body, campaignId, { id, name }) {
+    return importForCampaign(campaignId, async (checkCampaign) => {
+      const asset = await readPngAsset(await boundedBytes(body, CONTENT_IMAGE_LIMIT), 'Map picture');
+      checkCampaign();
+      const image = `/pack/content/${campaignId}/${asset.id}.png`;
+      const nextMedia = mergeContentMedia(state.contentMedia, [asset]);
+      const action = id ? { t: 'map.update', id } : { t: 'map.add', name };
+      const r = reduce(state, { ...action, role: 'gm', image, aspect: asset.aspect }, { pack, now: now(), rng });
+      const mapId = id || r.result.id;
+      commitAccess({ ...r.state, contentMedia: nextMedia }, { t: 'map.image', id: mapId }, 'gm');
+      scheduleViews();
+      return { id: mapId, image };
+    });
   }
 
   const HOST_GM = {
@@ -1158,6 +1177,7 @@ export function createHost(opts) {
     apply,
     importCampaign,
     importContent,
+    importMapImage,
     joinCampaign,
     has: (conn) => conns.has(conn),
     canAccept: () => conns.size < L.maxSockets,

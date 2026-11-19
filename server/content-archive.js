@@ -228,17 +228,24 @@ export async function readContentArchive(bytes, validate) {
     for (const path of entries.keys()) {
       if (path === 'manifest.json') continue;
       if (!refs.has(path)) throw bad(`${path}: image is not referenced by the manifest`);
-      const data = await cleanPng(await zipBody(entries, path), path, reservePixels);
-      const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', data));
-      const id = Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('');
-      // btoa applies to binary strings. Chunk conversion to keep argument lists bounded.
-      let binary = '';
-      for (let i = 0; i < data.length; i += 8192) binary += String.fromCharCode(...data.subarray(i, i + 8192));
-      assets.set(path, { id, data: btoa(binary) });
+      const { id, data } = await readPngAsset(await zipBody(entries, path), path, reservePixels);
+      assets.set(path, { id, data });
     }
     return { manifest, assets };
   } catch (err) {
     if (err instanceof RangeError) throw bad('invalid or truncated ZIP');
     throw err;
   }
+}
+
+/** The map upload and the ZIP use the same validated, canonical PNG representation. */
+export async function readPngAsset(bytes, path, reservePixels = () => {}) {
+  if (bytes.length > CONTENT_IMAGE_LIMIT) throw new ActionError('too_big', 'PNG exceeds the image byte limit');
+  const clean = await cleanPng(bytes, path, reservePixels);
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', clean));
+  const id = Array.from(hash, (b) => b.toString(16).padStart(2, '0')).join('');
+  let binary = '';
+  for (let i = 0; i < clean.length; i += 8192) binary += String.fromCharCode(...clean.subarray(i, i + 8192));
+  const header = dataView(clean);
+  return { id, data: btoa(binary), aspect: header.getUint32(16) / header.getUint32(20) };
 }

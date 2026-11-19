@@ -13,7 +13,7 @@ import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView } from './scenes.js';
 import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, fillMissingMobArt, combatView, onSheetRoll, applyMobDamage } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
-import { LOOT_GM, normalizeDrops } from './loot.js';
+import { LOOT_GM, normalizeDrops, prepareEndLoot } from './loot.js';
 import { CRAWLERS_GM, CRAWLERS_SYSTEM, initCrawlers, normalizeCrawlers, crawlersView } from './crawlers.js';
 import {
   SHEET, SHEET_GM, normalizeLibArt, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
@@ -21,7 +21,7 @@ import {
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, initPrep, normalizePrep, prepView } from './prep.js';
-import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView } from './maps.js';
+import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
 import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage } from './reaction.js';
 import { makeEncounterGM } from './encounters.js';
 import { makeCreation } from './creation.js';
@@ -867,20 +867,29 @@ function giveStarterAttack(st, p, ctx) {
   GM['combat.end'] = (st, a, ctx, out) => {
     const inj = ctx.pack.ruleset.combat?.injuries;
     const marks = inj ? (st.combat?.combatants ?? []).filter((x) => x.type === 'crawler' && x.injuries?.length).map((x) => [x.playerId, x.injuries]) : [];
+    prepareEndLoot(st, ctx, a.outcome);
     end(st, a, ctx, out);
+    const remaining = new Set(st.combat.combatants.map((m) => m.uid));
+    for (const map of st.maps?.list ?? []) {
+      map.tokens = map.tokens.filter((t) => !t.combatToken || remaining.has(t.ref));
+      for (const t of map.tokens) if (t.kind === 'mob' && t.ref && !remaining.has(t.ref)) { t.ref = null; t.hidden = true; }
+    }
     const lib = libraryOf(st, ctx.pack);
     for (const [pid, list] of marks) {
       const p = st.players.find((y) => y.id === pid);
       if (!p) continue;
-      for (const kind of list) {
+      for (const mark of list) {
+        const kind = typeof mark === 'string' ? mark : mark?.severity;
+        if (!['minor', 'major'].includes(kind)) continue;
         const has = (id) => id && p.sheet.buffs.some((b) => b.buffId === id);
         const long = kind === 'major' ? inj.majorLong : inj.minorLong;
         const base = kind === 'major' ? inj.major : inj.minor;
         let give = base;
         if (has(base) && long) { p.sheet.buffs = p.sheet.buffs.filter((b) => b.buffId !== base); give = long; }
         if (!lib.get('buff', give) || has(give)) continue;
-        GM['buff.add'](st, { playerId: pid, buffId: give }, ctx, { ...out, result: null });
-        out.emit({ kind: 'injury', playerId: pid, name: p.name, injury: lib.get('buff', give).name }, 'all');
+        const desc = typeof mark?.desc === 'string' ? mark.desc.slice(0, 180) : '';
+        GM['buff.add'](st, { playerId: pid, buffId: give, injuryDescription: desc }, ctx, { ...out, result: null });
+        out.emit({ kind: 'injury', playerId: pid, name: p.name, injury: lib.get('buff', give).name, ...(desc ? { desc } : {}) }, 'all');
       }
     }
   };
@@ -974,6 +983,9 @@ export function reduce(state, action, ctx) {
   };
   if (action.role === 'system') out.changed = false;
   fn(st, action, full, out);
+  if (out.changed && st.combat?.mapId && ['map.bindCombat', 'enc.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
+    syncCombatTokens(st, full);
+  }
   // Play clock: time between actions counts as play when the gap is under 15 minutes (breaks don't count).
   // Drives the level-up reminder (DCC: a level every 2 hours of play; nothing happens automatically).
   if (out.changed && action.role !== 'system' && st.session) {
@@ -1076,7 +1088,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   v.combat = combatView(state, pack, role);
   if (v.combat) v.combat.rx = reactionView(state, role);
   v.crawlers = crawlersView(state, pack, role, now, opts.stageOn !== false);
-  v.maps = mapsView(state, role);
+  v.maps = mapsView(state, role, library, v.combat);
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;

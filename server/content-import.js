@@ -51,6 +51,19 @@ function checkReferences(e, library, imported, pack, at) {
   }
 }
 
+export function mergeContentMedia(existing, assets) {
+  const contentMedia = { ...existing };
+  let total = Object.values(contentMedia).reduce((size, data) => size + mediaBytes(data), 0);
+  for (const { id, data } of assets) {
+    if (Object.hasOwn(contentMedia, id)) continue;
+    total += mediaBytes(data);
+    if (total > CONTENT_MEDIA_LIMIT) throw new ActionError('too_big', 'campaign has reached the 4 MiB content image limit');
+    contentMedia[id] = data;
+  }
+
+  return contentMedia;
+}
+
 export function prepareContentImport(state, pack, { manifest, assets }) {
   const library = libraryOf(state, pack);
   const ids = new Set();
@@ -66,14 +79,7 @@ export function prepareContentImport(state, pack, { manifest, assets }) {
 
   const nextLibrary = { ...state.library };
   for (const kind of counts.keys()) nextLibrary[kind] = [...state.library[kind]];
-  const contentMedia = { ...state.contentMedia };
-  let total = Object.values(contentMedia).reduce((size, data) => size + mediaBytes(data), 0);
-  for (const { id, data } of assets.values()) {
-    if (Object.hasOwn(contentMedia, id)) continue;
-    total += mediaBytes(data);
-    if (total > CONTENT_MEDIA_LIMIT) throw new ActionError('too_big', 'campaign has reached the 4 MiB content image limit');
-    contentMedia[id] = data;
-  }
+  const contentMedia = mergeContentMedia(state.contentMedia, assets.values());
 
   const missing = new Set();
   const result = { entries: [], missingImages: [], campaignId: state.campaign.id };

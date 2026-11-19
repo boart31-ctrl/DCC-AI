@@ -61,7 +61,7 @@ export function expandEncounter(st, ctx, payload) {
   for (const [i, m] of (payload?.mobs ?? []).entries()) {
     const e = lib.get(m.kind ?? 'monster', m.sourceId);
     const n = m.count ?? 1;
-    for (let k = 0; k < n; k++) out.push({ entry: i, name: n > 1 ? `${e?.name ?? m.sourceId} ${k + 1}` : (e?.name ?? m.sourceId), hidden: m.hidden !== false, color: m.kind === 'boss' ? '#ff9900' : '#ff3355', missing: !e });
+    for (let k = 0; k < n; k++) out.push({ entry: i, name: n > 1 ? `${e?.name ?? m.sourceId} ${k + 1}` : (e?.name ?? m.sourceId), hidden: m.hidden !== false, sourceKind: m.kind ?? 'monster', sourceId: m.sourceId, artIndex: k, color: m.kind === 'boss' ? '#ff9900' : '#ff3355', missing: !e });
   }
   return out;
 }
@@ -142,7 +142,14 @@ export function makeEncounterGM(GM) {
           for (let k = 0; k < (m.count ?? 1); k++) uids.push(null);
         }
       }
-      const bound = c.payload?.mapId ? bindEncounterTokens(st, c.payload.mapId, c.id, uids) : 0;
+      const mapId = c.payload?.mapId;
+      const map = mapId && st.maps?.list.find((m) => m.id === mapId);
+      if (map) {
+        st.combat.mapId = map.id;
+        placeEncounterTokens(st, map.id, c.id, expandEncounter(st, ctx, c.payload), ctx);
+      }
+      const bound = map ? bindEncounterTokens(st, map.id, c.id, uids) : 0;
+      if (c.payload.items?.length) GM['combat.victoryLoot'](st, { items: c.payload.items.filter((it) => !it.given) }, ctx);
       c.used = true;
       c.usedAt = ctx.now;
       if (a.start === true && !st.combat?.active) GM['combat.start'](st, {}, ctx, out);
@@ -154,6 +161,7 @@ export function makeEncounterGM(GM) {
       const c = cardOf(st, a.id);
       const it = (c.payload?.items ?? [])[a.index];
       if (!it) throw notFound(`no item ${a.index} in ${c.label}`);
+      if (it.given) throw bad('this item was already given');
       const sub = { ...out, result: null };
       GM['lib.give'](st, { playerId: a.playerId, kind: 'item', id: it.id, qty: it.qty }, ctx, sub);
       it.given = a.playerId;

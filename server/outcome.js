@@ -122,3 +122,14 @@ export function typedDamage(amount, type, target) {
   if ((target.vulnerable ?? []).includes(t)) { out *= 2; why = why ? null : 'vulnerable'; }
   return { amount: out, why };
 }
+
+/** Update loot credit when a mob is defeated or gets back up. */
+export function recordKillCredit(combat, mob, before, playerId = null) {
+  if (before > 0 && mob.hp === 0) {
+    mob.killedBy = playerId;
+    if (!mob.hidden) combat.lastKill = { uid: mob.uid, playerId };
+  } else if (before <= 0 && mob.hp > 0) {
+    mob.killedBy = null;
+    if (combat.lastKill?.uid === mob.uid) combat.lastKill = null;
+  }
+}

@@ -19,7 +19,7 @@
 // mob base (10 by default) + to-hit bonus, + the world's floor when the ruleset is floor-scaled.
 import { bad, notFound } from './errors.js';
 import { rollDice } from './formula.js';
-import { computeFor, libraryOf } from './character.js';
+import { computeFor, libraryOf, nextInjuryDescription } from './character.js';
 import { sheetResolver } from './ruleset.js';
 import { evaluate } from './formula.js';
 import { COMBAT_GM, defenseOf, hpTrackOf } from './combat.js';
@@ -159,7 +159,7 @@ function resolveDecl(st, ctx, out, rx, d) {
   if (deg === 'critfail') mult *= 2;
   // Injuries after the fight (ruleset combat.injuries): Evade Major Fail → minor, natural 1 → major.
   if (target.type === 'crawler' && (deg === 'major' || deg === 'critfail') && ctx.pack.ruleset.combat?.injuries) {
-    target.injuries = [...(target.injuries ?? []), deg === 'critfail' ? 'major' : 'minor'].slice(0, 10);
+    markInjury(st, ctx, target, deg === 'critfail' ? 'major' : 'minor');
   }
   let rolled = 0;
   try { rolled = rollDice(d.attack.damage, { randInt: ctx.randInt }).total; } catch { rolled = 1; }
@@ -171,11 +171,31 @@ function resolveDecl(st, ctx, out, rx, d) {
     const sub = { ...out, result: undefined };
     const wasDying = target.type === 'crawler' && target.dying != null;
     COMBAT_GM['combat.damage'](st, { uid: target.uid, amount, dr: true }, ctx, sub);
+    if (sub.result?.slotValue || (target.type === 'crawler' && ctx.pack.ruleset.tracks.some((t) => t.id === hpTrackOf(ctx.pack)?.id && t.slotValue))) {
+      d.slots = sub.result?.amount ?? 0;
+    }
     onCrawlerDamage(st, ctx, out, target, wasDying);
   }
 }
 
+function markInjury(st, ctx, target, severity, description) {
+  const rules = ctx.pack.ruleset.combat?.injuries;
+  if (!rules) throw bad('injuries are unavailable in this campaign');
+  if (!['minor', 'major'].includes(severity)) throw bad('severity must be minor or major');
+  if (description !== undefined && (typeof description !== 'string' || description.trim().length > 180)) throw bad('description must be at most 180 characters');
+  const injuries = target.injuries ??= [];
+  if (injuries.length >= 10) return;
+  const p = st.players.find((x) => x.id === target.playerId);
+  if (!p) return;
+  injuries.push({ severity, desc: nextInjuryDescription(p, rules, severity, description) });
+}
+
 export const REACTION_GM = {
+  'combat.injury'(st, a, ctx) {
+    if (!C(st).active) throw bad('start combat to record an injury');
+    markInjury(st, ctx, crawlerOf(st, a.uid), a.severity, a.description);
+  },
+
   /** Start (or re-sync) reaction rounds for the running fight. */
   'rx.start'(st) {
     const rx = rxOf(st);
@@ -488,7 +508,7 @@ export function reactionView(state, role) {
   const mobs = new Map(c.combatants.filter((x) => x.type === 'mob').map((x) => [x.uid, x]));
   const decls = rx.decls.filter((d) => gm || !mobs.get(d.mobUid)?.hidden).map((d) => {
     const m = mobs.get(d.mobUid);
-    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, splash: !!d.splash, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
+    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, splash: !!d.splash, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, ...(d.slots != null ? { slots: d.slots } : {}), evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
     return gm ? { ...base, dc: d.attack.dc, damageDice: d.attack.damage, evadeTotal: d.evade?.total ?? null } : base;
   });
   const advantage = (rx.advantage ?? []).filter((v) => gm || !mobs.get(v.mobUid)?.hidden).map((v) => ({ uid: v.uid, mobUid: v.mobUid, mob: mobs.get(v.mobUid)?.name ?? '?' }));

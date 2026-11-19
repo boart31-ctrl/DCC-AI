@@ -22,6 +22,7 @@
 // The TV shows a map through scene kind `map` ({ mapId }); its content is view.maps (role-filtered here):
 // the GM gets everything, the TV and phones only revealed zones (no notes), the fog bits and visible tokens.
 import { bad, notFound } from './errors.js';
+import { libraryOf } from './character.js';
 
 export const MAX_MAPS = 40;
 export const MAX_ZONES = 80;
@@ -68,6 +69,38 @@ function setCell(bits, cols, c, r, on) {
   const i = r * cols + c;
   if (on) bits[i >> 3] |= 1 << (i & 7);
   else bits[i >> 3] &= ~(1 << (i & 7));
+}
+
+// Zone Zero uses the complement of all zones, including their overlaps. Only the derived fog grid goes to viewers.
+function outsideFog(m) {
+  if (typeof m.zoneZero !== 'boolean') return m.fog;
+  const { cols, rows } = m;
+  const inside = emptyFog(cols, rows);
+  for (const { shape: s } of m.zones) {
+    if (!s.points) {
+      for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+        const x = (c + 0.5) / cols, y = (r + 0.5) / rows;
+        if (x >= s.x && x <= s.x + s.w && y >= s.y && y <= s.y + s.h) setCell(inside, cols, c, r, true);
+      }
+      continue;
+    }
+    for (let r = 0; r < rows; r++) {
+      const y = (r + 0.5) / rows;
+      const crossings = [];
+      for (let i = 0, j = s.points.length - 1; i < s.points.length; j = i++) {
+        const [a, b] = s.points[j], [x, v] = s.points[i];
+        if ((b > y) !== (v > y)) crossings.push(a + (x - a) * (y - b) / (v - b));
+      }
+      crossings.sort((a, b) => a - b);
+      for (let i = 0; i + 1 < crossings.length; i += 2) for (let c = 0; c < cols; c++) {
+        const x = (c + 0.5) / cols;
+        if (x >= crossings[i] && x <= crossings[i + 1]) setCell(inside, cols, c, r, true);
+      }
+    }
+  }
+  const bits = decodeFog(m.fog, cols, rows);
+  for (let i = 0; i < bits.length; i++) bits[i] = m.zoneZero ? (bits[i] | ~inside[i]) : (bits[i] & inside[i]);
+  return encode(bits);
 }
 
 // ---------- validation ----------
@@ -135,7 +168,11 @@ function normToken(t) {
   return {
     id: t.id, kind: t.kind, ref: typeof t.ref === 'string' && ID_RE.test(t.ref) ? t.ref : null,
     label: text(t.label, 40) || '?', color: COLOR_RE.test(t.color ?? '') ? t.color : '#ffcc00',
+    ...(t.notes ? { notes: text(t.notes, 2000) } : {}),
     x: fin(t.x) ? clamp01(t.x) : 0.5, y: fin(t.y) ? clamp01(t.y) : 0.5, hidden: t.hidden === true,
+    ...(['monster', 'boss'].includes(t.sourceKind) && typeof t.sourceId === 'string' && ID_RE.test(t.sourceId)
+      ? { sourceKind: t.sourceKind, sourceId: t.sourceId, artIndex: Number.isInteger(t.artIndex) ? Math.max(0, Math.min(MAX_TOKENS, t.artIndex)) : 0 } : {}),
+    ...(t.combatToken === true ? { combatToken: true } : {}),
     ...(typeof t.enc === 'string' && ID_RE.test(t.enc) && Number.isInteger(t.slot) && t.slot >= 0 && t.slot < 200 ? { enc: t.enc, slot: t.slot } : {}),
   };
 }
@@ -159,6 +196,7 @@ function normMap(m) {
   return {
     id: m.id, name: text(m.name, 80) || 'Map', image: typeof m.image === 'string' && IMAGE_RE.test(m.image) ? m.image : '',
     aspect, phones: m.phones === true, tokensOn: m.tokensOn === true, cols, rows, fog,
+    ...(typeof m.zoneZero === 'boolean' ? { zoneZero: m.zoneZero } : {}),
     zones: (Array.isArray(m.zones) ? m.zones : []).map(normZone).filter(Boolean).slice(0, MAX_ZONES),
     tokens: (Array.isArray(m.tokens) ? m.tokens : []).map(normToken).filter(Boolean).slice(0, MAX_TOKENS),
     strokes: (Array.isArray(m.strokes) ? m.strokes : []).map(normStroke).filter(Boolean).slice(0, MAX_STROKES),
@@ -223,12 +261,14 @@ export const MAPS_GM = {
     const maps = ensure(st);
     const m = mapOf(st, a.id);
     maps.list = maps.list.filter((x) => x !== m);
+    if (st.combat?.mapId === m.id) st.combat.mapId = null;
   },
 
   /** Brush / rectangle reveal: `{ id, rect: {x,y,w,h}, reveal }` or `{ id, all: true|false }` (reveal / cover everything). */
   'map.fog'(st, a, ctx, out) {
     const m = mapOf(st, a.id);
-    const bits = decodeFog(m.fog, m.cols, m.rows);
+    const bits = decodeFog(a.all === undefined ? outsideFog(m) : m.fog, m.cols, m.rows);
+    delete m.zoneZero;
     if (a.all !== undefined) {
       bits.fill(a.all === true ? 255 : 0);
       if (a.all !== true) for (const z of m.zones) z.revealed = false;
@@ -274,12 +314,21 @@ export const MAPS_GM = {
   /** One tap at the table: `{ id, zoneId, on? }` (default on). The TV animates the reveal. */
   'map.zone.reveal'(st, a, ctx, out) {
     const m = mapOf(st, a.id);
+    if (a.zoneId === '0') {
+      m.zoneZero = a.on !== false;
+      if (m.zoneZero && (onTv(st, m.id) || m.phones)) out.emit({ type: 'map.reveal', mapId: m.id, zoneId: '0', name: 'Zone 0' });
+      return;
+    }
     const z = zoneOf(m, a.zoneId);
     z.revealed = a.on !== false;
     if (z.revealed && (onTv(st, m.id) || m.phones)) out.emit({ type: 'map.reveal', mapId: m.id, zoneId: z.id, name: z.name });
   },
 
   /** `{ id, kind, ref?, label, color?, x?, y? }` → result `{ tokenId }`. One token per crawler (ref = player id). */
+  'map.bindCombat'(st, a) {
+    st.combat.mapId = a.id === null ? null : mapOf(st, a.id).id;
+  },
+
   'map.token.add'(st, a, ctx, out) {
     const m = mapOf(st, a.id);
     if (m.tokens.length >= MAX_TOKENS) throw bad(`max ${MAX_TOKENS} tokens`);
@@ -301,6 +350,17 @@ export const MAPS_GM = {
       color: COLOR_RE.test(a.color ?? '') ? a.color : (p?.color ?? (a.kind === 'mob' ? '#ff3355' : '#ffcc00')),
       x: fin(a.x) ? clamp01(a.x) : 0.5, y: fin(a.y) ? clamp01(a.y) : 0.5, hidden: a.kind === 'mob' && a.hidden !== false,
     };
+    if (a.kind === 'mob' && (a.sourceKind !== undefined || a.sourceId !== undefined)) {
+      const entry = ['monster', 'boss'].includes(a.sourceKind) && libraryOf(st, ctx.pack).get(a.sourceKind, a.sourceId);
+      if (!entry) throw notFound('unknown token library entry');
+      const like = m.tokens.filter((x) => x.kind === 'mob' && x.sourceKind === a.sourceKind && x.sourceId === entry.id);
+      const index = like.reduce((n, x) => Math.max(n, x.artIndex ?? 0), -1) + 1;
+      Object.assign(t, { sourceKind: a.sourceKind, sourceId: entry.id, artIndex: index });
+      if (a.label === undefined) {
+        if (index === 1 && like[0].label === entry.name.slice(0, 40)) like[0].label = `${entry.name.slice(0, 36)} 1`;
+        t.label = index ? `${entry.name.slice(0, 36)} ${index + 1}` : entry.name.slice(0, 40);
+      }
+    }
     m.tokens.push(t);
     out.result = { tokenId: t.id };
   },
@@ -331,6 +391,10 @@ export const MAPS_GM = {
     if (a.label !== undefined) t.label = nameArg(a.label, 'label', 40);
     if (a.color !== undefined) { if (!COLOR_RE.test(a.color)) throw bad('color must be #rgb or #rrggbb'); t.color = a.color; }
     if (a.hidden !== undefined) t.hidden = a.hidden === true;
+    if (a.notes !== undefined) {
+      if (typeof a.notes !== 'string' || a.notes.length > 2000) throw bad('notes must be text, max 2000 characters');
+      t.notes = a.notes;
+    }
   },
 
   'map.token.remove'(st, a) {
@@ -371,12 +435,16 @@ export function placeEncounterTokens(st, mapId, encId, mobs, ctx, { cx = 0.7, cy
   m.tokens = m.tokens.filter((t) => t.enc !== encId || t.slot < mobs.length);
   mobs.forEach((mob, i) => {
     const t = m.tokens.find((x) => x.enc === encId && x.slot === i);
-    if (t) { t.label = mob.name.slice(0, 40); return; }
+    if (t) {
+      Object.assign(t, { label: mob.name.slice(0, 40), sourceKind: mob.sourceKind, sourceId: mob.sourceId, artIndex: mob.artIndex ?? 0 });
+      return;
+    }
     if (m.tokens.length >= MAX_TOKENS) return;
     const col = i % 4;
     const row = Math.floor(i / 4);
     m.tokens.push({ id: ctx.genId('tk'), kind: 'mob', ref: null, label: mob.name.slice(0, 40), color: mob.color || '#ff3355',
-      x: round4(clamp01(cx + (col - 1.5) * 0.065)), y: round4(clamp01(cy + (row - 0.5) * 0.1)), hidden: mob.hidden !== false, enc: encId, slot: i });
+      x: round4(clamp01(cx + (col - 1.5) * 0.065)), y: round4(clamp01(cy + (row - 0.5) * 0.1)), hidden: mob.hidden !== false, enc: encId, slot: i,
+      sourceKind: mob.sourceKind, sourceId: mob.sourceId, artIndex: mob.artIndex ?? 0 });
     added++;
   });
   return added;
@@ -412,14 +480,47 @@ export const MAPS_PLAYER = {
  * A token as the fight sees it: a mob token bound to a combatant is hidden while the mob is hidden and
  * `down` once it is down (or gone from the fight).
  */
-function liveToken(state, t) {
-  if (t.kind !== 'mob' || !t.ref) return t;
-  const c = (state.combat?.combatants ?? []).find((x) => x.uid === t.ref);
-  if (!c) return { ...t, down: true };
-  return { ...t, hidden: c.hidden === true, down: c.down === true || (Number.isFinite(c.hp) && c.hp <= 0) };
+export function syncCombatTokens(st, ctx) {
+  const c = st.combat;
+  const m = c?.mapId && st.maps?.list.find((map) => map.id === c.mapId);
+  if (!m) return;
+  const uids = new Set(c.combatants.map((x) => x.uid));
+  m.tokens = m.tokens.filter((t) => !t.combatToken || uids.has(t.ref));
+  MAPS_GM['map.token.party'](st, { id: m.id }, ctx, {});
+  const bound = new Set(m.tokens.filter((t) => t.kind === 'mob' && t.ref).map((t) => t.ref));
+  let index = 0;
+  const columns = m.aspect < 1 ? 3 : 5;
+  const spacing = columns === 3 ? 0.23 : 0.17;
+  for (const x of c.combatants) {
+    if (x.type !== 'mob' || bound.has(x.uid)) continue;
+    const ready = x.sourceId && m.tokens.find((t) => t.kind === 'mob' && !t.ref && t.sourceKind === x.sourceKind && t.sourceId === x.sourceId);
+    if (ready) { ready.ref = x.uid; continue; }
+    if (m.tokens.length >= MAX_TOKENS) break;
+    const i = index++;
+    m.tokens.push({ id: ctx.genId('tk'), kind: 'mob', ref: x.uid, label: x.name.slice(0, 40),
+      color: x.sourceKind === 'boss' ? '#ff9900' : '#ff3355', hidden: x.hidden !== false, combatToken: true,
+      x: 0.5 + ((i % columns) - (columns - 1) / 2) * spacing, y: Math.min(0.92, 0.44 + Math.floor(i / columns) * 0.10) });
+  }
 }
-function withLive(state, m) {
-  return m.tokens.some((t) => t.kind === 'mob' && t.ref) ? { ...m, tokens: m.tokens.map((t) => liveToken(state, t)) } : m;
+
+function liveToken(st, library, combatRows, t) {
+  if (t.kind === 'pc') {
+    const p = st.players.find((x) => x.id === t.ref);
+    if (!p) return null;
+    return { ...t, image: p.sheet?.portrait ?? null, down: combatRows.get(p.id)?.down === true };
+  }
+  if (t.kind !== 'mob') return t;
+  const raw = (st.combat?.combatants ?? []).find((x) => x.uid === t.ref);
+  const live = raw && combatRows.get(raw.uid);
+  if (raw) return { ...t, label: raw.name, sourceKind: raw.sourceKind, sourceId: raw.sourceId,
+    image: live?.image ?? raw.image ?? null, hidden: raw.hidden === true, down: raw.hp <= 0 };
+  if (t.combatToken) return null;
+  const e = library?.get(t.sourceKind, t.sourceId);
+  const images = [e?.imageSquare || e?.image, ...(e?.variants ?? [])].filter(Boolean);
+  return { ...t, image: images.length ? images[(t.artIndex ?? 0) % images.length] : null, ...(t.ref ? { hidden: true, down: true } : {}) };
+}
+function withLive(st, m, library, rows) {
+  return { ...m, fog: outsideFog(m), tokens: m.tokens.map((t) => liveToken(st, library, rows, t)).filter(Boolean) };
 }
 
 /** What the TV and phones may see of one map: revealed zones without GM notes, fog bits, visible tokens. */
@@ -428,16 +529,19 @@ export function publicMap(m) {
     id: m.id, name: m.name, image: m.image, aspect: m.aspect, cols: m.cols, rows: m.rows, fog: m.fog,
     tokensOn: m.tokensOn, phones: m.phones,
     zones: m.zones.filter((z) => z.revealed).map(({ id, name, shape, text: t }) => ({ id, name, shape, text: t })),
-    tokens: m.tokens.filter((t) => !t.hidden).map(({ id, kind, ref, label, color, x, y, down }) => ({ id, kind, ref, label, color, x, y, ...(down ? { down: true } : {}) })),
+    tokens: m.tokens.filter((t) => !t.hidden).map(({ id, kind, ref, label, color, x, y, down, image }) => ({ id, kind, ref, label, color, x, y, ...(image ? { image } : {}), ...(down ? { down: true } : {}) })),
     strokes: (m.strokes ?? []).filter((k) => !k.gm).map(({ id, pts, color }) => ({ id, pts, color })),
   };
 }
 
 /** GM: every map in full. TV: the map on air. Player: maps shared to phones (+ the one on air). */
-export function mapsView(state, role) {
-  const list = (state.maps?.list ?? []).map((m) => withLive(state, m));
-  if (role === 'gm') return list;
+export function mapsView(state, role, library, combat) {
+  const all = state.maps?.list ?? [];
   const live = state.scene?.kind === 'map' ? state.scene.data?.mapId : null;
-  if (role === 'stage') return list.filter((m) => m.id === live).map(publicMap);
-  return list.filter((m) => m.phones || m.id === live).map(publicMap);
+  const list = role === 'gm' ? all : all.filter((m) => m.id === live || (role === 'player' && m.phones));
+  const rows = new Map((combat?.combatants ?? []).map((c) => [c.type === 'mob' ? c.uid : c.playerId, c]));
+  return list.map((m) => {
+    const view = withLive(state, m, library, rows);
+    return role === 'gm' ? view : publicMap(view);
+  });
 }

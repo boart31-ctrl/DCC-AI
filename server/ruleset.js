@@ -582,7 +582,9 @@ function normalizeCombatRules(raw, derived, unv) {
     // kind becomes the long-term one (reaction.js marks them, state.js gives them on combat.end).
     // The heal every crawler has as an interrupt (rx.interrupt heal): { mana, slots, track? (mana track id) }.
     healSpell: isObj(r.healSpell) && Number.isInteger(r.healSpell.mana) && Number.isInteger(r.healSpell.slots) ? { mana: Math.max(0, r.healSpell.mana), slots: Math.max(1, r.healSpell.slots), track: isStr(r.healSpell.track) ? r.healSpell.track : 'mana' } : null,
-    injuries: isObj(r.injuries) && ['minor', 'major'].every((k) => isStr(r.injuries[k])) ? { minor: r.injuries.minor, major: r.injuries.major, minorLong: isStr(r.injuries.minorLong) ? r.injuries.minorLong : null, majorLong: isStr(r.injuries.majorLong) ? r.injuries.majorLong : null } : null,
+    injuries: isObj(r.injuries) && ['minor', 'major'].every((k) => isStr(r.injuries[k])) ? { minor: r.injuries.minor, major: r.injuries.major, minorLong: isStr(r.injuries.minorLong) ? r.injuries.minorLong : null, majorLong: isStr(r.injuries.majorLong) ? r.injuries.majorLong : null,
+      minorDescriptions: textList(r.injuries.minorDescriptions, 30, 180), majorDescriptions: textList(r.injuries.majorDescriptions, 30, 180),
+    } : null,
     dyingRounds: isStr(r.dyingRounds) && !validateFormula(r.dyingRounds, {}) ? r.dyingRounds.trim() : null,
     // Every crawler can fight without gear: given when a crawler is created or a fight starts and they have no attack.
     // { name, skill (library skill id, optional), rank, stat, dice }
