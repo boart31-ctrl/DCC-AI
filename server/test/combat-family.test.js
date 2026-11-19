@@ -71,6 +71,8 @@ test('the boss combatant icon follows phase, scene changes and defeat', () => {
   s = gm(s, { t: 'combat.start' });
   const icon = (role) => viewFor(s, pack, role).combat.combatants[0].image;
   assert.equal(icon('gm'), '/pack/images/chief_p1.webp');
+  s = gm(s, { t: 'combat.update', uid: s.combat.combatants[0].uid, image: '/pack/images/rat.webp' });
+  assert.equal(icon('gm'), '/pack/images/rat.webp');
   s = gm(s, { t: 'scene.set', kind: 'boss', data: { bossId: 'chief', revealed: true } });
   s = gm(s, { t: 'boss.phase' });
   assert.equal(icon('stage'), '/pack/images/chief_p2.webp');

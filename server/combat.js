@@ -268,12 +268,21 @@ function linkedBoss(st, m) {
   return m.type === 'mob' && m.sourceKind === 'boss' && st.scene?.kind === 'boss' && st.scene.data?.bossId === m.sourceId && st.scene.data?.boss;
 }
 
+function bossArtState(st, m) {
+  const scene = linkedBoss(st, m) ? st.scene.data : null;
+  return { scene, phase: scene?.phase ?? m.bossPhase ?? 0, defeated: Boolean(scene?.defeated || m.hp <= 0) };
+}
+
 function combatArt(st, library, m) {
   if (m.sourceKind !== 'boss') return m.image ?? null;
-  const scene = linkedBoss(st, m) ? st.scene.data : null;
+  const { scene, phase, defeated } = bossArtState(st, m);
   const boss = scene?.boss ?? library.get('boss', m.sourceId);
-  const phase = scene?.phase ?? m.bossPhase ?? 0;
-  return ((scene?.defeated || m.hp <= 0) && boss?.imageKo)
+  const override = m.bossArtOverride;
+  if (override?.phase === phase && override.defeated === defeated) return m.image ?? null;
+  const base = boss?.imageSquare || boss?.image || null;
+  // Older fights can already contain a custom picture before any phase change.
+  if (!override && phase === 0 && !defeated && m.image !== undefined && m.image !== base) return m.image;
+  return (defeated && boss?.imageKo)
     || boss?.phases?.[phase]?.image || m.image || boss?.imageSquare || boss?.image || null;
 }
 
@@ -847,7 +856,13 @@ export const COMBAT_GM = {
     if (a.dr !== undefined) m.dr = intIn(a.dr, 'dr', -99, 99);
     if (a.notes !== undefined) m.notes = txt(a.notes, 'notes', 500, { allowEmpty: true });
     if (a.hidden !== undefined) m.hidden = flag(a.hidden, 'hidden');
-    if (a.image !== undefined) m.image = mobImage(a.image);
+    if (a.image !== undefined) {
+      m.image = mobImage(a.image);
+      if (m.sourceKind === 'boss') {
+        const { phase, defeated } = bossArtState(st, m);
+        m.bossArtOverride = { phase, defeated };
+      }
+    }
   },
 
   'combat.damage'(st, a, ctx, out) { changeHp(st, a, ctx, out, -1); },
