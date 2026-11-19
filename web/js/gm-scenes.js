@@ -9,7 +9,7 @@
 // Also makes this page the audio device (System voice + stingers).
 //
 // Mounted from gm.js: createScenes({ client, act, getView }) → { update, mountInto(section, parts) }.
-import { h, toast, itemArt } from './client.js';
+import { h, toast, itemArt, onPortraits, portraitSrc } from './client.js';
 import { icon, field, select, labeled } from './ui.js';
 import { createGmAudio } from './gm-audio.js';
 import { uiOf, uiAsset } from './ui-art.js';
@@ -356,12 +356,17 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
     const mob = (x) => ({ ...x, hidden: false, boss: x.sourceKind === 'boss', group: x.sourceId ? `${x.sourceKind}:${x.sourceId}` : null, hpPct: x.hpMax ? x.hp / x.hpMax : 1 });
     const shown = (c.combatants || []).filter((x) => !(pvLive && x.type === 'mob' && x.hidden)).map((x) => (x.type === 'mob' ? mob(x) : x));
     const scene = pvLive ? v.scene : pvScene;
-    return { ...v, scene, combat: { ...c, active: c.active || scene?.kind === 'boss', combatants: shown } };
+    const players = (v.players || []).map((p) => ({ ...p, portrait: portraitSrc(p.portrait) }));
+    const lineup = !pvLive && !c.active && ['combat', 'boss'].includes(scene?.kind)
+      ? [...(c.previewCrawlers || []), ...shown.filter((x) => x.type === 'mob')]
+      : shown;
+    return { ...v, players, scene, combat: { ...c, active: c.active || scene?.kind === 'boss', combatants: lineup } };
   }
   function pvPost() {
     if (!pvReady || !(pvLive ? view().scene : pvScene) || !pvFrame?.contentWindow) return;
     try { pvFrame.contentWindow.postMessage({ t: 'draft.view', view: JSON.parse(JSON.stringify(draftView())) }, location.origin); } catch (err) { console.error(err); }
   }
+  onPortraits(pvPost);
   function pvEnsureFrame() {
     if (pvFrame) return;
     pvReady = false;
@@ -380,7 +385,7 @@ export function createScenes({ client, act, getView, getCues = () => null }) {
   /** Asks the server for the dry-run scene of the picked chip (debounced; the same draft is asked once). */
   function pvRefresh() {
     const wantPv = pref.pv && el.isConnected && !el.closest('[hidden]');
-    const live = isTool(tab) || (tab === 'fight' ? fightOnAir() : isLive(tab));
+    const live = isTool(tab) || (tab === 'fight' ? !!view().combat?.active && fightOnAir() : isLive(tab));
     if (live !== pvLive) { pvLive = live; pvKey = ''; }
     pvK.textContent = live ? 'On the TV' : 'Preview';
     pvSub.textContent = live ? 'Live mirror' : 'Not on the TV yet';

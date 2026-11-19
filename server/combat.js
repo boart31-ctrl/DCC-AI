@@ -268,6 +268,15 @@ function linkedBoss(st, m) {
   return m.type === 'mob' && m.sourceKind === 'boss' && st.scene?.kind === 'boss' && st.scene.data?.bossId === m.sourceId && st.scene.data?.boss;
 }
 
+function combatArt(st, library, m) {
+  if (m.sourceKind !== 'boss') return m.image ?? null;
+  const scene = linkedBoss(st, m) ? st.scene.data : null;
+  const boss = scene?.boss ?? library.get('boss', m.sourceId);
+  const phase = scene?.phase ?? m.bossPhase ?? 0;
+  return ((scene?.defeated || m.hp <= 0) && boss?.imageKo)
+    || boss?.phases?.[phase]?.image || m.image || boss?.imageSquare || boss?.image || null;
+}
+
 export function crawlerHp(st, ctx, x) {
   const p = st.players.find((y) => y.id === x.playerId);
   if (!p) throw notFound(`no player ${x.playerId}`);
@@ -1058,6 +1067,11 @@ export function combatView(state, pack, role) {
       defense: (({ evade, dr }) => ({ evade: evade?.label ?? null, dr: dr?.label ?? null }))(defenseDefs(pack)),
       rules: (({ family, degrees, crit, hitRule, advantage }) => ({ family, degrees, crit, hitRule, advantage }))(combatRules(pack, c.settings)),
     });
+    if (!c.active) {
+      const existing = new Map(c.combatants.filter((x) => x.type === 'crawler').map((x) => [x.playerId, x]));
+      head.previewCrawlers = state.players.map((p) => crawlerRow(state, pack, library,
+        existing.get(p.id) ?? { uid: `preview:${p.id}`, playerId: p.id }, false));
+    }
   }
   const combatants = [];
   for (const x of c.combatants) {
@@ -1068,12 +1082,12 @@ export function combatView(state, pack, role) {
     }
     if (gm) {
       const { sourceKey, ...m } = x;
-      combatants.push({ ...m, down: m.hp <= 0, linked: !!linkedBoss(state, x) });
+      combatants.push({ ...m, image: combatArt(state, library, m), down: m.hp <= 0, linked: !!linkedBoss(state, x) });
       continue;
     }
     if (x.hidden) continue;
     const row = {
-      uid: x.uid, type: 'mob', name: x.name, image: x.image ?? null, boss: x.sourceKind === 'boss',
+      uid: x.uid, type: 'mob', name: x.name, image: combatArt(state, library, x), boss: x.sourceKind === 'boss',
       group: x.sourceKey ?? null, // same library monster → one pack on the TV
       hpPct: hpFraction(x.hp, x.hpMax), down: x.hp <= 0,
       conditions: (x.conditions ?? []).map((k) => ({ id: k.id ?? null, name: k.name, ...(k.rounds ? { rounds: k.rounds } : {}) })),

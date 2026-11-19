@@ -80,6 +80,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       title: `Art for ${m.name}`,
       sub: 'This combatant only, for this fight. To change the monster for good, use its art button under Add to the fight.',
       current: m.image,
+      group: m.sourceKind || null,
+      initialSearch: libEntry(m)?.name || '',
       onPick: (u) => act({ t: 'combat.update', uid: m.uid, image: u }, `${m.name}: art changed.`),
     });
   }
@@ -810,8 +812,11 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const dead = mobs.filter((m) => m.down);
     const hiddenN = living.filter((m) => m.hidden).length;
     const list = h('section.panel.cbt-list-panel',
-      h('div.sec-head', h('h2', 'Crawlers'), h('span.dim', c.active ? `Now: ${c.phase || ''}` : 'Join when combat starts')),
-      crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', c.active ? 'No crawlers in the fight.' : 'Start combat to bring the whole party in.'),
+      h('div.sec-head', h('h2', 'Crawlers'), c.active ? h('span.dim', c.phase || '') : null),
+      !c.active && c.previewCrawlers?.length ? h('ul.cbt-preview-party', c.previewCrawlers.map((p) => {
+        const player = view.players?.find((x) => x.id === p.playerId);
+        return h('li', avatar(p.name, { size: 32, src: player?.portrait, color: p.color }), h('b', p.name));
+      })) : crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', 'No crawlers in the fight.'),
       lateJoin(c, crawlers),
       h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), h('span.grow'),
         hiddenN ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, 'Every mob revealed.') }, icon('eye', { size: 13 }), 'Reveal all') : null,
@@ -822,10 +827,10 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
           toast('Board cleared.');
         } }, icon('trash', { size: 13 }), 'Remove all') : null),
       encounterChips(),
-      h('details.cbt-add', { open: ui.addOpen ?? !mobs.length, ontoggle: (e) => { ui.addOpen = e.target.open; } }, h('summary', icon('plus', { size: 14 }), 'Add mobs'), builder()),
       living.length ? h('ul.cbt-list', living.map(mobCard)) : h('p.empty-s', mobs.length ? 'Every mob is down.' : 'No mobs yet. Add them below.'),
       dead.length ? h('details.cbt-fallen', { open: ui.fallenOpen || null, ontoggle: (e) => { ui.fallenOpen = e.target.open; } },
         h('summary', `Defeated (${dead.length})`), h('ul.cbt-list', dead.map(fallenRow))) : null,
+      h('details.cbt-add', { open: ui.addOpen ?? !mobs.length, ontoggle: (e) => { ui.addOpen = e.target.open; } }, h('summary', icon('plus', { size: 14 }), 'Add mobs'), builder()),
     );
     const side = h('div.cbt-side', encLoot.el, battleMap.el, lootPanel(), view?.scene?.kind === 'finale' ? null : prizePanel(), c.active ? autoPanel() : null, lastRollCard());
     // Keep scroll positions across redraws (adding 3 monsters must not jump to the top of the list).
@@ -833,12 +838,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const page = el.closest('.gm-main');
     const pageTop = page?.scrollTop;
     el.replaceChildren(...[
-      header(),
-      rxPanel({ act, view }),
-      initPanel(),
-      ui.editPhases ? phaseEditor() : null,
-      finaleBanner(),
-      h('div.cbt-cols', list, side),
+      h('div.cbt-command', header(), list),
+      h('div.cbt-cols', h('div.cbt-side',
+        rxPanel({ act, view }), initPanel(), ui.editPhases ? phaseEditor() : null, finaleBanner()), side),
     ].filter(Boolean));
     [...el.querySelectorAll('.cbt-picks')].forEach((x, i) => { if (keep[i]) x.scrollTop = keep[i]; });
     if (page && pageTop != null) page.scrollTop = pageTop;

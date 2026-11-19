@@ -543,9 +543,6 @@ body.preview { cursor: default; }
 .bm-x { font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 2.4rem; line-height: 1; color: var(--th); }
 .bm-bar { height: 0.9rem; background: rgba(var(--th-rgb), 0.15); outline: 1px solid rgba(var(--th-rgb), 0.4); }
 .bm-bar i { display: block; height: 100%; background: var(--th); transition: width 0.5s var(--ease-out); }
-.bm-pips { display: flex; gap: 0.3rem; }
-.bm-pips i { flex: 1; height: 0.9rem; background: var(--th); }
-.bm-pips i.gone { background: rgba(var(--th-rgb), 0.12); outline: 1px solid rgba(var(--th-rgb), 0.4); outline-offset: -1px; }
 
 /* ---------- 1280x720 and narrow TVs: rem already scales; just tighten the giants ---------- */
 @media (max-aspect-ratio: 16/10) {
@@ -653,6 +650,10 @@ body.stage[data-scene="roll"] .subtitle { bottom: auto; top: 6.2rem; }
 .bm { grid-template-columns: auto minmax(0, 1fr); align-items: center; column-gap: 0.8rem; }
 .bm.more { grid-template-columns: 1fr; }
 .bm-img { width: 5rem; height: 5rem; object-fit: cover; border: 2px solid rgba(var(--th-rgb), 0.55); background: #07040d; }
+.bm-portraits { display: flex; flex-wrap: wrap; gap: 0.22rem; }
+.bm-portraits span { display: grid; place-items: center; width: 1.65rem; height: 1.65rem; background: rgba(var(--th-rgb), 0.24); overflow: hidden; font-size: 0.75rem; }
+.bm-portraits .bm-img { width: 100%; height: 100%; border-width: 1px; }
+.bm-portraits .gone { opacity: 0.35; filter: grayscale(1); }
 .bm.down .bm-img { filter: grayscale(1); }
 .bm-body { display: grid; gap: 0.5rem; min-width: 0; }
 .ar-dying { background: #ff2448; animation: ar-dying-pulse 1s ease-in-out infinite; }

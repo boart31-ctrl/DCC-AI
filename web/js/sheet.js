@@ -874,13 +874,38 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     if (await act({ t: 'sheet.set', path: 'portrait', value: url })) toast('Picture saved. It shows on the TV too.');
   }
   function portraitMenu() {
-    if (!M.sheet.portrait) { uploadPortrait(); return; }
+    const packArt = view?.pack?.ui;
+    const families = Object.entries(packArt?.avatarFamilies || {});
+    const familyImages = new Set(families.flatMap(([, entries]) => Object.values(entries).map((art) => art.src)));
+    const general = Object.fromEntries(Object.entries(packArt?.avatars || {}).filter(([, art]) => !familyImages.has(art.src)));
+    if (Object.keys(general).length) families.unshift(['general', general]);
+    if (!M.sheet.portrait && !families.length) { uploadPortrait(); return; }
+    const grid = h('div.sh-avatar-grid');
+    const showFamily = (key) => {
+      const entries = families.find(([id]) => id === key)?.[1] ?? {};
+      grid.replaceChildren(...Object.entries(entries).map(([id, art]) => {
+        const label = art.name || `${humanize(key)} ${id}`;
+        return h('button.sh-avatar-choice', {
+          type: 'button', 'aria-pressed': String(M.sheet.portrait === art.src),
+          onclick: async () => {
+            if (await act({ t: 'sheet.set', path: 'portrait', value: art.src }, 'Picture saved.')) closeDrawer();
+          },
+        }, h('img', { src: art.still || art.src, alt: '', loading: 'lazy', decoding: 'async' }), h('span', label));
+      }));
+    };
+    const initial = families.find(([, entries]) => Object.values(entries).some((art) => art.src === M.sheet.portrait))?.[0] ?? families[0]?.[0];
+    if (initial) showFamily(initial);
     openDrawer({
       title: 'Character picture',
-      body: [h('div.pt-preview', avatar(player.name, { src: M.sheet.portrait, size: 160 })), h('p.dim', 'Shown on the TV party strip, in fights and on loot and achievement moments.')],
+      body: [
+        M.sheet.portrait ? h('div.pt-preview', avatar(player.name, { src: M.sheet.portrait, size: 96 })) : null,
+        initial ? h('label.lbl', h('span.lbl-t', 'Avatar family'),
+          select(families.map(([value]) => ({ value, label: humanize(value) })), initial, { onChange: showFamily })) : null,
+        initial ? grid : null,
+      ],
       actions: [
-        h('button.btn.danger', { type: 'button', onclick: async () => { if (await act({ t: 'sheet.set', path: 'portrait', value: null }, 'Picture removed.')) closeDrawer(); } }, 'Remove'),
-        h('button.btn.btn-primary', { type: 'button', onclick: () => { closeDrawer(); uploadPortrait(); } }, 'Choose another picture'),
+        M.sheet.portrait ? h('button.btn.danger', { type: 'button', onclick: async () => { if (await act({ t: 'sheet.set', path: 'portrait', value: null }, 'Picture removed.')) closeDrawer(); } }, 'Remove') : null,
+        h('button.btn.btn-primary', { type: 'button', onclick: () => { closeDrawer(); uploadPortrait(); } }, 'Upload a picture'),
       ],
     });
   }

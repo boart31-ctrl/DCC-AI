@@ -52,11 +52,18 @@
 @media (min-width: 900px) { .cbt-endtoast { bottom: 24px; } }
 
 /* ---------- columns ---------- */
+.cbt-command { display: grid; grid-template-columns: minmax(260px, 0.8fr) minmax(0, 2fr); gap: 14px; align-items: start; margin-bottom: 14px; }
+.cbt-command .cbt-head { min-width: 0; margin: 0; }
+.cbt-command .cbt-list-panel { min-width: 0; }
 .cbt-cols { display: grid; grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); gap: 14px; align-items: start; }
+.cbt-preview-party { list-style: none; display: flex; flex-wrap: wrap; padding: 0; margin: 0; gap: 8px 14px; }
+.cbt-preview-party li { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.cbt-preview-party b { overflow-wrap: anywhere; }
 @media (max-width: 1150px) { .cbt-cols { grid-template-columns: minmax(0, 1fr); } }
 /* Beside the TV mirror the tracker is narrower than the window: go by its own width. */
 .sh-slot { container-type: inline-size; }
 @container (max-width: 900px) { .cbt-cols { grid-template-columns: minmax(0, 1fr); } }
+@container (max-width: 760px) { .cbt-command { grid-template-columns: minmax(0, 1fr); } }
 .cbt-side { display: grid; gap: 14px; }
 .cbt-list { list-style: none; margin: 0 0 6px; padding: 0; display: grid; gap: 6px; }
 .cbt-mobs-head { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--c-line); }

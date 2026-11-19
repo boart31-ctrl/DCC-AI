@@ -275,7 +275,9 @@ for that spot. Keys are ids (`A-Z a-z 0-9 _ -`), at most 200 per section. Unknow
 | `rarityFrames` | rarity (+ `sponsor`) | a top-left corner ornament, mirrored to the four corners of the item card on the TV |
 | `medals` | achievement group slug (`"Death-Adjacent"` → `death_adjacent`) or `default` | medal on the achievement takeover |
 | `fx` | `impact`, `crit`, `heal`, ... | comic decal slammed over a card when it is hit / healed in the arena |
-| `stingers`, `empty`, `avatars`, `anim` | any | stored and served; not shown by the engine yet |
+| `avatars` | portrait ID → image | general choices in the character portrait picker |
+| `avatarFamilies` | family ID → portrait ID → image | grouped choices in the same picker; the image may carry a display `name` |
+| `stingers`, `empty`, `anim` | any | stored and served; available to scene UI |
 
 ```json
 {

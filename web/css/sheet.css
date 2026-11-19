@@ -281,6 +281,11 @@
 .av-edit { position: absolute; right: -4px; bottom: -4px; width: 20px; height: 20px; display: grid; place-items: center; border-radius: 50%; background: var(--c-accent); color: var(--c-accent-ink); border: 2px solid var(--c-panel); }
 .pt-preview { display: grid; place-items: center; }
 .pt-preview .avatar { border-radius: var(--r-2); }
+.sh-avatar-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(78px, 1fr)); gap: 8px; }
+.sh-avatar-choice { min-width: 0; display: grid; gap: 4px; padding: 4px; background: var(--c-sunk); color: inherit; border: 1px solid var(--c-line); border-radius: var(--r-2); cursor: pointer; font: inherit; }
+.sh-avatar-choice[aria-pressed="true"] { border-color: var(--c-accent); }
+.sh-avatar-choice img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: var(--r-1); }
+.sh-avatar-choice span { overflow-wrap: anywhere; font-size: 0.8em; }
 
 /* ---------- actions: counters ---------- */
 

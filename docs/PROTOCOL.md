@@ -361,7 +361,7 @@ Location `features` are GM-only too.
 | `boss.intro` | `line?` [true] | `revealed = true`; event `boss.intro`; feed line; P1 voice line = boss `intro` text, else a quip from category `boss` |
 | `boss.damage` | `amount?` [1] (1..100) | HP − amount (min 0); event `boss.hit`; ack `result: {hp, max, suggestPhase}` |
 | `boss.heal` | `amount?` [1] | HP + amount (max hpSlots), clears `defeated`; event `boss.heal` |
-| `boss.phase` | `index?` [next] | Event `boss.phase`; feed line. `bad_request` if there is no further phase |
+| `boss.phase` | `index?` [next] | Event `boss.phase`, feed line and the matching phase image in scene and combat views. `bad_request` if there is no further phase |
 | `boss.defeat` | `lootHint?`, `line?` [true] | `defeated`, HP 0; event `boss.defeat`; feed line; +20% viewers; P1 voice line = boss `defeatLine` |
 | `countdown.start` / `countdown.pause` | — | Server-timestamped; `bad_request` at zero |
 | `countdown.add` | `seconds` (±, not 0) | Adds/removes time, keeps running |

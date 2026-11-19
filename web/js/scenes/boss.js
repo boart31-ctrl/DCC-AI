@@ -165,9 +165,10 @@ export default function boss(root, sc, env) {
     root.classList.toggle('many-minions', groups.length > 3);
     minions.replaceChildren(...groups.slice(0, 8).map((g) => {
       if (g.pack) {
-        return h('div.bm', { class: `bm pack${g.alive ? '' : ' down'}` }, pic(g.members.find((m) => !m.down) || g.members[0]),
+        return h('div.bm', { class: `bm pack${g.alive ? '' : ' down'}` },
           h('div.bm-body', h('div.bm-n', h('b', g.name), h('span.bm-x', `×${g.alive}`)),
-            h('div.bm-pips', g.members.map((m) => h('i', { class: m.down ? 'gone' : '' })))));
+            h('div.bm-portraits', g.members.map((m) => h('span', { title: m.name, 'aria-label': m.name, class: m.down ? 'gone' : '' },
+              pic(m) ?? m.name.split(' ').at(-1))))));
       }
       const m = g.members[0];
       const pct = Math.max(0, Math.min(1, m.hpPct ?? (m.hpMax ? m.hp / m.hpMax : 1)));

@@ -36,6 +36,9 @@ export function collectArt(view) {
       const own = e.artPick ? e.packImage : e.image;
       if (k === 'boss' && e.imageSquare && !e.artPick) add(e.imageSquare, e.name, k);
       add(own, e.name, k);
+      for (const [i, src] of (e.variants || []).entries()) add(src, `${e.name} · ${i + 2}`, k);
+      for (const [i, phase] of (e.phases || []).entries()) add(phase.image, `${e.name} · ${phase.name || i + 1}`, k);
+      if (k === 'boss') add(e.imageKo, `${e.name} · Defeated`, k);
     }
   }
   // The pack's icon library (GM view): every icon by category, also the generic ones for custom items.
@@ -62,9 +65,9 @@ export function collectArt(view) {
  * Opens the gallery. opts: { title, current, onPick(url|null), allowClear, clearLabel, extra } — onPick(null)
  * means "no art" (or "back to the pack's own" when clearLabel says so).
  */
-export function openArtGallery(view, { title = 'Choose art', sub, current = null, onPick, allowClear = true, clearLabel = 'No art (silhouette)', group = null } = {}) {
+export function openArtGallery(view, { title = 'Choose art', sub, current = null, onPick, allowClear = true, clearLabel = 'No art (silhouette)', group = null, initialSearch = '' } = {}) {
   const all = collectArt(view);
-  const st = { group: group && all.some((a) => a.group === group) ? group : all.some((a) => a.group === 'monster') ? 'monster' : 'all', q: '', cat: 'all' };
+  const st = { group: group && all.some((a) => a.group === group) ? group : all.some((a) => a.group === 'monster') ? 'monster' : 'all', q: initialSearch, cat: 'all' };
   const cats = h('div.chips.ag-chips.ag-cats');
   const grid = h('div.ag-grid', { role: 'listbox', 'aria-label': 'Pictures' });
   const count = h('span.dim.ag-count');
@@ -89,7 +92,7 @@ export function openArtGallery(view, { title = 'Choose art', sub, current = null
       onclick: () => pick(a.url),
     }, h('span.ag-img', h('img', { src: a.url, alt: '', loading: 'lazy', decoding: 'async', onerror: (e) => e.target.closest('.ag-tile')?.remove() })), h('span.ag-name', a.name))) : [h('p.empty-s', 'Nothing matches.')]));
   };
-  const search = h('input.inp.inp-sm', { type: 'search', placeholder: 'Search pictures', 'aria-label': 'Search pictures', oninput: (e) => { st.q = e.target.value; draw(); } });
+  const search = h('input.inp.inp-sm', { type: 'search', value: initialSearch, placeholder: 'Search pictures', 'aria-label': 'Search pictures', oninput: (e) => { st.q = e.target.value; draw(); } });
   const url = h('input.inp.inp-sm.mono-in', { placeholder: '/pack/images/… or https://…', 'aria-label': 'Picture URL', spellcheck: 'false' });
   const useUrl = () => { const u = toUrl(url.value); if (u) pick(u); };
   url.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); useUrl(); } });
