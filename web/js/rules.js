@@ -314,6 +314,18 @@ export function normalizeRuleset(pack) {
   };
 }
 
+/** Stat rolls add check-wide effects without changing the sheet's underlying Stat Mod. */
+export function statCheckBonus(computed, statId) {
+  const stat = computed?.stats?.[statId]?.mod ?? { value: 0, parts: [] };
+  const check = computed?.buffs?.check;
+  if (!check || (!check.value && !check.parts?.length)) return stat;
+  return {
+    value: stat.value + check.value,
+    parts: [...stat.parts, { label: 'Check modifiers', source: 'buff.check', value: check.value, parts: check.parts }],
+    warnings: [...(stat.warnings ?? []), ...(check.warnings ?? [])],
+  };
+}
+
 /** Library lookup over whatever shape the view carries. */
 export function libraryOf(view) {
   const src = view?.library || view?.gm?.library || view?.pack?.library || {};

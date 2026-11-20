@@ -22,6 +22,8 @@ import { libraryOf } from './rules.js';
 import { pickFromLibrary, KIND_LABEL } from './lib-picker.js';
 import { encounterEditor, ratingBadge, strengthBadge } from './gm-encounter.js';
 import { createMaps } from './gm-maps.js';
+import { createEvening } from './evening.js';
+import { openEveningCheck } from './prep-checks.js';
 
 const REF_LABEL = { ...KIND_LABEL, loot: 'Loot box' };
 const LIB_REF = ['monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff'];
@@ -36,7 +38,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   let sig = '';
   let reachSig = '';
   let pending = false;
-  const st = { sel: store.get('sel', null), closed: new Set(store.get('closed', [])), q: '' };
+  const st = { sel: null, newEvening: false, closed: new Set(store.get('closed', [])) };
   const el = h('div.prep2');
   const reach = h('div.sh-reach', { hidden: true });
   // One map editor for Prep (Maps + an encounter's battle map); never touches the TV.
@@ -52,6 +54,8 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   const family = () => view?.pack?.ruleset?.system?.family || 'crawler';
   const party = () => (view?.players || []).map((p) => ({ level: p.level || 1 }));
   const tplLabel = (id) => (P().templates || []).find((t) => t.id === id)?.label || P().adventures?.find((a) => a.id === id)?.title || id;
+  const currentEvening = () => (docById(P().current)?.evening ? docById(P().current) : docs().findLast((d) => d.evening)) ?? null;
+  const evening = createEvening({ act, redraw, onPlan: planEvening, onRun: runEvening, onShow: showEvening, openInLibrary });
 
   function entryOf(ref) {
     if (!ref) return null;
@@ -78,7 +82,40 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     return { cls: 'rd-green', why: 'Has a picture.' };
   }
   /* ---------- actions ---------- */
-  const select_ = (id) => { st.sel = id; store.set('sel', id); sig = ''; draw(); };
+  const select_ = (id) => { st.sel = id; st.newEvening = false; redraw(); };
+  function redraw(force = false) { sig = ''; draw(force); }
+  async function planEvening(payload) {
+    const r = await act({ t: 'prep.evening.plan', ...payload });
+    if (!r?.result?.id) return false;
+    const { id, sceneId } = r.result;
+    await waitView((v) => v.gm?.prep?.docs.some((d) => d.id === id));
+    evening.selectScene(id, sceneId);
+    select_(id);
+    return true;
+  }
+  async function runEvening(doc, scene, { fight = false } = {}) {
+    const r = await act({ t: 'prep.scene.run', id: doc.id, sceneId: scene.id, ...(fight ? { fight: true } : {}) });
+    if (!r) return false;
+    const { combatId, mapId } = r.result ?? {};
+    await waitView((v) => v.gm?.prep?.docs.some((d) => d.id === doc.id && d.evening?.activeSceneId === scene.id)
+      && (!combatId || v.combat?.id === combatId));
+    showView('show');
+    if (combatId) scenes.pick('fight');
+    else if (mapId || scene.mapId) scenes.loadDraft('map', { mapId: mapId || scene.mapId });
+    else scenes.pick('explore');
+    return true;
+  }
+  async function showEvening(doc, scene, show = {}) {
+    const kind = show.kind === 'map' ? 'map' : show.kind === 'npc' ? 'npc' : 'explore';
+    const adventure = docById(doc.adventureId);
+    const floor = (P().evenings || []).find((t) => t.adventureId === adventure?.template)?.floor;
+    const data = kind === 'map' ? { mapId: show.id || scene.mapId } : kind === 'npc' ? { npcId: show.id }
+      : { location: scene.title.slice(0, 80), text: scene.readAloud.slice(0, 1200), ...(floor ? { floor: `Floor ${floor}` } : {}) };
+    if (!(await act({ t: 'scene.set', kind, data }))) return false;
+    showView('show');
+    scenes.pick(kind);
+    return true;
+  }
   async function newAdventure(template) {
     const r = await act({ t: 'prep.adventure.add', title: 'New adventure', ...(template ? { template } : {}) }, 'Adventure created.');
     if (r?.result?.id) select_(r.result.id);
@@ -154,7 +191,8 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   const monsterSection = (d) => d?.sections.find((s) => s.kind === 'refs' && !s.hidden && s.refKinds.includes('encounter'));
   function inTonight(encId) {
     const d = docById(P().current);
-    return !!d?.sections.some((s) => s.items.some((it) => it.pin && ((it.ref?.kind === 'encounter' && it.ref.id === encId) || it.links?.some((l) => l.kind === 'encounter' && l.id === encId))));
+    return !!d?.evening?.scenes.some((s) => s.id === d.evening.activeSceneId && s.encounterId === encId)
+      || !!d?.sections.some((s) => s.items.some((it) => it.pin && ((it.ref?.kind === 'encounter' && it.ref.id === encId) || it.links?.some((l) => l.kind === 'encounter' && l.id === encId))));
   }
   /** The view arrives a moment after the action's answer: wait for it (max ~2 s). */
   async function waitView(fn) {
@@ -182,11 +220,12 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     else await act({ t: 'prep.item.add', id: d.id, key: sec.key, ref: { kind: 'encounter', id: encId }, pin: true }, 'In tonight’s plan and within reach on the Show tab.');
   }
 
-  /* ---------- left: doc list ---------- */
+  /* ---------- library drawer ---------- */
+  const browse = (id) => { closeDrawer(); select_(id); };
   function docRow(d) {
     const cur = P().current === d.id;
     const adv = d.adventureId ? docById(d.adventureId) : null;
-    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === d.id ? 'true' : null, onclick: () => select_(d.id) },
+    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === d.id ? 'true' : null, onclick: () => browse(d.id) },
       h('span.pp-doc-t', d.title),
       h('span.dim', d.type === 'session' ? (adv ? adv.title : 'No adventure') : tplLabel(d.template)),
       cur ? h('span.pill.pill-on', 'Tonight') : null));
@@ -194,40 +233,84 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   function encRow(c) {
     const n = (c.payload?.mobs || []).reduce((a, m) => a + (m.count || 1), 0);
     const map = c.payload?.mapId ? (view?.maps || []).find((m) => m.id === c.payload.mapId) : null;
-    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === `enc:${c.id}` ? 'true' : null, onclick: () => select_(`enc:${c.id}`) },
+    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === `enc:${c.id}` ? 'true' : null, onclick: () => browse(`enc:${c.id}`) },
       h('span.pp-doc-t', c.label),
       h('span.dim', `${n} mob${n === 1 ? '' : 's'}${map ? ` · ${map.name}` : ''}`),
       inTonight(c.id) ? h('span.pill.pill-on', 'Tonight') : c.used ? h('span.pill', 'Used') : null));
   }
   function mapRow(m) {
-    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === `map:${m.id}` ? 'true' : null, onclick: () => select_(`map:${m.id}`) },
+    return h('li', h('button.pp-doc', { type: 'button', 'aria-current': st.sel === `map:${m.id}` ? 'true' : null, onclick: () => browse(`map:${m.id}`) },
       h('span.pp-doc-t', m.name),
       h('span.dim', `${m.zones.length} zone${m.zones.length === 1 ? '' : 's'} · ${m.tokens.length} token${m.tokens.length === 1 ? '' : 's'}`)));
   }
-  function side() {
-    const adv = docs().filter((d) => d.type === 'adventure');
-    const ses = docs().filter((d) => d.type === 'session').slice().reverse();
-    const advTpls = (P().templates || []).filter((t) => t.scope === 'adventure');
-    const encs = cards().filter((c) => c.kind === 'encounter').slice().reverse();
-    const maps = (view?.maps || []).slice().reverse();
-    return h('aside.pp-side',
-      h('div.pp-side-head', h('h2', 'Sessions'),
-        h('button.btn.btn-sm', { type: 'button', onclick: () => newSession(null), title: 'New session plan: unfinished secrets and scenes from tonight carry over' }, icon('plus', { size: 14 }), 'New')),
-      ses.length ? h('ul.pp-docs', ses.map(docRow)) : h('p.empty-s', 'No session plan yet.'),
-      h('div.pp-side-head', h('h2', 'Encounters'),
-        h('button.btn.btn-sm', { type: 'button', onclick: () => newEncounter(), title: 'Mobs from the library, strength for your party, a battle map' }, icon('plus', { size: 14 }), 'New')),
-      encs.length ? h('ul.pp-docs', encs.map(encRow)) : h('p.empty-s', 'Fights you prepare: mobs from the library, a map, one tap to run.'),
-      h('div.pp-side-head', h('h2', 'Maps'),
-        h('button.btn.btn-sm', { type: 'button', onclick: () => { mapEd.newMap((id) => select_(`map:${id}`)); } }, icon('plus', { size: 14 }), 'New')),
-      maps.length ? h('ul.pp-docs', maps.map(mapRow)) : h('p.empty-s', 'Maps with fog, zones and tokens.'),
-      h('div.pp-side-head', h('h2', 'Adventures'),
-        advTpls.length > 1
-          ? select([{ value: '', label: '+ New…' }, ...advTpls.map((t) => ({ value: t.id, label: t.label }))], '', { cls: 'inp-sm', label: 'New adventure from template', onChange: (v) => v && newAdventure(v) })
-          : h('button.btn.btn-sm', { type: 'button', onclick: () => newAdventure(null) }, icon('plus', { size: 14 }), 'New')),
-      P().adventures?.length ? h('ul.pp-docs', P().adventures.map((a) => h('li', h('button.pp-doc', { type: 'button', onclick: () => loadAdventure(a) }, h('span.pp-doc-t', a.title), h('span.dim', 'Load prepared adventure'))))) : null,
-      adv.length ? h('ul.pp-docs', adv.map(docRow)) : P().adventures?.length ? null : h('p.empty-s', 'An adventure holds what lasts several evenings: a neighbourhood, a quest, a dungeon.'),
-      (view?.pack?.cheats || []).length ? [h('div.pp-side-head', h('h2', 'Cheat sheets')),
-        h('ul.pp-docs', view.pack.cheats.map((c) => h('li', h('a.pp-doc', { href: c.url, target: '_blank', rel: 'noopener' }, h('span.pp-doc-t', c.label), h('span.dim', c.audience === 'gm' ? 'GM · print A4' : 'Players · on their phones too')))))] : null);
+  function libraryRows(query) {
+    const groups = new Map();
+    const locations = new Map();
+    const adventures = docs().filter((d) => d.type === 'adventure');
+    const seeds = P().adventures || [];
+    const imported = new Set();
+    const encs = cards().filter((c) => c.kind === 'encounter');
+    const floorOf = (title) => Number(/^Floor\s+(\d+)/i.exec(title || '')?.[1]) || null;
+    const seedFloor = (seed) => (P().evenings || []).find((t) => t.adventureId === seed?.id)?.floor ?? floorOf(seed?.title);
+    const docFloor = (d) => seedFloor(seeds.find((a) => a.id === d?.template)) ?? floorOf(d?.title);
+    const add = (floor, area, category, title, node) => {
+      const floorName = floor ? `Floor ${floor}` : 'Other prep';
+      if (query && !`${floorName} ${area} ${category} ${title}`.toLowerCase().includes(query)) return;
+      if (!groups.has(floor)) groups.set(floor, new Map());
+      const sections = groups.get(floor);
+      const key = area || category;
+      if (!sections.has(key)) sections.set(key, []);
+      sections.get(key).push(node);
+    };
+    for (const d of adventures) for (const section of d.sections) if (section.kind === 'parts') {
+      for (const item of section.items) for (const ref of item.links ?? []) if (['encounter', 'map'].includes(ref.kind)) {
+        const location = { floor: docFloor(d), area: section.label };
+        locations.set(ref.id, location);
+        const mapId = ref.kind === 'encounter' ? encs.find((c) => c.id === ref.id)?.payload?.mapId : null;
+        if (mapId) locations.set(mapId, location);
+      }
+    }
+    for (const seed of seeds) {
+      const loaded = adventures.find((d) => d.template === seed.id);
+      if (loaded) imported.add(loaded.id);
+      add(seedFloor(seed), '', 'Adventures', `${loaded?.title || ''} ${seed.title}`, h('li', h('button.pp-doc', {
+        type: 'button', onclick: () => { if (loaded) browse(loaded.id); else { closeDrawer(); loadAdventure(seed); } },
+      }, h('span.pp-doc-t', loaded?.title || seed.title), h('span.dim', loaded ? 'Loaded adventure' : 'Load prepared adventure'))));
+    }
+    for (const d of adventures) if (!imported.has(d.id)) add(docFloor(d), '', 'Adventures', d.title, docRow(d));
+    for (const d of docs().filter((d) => d.type === 'session').slice().reverse()) add(docFloor(docById(d.adventureId)), '', 'Evenings and sessions', d.title, docRow(d));
+    for (const c of encs) {
+      const loc = locations.get(c.id);
+      add(loc?.floor ?? floorOf(c.label), loc?.area || '', 'Encounters', c.label, encRow(c));
+    }
+    for (const m of view?.maps || []) {
+      const loc = locations.get(m.id);
+      add(loc?.floor ?? floorOf(m.name), loc?.area || '', 'Maps', m.name, mapRow(m));
+    }
+    for (const c of view?.pack?.cheats || []) add(null, '', 'Cheat sheets', c.label,
+      h('li', h('a.pp-doc', { href: c.url, target: '_blank', rel: 'noopener' }, h('span.pp-doc-t', c.label), h('span.dim', c.audience === 'gm' ? 'GM · print A4' : 'Players · on their phones too'))));
+    return [...groups].sort(([a], [b]) => (a ?? Infinity) - (b ?? Infinity)).map(([floor, sections]) =>
+      h('details.ev-library-floor', { open: true }, h('summary', floor ? `Floor ${floor}` : 'Other prep'),
+        [...sections].map(([name, rows]) => h('section.ev-library-group', h('h3', name), h('ul', rows)))));
+  }
+
+  function openLibrary() {
+    const results = h('div.ev-library-results');
+    const search = h('input.inp', { type: 'search', 'aria-label': 'Search Prep library', placeholder: 'Search Prep library', oninput: render });
+    function render() {
+      const rows = libraryRows(search.value.trim().toLowerCase());
+      results.replaceChildren(...(rows.length ? rows : [h('p.dim', search.value ? 'No matching prep found.' : 'No saved prep yet.')]));
+    }
+    const closed = (fn) => () => { closeDrawer(); fn(); };
+    const templates = (P().templates || []).filter((t) => t.scope === 'adventure');
+    render();
+    openDrawer({ title: 'Library', wide: true, body: h('div.ev-library', search, h('div.ev-library-actions',
+      h('button.btn.btn-sm', { type: 'button', onclick: closed(() => newEncounter()) }, 'New encounter'),
+      h('button.btn.btn-sm', { type: 'button', onclick: closed(() => mapEd.newMap((id) => select_(`map:${id}`))) }, 'New map'),
+      h('button.btn.btn-sm', { type: 'button', onclick: closed(() => newSession(null)) }, 'New session plan'),
+      templates.length > 1
+        ? select([{ value: '', label: 'New adventure…' }, ...templates.map((t) => ({ value: t.id, label: t.label }))], '', { cls: 'inp-sm', label: 'New adventure from template', onChange: (v) => v && closed(() => newAdventure(v))() })
+        : h('button.btn.btn-sm', { type: 'button', onclick: closed(() => newAdventure(null)) }, 'New adventure')), results) });
   }
 
   /* ---------- right: one doc ---------- */
@@ -364,33 +447,40 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
       h('span.grow'), add);
   }
   function main() {
+    const active = currentEvening();
+    if (st.newEvening) return evening.picker(view, { first: !active });
     if (selKind() === 'enc') {
       const c = cards().find((x) => x.id === selId() && x.kind === 'encounter');
       if (c) {
         if (c.payload?.mapId && mapEd.current() !== c.payload.mapId) mapEd.select(c.payload.mapId);
         mapEd.embed(true);
-        return h('div.pp-main', encounterEditor({ view, act, card: c, mapEd, inTonight, addToTonight, onDone: (id) => { if (id !== undefined) select_(id ? `enc:${id}` : null); else { sig = ''; draw(); } } }));
+        return h('div.pp-grid.ev-legacy', h('div.pp-main', encounterEditor({ view, act, card: c, mapEd, inTonight, addToTonight,
+          onDone: (id) => { if (id !== undefined) select_(id ? `enc:${id}` : null); else redraw(); } })));
       }
     }
     if (selKind() === 'map' && (view?.maps || []).some((m) => m.id === selId())) {
       if (mapEd.current() !== selId()) mapEd.select(selId());
       mapEd.embed(false);
-      return h('div.pp-main', mapEd.el);
+      return h('div.pp-grid.ev-legacy', h('div.pp-main', mapEd.el));
     }
-    const d = docById(st.sel) || docById(P().current) || docs()[docs().length - 1] || null;
-    if (!d) {
-      return h('div.pp-main.pp-empty', h('section.panel',
-        h('h2', 'Prep for the next session'),
-        h('p', 'Start with a session plan: a strong start, scenes that might happen, secrets the players can find, and links to the monsters, NPCs and places you need. Anything you do not play moves to the next plan.'),
-        h('p.dim', 'Adventures hold what lasts several evenings (a neighbourhood, a quest, a dungeon). Pin anything with the star and it waits on the Show tab, one tap away.'),
-        h('div.pp-head-row', h('button.btn.btn-primary', { type: 'button', onclick: () => newSession(null) }, icon('plus', { size: 14 }), 'New session plan'),
-          h('button.btn', { type: 'button', onclick: () => newAdventure(null) }, icon('plus', { size: 14 }), 'New adventure'))));
-    }
+    const d = docById(st.sel) || active;
+    if (!d) return evening.picker(view);
+    if (d.evening) return evening.render(view, d);
     const visible = d.sections.filter((s) => !s.hidden);
     const prepared = P().adventures?.some((a) => a.id === d.template);
-    return h('div.pp-main', docHead(d), prepared ? h('nav.pp-head-row', { 'aria-label': 'Adventure sections' }, visible.map((s) => h('button.btn.btn-sm', {
+    return h('div.pp-grid.ev-legacy', h('div.pp-main', docHead(d), prepared ? h('nav.pp-head-row', { 'aria-label': 'Adventure sections' }, visible.map((s) => h('button.btn.btn-sm', {
       type: 'button', onclick: () => el.querySelector(`[data-prep-section="${s.key}"]`)?.scrollIntoView({ block: 'start' }),
-    }, s.label))) : null, visible.map((s) => section(d, s)), hiddenRow(d));
+    }, s.label))) : null, visible.map((s) => section(d, s)), hiddenRow(d)));
+  }
+
+  function toolbar() {
+    const legacy = selKind() !== 'doc' || !!(docById(st.sel) && !docById(st.sel).evening);
+    const active = currentEvening();
+    return h('div.ev-top',
+      legacy || (st.newEvening && active) ? h('button.btn.btn-sm', { type: 'button', onclick: () => select_(null) }, icon('back', { size: 14 }), 'Back to evening') : null,
+      h('span.grow'),
+      active && !st.newEvening ? h('button.btn.btn-sm', { type: 'button', onclick: () => { st.newEvening = true; evening.resetPicker(); redraw(); } }, icon('plus', { size: 14 }), 'New evening') : null,
+      h('button.btn.btn-sm', { type: 'button', onclick: openLibrary }, icon('book', { size: 14 }), 'Library'));
   }
 
   /* ---------- within reach (Show tab) ---------- */
@@ -398,7 +488,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     const p = P();
     const cur = docById(p.current);
     if (!cur) return [];
-    const adv = cur.adventureId ? docById(cur.adventureId) : null;
+    const adv = !cur.evening && cur.adventureId ? docById(cur.adventureId) : null;
     const out = [];
     for (const d of [cur, adv].filter(Boolean)) for (const s of d.sections) if (!s.hidden) for (const it of s.items) if (it.pin && !it.done) out.push({ d, s, it });
     return out.slice(0, 10);
@@ -414,13 +504,25 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   function drawReach() {
     const items = reachItems();
     const cur = docById(P().current);
-    const sgn = JSON.stringify([cur?.title, items.map((x) => [x.it.id, x.it.title, x.it.text, x.it.ref, x.it.links]), cards().map((c) => [c.id, c.label, c.used]), (view?.maps || []).map((m) => m.name)]);
+    const active = cur?.evening?.scenes.find((s) => s.id === cur.evening.activeSceneId);
+    const activeLinks = (P().reach || []).find((r) => r.docId === cur?.id && r.sceneId === active?.id)?.item?.links ?? [];
+    const entries = activeLinks.map((r) => [r, refName(r), !!entryOf(r)]);
+    const sgn = JSON.stringify([cur?.title, active, entries, items.map((x) => [x.it.id, x.it.title, x.it.text, x.it.ref, x.it.links]), cards().map((c) => [c.id, c.label, c.used]), (view?.maps || []).map((m) => m.name)]);
     if (sgn === reachSig) return;
     reachSig = sgn;
     reach.hidden = !cur;
     if (!cur) { reach.replaceChildren(); return; }
     reach.replaceChildren(...[
       h('button.sh-reach-k', { type: 'button', title: `Tonight: ${cur.title}. Open the plan.`, onclick: () => { select_(cur.id); showView('prep'); } }, icon('star', { size: 12 }), 'Within reach'),
+      active ? h('span.sh-reach-scene',
+        h('button.sh-reach-i', { type: 'button', onclick: () => { evening.selectScene(cur.id, active.id); select_(cur.id); showView('prep'); } }, h('span.pp-kind', 'Scene'), active.title),
+        entries.map(([ref, name, present]) => h('button.sh-reach-i.sh-reach-sub', {
+          type: 'button', disabled: !present, title: `${REF_LABEL[ref.kind]} · ${useLabel(ref)}`,
+          onclick: () => ref.kind === 'encounter' ? runEvening(cur, active, { fight: true }) : useRef(ref),
+        }, h('span.pp-kind', ref.kind === 'encounter' ? 'Fight' : REF_LABEL[ref.kind]), name)),
+        active.checks.map((check) => h('button.sh-reach-i.sh-reach-sub', {
+          type: 'button', onclick: () => openEveningCheck({ view, act, doc: cur, scene: active, check }),
+        }, h('span.pp-kind', 'Check'), check.label || 'Check'))) : null,
       items.length ? items.map(({ d, s, it }) => {
         if (it.ref) {
           const e = entryOf(it.ref);
@@ -432,20 +534,21 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
             it.links.map((l) => h('button.sh-reach-i.sh-reach-sub', { type: 'button', class: l.kind === 'encounter' ? 'sh-reach-i sh-reach-sub sh-reach-enc' : 'sh-reach-i sh-reach-sub', disabled: !entryOf(l), title: `${REF_LABEL[l.kind]}: ${useLabel(l)}`, onclick: () => useRef(l) }, h('span.pp-kind', l.kind === 'encounter' ? (entryOf(l)?.used ? 'Ran' : 'Run') : REF_LABEL[l.kind]), refName(l))));
         }
         return h('button.sh-reach-i', { type: 'button', title: it.text || it.title, onclick: () => peek(d, s, it) }, h('span.pp-kind', s.label), it.title || (it.text.length > 40 ? `${it.text.slice(0, 40)}…` : it.text));
-      }) : h('span.dim', 'Pin items in Prep with the star to keep them here.')].flat());
+      }) : active ? null : h('span.dim', 'Pin items in Prep with the star to keep them here.')].flat().filter(Boolean));
   }
 
   /* ---------- render ---------- */
   let pendingFocus = null;
-  function draw() {
-    const active = document.activeElement;
-    if (active && el.contains(active) && /^(INPUT|TEXTAREA)$/.test(active.tagName) && active.type !== 'checkbox' && !pendingFocus) { pending = true; return; }
+  const editing = () => el.contains(document.activeElement) && document.activeElement.matches('input:not([type="checkbox"]), textarea');
+  function draw(force = false) {
+    if (!force && editing() && !pendingFocus) { pending = true; return; }
+    pending = false;
     const scroll = el.closest('.gm-main')?.scrollTop;
-    el.replaceChildren(h('div.pp-grid', side(), main()));
+    el.replaceChildren(toolbar(), main());
     if (pendingFocus) { el.querySelector(`[data-add-for="${pendingFocus}"]`)?.focus(); pendingFocus = null; }
     if (scroll != null) el.closest('.gm-main').scrollTop = scroll;
   }
-  el.addEventListener('focusout', () => setTimeout(() => { if (pending && !el.contains(document.activeElement)) { pending = false; sig = ''; draw(); } }, 0));
+  el.addEventListener('focusout', () => setTimeout(() => { if (pending && !editing()) { pending = false; redraw(); } }, 0));
 
   function update(v) {
     view = v;
@@ -455,7 +558,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     const { dangerParty, dangerRules, dangerFloor } = v.combat ?? {};
     const dangerMobs = ['monster', 'boss'].map((kind) => library[kind].map((e) => [e.id, e.role, e.hpSlots,
       e.slotValue, e.level, e.cr, e.flat, e.attacks?.map((a) => [a.damage, a.toHit, a.dc, a.dcPlusFloor, a.area, a.dtype])]));
-    const s = JSON.stringify([P(), (v.maps || []).map((m) => [m.id, m.name, m.zones.length, m.tokens.filter((t) => t.enc).map((t) => t.enc)]), cards().map((c) => [c.id, c.label, c.used, c.payload]), Object.values(library).map((x) => x.length), (v.players || []).map((p) => p.level), dangerParty, dangerRules, dangerFloor, dangerMobs]);
+    const s = JSON.stringify([P(), v.gm?.prepChecks, (v.maps || []).map((m) => [m.id, m.name, m.zones.length, m.tokens.filter((t) => t.enc).map((t) => t.enc)]), cards().map((c) => [c.id, c.label, c.used, c.payload]), Object.values(library).map((x) => x.length), (v.players || []).map((p) => p.level), dangerParty, dangerRules, dangerFloor, dangerMobs]);
     if (s === sig) return;
     sig = s;
     draw();

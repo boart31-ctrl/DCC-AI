@@ -5,6 +5,7 @@
 // Dice modes (per crawler, `dice.mode`): off = the phone only explains numbers; enter = keypad first; digital = Roll first.
 import { h, toast, buzz } from './client.js';
 import { dieFaces, icon, signed, spellCooldownHint } from './ui.js';
+import { statCheckBonus } from './rules.js';
 
 const KEEP_TARGET_MS = 5 * 60 * 1000;
 
@@ -196,7 +197,7 @@ export function createRollPad({ send, getView, getMe }) {
       }) : [];
     const derived = (R.derived || []).filter((d) => d.roll).map((d) => btn({ kind: 'derived', id: d.id }, d.label, c.derived?.[d.id]?.value));
     const skills = (sh.skills || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => btn({ kind: 'skill', uid: s.uid }, s.name, c.skills?.find((x) => x.uid === s.uid)?.total?.value));
-    const stats = (R.stats || []).map((s) => btn({ kind: 'stat', id: s.id }, `${s.abbr} check`, c.stats?.[s.id]?.mod?.value));
+    const stats = (R.stats || []).map((s) => btn({ kind: 'stat', id: s.id }, `${s.abbr} check`, statCheckBonus(c, s.id).value));
     const group = (t, list, note) => (list.length ? h('section.rp-group', h('h3', t), note ? h('p.hint', note) : null, h('div.rp-acts', list)) : null);
     if (st.attacksOnly) return h('div.rp-body', head('Choose an attack', null), h('div.rp-scroll',
       group('Attacks', attacks), group('Attack spells', spells), !attacks.length && !spells.length ? h('p.hint', 'Your sheet has no attacks yet.') : null));

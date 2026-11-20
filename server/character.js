@@ -3,6 +3,7 @@
 import { ActionError, bad, notFound, forbidden } from './errors.js';
 import { computeSheet, enhanceItem, MAX_ENHANCE, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
+import { statCheckBonus } from '../web/js/rules.js';
 import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots, typedDamage, recordKillCredit } from './outcome.js';
 
 export const DICE_MODES = ['off', 'enter', 'digital'];
@@ -131,7 +132,7 @@ export function migrateSheet(sheet, legacy, ruleset) {
     // Guided creation finished (server/creation.js): the phone stops offering the creator.
     ...(s.created ? { created: true } : {}),
     // Library skills tried untrained this session (ruleset skills.untrained.learn: one becomes Rank 1).
-    untried: arr(s.untried).filter((x) => typeof x === 'string' && x.length <= 80).slice(-MAX_UNTRIED),
+    untried: (Array.isArray(s.untried) ? s.untried : []).filter((x) => typeof x === 'string' && x.length <= 80).slice(-MAX_UNTRIED),
     ...(typeof s.species === 'string' && /^[a-z0-9_-]{1,30}$/.test(s.species) ? { species: s.species } : {}),
     // Starting things from guided creation, waiting for the GM (server/creation.js gear.approve / deny).
     gearRequest: arr(s.gearRequest).slice(0, 8).map((r) => ({ slot: String(r.slot ?? '').slice(0, 80), name: String(r.name ?? '').slice(0, 60), ...(typeof r.itemId === 'string' ? { itemId: r.itemId } : {}), ...(typeof r.icon === 'string' ? { icon: r.icon } : {}) })).filter((r) => r.name),
@@ -265,6 +266,11 @@ export function characterOf(p, ruleset) {
 export function computeFor(p, pack, library) {
   const ch = characterOf(p, pack.ruleset);
   return { ch, computed: computeSheet(ch, pack.ruleset, library) };
+}
+
+export function markUntrainedSkill(p, untrained, floor, skillId) {
+  if (!untrained?.learn || (untrained.learnMaxFloor && floor > untrained.learnMaxFloor)) return;
+  p.sheet.untried = [...new Set([...(p.sheet.untried ?? []), skillId])].slice(-MAX_UNTRIED);
 }
 
 /** Library items tagged "container" (bag of holding, backpack…) can hold other inventory entries. */
@@ -1442,7 +1448,7 @@ export const SHEET = {
       const def = rs.stats.find((s) => s.id === w.id);
       if (!def) throw notFound(`unknown stat ${w.id}`);
       label = `${def.abbr} check`;
-      ({ r, formula } = rollWith(rs.dice, computed.stats[def.id].mod, `${def.abbr} mod`, ctx, `mod.${def.id}`));
+      ({ r, formula } = rollWith(rs.dice, statCheckBonus(computed, def.id), `${def.abbr} mod`, ctx, `mod.${def.id}`));
     } else if (w.kind === 'derived') {
       const def = rs.derived.find((d) => d.id === w.id);
       if (!def) throw notFound(`unknown derived value ${w.id}`);
@@ -1485,7 +1491,7 @@ export const SHEET = {
       formula = `${rs.skills.check.roll || rs.dice} + ${String(unt.formula || 'mod.{stat}').replaceAll('{stat}', stat)}`;
       r = doRoll(formula, sheetResolver(computed, ch, rs), ctx);
       // Tried this session: the Tutorial Floors teach one of them (Rank 1) at the end of the session.
-      if (unt.learn && !(unt.learnMaxFloor && floorOfState(st) > unt.learnMaxFloor)) p.sheet.untried = [...new Set([...(p.sheet.untried ?? []), def.id])].slice(-MAX_UNTRIED);
+      markUntrainedSkill(p, unt, floorOfState(st), def.id);
     } else throw bad('what.kind must be stat, derived, skill, attack, spell, untrained or custom');
     const rec = finish(rollRecord(r, { ctx, p, by, label, formula, secret, what: w.kind, whatId: w.kind === 'stat' || w.kind === 'derived' ? w.id : w.kind === 'untrained' ? w.skillId : w.uid ?? null }));
     if (w.kind === 'attack' || w.kind === 'spell') rec.part = w.part === 'damage' ? 'damage' : 'hit';

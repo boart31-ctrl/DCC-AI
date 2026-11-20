@@ -286,6 +286,9 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 body:has(.tp-combat) :is(.combat-prompt, .roll-fab, .ini-prompt), .combat-prompt[hidden] { display: none; }
 .die-faces { display: grid; grid-template-columns: repeat(var(--faces-cols), minmax(0, 1fr)); gap: 6px; }
 .die-faces .btn { min-width: 0; min-height: 44px; font-size: 18px; font-weight: 700; padding-inline: 0; }
+.prep-prompts { display: grid; gap: 6px; margin: 8px 12px 0; }
+.prep-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
+.prep-prompt b { flex: 1; }
 .rxp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px; background: var(--c-panel); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
 .rxp[hidden] { display: none; }
 .rxp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }

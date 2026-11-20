@@ -15,6 +15,17 @@
 .pp-empty .panel { display: grid; gap: 8px; max-width: 640px; }
 .pp-empty h2 { margin: 0; }
 .pp-head { display: grid; gap: 8px; }
+.prep-checks, .prep-check { display: grid; gap: 8px; }
+.prep-check { padding: 8px; border: 1px solid var(--c-border); border-radius: 8px; }
+.prep-check-fields, .prep-check-result, .prep-check-targets label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.prep-check-fields > .inp { flex: 1 1 114px; min-width: 0; }
+.prep-check-fields > input[type="number"] { flex: 0 1 72px; }
+.prep-check-dc { white-space: nowrap; }
+.prep-check-targets { display: grid; gap: 8px; }
+.prep-check-targets label { min-height: 34px; }
+.prep-check-notes label { display: grid; grid-template-columns: minmax(70px, 110px) 1fr; align-items: center; gap: 8px; margin-top: 5px; }
+.prep-check-results ul { display: grid; gap: 4px; margin: 0 0 5px; padding: 0; list-style: none; }
+.prep-check-outcome { flex-basis: 100%; }
 .pp-head-row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .pp-title { flex: 1 1 260px; font-size: 20px; font-weight: 700; }
 .pp-sec { display: grid; gap: 8px; }

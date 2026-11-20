@@ -122,13 +122,16 @@ export function makeEncounterGM(GM) {
     },
 
     /**
-     * `{ id, start? }` Run it: every mob into the fight (hidden ones stay hidden), map tokens bound to them,
+     * `{ id, start?, mapId? }` Run it: every mob into the fight (hidden ones stay hidden), map tokens bound to them,
      * and with `start` the fight begins. The card is marked used (it can run again).
      */
     'enc.run'(st, a, ctx, out) {
       const c = cardOf(st, a.id);
       const mobs = c.payload?.mobs ?? [];
       if (!mobs.length) throw bad('this encounter has no mobs');
+      const mapId = a.mapId === undefined ? c.payload?.mapId : a.mapId;
+      const map = mapId && st.maps?.list.find((m) => m.id === mapId);
+      if (a.mapId != null && !map) throw notFound(`no map ${a.mapId}`);
       const uids = [];
       const skipped = [];
       for (const m of mobs) {
@@ -142,8 +145,7 @@ export function makeEncounterGM(GM) {
           for (let k = 0; k < (m.count ?? 1); k++) uids.push(null);
         }
       }
-      const mapId = c.payload?.mapId;
-      const map = mapId && st.maps?.list.find((m) => m.id === mapId);
+      if (a.mapId === null) st.combat.mapId = null;
       if (map) {
         st.combat.mapId = map.id;
         placeEncounterTokens(st, map.id, c.id, expandEncounter(st, ctx, c.payload), ctx);
@@ -153,7 +155,7 @@ export function makeEncounterGM(GM) {
       c.used = true;
       c.usedAt = ctx.now;
       if (a.start === true && !st.combat?.active) GM['combat.start'](st, {}, ctx, out);
-      out.result = { uids: uids.filter(Boolean), skipped, mapId: c.payload?.mapId ?? null, bound };
+      out.result = { uids: uids.filter(Boolean), skipped, mapId: mapId ?? null, bound };
     },
 
     /** `{ id, index, playerId }` Hand out one of the encounter's prepared items (the whole qty). */

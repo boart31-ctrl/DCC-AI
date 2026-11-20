@@ -1,0 +1,60 @@
+/* Session planning. Keep the evening, selected scene and GM tools in the same workspace. */
+.ev-top { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 8px; }
+.ev-top .grow, .ev-coach .grow, .ev-agenda-actions .grow { flex: 1; }
+.ev-first { display: grid; gap: 12px; padding: 16px; width: min(100%, 560px); margin-inline: auto; }
+.ev-first p, .ev-no-scene p { margin: 0; }
+.ev-first-actions { display: flex; justify-content: end; }
+.ev-template-floors { display: grid; gap: 6px; }
+.ev-floor { display: grid; gap: 4px; }
+.ev-first .ev-floor-button, .ev-first .ev-template { justify-content: start; min-height: 38px; text-align: left; white-space: normal; }
+.ev-template-list { display: grid; gap: 4px; padding-inline-start: 14px; }
+.ev-first .ev-template[aria-pressed="true"] { border-color: var(--c-accent); color: var(--c-accent); }
+.ev-coach { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 5px 8px; margin-bottom: 8px; border: 1px solid var(--c-line-2); border-radius: var(--r-1); color: var(--c-ink-2); }
+.ev-layout { display: grid; grid-template-columns: minmax(170px, 230px) minmax(0, 1fr) minmax(224px, 280px); align-items: start; gap: 10px; }
+.ev-center, .ev-tools-desktop { min-width: 0; }
+.ev-agenda { position: sticky; top: 8px; display: grid; gap: 7px; padding: 9px; min-width: 0; }
+.ev-agenda h2 { font-size: 17px; }
+.ev-agenda .ev-title { font-weight: 700; }
+.ev-budget { display: grid; grid-template-columns: minmax(0, 1fr) 58px auto; gap: 4px; align-items: center; color: var(--c-ink-2); }
+.ev-time { display: grid; gap: 2px; color: var(--c-ink-2); font-size: 12px; }
+.ev-time progress { width: 100%; height: 8px; accent-color: var(--c-accent); }
+.ev-time.over { color: var(--c-bad); }
+.ev-time.over progress { accent-color: var(--c-bad); }
+.ev-scenes { list-style: none; display: grid; gap: 4px; padding: 0; margin: 0; }
+.ev-scene-link { min-width: 0; }
+.ev-scene-link.ev-drop { outline: 1px dashed var(--c-accent); }
+.ev-scene-button { width: 100%; display: grid; grid-template-columns: auto minmax(0, 1fr) 8px 14px; align-items: center; gap: 6px; min-height: 32px; padding: 4px 6px; background: var(--c-sunk); color: var(--c-ink); text-align: left; border: 1px solid var(--c-line-2); border-radius: var(--r-1); }
+.ev-scene-button[aria-current="true"] { background: var(--c-raised); border-color: var(--c-accent); }
+.ev-scene-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ev-scene-index, .ev-type { color: var(--c-ink-2); }
+.ev-ready { width: 7px; height: 7px; border-radius: 50%; }
+.ev-ready[data-status="ready"] { background: var(--c-good); }
+.ev-ready[data-status="needs"] { background: var(--c-accent); }
+.ev-ready[data-status="played"] { background: var(--c-info); }
+.ev-agenda-actions { display: flex; align-items: flex-start; gap: 3px; }
+.ev-add > summary { list-style: none; }
+.ev-add > summary::-webkit-details-marker { display: none; }
+.ev-presets { display: grid; gap: 4px; padding-top: 4px; }
+.ev-presets .btn { justify-content: start; }
+.ev-no-scene { padding: 12px; }
+.tool .btn.ev-tools-toggle { display: none; }
+.ev-workspace[data-coach="agenda"] .ev-agenda, .ev-workspace[data-coach="blocks"] .ev-center,
+.ev-workspace[data-coach="tools"] .ev-tools-desktop, .ev-workspace[data-coach="tools"] .ev-tools-toggle { outline: 1px solid var(--c-accent); outline-offset: 2px; }
+.pp-grid.ev-legacy { grid-template-columns: minmax(0, 1fr); }
+.ev-library { display: grid; gap: 10px; }
+.ev-library-actions { display: flex; flex-wrap: wrap; gap: 5px; }
+.ev-library-results { display: grid; gap: 8px; }
+.ev-library-floor > summary { cursor: pointer; padding: 4px 0; font-weight: 700; }
+.ev-library-group { padding-inline-start: 10px; margin-block: 5px; border-inline-start: 1px solid var(--c-line-2); }
+.ev-library-group h3 { font-size: 14px; margin: 0 0 4px; }
+.ev-library-group ul { list-style: none; display: grid; gap: 4px; padding: 0; margin: 0; }
+.ev-library-group .pp-doc { width: 100%; }
+@media (max-width: 1279px) {
+  .ev-layout { grid-template-columns: minmax(168px, 222px) minmax(0, 1fr); }
+  .ev-tools-desktop { display: none; }
+  .tool .btn.ev-tools-toggle { position: fixed; bottom: max(18px, env(safe-area-inset-bottom)); right: max(18px, env(safe-area-inset-right)); z-index: 20; display: inline-flex; min-height: 40px; box-shadow: var(--c-shadow); }
+}
+@media (max-width: 700px) {
+  .ev-layout { grid-template-columns: minmax(0, 1fr); }
+  .ev-agenda { position: static; }
+}

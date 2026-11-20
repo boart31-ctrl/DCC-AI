@@ -10,7 +10,7 @@ import { openCreator, hasCreator } from './creator.js';
 // Rulesets with guided creation (ruleset.creation) get the step-by-step creator; others the plain builder.
 const openBuilder = (o) => (hasCreator(o.model) ? openCreator(o) : openPlainBuilder(o));
 import { createDiceLog, showRollCard } from './dicelog.js';
-import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme, openDrawer, dieFaces, spellCooldownHint } from './ui.js';
+import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme, openDrawer, closeDrawer, dieFaces, spellCooldownHint } from './ui.js';
 import { playerEditLevel } from './rules.js';
 import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
@@ -605,6 +605,7 @@ function render() {
   applyAccent(view.pack);
   applyPackTheme(view.pack?.theme);
   drawTheme();
+  renderPrivateChecks();
   drawCombat();
   sheet.update(view, me);
   iniPrompt.hidden = !waitingForMe();
@@ -615,6 +616,43 @@ function render() {
   renderStart();
   renderLog();
   renderTicker();
+}
+
+let checkDrawer = null;
+let openCheck = null;
+
+function renderPrivateChecks() {
+  const prompts = view.checkPrompts ?? [];
+  const el = $('#prep-prompts');
+  if (checkDrawer?.open && !prompts.some((p) => p.id === openCheck)) closeDrawer();
+  el.hidden = !prompts.length;
+  el.replaceChildren(...prompts.map((p) => h('div.panel.prep-prompt', h('b', p.label || 'Private check'),
+    h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => openPrivateCheck(p) }, icon('dice', { size: 14 }), `Roll ${p.ability}`))));
+}
+
+function openPrivateCheck(p) {
+  const send = async (entered) => {
+    if (!checkDrawer?.open) return;
+    const dialog = checkDrawer;
+    const buttons = [...dialog.querySelectorAll('button')].filter((b) => b.getAttribute('aria-label') !== 'Close');
+    if (buttons.some((b) => b.disabled)) return;
+    buttons.forEach((b) => { b.disabled = true; });
+    try {
+      await client.send({ t: 'prep.check.reply', id: p.id, ...(entered === undefined ? {} : { entered }) });
+      if (dialog.open) closeDrawer();
+      toast('Check sent to the GM.');
+    } catch (error) {
+      buttons.forEach((b) => { b.disabled = false; });
+      toast(error.message || 'The check could not be sent.', { error: true });
+    }
+  };
+  const face = p.advantage === 'dis' ? 'Take the lower of two d20 rolls.' : p.advantage === 'adv' ? 'Take the higher of two d20 rolls.' : 'Tap the face on your d20.';
+  checkDrawer = openDrawer({ title: `Roll ${p.ability}`, sub: p.label,
+    body: [h('p', face), dieFaces(20, send)],
+    actions: h('button.btn.btn-primary', { type: 'button', onclick: () => send() }, icon('dice', { size: 16 }), 'Roll digitally'),
+    onClose: () => { checkDrawer = null; openCheck = null; },
+  });
+  openCheck = p.id;
 }
 
 /* ---------- crawlers remaining (server/crawlers.js): small, live, in the app bar ---------- */

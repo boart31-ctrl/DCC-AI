@@ -21,7 +21,8 @@ import {
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, requireStatusAllowed, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
-import { PREP_GM, initPrep, loadPreparedAdventure, normalizePrep, prepView } from './prep.js';
+import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene } from './prep.js';
+import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
 import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage, spendReactionAction } from './reaction.js';
 import { makeEncounterGM } from './encounters.js';
@@ -115,6 +116,7 @@ export function createState(basePack, now = Date.now(), campaign = {}) {
     feed: [],
     messages: [],
     prepCards: [],
+    prepChecks: [],
     prep: initPrep(), // prep.js: adventures + session plans (GM only)
     maps: initMaps(), // maps.js: images + zones + fog (+ tokens for online play)
     library: emptyHomebrew(),
@@ -153,6 +155,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.messages = Array.isArray(raw.messages) ? raw.messages : [];
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
   s.prep = normalizePrep(raw.prep);
+  s.prepChecks = normalizePrepChecks(raw.prepChecks);
   s.maps = normalizeMaps(raw.maps);
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.session.aiMute = s.session.aiMute === true;
@@ -729,6 +732,7 @@ const GM = {
     st.usedQuips = {};
     st.feed = [];
     st.rolls = [];
+    st.prepChecks = [];
     st.combatLog = [];
     st.drops = [];
     st.audience.bumps = [];
@@ -847,12 +851,18 @@ const PLAYER = {
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
 Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM, REACTION_GM);
 Object.assign(GM, makeEncounterGM(GM));
+Object.assign(GM, PREP_CHECKS_GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
+GM['prep.evening.plan'] = (st, a, ctx, out) => planEvening(st, a, ctx, out, GM);
+GM['prep.scene.run'] = (st, a, ctx, out) => runPrepScene(st, a, ctx, out, GM);
+GM['prep.scene.encounter'] = (st, a, ctx, out) => editPrepEncounter(st, a, ctx, out, GM);
+GM['prep.scene.npc'] = (st, a, ctx, out) => addSceneNpc(st, a, ctx, out, GM);
 const CREATION = makeCreation(GM);
 Object.assign(GM, CREATION.player, CREATION.gm);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 Object.assign(PLAYER, CREATION.player);
 Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER, REACTION_PLAYER);
+Object.assign(PLAYER, PREP_CHECKS_PLAYER);
 
 function requireCombatHotlist(st, ctx, uid) {
   const p = st.players.find((x) => x.id === ctx.actor.playerId);
@@ -1124,10 +1134,10 @@ export function reduce(state, action, ctx) {
   };
   if (action.role === 'system') out.changed = false;
   fn(st, action, full, out);
-  if (out.changed && st.combat?.mapId && ['map.bindCombat', 'enc.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
+  if (out.changed && st.combat?.mapId && ['map.bindCombat', 'enc.run', 'prep.scene.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
     syncCombatTokens(st, full);
   }
-  if (out.changed && full.pack && combatDangerAffected(action)) refreshCombatDanger(st, full.pack);
+  if (out.changed && full.pack && (combatDangerAffected(action) || action.t === 'prep.scene.run')) refreshCombatDanger(st, full.pack);
   // Play clock: time between actions counts as play when the gap is under 15 minutes (breaks don't count).
   // Drives the level-up reminder (DCC: a level every 2 hours of play; nothing happens automatically).
   if (out.changed && action.role !== 'system' && st.session) {
@@ -1234,6 +1244,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;
+    v.checkPrompts = p ? prepChecksFor(state, p.id) : [];
     v.library = playerLibrary(state, pack, library, p ?? null);
   } else if (role === 'stage') {
     v.library = playerLibrary(state, pack, library, null);
@@ -1250,6 +1261,7 @@ export function viewFor(state, basePack, role, opts = {}) {
       pins: Object.fromEntries(state.players.map((p) => [p.id, p.pin])),
       playersFull: state.players.map((p) => ({ ...fullPlayer(state, p, pack, library), userId: p.userId ?? null })),
       prepCards: state.prepCards,
+      prepChecks: (state.prepChecks ?? []).filter((q) => q.sessionId === state.session.id),
       prep: prepView(state, pack),
       sceneBeforeFight: state.sceneBeforeFight ?? null,
       messages: state.messages.slice(-GM_MESSAGES).map((m) => ({

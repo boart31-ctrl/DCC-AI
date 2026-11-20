@@ -228,6 +228,117 @@ test('prepared adventure loads linked encounters and rewards once without changi
   assert.throws(() => act(classic, { t: 'scene.check' }), /unavailable in this campaign/);
 });
 
+test('prepared evening remaps old adventure links, resolves a shared map, and runs scene combat idempotently', () => {
+  const p = deserializePack(serializePack(loadPack(writePack(tmpDir(), {
+    'adventures.json': [
+      { id: 'quarter', title: 'Quarter', sections: [{ key: 'parts', label: 'Parts', kind: 'parts',
+        items: [{ id: 'gate', title: 'Gate', links: [{ kind: 'encounter', id: 'guarded_gate' }] }] }],
+      encounters: [{ id: 'guarded_gate', label: 'Guarded gate', mobs: [{ sourceId: 'guard', count: 2 }],
+        items: [{ id: 'prize', qty: 2 }] }], evenings: [{ key: 'walk', title: 'The walk', floor: 1, scenes: [
+        { id: 'start', type: 'explore', title: 'Start', goal: 'Look around', encounterId: 'guarded_gate' },
+        { id: 'gate', type: 'fight', title: 'Gate', encounterId: 'guarded_gate', mapId: 'map_gate', npcs: ['guide'],
+          checks: [{ id: 'listen', label: 'Listen', dcType: 'unopposed' }], secrets: [{ id: 'clue', text: 'GM only tunnel' }] },
+      ] }] },
+      { id: 'district_maps', title: 'Maps', sections: [{ key: 'locations', label: 'Maps', kind: 'refs', items: [
+        { id: 'loc', ref: { kind: 'map', id: 'map_gate' } },
+      ] }], maps: [{ id: 'map_gate', name: 'Gate map', image: '/pack/images/gate.svg' }],
+      evenings: [{ key: 'another_walk', title: 'Next quarter', floor: 1, scenes: [{ id: 'gate', title: 'Second gate', type: 'explore' }] }] },
+    ],
+    'monsters.json': [{ id: 'guard', name: 'Guard', hpSlots: 4, attacks: [{ name: 'Stab', damage: '1d4' }] }],
+    'items.json': [{ id: 'prize', name: 'Prize' }],
+    'npcs.json': [{ id: 'guide', name: 'Guide' }],
+  })).pack));
+  let state = createState(p, 0);
+  const act = (action) => reduce(state, { role: 'gm', ...action }, { ...ctx(), pack: p });
+  const step = (action) => { const r = act(action); state = r.state; return r.result; };
+  step({ t: 'player.add', name: 'Runner' });
+  step({ t: 'prep.adventure.load', id: 'quarter' });
+  step({ t: 'prep.adventure.load', id: 'district_maps' });
+  for (const d of state.prep.docs) delete d.seedRefs; // legacy imports used the remapped section references only
+  const installed = state.prepCards[0].id;
+  const oldMap = state.maps.list[0].id;
+  step({ t: 'enc.save', id: installed, label: 'My edited encounter', mobs: [{ sourceId: 'guard', count: 2 }] });
+  step({ t: 'map.update', id: oldMap, name: 'My edited map' });
+  assert.deepEqual(viewFor(state, p, 'gm').gm.prep.evenings, [
+    { adventureId: 'quarter', key: 'walk', title: 'The walk', floor: 1 },
+    { adventureId: 'district_maps', key: 'another_walk', title: 'Next quarter', floor: 1 },
+  ]);
+  const { id, sceneId } = step({ t: 'prep.evening.plan', adventureId: 'quarter', key: 'walk' });
+  const evening = () => state.prep.docs.find((d) => d.id === id).evening;
+  assert.equal(sceneId, 'start');
+  assert.equal(state.prep.current, id);
+  assert.equal(evening().scenes[1].encounterId, installed);
+  assert.equal(evening().scenes[1].mapId, oldMap);
+  assert.equal(state.prepCards.length, 1);
+  assert.equal(state.maps.list.length, 1);
+  step({ t: 'prep.scene.run', id, sceneId: 'start' });
+  assert.equal(state.combat.active, false, 'a linked optional encounter does not start on entering an Explore scene');
+  assert.equal(viewFor(state, p, 'gm').gm.prep.reach[0].item.links[0].id, installed);
+  const explicit = act({ t: 'prep.scene.run', id, sceneId: 'start', fight: true });
+  assert.equal(explicit.state.combat.active, true);
+  assert.equal(explicit.state.combat.combatants.filter((c) => c.type === 'mob').length, 2);
+  const begun = step({ t: 'prep.scene.run', id, sceneId: 'gate' });
+  assert.equal(state.combat.active, true);
+  assert.equal(state.combat.mapId, oldMap);
+  assert.equal(state.combat.combatants.filter((c) => c.type === 'mob').length, 2);
+  assert.equal(state.combat.victoryItems[0].qty, 2);
+  const reach = viewFor(state, p, 'gm').gm.prep.reach[0];
+  assert.deepEqual(reach.item.links.map((x) => x.kind), ['encounter', 'map', 'npc', 'item']);
+  assert.equal(reach.checks[0].label, 'Listen');
+  assert.ok(!JSON.stringify(viewFor(state, p, 'stage')).includes('GM only tunnel'));
+  state = normalizeState(JSON.parse(JSON.stringify(state)), p, 0);
+  const repeated = act({ t: 'prep.scene.run', id, sceneId: 'gate' });
+  assert.equal(repeated.changed, false);
+  assert.equal(repeated.result.combatId, begun.combatId);
+  assert.equal(repeated.result.existing, true);
+  assert.equal(state.combat.combatants.filter((c) => c.type === 'mob').length, 2);
+  step({ t: 'prep.scene.update', id, sceneId: 'gate', patch: { played: false } });
+  const next = step({ t: 'prep.evening.plan', adventureId: 'district_maps', key: 'another_walk' });
+  const scenes = state.prep.docs.find((d) => d.id === next.id).evening.scenes;
+  assert.deepEqual(scenes.map((s) => s.title), ['Second gate', 'Gate']);
+  assert.equal(new Set(scenes.map((s) => s.id)).size, 2);
+  assert.equal(scenes[1].encounterId, installed);
+  assert.equal(scenes[1].mapId, oldMap);
+  assert.equal(scenes[1].secrets[0].text, 'GM only tunnel');
+});
+
+test('evening editor carries incomplete scenes and clues and atomically links NPCs and encounters', () => {
+  const p = loadPack(writePack(tmpDir(), { 'monsters.json': [{ id: 'watcher', name: 'Watcher', hpSlots: 5 }] })).pack;
+  let state = createState(p, 0);
+  const act = (action) => reduce(state, { role: 'gm', ...action }, { ...ctx(), pack: p });
+  const step = (action) => { const r = act(action); state = r.state; return r.result; };
+  const { id, sceneId } = step({ t: 'prep.evening.plan' });
+  const { sceneId: trap } = step({ t: 'prep.scene.add', id, type: 'trap' });
+  step({ t: 'prep.evening.update', id, title: 'Tonight', minutes: 120 });
+  step({ t: 'prep.scene.move', id, sceneId: trap, to: 0 });
+  step({ t: 'prep.scene.update', id, sceneId, patch: { played: true, secrets: [
+    { id: 'visible', text: 'Shared with everyone', revealed: true }, { id: 'left', text: 'Secret clue' },
+  ] } });
+  const { npcId } = step({ t: 'prep.scene.npc', id, sceneId: trap, name: 'Keeper', motive: 'Looking for a key', voice: 'Quietly' });
+  const entry = state.library.npc.find((npc) => npc.id === npcId);
+  assert.deepEqual([entry.personality, entry.voice, entry.intro], ['Looking for a key', 'Quietly', 'Quietly']);
+  const { encounterId } = step({ t: 'prep.scene.encounter', id, sceneId: trap, add: { kind: 'monster', sourceId: 'watcher' } });
+  step({ t: 'prep.scene.encounter', id, sceneId: trap, change: { index: 0, sourceId: 'watcher', kind: 'monster', delta: 1, hidden: false } });
+  assert.throws(() => act({ t: 'prep.scene.encounter', id, sceneId: trap, change: { index: 0, sourceId: 'unknown', kind: 'monster', remove: true } }), /row changed/);
+  assert.equal(state.prepCards[0].payload.mobs[0].count, 2);
+  assert.equal(state.prepCards.length, 1);
+  const nextId = step({ t: 'prep.evening.plan' }).id;
+  const next = state.prep.docs.find((d) => d.id === nextId);
+  assert.deepEqual(next.evening.scenes.map((s) => s.title), ['Trap scene', 'Loose ends']);
+  assert.deepEqual(next.evening.scenes.flatMap((s) => s.secrets.map((c) => c.text)), ['Secret clue']);
+  assert.equal(next.evening.scenes[0].checks[0].dcType, 'stat');
+  assert.deepEqual(next.evening.scenes[0].npcs, [npcId]);
+  assert.equal(next.evening.scenes[0].encounterId, encounterId);
+  step({ t: 'prep.scene.remove', id: nextId, sceneId: trap });
+  assert.equal(next.evening.scenes[0].title, 'Trap scene', 'earlier snapshots remain immutable');
+  assert.notEqual(state.prep.docs.find((d) => d.id === nextId).evening.activeSceneId, trap);
+
+  const classic = createState(p, 0, { ruleset: 'dnd5e' });
+  const lazy = reduce(classic, { role: 'gm', t: 'prep.evening.plan' }, { ...ctx(), pack: p }).state.prep.docs[0].evening;
+  assert.deepEqual(lazy.scenes.map((s) => s.type), ['explore', 'talk', 'fight', 'explore']);
+  assert.equal(lazy.scenes[0].checks[0].dcType, 'fixed');
+});
+
 test('prepared map imports are hidden, linked to encounters and preserve existing campaign edits', () => {
   const seed = {
     id: 'outpost_maps', title: 'Outpost maps',

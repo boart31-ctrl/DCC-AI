@@ -288,6 +288,15 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.adventure.load` | `id` from `view.gm.prep.adventures` | Copy a pack's ready-made adventure, encounters and optional fog maps into the campaign. Resolve library, loot-tier, encounter and map links atomically. Reopening an existing import keeps GM edits and returns its ID. |
 | `prep.session.add` | `title?`, `template?`, `adventureId?`, `carryFrom?` | New session plan from a session template (default: pack's, else `lazy_session`). Unfinished items of `carry` sections are copied from `carryFrom` (default: current session); inherits its adventure unless `adventureId` is given (`null` = none). Becomes current. Ack `result {id, carried}` |
 | `prep.session.current` | `id` (session) or `null` | Marks tonight's plan (drives "Within reach" on the Show tab) |
+| `prep.evening.plan` | `adventureId?`, `key?`, `title?`, `minutes?` (1..1440) | Start tonight's session from a prepared evening in `view.gm.prep.evenings` or from scratch. Installs and links seeds once. A continuation carries unplayed scenes and unrevealed clues. Returns `{id,sceneId}`. |
+| `prep.evening.update` | `id`, `title?`, `minutes?` (1..1440) | Update the session title or planned duration. |
+| `prep.scene.add` | `id`, `type` (fight, explore, talk, trap, boss) | Append a scene and return `{sceneId}`. |
+| `prep.scene.update` | `id`, `sceneId`, `patch` | Edit title, type, minutes, goal, readAloud, notes, checks, encounterId, mapId, npcs, items, secrets or played. The encounter and map IDs identify campaign content. |
+| `prep.scene.move` | `id`, `sceneId`, `to` (zero-based) | Reorder within this evening. |
+| `prep.scene.remove` | `id`, `sceneId` | Remove the scene from the evening. |
+| `prep.scene.encounter` | `id`, `sceneId`, `mobs?` or `add? {kind,sourceId}` or `change? {index,kind,sourceId,delta?,hidden?,remove?}`, `mapId?` | Atomically create or edit the linked encounter. A row edit checks its source. Ack `{id,sceneId,encounterId,mapId}`. |
+| `prep.scene.npc` | `id`, `sceneId`, `name`, `motive?`, `voice?` | Create a library NPC and add it to the scene. Ack `{id,sceneId,npcId}`. |
+| `prep.scene.run` | `id`, `sceneId`, `fight?` | Marks the scene played and puts its resources in Within reach. Fight and Boss scenes start their linked encounter automatically. Other scene types wait for `fight: true` before starting their optional encounter. Repeating while that fight runs returns the existing combat ID. Protects unrelated active or queued fights. Ack `{id,sceneId,encounterId,mapId,combatId?,existing?}`. |
 | `prep.doc.update` | `id`, `title?`, `adventureId?` (sessions only, `null` unlinks) | |
 | `prep.doc.copy` | `id` | Duplicate with fresh item ids; ack `result.id` |
 | `prep.doc.remove` | `id` | Sessions linked to a removed adventure are unlinked; current falls back to the newest session |
@@ -298,6 +307,8 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.item.update` | `id`, `key`, `itemId`, `title?`, `text?`, `done?`, `pin?`, `ref?` | `pin` = shown in "Within reach" |
 | `prep.item.remove` | `id`, `key`, `itemId` | |
 | `prep.item.move` | `id`, `key`, `itemId`, `to` (index) | |
+| `prep.check.send` | `docId`, `sceneId`, `checkId`, `playerIds[]`, `requestId?` | Sends the saved scene's check to the chosen players. The check snapshots the applicable DC and sheet modifiers. `requestId` makes a retry return the original request ID. The GM sees degrees, totals, and outcomes in `view.gm.prepChecks[]`. |
+| `prep.check.close` | `id` | Removes unanswered prompts and keeps submitted results visible to the GM. |
 | `session.new` | — | Archives current session to `data/`, starts fresh (keeps players + inventories + homebrew + permissions; clears the dice log) |
 | `session.permissions` | `playerEdit?`: `"none"` / `"notes"` / `"sheet"`, `allowOrigins?`: boolean (one or both) | What players may change on their own sheet (default `sheet`). `allowOrigins` (default off): players may *request* race / class / background (see `origins.*`) |
 | `origins.approve` | `playerId` | Applies the player's `sheet.pending` race / class / background and sets `sheet.originsLocked` (the player can no longer change them; the GM still can) |
@@ -530,7 +541,7 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 | `gear.approve` | `playerId`, `index?` | Gives requested starting things (custom ones become homebrew items) |
 | `gear.deny` | `playerId`, `index?` | Drops one request or all |
 | `enc.give` | `id`, `index`, `playerId` | Gives one of the encounter's prepared items (its qty) to a crawler; marks it `given` |
-| `enc.run` | `id`, `start?` | Mobs into the fight (each hidden as prepared), map tokens bound to the new combatants (they follow reveal / down), card marked used; `start` starts the fight. Result `{ uids, skipped, mapId, bound }` |
+| `enc.run` | `id`, `start?`, `mapId?` | Mobs into the fight (each hidden as prepared), map tokens bound to the new combatants (they follow reveal / down), card marked used. `start` starts the fight. A map override applies to this run only. Result `{ uids, skipped, mapId, bound }` |
 | *(player)* `map.token.move` | `id`, `tokenId`, `x`, `y` | Own crawler's token only, only while `tokensOn` |
 
 ### 3b-4. Reaction rounds (server/reaction.js) — games where the GM never rolls a d20
@@ -668,6 +679,7 @@ ElevenLabs the host renders the chained text while the lead-in plays. The lead-i
 | `msg.react` | `id`, `r` | Toggles my reaction on a message addressed to me |
 | `msg.read` | `thread` | Marks a whole conversation read |
 | `me.notes` | `text` (max 2000 chars) | Player edits own notes (needs `playerEdit` ≥ `notes`) |
+| `prep.check.reply` | `id` from own `view.checkPrompts[]`, `entered?` (1–20) | Omitting the face rolls digitally. A retry returns the same receipt `{received:true}`. Each prompt contains only `{id,label,ability,advantage?}`. The DC and all outcomes stay in the GM view. |
 | `ping` | — | Keepalive, server answers `pong` |
 
 ### Sheet actions
