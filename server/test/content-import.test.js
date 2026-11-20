@@ -5,11 +5,12 @@ import { startServer } from '../index.js';
 import { createHost } from '../host.js';
 import { createState, viewFor } from '../state.js';
 import { loadPack } from '../pack.js';
-import { readContentArchive, ARCHIVE_LIMIT } from '../content-archive.js';
+import { readContentArchive, readPngAsset, ARCHIVE_LIMIT } from '../content-archive.js';
+import { CONTENT_IMAGE_LIMIT } from '../content-media.js';
 import { contentSchema, validateManifest } from '../content-schema.js';
 import { libraryOf } from '../character.js';
 import { tmpDir, writePack } from './fixtures.js';
-import { sampleManifest, sampleZip, zipEntries } from './content-fixture.js';
+import { fixturePng, sampleManifest, sampleZip, zipEntries } from './content-fixture.js';
 
 const KEY = 'local-content-zip-test-key';
 const BASE_HEADERS = { 'X-GM-Key': KEY, 'Content-Type': 'application/zip' };
@@ -38,6 +39,31 @@ test('ZIP safety: paths, media signatures, checksums, duplicate keys and decompr
   const broken = zipEntries([['manifest.json', manifest]]);
   broken[43] ^= 1;
   await assert.rejects(read(broken), /checksum mismatch/);
+});
+
+test('map PNG reader accepts rich canvas images split into 4 KiB IDAT chunks within byte and pixel limits', async () => {
+  const width = 1310, height = 737;
+  const stride = width * 4 + 1;
+  const pixels = Buffer.alloc(stride * height);
+  let random = 1729;
+  for (let row = 0; row < 260; row++) for (let col = 1; col < stride; col++) {
+    random ^= random << 13;
+    random ^= random >>> 17;
+    random ^= random << 5;
+    pixels[row * stride + col] = random & 255;
+  }
+  const png = fixturePng(width, height, pixels, { rgba: true, chunkSize: 4096 });
+  let dataChunks = 0;
+  for (let i = 8; i + 12 <= png.length; i += png.readUInt32BE(i) + 12) {
+    if (png.toString('ascii', i + 4, i + 8) === 'IDAT') dataChunks++;
+  }
+  assert.ok(dataChunks > 320 && png.length <= CONTENT_IMAGE_LIMIT);
+  const decoded = await readPngAsset(png, 'Map picture', (bytes) => assert.equal(bytes, stride * height));
+  assert.equal(decoded.aspect, width / height);
+  assert.deepEqual(Buffer.from(decoded.data, 'base64'), png);
+  await assert.rejects(readPngAsset(Buffer.alloc(CONTENT_IMAGE_LIMIT + 1), 'Map picture'), /image byte limit/);
+  await assert.rejects(readPngAsset(fixturePng(1, 1, Buffer.alloc(128)), 'Map picture'), /uncompressed length/);
+  await assert.rejects(readPngAsset(fixturePng(width, height, pixels, { rgba: true, chunkSize: 1024 }), 'Map picture'), /expected a static/);
 });
 
 test('GM ZIP endpoint imports atomically, plays attacks and restores both records and art', async (t) => {

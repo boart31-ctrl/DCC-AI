@@ -9,18 +9,23 @@ function chunk(name, bytes) {
   return out;
 }
 
+export function fixturePng(width, height, scanlines, { rgba = false, chunkSize = Infinity, comment } = {}) {
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0);
+  ihdr.writeUInt32BE(height, 4);
+  ihdr[8] = 8;
+  ihdr[9] = rgba ? 6 : 2;
+  const pieces = [Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr)];
+  if (comment) pieces.push(chunk('tEXt', Buffer.from(`Comment\0${comment}`)));
+  const data = deflateSync(scanlines);
+  for (let i = 0; i < data.length; i += chunkSize) pieces.push(chunk('IDAT', data.subarray(i, i + chunkSize)));
+  pieces.push(chunk('IEND', Buffer.alloc(0)));
+  return Buffer.concat(pieces);
+}
+
 /** Tiny, structurally valid RGB PNG for transport tests. */
 export function samplePng(red, green, blue) {
-  const ihdr = Buffer.alloc(13);
-  ihdr.writeUInt32BE(1, 0);
-  ihdr.writeUInt32BE(1, 4);
-  ihdr[8] = 8;
-  ihdr[9] = 2;
-  return Buffer.concat([
-    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]),
-    chunk('IHDR', ihdr), chunk('tEXt', Buffer.from('Comment\0Discard this metadata')),
-    chunk('IDAT', deflateSync(Buffer.from([0, red, green, blue]))), chunk('IEND', Buffer.alloc(0)),
-  ]);
+  return fixturePng(1, 1, Buffer.from([0, red, green, blue]), { comment: 'Discard this metadata' });
 }
 
 /** Produces the two V1 compression methods, without relying on an external ZIP CLI. */

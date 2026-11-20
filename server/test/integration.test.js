@@ -194,7 +194,8 @@ test('full flow: handshake, award, loot, quip → play, audio.done releases next
   assert.equal(archived.length, 1);
   const arch = JSON.parse(fs.readFileSync(path.join(root, 'data', 'sessions', archived[0])));
   assert.ok(arch.log.some((e) => e.kind === 'achievement'));
-  assert.equal(JSON.stringify(arch).includes('4321'), false, 'PINs not in archive');
+  const archivedJson = JSON.stringify(arch);
+  assert.doesNotMatch(archivedJson, /"pin"\s*:|"4321"/i, 'PIN fields and values stay out of the archive');
 
   gm.ws.close();
   stage.ws.close();

@@ -6,6 +6,9 @@ export const ARCHIVE_LIMIT = 5 * 1024 * 1024;
 const MANIFEST_LIMIT = 256 * 1024;
 const PIXEL_BYTES_LIMIT = 32 * 1024 * 1024;
 const MAX_FILES = 33;
+// Chromium writes canvas PNGs in 4 KiB IDAT chunks: a full-size allowed upload can contain nearly 384.
+const MAX_PNG_DATA_CHUNKS = 512;
+const MAX_PNG_OTHER_CHUNKS = 128;
 export const IMAGE_PATH = /^images\/[a-z0-9][a-z0-9_-]{0,63}\.png$(?![\s\S])/;
 const PNG_MAGIC = Uint8Array.of(137, 80, 78, 71, 13, 10, 26, 10);
 
@@ -143,21 +146,23 @@ async function cleanPng(bytes, path, reservePixels) {
   let pos = 8;
   let stride;
   let height;
-  let chunks = 0;
+  let otherChunks = 0;
+  let dataChunks = 0;
   let dataSize = 0;
   let dataEnded = false;
   const chunksToKeep = [PNG_MAGIC];
   const pixels = [];
-  while (pos + 12 <= bytes.length && ++chunks <= 128) {
+  while (pos + 12 <= bytes.length) {
     const length = off.getUint32(pos);
     const end = pos + 12 + length;
     if (end > bytes.length) throw badImage();
     const type = String.fromCharCode(...bytes.subarray(pos + 4, pos + 8));
+    if (type === 'IDAT' ? ++dataChunks > MAX_PNG_DATA_CHUNKS : ++otherChunks > MAX_PNG_OTHER_CHUNKS) throw badImage();
     const data = bytes.subarray(pos + 8, end - 4);
     if (crc32(bytes.subarray(pos + 4, end - 4)) !== off.getUint32(end - 4)) throw badImage();
-    if (chunks === 1 && type !== 'IHDR') throw badImage();
+    if (pos === 8 && type !== 'IHDR') throw badImage();
     if (type === 'IHDR') {
-      if (chunks !== 1 || length !== 13) throw badImage();
+      if (pos !== 8 || length !== 13) throw badImage();
       const w = off.getUint32(pos + 8);
       height = off.getUint32(pos + 12);
       const channels = data[9] === 6 ? 4 : data[9] === 2 ? 3 : 0;
@@ -177,7 +182,7 @@ async function cleanPng(bytes, path, reservePixels) {
     } else {
       // Ignore common, non-executable metadata. Reject unknown critical chunks and animated PNG.
       if (!['sRGB', 'gAMA', 'cHRM', 'pHYs', 'iCCP', 'eXIf', 'tEXt', 'zTXt', 'iTXt', 'tIME', 'sBIT', 'bKGD'].includes(type)) throw badImage();
-      if (dataSize) dataEnded = true;
+      if (dataChunks) dataEnded = true;
     }
     if (type === 'IHDR' || type === 'IDAT') chunksToKeep.push(bytes.subarray(pos, end));
     pos = end;
