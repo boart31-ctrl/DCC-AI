@@ -118,3 +118,4 @@
 .mv-tok-n { z-index: 2; }
 .mv-stage[data-tool="freezone"] { cursor: crosshair; }
 .mv-mob .mv-tok-n { display: block; }
+.mp-wrap .mv-label, .mp-wrap .mv-tok-n { font-size: clamp(12px, 0.85vw, 16px); }

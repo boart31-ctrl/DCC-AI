@@ -12,7 +12,7 @@ export default function map(root, sc, env) {
     const m = (view.maps || []).find((x) => x.id === s.data?.mapId) || null;
     title.textContent = m?.name || '';
     empty.hidden = !!m;
-    mv.set(m, { labels: true });
+    mv.set(m, { labels: true, names: true });
   }
   update(sc, env.view);
   return { update, destroy: mv.destroy };
