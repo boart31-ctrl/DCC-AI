@@ -39,7 +39,7 @@ body.stage[data-scene="map"] .bug,
 body.stage[data-scene="map"] .chat { opacity: 0; }
 
 /* GM editor (gm-maps.js) */
-.gmap { display: grid; gap: 10px; min-width: 0; }
+.gmap { display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px; min-width: 0; }
 .gmap-top { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .gmap-pick { display: inline-flex; gap: 8px; align-items: center; }
 .gmap.embedded .gmap-pick { display: none; }
@@ -81,7 +81,13 @@ body.stage[data-scene="map"] .chat { opacity: 0; }
 .gmap-zone-head { display: flex; align-items: center; gap: 6px; }
 .gmap-zone-n { flex: 1; display: inline-flex; align-items: center; gap: 4px; background: none; border: 0; color: var(--c-ink); font-weight: 700; cursor: pointer; text-align: left; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; }
 .gmap-new { display: grid; gap: 10px; }
-@media (max-width: 760px) { .gmap-grid { grid-template-columns: minmax(0, 1fr); } .gmap-side { position: static; max-height: none; } }
+@media (max-width: 760px) {
+  .gmap-tools { flex-wrap: wrap; max-width: 100%; gap: 3px; border: 0; }
+  .gmap-tools button, .gmap-tools button:last-child { border: 1px solid var(--c-line); border-radius: 6px; padding: 6px 8px; }
+  .gmap-pen { flex-wrap: wrap; }
+  .gmap-grid { grid-template-columns: minmax(0, 1fr); }
+  .gmap-side { position: static; max-height: none; }
+}
 
 /* drawings, tokens (both GM and TV) */
 .mv-ink { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; }
