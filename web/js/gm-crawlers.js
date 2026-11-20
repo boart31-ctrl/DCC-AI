@@ -76,7 +76,10 @@ export function createCrawlers({ act, getView, open = () => {} }) {
     const c = view().crawlers;
     if (!c) return;
     const players = view().players || [];
-    const s = JSON.stringify([c.clock, c.count, c.at, c.floor, c.running, c.shown, c.speak, c.live, c.history?.length, c.history?.at(-1)?.at, c.events, c.nextStart, players.map((p) => [p.id, p.name])]);
+    const rests = view().pack?.ruleset?.rests;
+    const preciseClock = !!view().pack?.ruleset?.combat?.roundSeconds;
+    const fighting = view().combat?.active;
+    const s = JSON.stringify([c.clock, c.count, c.at, c.floor, c.running, c.shown, c.speak, c.live, c.history?.length, c.history?.at(-1)?.at, c.events, c.nextStart, players.map((p) => [p.id, p.name]), rests, fighting, preciseClock]);
     if (s === sig) return;
     sig = s;
     state.replaceChildren(h('span', String(c.label || 'Crawlers remaining').toLowerCase()), h('span.crg-floor', `Floor ${c.floor}`),
@@ -92,14 +95,30 @@ export function createCrawlers({ act, getView, open = () => {} }) {
     // Floor clock (game time): the GM moves it on; shown on the TV next to the floor.
     const k = c.clock;
     const dh = k?.dayHours || 24;
-    const fmt = (hrs) => `${hrs >= dh ? `${Math.floor(hrs / dh)} d ` : ''}${Math.round(hrs % dh)} h`;
-    const hoursIn = h('input.inp.inp-sm', { type: 'number', min: 0, step: 1, value: k?.hours ?? '', 'aria-label': 'Hours until the floor collapses', placeholder: 'hours' });
+    const fmt = (hrs) => {
+      const minutes = Math.floor(Math.round(hrs * 3600) / 60);
+      const days = Math.floor(minutes / (dh * 60));
+      const hours = Math.floor(minutes / 60) % dh;
+      const min = minutes % 60;
+      if (preciseClock) return [days ? `${days} d` : '', hours ? `${hours} h` : '', min ? `${min} min` : ''].filter(Boolean).join(' ') || (hrs > 0 ? '< 1 min' : '0 min');
+      return `${hrs >= dh ? `${days} d ` : ''}${Math.round(hrs % dh)} h`;
+    };
+    const advances = [[1, '+1 h'], [2, rests ? '+2 h' : 'Short rest 2 h'], [8, rests ? '+8 h' : 'Long rest 8 h'], [dh, `+${dh} h`]];
+    if (preciseClock) advances.unshift([5 / 60, '+5 min'], [15 / 60, '+15 min']);
+    const hoursIn = h('input.inp.inp-sm', { type: 'number', min: 0, step: 'any', value: k?.hours ?? '', 'aria-label': 'Hours until the floor collapses', placeholder: 'hours' });
     clockBox.replaceChildren(
       h('div.crg-row',
         h('b.crg-clock-n', k?.hours != null ? (k.hours <= 0 ? 'Time is up' : `Collapse in ${fmt(k.hours)}`) : 'No floor clock'),
         k ? toggle(k.shown, 'On the TV', 'Hidden on the TV', 'Floor clock next to the floor in the TV HUD', () => act({ t: 'crawlers.clock', shown: !k.shown })) : null),
-      k?.hours != null ? h('div.crg-row', h('span.hint', 'Game time passes:'),
-        [[1, '+1 h'], [2, 'Short rest 2 h'], [8, 'Long rest 8 h'], [dh, `Day ${dh} h`]].map(([n, l]) => h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'crawlers.clock', advance: n }, `${l}: ${fmt(Math.max(0, k.hours - n))} left.`) }, l))) : null,
+      (k?.hours != null || preciseClock) ? h('div.crg-row', h('span.hint', 'Game time passes'),
+        advances.map(([n, label]) => h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'crawlers.clock', advance: n }, k ? `${fmt(Math.max(0, k.hours - n))} left.` : `${label} game time.`) }, label)),
+        preciseClock ? h('button.btn.btn-sm', { type: 'button', title: 'Refresh once-per-scene abilities across the party', onclick: () => act({ t: 'crawlers.clock', scene: true }, 'New scene started.') }, 'New scene') : null) : null,
+      k?.hours != null && rests && players.length ? h('div.crg-row', h('span.hint', 'Rest the party'),
+        Object.entries(rests).map(([kind, r]) => {
+          const label = `${{ calm: 'Calm hour', short: 'Short rest', long: 'Long rest', day: 'Full-day rest' }[kind]} · ${r.hours} h`;
+          return h('button.btn.btn-sm', { type: 'button', disabled: fighting || k.hours < r.hours,
+            title: 'Recover eligible characters and advance the floor clock', onclick: () => act({ t: 'rest.party', kind }, `${label}. ${fmt(k.hours - r.hours)} left.`) }, label);
+        })) : null,
       h('form.crg-row', { onsubmit: (e) => { e.preventDefault(); const v = hoursIn.value === '' ? null : Number(hoursIn.value); act({ t: 'crawlers.clock', hours: v, ...(v != null && !k ? { shown: true } : {}) }, v == null ? 'Floor clock off.' : 'Floor clock set.'); } },
         h('label.crg-lbl', `Hours left (a day = ${dh} h)`, hoursIn), h('button.btn.btn-sm', { type: 'submit' }, 'Set')));
     collapseBox.replaceChildren(

@@ -170,22 +170,25 @@ function render() {
  */
 const LEVEL_EVERY_MIN = 120;
 let levelEl = null;
+const rankUpRule = () => view.pack?.ruleset?.skills?.rankUp;
+const dueRankUp = (skill, when) => skill.used && (rankUpRule()?.sessionMaxRank == null || (skill.rank > rankUpRule().sessionMaxRank) === (when === 'floor'));
+const rankUpEntries = (p) => [...(p.sheet?.skills ?? []), ...(p.sheet?.spells ?? []).filter((s) => s.attackCheck)];
 function renderLevelReminder() {
   const pc = view.gm?.playClock;
   const crawler = (view.pack?.ruleset?.system?.family || 'crawler') === 'crawler';
   const due = pc && crawler && view.players?.length && pc.sinceLevelMin >= LEVEL_EVERY_MIN && (pc.snoozeMin == null || pc.playMin >= pc.snoozeMin);
   if (!due) { levelEl?.remove(); levelEl = null; return; }
   const late = pc.sinceLevelMin >= LEVEL_EVERY_MIN + 60;
-  const sig = `${late}|${Math.floor(pc.sinceLevelMin / 10)}`;
+  const marked = (view.gm?.playersFull || []).reduce((n, p) => n + rankUpEntries(p).filter((s) => dueRankUp(s, 'session')).length, 0);
+  const hasRankUp = !!rankUpRule();
+  const sig = `${late}|${Math.floor(pc.sinceLevelMin / 10)}|${marked}|${hasRankUp}`;
   if (levelEl?.dataset.sig === sig) return;
   levelEl?.remove();
   const hrs = (pc.sinceLevelMin / 60).toFixed(1).replace('.0', '');
-  const marked = (view.gm?.playersFull || []).reduce((n, p) => n + (p.sheet?.skills || []).filter((s) => s.used).length, 0);
-  const hasRankUp = !!view.pack?.ruleset?.skills?.rankUp;
   levelEl = h('div.lvl-remind', { class: late ? 'lvl-remind late' : 'lvl-remind', role: 'status', 'data-sig': sig },
     h('p', h('b', late ? 'Level up is overdue.' : 'Time for a level up?'), ` ${hrs} h of play since the last one (the rules: one level per 2 h).`),
     h('div.row-start',
-      h('button.btn.btn-sm.btn-primary', { type: 'button', title: hasRankUp && marked ? 'Also rolls advancement (d20 vs Rank) for every skill marked used' : '', onclick: () => act({ t: 'level.party', rankUp: hasRankUp }, hasRankUp && marked ? `Everyone is a level up; ${marked} skill roll${marked === 1 ? '' : 's'} in the dice log.` : 'Everyone is a level up.') }, hasRankUp && marked ? `Level up + ${marked} skill roll${marked === 1 ? '' : 's'}` : 'Level up everyone'),
+      h('button.btn.btn-sm.btn-primary', { type: 'button', title: hasRankUp && marked ? 'Also rolls advancement for the marked skills and attack spells due this session' : '', onclick: () => act({ t: 'level.party', rankUp: hasRankUp }, hasRankUp && marked ? `Everyone gained a level. ${marked} rank-up roll${marked === 1 ? '' : 's'} in the dice log.` : 'Everyone gained a level.') }, hasRankUp && marked ? `Level up + ${marked} rank-up roll${marked === 1 ? '' : 's'}` : 'Level up everyone'),
       h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'level.snooze', minutes: 30 }) }, 'Not yet (30 min)')));
   document.body.append(levelEl);
 }
@@ -289,7 +292,11 @@ let partySig = '';
 function renderPlayers(force = false) {
   const wrap = $('#players');
   const list = view.players || [];
-  $('#rank-up').hidden = !list.length;
+  const rankRule = rankUpRule();
+  $('#rank-up').hidden = !list.length || !rankRule;
+  $('#rank-up-floor').hidden = !list.length || rankRule?.sessionMaxRank == null;
+  $('#rank-up').title = rankRule?.sessionMaxRank != null ? `Marked skills at Rank ${rankRule.sessionMaxRank} or lower` : 'Roll for all marked skills';
+  $('#rank-up-floor').title = rankRule?.sessionMaxRank != null ? `Marked skills above Rank ${rankRule.sessionMaxRank}` : '';
   $('#player-count').textContent = list.length ? `${list.filter((p) => p.connected).length} of ${list.length} online` : '';
   if (selectedId && !list.some((p) => p.id === selectedId)) selectedId = null;
   $('#party').classList.toggle('has-sheet', !!selectedId);
@@ -474,32 +481,32 @@ function givePicker(p, M, kind = 'item') {
 
 /* ---------- rank-up ---------- */
 
-async function rankUp() {
+async function rankUp(when) {
   const before = new Map();
-  for (const p of view.gm?.playersFull || []) for (const s of p.sheet?.skills || []) before.set(s.uid, { p, s });
-  const usedCount = [...before.values()].filter((x) => x.s.used).length;
-  if (!usedCount) { toast('No skills are marked used this session.'); return; }
-  if (!(await ask(`Roll rank-up checks for ${usedCount} used skill${usedCount === 1 ? '' : 's'} across the party? This clears every "used" mark.`, { ok: 'Roll rank-ups' }))) return;
+  for (const p of view.gm?.playersFull || []) for (const s of rankUpEntries(p)) if (dueRankUp(s, when)) before.set(s.uid, s);
+  const usedCount = before.size;
+  if (!usedCount) { toast('No marked skills or spells are due for this rank-up.'); return; }
+  if (!(await ask(`Roll ${usedCount} ${when === 'floor' ? 'end-of-floor' : 'session'} rank-up check${usedCount === 1 ? '' : 's'} for the party? Each roll clears its mark.`, { ok: 'Roll rank-ups' }))) return;
   let res;
-  try { res = await client.send({ t: 'skills.rankUp' }); } catch (err) { toast(err.message, { error: true }); return; }
+  try { res = await client.send({ t: 'skills.rankUp', when }); } catch (err) { toast(err.message, { error: true }); return; }
   const show = (rows) => openDrawer({
     title: 'Rank-up results',
-    sub: `${rows.filter((r) => r.up).length} of ${rows.length} skills went up`,
-    body: h('table.res-table', h('thead', h('tr', h('th', 'Crawler'), h('th', 'Skill'), h('th.c', 'Roll'), h('th.c', 'Rank'))),
+    sub: `${rows.filter((r) => r.up).length} of ${rows.length} ranks increased`,
+    body: h('table.res-table', h('thead', h('tr', h('th', 'Crawler'), h('th', 'Skill or spell'), h('th.c', 'Roll'), h('th.c', 'Rank'))),
       h('tbody', rows.map((r) => h('tr', { class: r.up ? 'up' : null }, h('td', r.who), h('td', r.name), h('td.c', r.roll ?? '—'), h('td.c', r.up ? `${r.from} → ${r.to}` : String(r.from)))))),
   });
   const fromAck = res?.result?.results;
   if (Array.isArray(fromAck)) {
-    show(fromAck.map((r) => ({ ...r, roll: typeof r.roll === 'object' ? r.roll?.total : r.roll, who: fullPlayer(r.playerId)?.name || '', up: r.success ?? r.up ?? r.to > r.from })));
+    show(fromAck.map((r) => ({ ...r, roll: typeof r.roll === 'object' ? r.roll?.total : r.roll, who: fullPlayer(r.playerId)?.name || '', up: r.to > r.from })));
     return;
   }
   // Engine did not return results: diff the next view.
   const off = client.on('view', (v) => {
     off();
     const rows = [];
-    for (const p of v.gm?.playersFull || []) for (const s of p.sheet?.skills || []) {
+    for (const p of v.gm?.playersFull || []) for (const s of rankUpEntries(p)) {
       const b = before.get(s.uid);
-      if (b?.s.used) rows.push({ who: p.name, name: s.name, from: b.s.rank, to: s.rank, up: s.rank > b.s.rank });
+      if (b) rows.push({ who: p.name, name: s.name, from: b.rank, to: s.rank, up: s.rank > b.rank });
     }
     show(rows);
   });
@@ -1084,7 +1091,8 @@ $('#node-recap-clear').addEventListener('click', async () => {
 });
 
 $('#add-player-btn').addEventListener('click', showAddPlayer);
-$('#rank-up').addEventListener('click', rankUp);
+$('#rank-up').addEventListener('click', () => rankUp('session'));
+$('#rank-up-floor').addEventListener('click', () => rankUp('floor'));
 
 const library = createLibrary({
   send: (a) => client.send(a),

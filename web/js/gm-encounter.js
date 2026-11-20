@@ -10,7 +10,7 @@ import { h, toast, ask } from './client.js';
 import { icon, field, select, stepper } from './ui.js';
 import { libraryOf } from './rules.js';
 import { entryArt } from './portrait.js';
-import { benchmark } from './prep-bench.js';
+import { benchmark, crawlerTable } from './prep-bench.js';
 import { pickFromLibrary } from './lib-picker.js';
 
 export function mobsOf(view, payload) {
@@ -26,7 +26,10 @@ export function strengthBadge(view, payload) {
   const family = view?.pack?.ruleset?.system?.family || 'crawler';
   const party = (view?.players || []).map((p) => ({ level: p.level || 1 }));
   const mobs = mobsOf(view, payload).map(({ e, kind, count }) => ({ count: count || 1, level: e?.level, cr: e?.cr, role: kind === 'boss' ? 'boss' : (e?.role || 'standard') }));
-  if (!mobs.length) return null;
+  return ratingBadge(family, party, mobs);
+}
+
+export function ratingBadge(family, party, mobs) {
   const b = benchmark(family, party, mobs);
   if (b.level < 0) return null;
   return h('span.pp-bench', { class: `pp-bench pp-b${b.level}`, title: `${b.detail}${party.length ? '' : ' (no characters yet: counted as one)'}` }, b.label);
@@ -45,7 +48,7 @@ export function fitToParty(view, payload, ratio) {
   if (!scal.length) return null;
   const per = (m) => (role(m) === 'minion' ? 0.5 : 1);
   const now = scal.reduce((a, m) => a + per(m) * (m.count || 1), 0);
-  const want = Math.max(scal.reduce((a, m) => a + per(m), 0), size * ratio - fixed);
+  const want = Math.max(scal.reduce((a, m) => a + per(m), 0), Math.round(size * ratio) - fixed);
   const f = want / Math.max(0.5, now);
   // Floors first, then one more of whichever is furthest below its exact share, never above the target.
   const exact = scal.map((m) => (m.count || 1) * f);
@@ -124,14 +127,21 @@ export function encounterEditor({ view, act, card, mapEd, onDone, inTonight, add
     });
   }
 
-  const mobRow = (m, i) => h('li.enc-mob', { class: m.e ? 'enc-mob' : 'enc-mob missing' },
-    entryArt(m.e || { name: m.sourceId }, { cls: 'enc-art', lit: false }),
-    h('div.enc-mob-t',
-      h('b', m.e?.name || `${m.sourceId} (not in the library)`),
-      h('span.dim', [m.kind === 'boss' ? 'Boss' : m.e?.role && m.e.role !== 'standard' ? m.e.role : null, m.e?.floor !== '' && m.e?.floor != null ? `F${m.e.floor}` : null, m.e?.hpSlots != null ? `${m.e.hpSlots} HP` : null, (m.e?.attacks || []).map((a) => a.name).slice(0, 2).join(', ') || null].filter(Boolean).join(' · '))),
-    stepper(m.count || 1, { min: 1, max: 20, label: `How many ${m.e?.name || ''}`, onChange: (v) => { const next = raw(); next[i].count = v; setMobs(next); } }),
-    h('button.btn.btn-sm.enc-hid', { type: 'button', 'aria-pressed': String(m.hidden !== false), title: m.hidden !== false ? 'Starts hidden: you reveal it during the fight. Click: starts visible.' : 'Starts visible on the TV. Click: starts hidden.', onclick: () => { const next = raw(); next[i].hidden = !(m.hidden !== false); setMobs(next); } }, icon(m.hidden !== false ? 'lock' : 'eye', { size: 14 }), m.hidden !== false ? 'Hidden' : 'Visible'),
-    h('button.icon-btn', { type: 'button', title: 'Remove', onclick: () => { const next = raw(); next.splice(i, 1); setMobs(next); } }, icon('trash', { size: 14 })));
+  const combatRules = view?.pack?.ruleset?.combat;
+  const mobRow = (m, i) => {
+    const slotValue = m.e?.slotValue || combatRules?.mobSlotValue || (combatRules?.hpModel === 'slots' ? 1 : 0);
+    const health = m.e?.hpSlots == null ? null : slotValue
+      ? `${m.e.hpSlots} ${m.e.hpSlots === 1 ? 'slot' : 'slots'} · ${slotValue} HP/slot`
+      : `${m.e.hpSlots} HP`;
+    return h('li.enc-mob', { class: m.e ? 'enc-mob' : 'enc-mob missing' },
+      entryArt(m.e || { name: m.sourceId }, { cls: 'enc-art', lit: false }),
+      h('div.enc-mob-t',
+        h('b', m.e?.name || `${m.sourceId} (not in the library)`),
+        h('span.dim', [m.kind === 'boss' ? 'Boss' : m.e?.role && m.e.role !== 'standard' ? m.e.role : null, m.e?.floor !== '' && m.e?.floor != null ? `F${m.e.floor}` : null, health, (m.e?.attacks || []).map((a) => a.name).slice(0, 2).join(', ') || null].filter(Boolean).join(' · '))),
+      stepper(m.count || 1, { min: 1, max: 20, label: `How many ${m.e?.name || ''}`, onChange: (v) => { const next = raw(); next[i].count = v; setMobs(next); } }),
+      h('button.btn.btn-sm.enc-hid', { type: 'button', 'aria-pressed': String(m.hidden !== false), title: m.hidden !== false ? 'Starts hidden: you reveal it during the fight. Click: starts visible.' : 'Starts visible on the TV. Click: starts hidden.', onclick: () => { const next = raw(); next[i].hidden = !(m.hidden !== false); setMobs(next); } }, icon(m.hidden !== false ? 'lock' : 'eye', { size: 14 }), m.hidden !== false ? 'Hidden' : 'Visible'),
+      h('button.icon-btn', { type: 'button', title: 'Remove', onclick: () => { const next = raw(); next.splice(i, 1); setMobs(next); } }, icon('trash', { size: 14 })));
+  };
 
   const mapRow = h('div.enc-maprow',
     select([{ value: '', label: 'No battle map' }, ...maps.map((m) => ({ value: m.id, label: m.name }))], p.mapId || '', {
@@ -171,8 +181,10 @@ export function encounterEditor({ view, act, card, mapEd, onDone, inTonight, add
         h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Add the monsters a library location lists', onclick: fromLocation }, icon('map', { size: 14 }), 'From a location'),
         h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: addMobs }, icon('plus', { size: 14 }), 'Add from the library')),
       mobs.length ? h('ul.enc-mobs', mobs.map(mobRow)) : h('p.empty-s', 'No mobs yet. Add them from the library: filter by floor, tap, set how many.'),
-      mobs.length && family === 'crawler' ? h('div.pp-head-row', h('span.dim', `Fit to ${(view?.players || []).length || 1} crawler${(view?.players || []).length === 1 ? '' : 's'}:`),
-        [[0.5, 'Weak'], [1, 'Moderate'], [1.5, 'Strong'], [2, 'Overwhelming']].map(([r, l]) => h('button.btn.btn-sm.btn-quiet', { type: 'button', title: `Set the counts so the fight is ${l.toLowerCase()} (bosses and elites stay one each)`, onclick: () => fit(r, l) }, l))) : null,
+      mobs.length && family === 'crawler' ? h('div.pp-head-row', h('span.dim', 'Fit to party · standard mob equivalents'),
+        crawlerTable(view?.players?.length ?? 0).map(({ ratio, label, mobs }, i) => h('button.btn.btn-sm.btn-quiet', { type: 'button',
+          title: `Fit toward ${mobs} standard mobs. Keeps the current number of bosses and elites.`, onclick: () => fit(ratio, label) },
+        `${label} · ${mobs}${i === 3 ? '+' : ''}`))) : null,
       h('p.dim.pp-hint', 'Nothing here touches the live fight. At the table: Run (Show → Within reach, or the map’s Tokens tab) puts these into the fight; hidden ones stay hidden until you reveal them.')),
     h('section.panel.pp-sec',
       h('header.pp-sec-head', h('h3', `Loot (${items.length})`), h('span.grow'), h('button.btn.btn-sm', { type: 'button', onclick: addItems }, icon('gift', { size: 14 }), 'Add items')),

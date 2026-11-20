@@ -10,19 +10,19 @@ import { STANDARD_CATEGORIES } from './constants.js';
 import { packForRuleset, rulesetChoices } from './systems.js';
 import { normalizeContentMedia } from './content-media.js';
 import { ActionError, bad, notFound } from './errors.js';
-import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView } from './scenes.js';
+import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView, syncBossHealth } from './scenes.js';
 import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, fillMissingMobArt, combatView, onSheetRoll, applyMobDamage } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import { LOOT_GM, normalizeDrops, prepareEndLoot } from './loot.js';
 import { CRAWLERS_GM, CRAWLERS_SYSTEM, initCrawlers, normalizeCrawlers, crawlersView } from './crawlers.js';
 import {
   SHEET, SHEET_GM, normalizeLibArt, freshSheet, migrateSheet, migrateInventory, giveItem, emptyHomebrew, normalizeHomebrew, libraryOf,
-  sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
+  sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, requireStatusAllowed, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, initPrep, loadPreparedAdventure, normalizePrep, prepView } from './prep.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
-import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage } from './reaction.js';
+import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage, spendReactionAction } from './reaction.js';
 import { makeEncounterGM } from './encounters.js';
 import { makeCreation } from './creation.js';
 
@@ -182,7 +182,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
     }
     return {
       title: '', klass: '', race: '', gold: 0, notes: '', level: 1, userId: null,
-      color: PALETTE[i % PALETTE.length], inventory: [], achievements: [],
+      color: PALETTE[i % PALETTE.length], achievements: [],
       ...rest,
       inventory: migrateInventory(p.inventory, pack.ruleset),
       sheet: migrateSheet(p.sheet, { stats, resources }, pack.ruleset),
@@ -638,11 +638,11 @@ const GM = {
     }
     st.session.levelAtMs = st.session.playMs ?? 0;
     if (delta > 0) out.emit({ kind: 'levelup', delta, names: st.players.map((p) => p.name) }, 'all');
-    // With rankUp: every skill marked used gets its advancement roll (ruleset skills.rankUp).
+    // With rankUp: roll the skills eligible at the play-time milestone. Floor ranks stay marked.
     let rankUps = [];
     if (a.rankUp === true && ctx.pack.ruleset.skills?.rankUp) {
       const sub = { ...out, result: null };
-      GM['skills.rankUp'](st, {}, ctx, sub);
+      GM['skills.rankUp'](st, { when: 'session' }, ctx, sub);
       rankUps = sub.result?.results ?? [];
     }
     out.result = { players: st.players.length, rankUps };
@@ -651,6 +651,26 @@ const GM = {
   'level.snooze'(st, a) {
     const m = Number.isInteger(a.minutes) && a.minutes >= 5 && a.minutes <= 240 ? a.minutes : 30;
     st.session.levelSnoozeMs = (st.session.playMs ?? 0) + m * 60_000;
+  },
+
+  'rest.party'(st, a, ctx, out) {
+    const rs = ctx.pack.ruleset;
+    if (!rs.rests || !Object.hasOwn(rs.rests, a.kind)) throw bad('unknown party rest');
+    if (st.combat?.active) throw bad('finish combat before resting');
+    const rest = rs.rests[a.kind];
+    if (st.crawlers?.clock?.hours == null) throw bad('set the floor clock first');
+    if (st.crawlers.clock.hours < rest.hours) throw bad('not enough time before the floor collapses');
+    const library = libraryOf(st, ctx.pack);
+    const able = st.players.filter((p) => computeFor(p, ctx.pack, library).computed.tracks[rs.hpTrack ?? 'hp']?.cur !== 0);
+    if (!able.length) throw bad('nobody can rest');
+    const results = [];
+    const sub = { ...out, result: null };
+    for (const p of able) {
+      SHEET.rest(st, { kind: a.kind, playerId: p.id }, ctx, sub);
+      results.push({ playerId: p.id, restored: sub.result.restored });
+    }
+    CRAWLERS_GM['crawlers.clock'](st, { advance: rest.hours }, ctx, sub);
+    out.result = { results, hours: sub.result.hours };
   },
 
   'session.recap'(st, a) {
@@ -832,6 +852,93 @@ for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 Object.assign(PLAYER, CREATION.player);
 Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER, REACTION_PLAYER);
 
+function requireCombatHotlist(st, ctx, uid) {
+  const p = st.players.find((x) => x.id === ctx.actor.playerId);
+  if (!p?.sheet.hotlist?.includes(uid)) throw bad('prepare it in your Hotlist first');
+}
+
+PLAYER.roll = (st, a, ctx, out) => {
+  const weapon = a.what?.kind === 'attack';
+  const strike = (weapon || a.what?.kind === 'spell') && a.what.part !== 'damage';
+  if (a.useAction !== undefined && a.useAction !== false && (a.useAction !== true || !strike)) throw bad('useAction needs an attack roll');
+  const rx = st.combat?.active ? st.combat.rx : null;
+  const targeted = typeof a.target === 'string' && (strike || weapon);
+  if (!a.useAction && !(rx && targeted)) return SHEET.roll(st, a, ctx, out);
+  const me = st.combat?.combatants.find((c) => c.type === 'crawler' && c.playerId === ctx.actor.playerId);
+  if (rx?.step !== 'act' || !me || me.dead || me.dying != null) throw bad('you cannot attack in this phase');
+  if (strike && a.what.kind === 'spell' && ctx.pack.ruleset.hotlist.combat) requireCombatHotlist(st, ctx, a.what.uid);
+  if (!strike) {
+    const hit = st.rolls.find((r) => r.id === a.after && r.playerId === ctx.actor.playerId && r.what === 'attack'
+      && r.whatId === a.what.uid && r.part === 'hit' && r.vs?.uid === a.target && r.vs.hit && !r.void && r.actionReceipt?.combatId === rx.combatId);
+    if (!hit) throw bad('roll a successful attack with this weapon first');
+    if (st.rolls.some((r) => r.weaponHitId === hit.id && !r.void)) throw bad('damage for that attack was already rolled');
+    return SHEET.roll(st, a, { ...ctx, weaponHitId: hit.id }, out);
+  }
+  // The reducer commits both changes together. Invalid rolls never cost an action.
+  requireStatusAllowed(st, ctx, st.players.find((p) => p.id === me.playerId), 'action');
+  spendReactionAction(rx, me.uid, 1, { attack: true });
+  SHEET.roll(st, a, { ...ctx, actionReceipt: { combatId: rx.combatId, round: rx.round, uid: me.uid } }, out);
+};
+
+function castSpell(st, a, ctx, out) {
+  const rx = st.combat?.active && st.combat.rx;
+  if (rx && ctx.actor.role === 'player' && ctx.pack.ruleset.spells.attackChecks) {
+    const p = st.players.find((x) => x.id === ctx.actor.playerId);
+    const spell = p?.sheet?.spells?.find((s) => s.uid === a.uid);
+    const def = spell && libraryOf(st, ctx.pack).get('spell', spell.spellId);
+    if (rx.step !== 'act' && (rx.step !== 'react' || (!def?.healing && !def?.tags?.includes('interrupt')))) throw bad('that spell cannot be cast in this phase');
+    if (ctx.pack.ruleset.hotlist.combat) requireCombatHotlist(st, ctx, a.uid);
+    REACTION_PLAYER['rx.spend'](st, {}, ctx);
+  }
+  SHEET['spell.cast'](st, a, ctx, out);
+  const healed = out.result?.healed;
+  const target = healed && st.combat?.combatants.find((x) => x.playerId === healed.playerId);
+  if (target && healed.to > 0) dyingTick(st, ctx, out, 'heal', target.uid);
+}
+PLAYER['spell.cast'] = GM['spell.cast'] = castSpell;
+
+PLAYER['hotlist.set'] = (st, a, ctx, out) => {
+  const rx = st.combat?.active && st.combat.rx;
+  if (rx && ctx.pack.ruleset.hotlist.combat && a.uid != null) {
+    if (rx.step !== 'act') throw bad('you can prepare your Hotlist during crawler actions');
+    REACTION_PLAYER['rx.spend'](st, {}, ctx);
+  }
+  SHEET['hotlist.set'](st, a, ctx, out);
+};
+
+function useItem(st, a, ctx, out) {
+  const rx = st.combat?.active && st.combat.rx;
+  const hotlist = ctx.pack.ruleset.hotlist;
+  const playerId = ctx.actor.role === 'player' ? ctx.actor.playerId : a.playerId;
+  const p = st.players.find((x) => x.id === playerId);
+  const inv = p?.inventory.find((i) => i.uid === a.uid);
+  const def = rx && hotlist.combat && inv && libraryOf(st, ctx.pack).get('item', inv.itemId);
+  const hp = ctx.pack.ruleset.tracks.find((t) => t.kind === 'slots')?.id;
+  const potion = def?.tags?.includes('potion');
+  if (def && ctx.actor.role === 'player') {
+    if (rx.step !== 'act' && (rx.step !== 'react' || !potion || def.use?.heal?.track !== hp)) throw bad('you cannot use this item in this phase');
+    requireCombatHotlist(st, ctx, a.uid);
+    REACTION_PLAYER['rx.spend'](st, {}, ctx);
+  }
+  SHEET['item.use'](st, a, ctx, out);
+  const healed = out.result?.healed;
+  const target = healed?.track === hp && st.combat?.combatants.find((x) => x.playerId === healed.playerId);
+  if (target && healed.to > 0) dyingTick(st, ctx, out, 'heal', target.uid);
+  if (potion && hotlist.potionSickness) {
+    const drinker = a.target ?? p.id;
+    const last = rx.potionRounds?.[drinker];
+    rx.potionRounds = { ...rx.potionRounds, [drinker]: rx.round };
+    if (Number.isInteger(last) && rx.round - last < 2) {
+      const sub = { ...out, result: undefined };
+      SHEET_GM['buff.add'](st, { playerId: drinker, buffId: hotlist.potionSickness }, { ...ctx, actor: { role: 'gm' } }, sub);
+      const buff = st.players.find((x) => x.id === drinker).sheet.buffs.find((b) => b.uid === sub.result.uid);
+      buff.roundsLeft = 2;
+      out.result.potionSickness = true;
+    }
+  }
+}
+PLAYER['item.use'] = GM['item.use'] = useItem;
+
 /**
  * Ruleset `combat.starterAttack` (e.g. Unarmed Combat rank 3, 1d4 + Str): a crawler with no attack gets it, so
  * nobody stands in a fight with nothing to do. Runs on player.add and on combat.start (older characters).
@@ -867,15 +974,20 @@ function giveStarterAttack(st, p, ctx) {
   const end = GM['combat.end'];
   GM['combat.end'] = (st, a, ctx, out) => {
     const inj = ctx.pack.ruleset.combat?.injuries;
+    const party = new Set((st.combat?.combatants ?? []).filter((x) => x.type === 'crawler').map((x) => x.playerId));
     const marks = inj ? (st.combat?.combatants ?? []).filter((x) => x.type === 'crawler' && x.injuries?.length).map((x) => [x.playerId, x.injuries]) : [];
     prepareEndLoot(st, ctx, a.outcome);
     end(st, a, ctx, out);
+    const sickness = ctx.pack.ruleset.hotlist.potionSickness;
+    if (sickness) for (const p of st.players) p.sheet.buffs = p.sheet.buffs.filter((b) => b.buffId !== sickness);
     const remaining = new Set(st.combat.combatants.map((m) => m.uid));
     for (const map of st.maps?.list ?? []) {
       map.tokens = map.tokens.filter((t) => !t.combatToken || remaining.has(t.ref));
       for (const t of map.tokens) if (t.kind === 'mob' && t.ref && !remaining.has(t.ref)) { t.ref = null; t.hidden = true; }
     }
     const lib = libraryOf(st, ctx.pack);
+    for (const p of st.players) if (party.has(p.id)) p.sheet.buffs = p.sheet.buffs.filter((b) => !lib.get('buff', b.buffId)?.endCombat);
+    for (const m of st.combat.combatants) if (m.type === 'mob') m.conditions = (m.conditions ?? []).filter((c) => !lib.get('buff', c.id)?.endCombat);
     for (const [pid, list] of marks) {
       const p = st.players.find((y) => y.id === pid);
       if (!p) continue;
@@ -966,7 +1078,7 @@ export function reduce(state, action, ctx) {
     pack: ctx?.pack ? packOf(state, ctx.pack) : ctx?.pack,
     // Who is acting: never taken from the payload for players (actorId is set by the host).
     actor: { role: action.role, playerId: action.role === 'player' ? action.actorId : null },
-    h: { feedPush, categoryLine, bumpPct, onSheetRoll, applyDamage: applyMobDamage },
+    h: { feedPush, categoryLine, bumpPct, onSheetRoll, applyDamage: applyMobDamage, syncBossHealth, spendReactionAction },
   };
   const st = structuredClone(state);
   const out = {
@@ -1024,7 +1136,7 @@ function messagesFor(state, playerId) {
 
 function fullPlayer(state, p, pack, library) {
   const messages = messagesFor(state, p.id);
-  const sheet = sheetView(p, pack, library);
+  const sheet = sheetView(p, pack, library, state);
   const { stats, resources } = legacyStats(p, pack, sheet.computed);
   return {
     id: p.id, name: p.name, color: p.color, level: p.level,
@@ -1087,7 +1199,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   const library = libraryOf(state, pack);
   v.rolls = rollsFor(state, role, opts.playerId);
   v.combat = combatView(state, pack, role);
-  if (v.combat) v.combat.rx = reactionView(state, role);
+  if (v.combat) v.combat.rx = reactionView(state, role, pack);
   v.crawlers = crawlersView(state, pack, role, now, opts.stageOn !== false);
   v.maps = mapsView(state, role, library, v.combat);
   if (role === 'player') {

@@ -10,7 +10,7 @@
 // Each crawler has 2 actions a round (interrupts come out of the same 2). AI Favor can buy one more
 // non-attack action once per round (the GM grants it).
 //
-// state.combat.rx = { combatId, round, step, decls: [Decl], acts: { uid: left }, evading: [uid], favor: [uid],
+// state.combat.rx = { combatId, round, step, decls: [Decl], acts: { uid: left }, nonAttackActions: { uid: left }, evading: [uid], favor: [uid],
 //                     intervene: [uid], log: [text] }
 //   Decl = { id, mobUid, attack: { name, damage, dc }, targetUid, caught, taunted, evade: null | { die, total,
 //            degree }, result: null | 'evaded' | 'half' | 'hit', damage: null | number }
@@ -19,11 +19,12 @@
 // mob base (10 by default) + to-hit bonus, + the world's floor when the ruleset is floor-scaled.
 import { bad, notFound } from './errors.js';
 import { rollDice } from './formula.js';
-import { computeFor, libraryOf, nextInjuryDescription } from './character.js';
+import { computeFor, libraryOf, nextInjuryDescription, SHEET, requireStatusAllowed, statusBlocker } from './character.js';
 import { sheetResolver } from './ruleset.js';
 import { evaluate } from './formula.js';
 import { COMBAT_GM, defenseOf, hpTrackOf } from './combat.js';
-import { combatRules, mobAttackDc, floorOfState } from './outcome.js';
+import { combatRules, mobAttackDc, floorOfState, typedDamage } from './outcome.js';
+import { advanceGameTime } from './crawlers.js';
 
 export const STEPS = ['declare', 'react', 'resolve', 'act', 'cleanup'];
 export const ACTIONS_PER_ROUND = 2;
@@ -47,6 +48,7 @@ export const isSuccess = (d) => d === 'crit' || d === 'amazing' || d === 'succes
 
 const C = (st) => st.combat;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+const standing = (x) => !!x && !x.dead && x.dying == null;
 
 function rxOf(st) {
   const c = C(st);
@@ -60,11 +62,13 @@ function rxOf(st) {
 function crawlers(st) {
   return C(st).combatants.filter((x) => x.type === 'crawler');
 }
+const playerOfCrawler = (st, x) => st.players.find((p) => p.id === x?.playerId);
 function resetActs(st) {
   const rx = C(st).rx;
   rx.acts = Object.fromEntries(crawlers(st).map((x) => [x.uid, ACTIONS_PER_ROUND]));
   rx.evading = [];
   rx.favor = [];
+  rx.nonAttackActions = {};
   rx.intervene = [];
 }
 function log(rx, text) {
@@ -86,6 +90,13 @@ function declOf(rx, id) {
   if (!d) throw notFound(`no declared attack ${id}`);
   return d;
 }
+function evadeOptions(rx, d, target, interruptBlocked = false) {
+  const eligible = !d.caught && !d.result && standing(target);
+  const freeEvade = eligible && (d.adv === 'dis' || d.tauntEvade === true) && !d.evade;
+  const paid = eligible && !interruptBlocked && rx.evading.includes(d.targetUid);
+  const canReroll = paid && d.evade?.free === true && !isSuccess(d.evade.degree);
+  return { freeEvade, canEvade: freeEvade || (paid && !d.evade) || canReroll, canReroll };
+}
 const nameOf = (st, x) => (x.type === 'mob' ? x.name : st.players.find((p) => p.id === x.playerId)?.name ?? '?');
 
 /** Difficulty of evading this attack (see header; floor-scaled rulesets add the current floor). */
@@ -93,10 +104,30 @@ export function attackDc(attack, rules = { mobBase: 0, floorScaled: false }, flo
   return mobAttackDc(rules, attack, floor);
 }
 
-function spend(rx, uid, n = 1) {
+export function spendReactionAction(rx, uid, n = 1, { attack = false } = {}) {
   const left = rx.acts[uid] ?? ACTIONS_PER_ROUND;
-  if (left < n) throw bad('no actions left this round');
-  rx.acts[uid] = left - n;
+  const extra = attack ? 0 : Math.min(n, rx.nonAttackActions?.[uid] ?? 0);
+  if (left + extra < n) throw bad('no actions left this round');
+  if (extra) rx.nonAttackActions[uid] -= extra;
+  rx.acts[uid] = left + extra - n;
+}
+
+function buyFavorAction(st, ctx, out, x) {
+  const rx = rxOf(st);
+  if (!standing(x)) throw bad('that crawler cannot act');
+  if (!['react', 'act'].includes(rx.step)) throw bad('not now');
+  if (rx.favor?.includes(x.uid)) throw bad('already used AI Favor for an action this round');
+  const fdef = ctx.pack.ruleset.fields.find((f) => f.id === 'aiFavor');
+  if (!fdef) throw bad('this game has no AI Favor');
+  const p = st.players.find((y) => y.id === x.playerId);
+  if (!p) throw notFound('that crawler is no longer in the party');
+  requireStatusAllowed(st, ctx, p, 'action');
+  const favor = Number(p.sheet.fields?.aiFavor ?? fdef.default ?? 0);
+  if (!(favor >= 1)) throw bad('no AI Favor left');
+  p.sheet.fields = { ...(p.sheet.fields ?? {}), aiFavor: favor - 1 };
+  (rx.favor ??= []).push(x.uid);
+  (rx.nonAttackActions ??= {})[x.uid] = 1;
+  out.result = { favor: favor - 1, nonAttackActions: 1 };
 }
 
 function crawlerEvade(st, ctx, x) {
@@ -110,13 +141,18 @@ function crawlerEvade(st, ctx, x) {
 function declaredAttack(st, ctx, mob, index) {
   const atk = Number.isInteger(index) && mob.attacks?.[index];
   if (!atk) throw bad(`${mob.name} has no attack ${index}`);
-  return { name: atk.name || 'Attack', damage: atk.damage || '0', dc: attackDc(atk, combatRules(ctx.pack, C(st).settings), mob.flat ? 0 : floorOfState(st)), area: !!atk.area, buffs: atk.buffs ?? [] };
+  return {
+    name: atk.name || 'Attack', damage: atk.damage || '0', dc: attackDc(atk, combatRules(ctx.pack, C(st).settings), mob.flat ? 0 : floorOfState(st)),
+    area: !!atk.area, dtype: atk.dtype, effects: atk.effects, buffs: atk.buffs ?? [], majorFailBuffs: atk.majorFailBuffs ?? [],
+  };
 }
 
 function addDecl(st, ctx, rx, mob, attackIndex = 0, targetUid) {
   if (rx.decls.length >= MAX_DECLS) throw bad(`max ${MAX_DECLS} declared attacks`);
   if (mob.hp <= 0) throw bad(`${mob.name} is down`);
+  requireStatusAllowed(st, ctx, mob, 'action');
   const t = crawlerOf(st, targetUid);
+  if (t.dead) throw bad('that crawler is already dead');
   const d = { id: ctx.genId('dc'), mobUid: mob.uid, attackIndex, attack: declaredAttack(st, ctx, mob, attackIndex), targetUid: t.uid, caught: false, taunted: false, evade: null, result: null, damage: null };
   rx.decls.push(d);
   return d;
@@ -125,16 +161,17 @@ function addDecl(st, ctx, rx, mob, attackIndex = 0, targetUid) {
 /** The book's rule of thumb: elites and bosses act once per crawler, other mobs once, spread evenly. */
 export function suggestDecls(st, ctx) {
   const c = C(st);
-  const targets = crawlers(st).filter((x) => !x.dead && x.dying == null); // mobs go for crawlers still standing
+  const targets = crawlers(st).filter(standing);
   if (!targets.length) return [];
   const load = new Map(targets.map((t) => [t.uid, 0]));
   const out = [];
-  const mobs = c.combatants.filter((x) => x.type === 'mob' && x.hp > 0 && !x.hidden && (x.attacks ?? []).length);
+  const library = libraryOf(st, ctx.pack);
+  const mobs = c.combatants.filter((x) => x.type === 'mob' && x.hp > 0 && !x.hidden && (x.attacks ?? []).length && !statusBlocker(x, library, 'action'));
   const pickAttack = (m) => (m.attackMode === 'random' ? Math.floor(ctx.rng() * m.attacks.length) : 0);
   for (const m of mobs) {
     const big = m.sourceKind === 'boss' || m.role === 'elite' || m.role === 'boss';
     // One action per crawler in the fight, even the fallen ones (the book): extra attacks go round the standing.
-    if (big) { const n = crawlers(st).filter((x) => !x.dead).length; for (let i = 0; i < n; i++) { const t = targets[i % targets.length]; out.push({ mobUid: m.uid, attackIndex: pickAttack(m), targetUid: t.uid }); load.set(t.uid, load.get(t.uid) + 1); } continue; }
+    if (big) { const n = crawlers(st).length; for (let i = 0; i < n; i++) { const t = targets[i % targets.length]; out.push({ mobUid: m.uid, attackIndex: pickAttack(m), targetUid: t.uid }); load.set(t.uid, load.get(t.uid) + 1); } continue; }
     let target;
     if (m.targetMode === 'focus' && load.has(m.focus)) target = m.focus;
     else {
@@ -151,8 +188,19 @@ export function suggestDecls(st, ctx) {
 function resolveDecl(st, ctx, out, rx, d) {
   const mob = C(st).combatants.find((x) => x.uid === d.mobUid);
   const target = C(st).combatants.find((x) => x.uid === d.targetUid);
-  if (!mob || !target) { d.result = 'evaded'; return; }
+  if (!mob || !target || target.dead) { d.result = 'evaded'; return; }
+  if (mob.conditions?.length) {
+    const blocked = statusBlocker(mob, libraryOf(st, ctx.pack), 'action');
+    if (blocked) {
+      d.result = 'evaded';
+      d.damage = 0;
+      log(rx, `${mob.name} cannot attack due to ${blocked}.`);
+      return;
+    }
+  }
   const deg = d.evade?.degree ?? null;
+  const graveFail = deg === 'major' || deg === 'critfail';
+  const F = floorOfState(st);
   // Splash ring of an area attack: half damage, a successful Evade there leaves a quarter.
   let mult = d.splash ? 0.5 : 1;
   let bonus = 0;
@@ -160,29 +208,35 @@ function resolveDecl(st, ctx, out, rx, d) {
     if (!d.attack.area) { d.result = 'evaded'; d.damage = 0; log(rx, `${nameOf(st, target)} evades ${mob.name}'s ${d.attack.name}.`); return; }
     mult *= 0.5;
   }
-  if (deg === 'major') bonus = floorOfState(st);
+  if (deg === 'major') bonus = F;
   if (deg === 'critfail') mult *= 2;
-  // Injuries after the fight (ruleset combat.injuries): Evade Major Fail → minor, natural 1 → major.
-  if (target.type === 'crawler' && (deg === 'major' || deg === 'critfail') && ctx.pack.ruleset.combat?.injuries) {
-    markInjury(st, ctx, target, deg === 'critfail' ? 'major' : 'minor');
-  }
   let rolled = 0;
-  try { rolled = rollDice(d.attack.damage, { randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt }).total; } catch { /* Bad legacy damage formula. */ }
+  try {
+    rolled = rollDice(d.attack.damage, { resolve: (name) => name === 'floor' ? F : undefined, randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt }).total;
+  } catch { /* Bad legacy damage formula. */ }
   const amount = Math.max(0, Math.floor(rolled * mult) + bonus);
   d.result = mult < 1 ? 'half' : 'hit';
   d.damage = amount;
-  log(rx, `${mob.name} hits ${nameOf(st, target)} with ${d.attack.name}: ${amount}${deg === 'major' ? ' (major fail: +floor)' : deg === 'critfail' ? ' (critical fail: double)' : ''}.`);
+  let immune = typedDamage(0, d.attack.dtype, target).why === 'immune';
   if (amount > 0) {
     const sub = { ...out, result: undefined };
     const wasDying = target.type === 'crawler' && target.dying != null;
-    COMBAT_GM['combat.damage'](st, { uid: target.uid, amount, dr: true }, ctx, sub);
-    if (sub.result?.slotValue || (target.type === 'crawler' && ctx.pack.ruleset.tracks.some((t) => t.id === hpTrackOf(ctx.pack)?.id && t.slotValue))) {
-      d.slots = sub.result?.actualAmount ?? 0;
-    }
+    COMBAT_GM['combat.damage'](st, { uid: target.uid, amount, dr: true, dtype: d.attack.dtype }, ctx, sub);
+    if (sub.result?.slotValue) d.slots = sub.result.actualAmount ?? 0;
+    d.damageAfterDr = sub.result?.rolled;
+    immune = sub.result?.typed === 'immune';
     if (!sub.result?.blocked) onCrawlerDamage(st, ctx, out, target, wasDying);
   }
+  log(rx, `${mob.name} hits ${nameOf(st, target)} with ${d.attack.name}: ${amount} HP${d.slots == null ? '' : ` → ${d.slots} slots`}.`);
+  if (immune) return;
+  // Injuries after the fight (ruleset combat.injuries): Evade Major Fail → minor, natural 1 → major.
+  if (target.type === 'crawler' && graveFail && ctx.pack.ruleset.combat?.injuries) {
+    markInjury(st, ctx, target, deg === 'critfail' ? 'major' : 'minor');
+  }
+  const buffs = new Set([...(d.attack.buffs ?? []), ...(graveFail ? d.attack.majorFailBuffs ?? [] : [])]);
+  if (!buffs.size) return;
   const library = libraryOf(st, ctx.pack);
-  for (const buffId of d.attack.buffs ?? []) {
+  for (const buffId of buffs) {
     if (library.get('buff', buffId)) COMBAT_GM['combat.condition'](st, { uid: target.uid, buffId, on: true }, ctx, { ...out, result: undefined });
   }
 }
@@ -230,10 +284,15 @@ export const REACTION_GM = {
     const rx = rxOf(st);
     if (rx.step !== 'declare') throw bad('targets change in the declare step');
     const d = declOf(rx, a.declId);
-    if (a.targetUid !== undefined) d.targetUid = crawlerOf(st, a.targetUid).uid;
+    if (a.targetUid !== undefined) {
+      const target = crawlerOf(st, a.targetUid);
+      if (target.dead) throw bad('that crawler is already dead');
+      d.targetUid = target.uid;
+    }
     if (a.attackIndex !== undefined) {
       d.attack = declaredAttack(st, ctx, mobOf(st, d.mobUid), a.attackIndex);
       d.attackIndex = a.attackIndex;
+      d.attack.baseDc = d.attack.dc;
       d.attack.dc += d.adv === 'adv' ? 5 : d.adv === 'dis' ? -5 : 0;
       d.splash = false;
     }
@@ -241,7 +300,7 @@ export const REACTION_GM = {
 
   /**
    * `{ declId, adv: 'adv' | 'dis' | null }` A mob attacks with Advantage (+5 to the Evade difficulty) or
-   * Disadvantage (−5): high ground, cover, darkness, size. Only before the Evade rolls.
+   * Disadvantage (−5 and a free Evade): high ground, cover, darkness, size. Only before the Evade rolls.
    */
   'rx.adv'(st, a) {
     const rx = rxOf(st);
@@ -290,7 +349,12 @@ export const REACTION_GM = {
     if (!STEPS.includes(a.to)) throw bad(`to must be one of ${STEPS.join(', ')}`);
     if (a.to === 'resolve' && rx.step !== 'resolve') {
       if (rx.step !== 'react') throw bad('announce the attacks before resolving damage');
-      const missing = rx.decls.filter((d) => rx.evading.includes(d.targetUid) && !d.caught && !d.evade);
+      const byUid = new Map(crawlers(st).map((x) => [x.uid, x]));
+      const library = libraryOf(st, ctx.pack);
+      const missing = rx.decls.filter((d) => {
+        const target = byUid.get(d.targetUid);
+        return !d.evade && evadeOptions(rx, d, target, !!statusBlocker(playerOfCrawler(st, target), library, 'interrupt')).canEvade;
+      });
       if (missing.length && a.force !== true) {
         out.result = { waiting: missing.map((d) => d.id) };
         throw bad(`${missing.length} Evade roll${missing.length === 1 ? '' : 's'} missing`);
@@ -331,26 +395,32 @@ export const REACTION_GM = {
     const rx = rxOf(st);
     debuffTicks(st, ctx, out, rx);
     dyingTick(st, ctx, out, 'cleanup');
+    if (rx.round > 0) advanceGameTime(st, ctx.pack.ruleset.combat.roundSeconds, out);
     rx.round += 1;
     C(st).round = rx.round;
     rx.step = 'declare';
     rx.decls = [];
     resetActs(st);
     // Timed mob conditions count down (crawler buffs count down through the sheet's own round tick).
-    for (const m of C(st).combatants) if (m.type === 'mob') m.conditions = (m.conditions ?? []).map((k) => (k.rounds ? { ...k, rounds: k.rounds - 1 } : k)).filter((k) => k.rounds !== 0);
+    const library = libraryOf(st, ctx.pack);
+    for (const m of C(st).combatants) if (m.type === 'mob') m.conditions = (m.conditions ?? []).flatMap((k) => {
+      const rounds = k.rounds ?? library.get('buff', k.id)?.rounds;
+      return rounds === 1 ? [] : rounds > 1 ? [{ ...k, rounds: rounds - 1 }] : [k];
+    });
     out.emit({ kind: 'rx.round', round: rx.round }, 'all');
   },
 
   /** GM enters an Evade roll for a crawler (physical dice at the table): `{ declId, die }`. */
   'rx.evade'(st, a, ctx, out) { evadeRoll(st, ctx, out, a, null); },
 
-  /** `{ uid, delta }` actions (AI Favor, a debuff, a house rule). */
+  /** `{ uid, delta }` actions (a debuff or a house rule). */
   'rx.actions'(st, a) {
     const rx = rxOf(st);
     crawlerOf(st, a.uid);
     if (!Number.isInteger(a.delta) || Math.abs(a.delta) > 3) throw bad('delta must be an integer -3..3');
     rx.acts[a.uid] = Math.max(0, Math.min(5, (rx.acts[a.uid] ?? ACTIONS_PER_ROUND) + a.delta));
   },
+  'rx.favor'(st, a, ctx, out) { buyFavorAction(st, ctx, out, crawlerOf(st, a.uid)); },
 };
 
 /**
@@ -362,20 +432,31 @@ function debuffTicks(st, ctx, out, rx) {
   const F = floorOfState(st);
   const hit = (x, def, who) => {
     let n = 0;
-    try { n = rollDice(def.tick.damage, { randInt: ctx.randInt }).total; } catch { n = 1; }
+    try { n = rollDice(def.tick.damage, { randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt }).total; } catch { n = 1; }
     n += def.tick.plusFloor ? F : 0;
     if (n <= 0) return;
     const wasDying = x.type === 'crawler' && x.dying != null;
-    COMBAT_GM['combat.damage'](st, { uid: x.uid, amount: n, dr: false, ...(def.tick.type ? { dtype: def.tick.type } : {}) }, ctx, { ...out, result: null });
-    if (x.type === 'crawler') onCrawlerDamage(st, ctx, out, x, wasDying);
-    log(rx, `${who}: ${def.name} ${n}.`);
+    const sub = { ...out, result: undefined };
+    COMBAT_GM['combat.damage'](st, { uid: x.uid, amount: n, rolled: true, dtype: def.tick.type }, ctx, sub);
+    if (x.type === 'crawler' && !sub.result?.blocked) onCrawlerDamage(st, ctx, out, x, wasDying);
+    log(rx, `${who}: ${def.name} ${n} HP${sub.result?.slotValue ? ` → ${sub.result.actualAmount ?? sub.result.amount ?? 0} slots` : ''}.`);
   };
   for (const x of [...C(st).combatants]) {
-    if (x.dead) continue;
     if (x.type === 'crawler') {
       const p = st.players.find((y) => y.id === x.playerId);
-      for (const b of p?.sheet?.buffs ?? []) { const def = b.buffId ? lib.get('buff', b.buffId) : null; if (def?.tick) hit(x, def, p.name); }
-    } else if (x.type === 'mob') {
+      if (!p) continue;
+      p.sheet.buffs = p.sheet.buffs.filter((b) => {
+        const def = b.buffId ? lib.get('buff', b.buffId) : null;
+        if (def?.tick && !x.dead) hit(x, def, p.name);
+        const rounds = b.roundsLeft ?? def?.rounds;
+        if (rounds) {
+          b.roundsLeft = rounds - 1;
+          if (b.roundsLeft > 0) b.until = `${b.roundsLeft} round${b.roundsLeft === 1 ? '' : 's'}`;
+          return b.roundsLeft > 0;
+        }
+        return true;
+      });
+    } else if (x.type === 'mob' && x.hp > 0) {
       for (const k of x.conditions ?? []) { const bid = k.id ?? k.buffId; const def = bid ? lib.get('buff', bid) : null; if (def?.tick) hit(x, def, x.name); }
     }
   }
@@ -434,19 +515,25 @@ function evadeRoll(st, ctx, out, a, playerId) {
   const d = declOf(rx, a.declId);
   const x = crawlerOf(st, d.targetUid);
   if (playerId && x.playerId !== playerId) throw bad('that attack is not aimed at you');
+  if (!standing(x)) throw bad('that crawler cannot act');
   if (d.caught) throw bad('a caught attack cannot be evaded');
-  if (!rx.evading.includes(x.uid)) throw bad('spend an action on Evade first');
   if (d.result) throw bad('already resolved');
+  const { freeEvade, canEvade } = evadeOptions(rx, d, x);
+  if (!freeEvade) requireStatusAllowed(st, ctx, playerOfCrawler(st, x), 'interrupt');
+  if (!canEvade) {
+    if (d.evade && (!d.evade.free || isSuccess(d.evade.degree))) throw bad('already evaded');
+    throw bad('spend an action on Evade first');
+  }
   if (!Number.isInteger(a.die) || a.die < 1 || a.die > 20) throw bad('die must be 1..20');
   const total = a.die + crawlerEvade(st, ctx, x);
   const degree = degreeOf(a.die, total, d.attack.dc);
-  d.evade = { die: a.die, total, degree };
+  d.evade = { die: a.die, total, degree, ...(freeEvade ? { free: true } : {}) };
   // Evade natural 20 / Amazing: Advantage on the next attack against that mob (shown on the phone + TV log).
   if (degree === 'crit' || degree === 'amazing') {
     rx.advantage = [...(rx.advantage ?? []).filter((v) => !(v.uid === x.uid && v.mobUid === d.mobUid)), { uid: x.uid, mobUid: d.mobUid }].slice(-20);
     log(rx, `${nameOf(st, x)} has Advantage on the next attack against ${mobOf(st, d.mobUid).name}.`);
   }
-  out.result = { degree, label: DEGREE_LABEL[degree], near: degree === 'near' };
+  out.result = { degree, label: DEGREE_LABEL[degree], near: degree === 'near', free: freeEvade };
   out.emit({ kind: 'rx.evade', declId: d.id, uid: x.uid, degree, near: degree === 'near' }, 'all');
 }
 
@@ -456,44 +543,65 @@ export const REACTION_PLAYER = {
     const rx = rxOf(st);
     const me = crawlers(st).find((x) => x.playerId === ctx.actor.playerId);
     if (!me) throw bad('you are not in this fight');
+    if (!standing(me)) throw bad('that crawler cannot act');
+    requireStatusAllowed(st, ctx, playerOfCrawler(st, me), 'interrupt');
     if (!INTERRUPTS.includes(a.kind)) throw bad(`kind must be one of ${INTERRUPTS.join(', ')}`);
     const inReact = rx.step === 'react';
     if (!inReact && !(rx.step === 'act' && (a.kind === 'heal' || a.kind === 'intervene'))) throw bad('interrupts are for the reaction step');
     if (a.kind === 'evade') {
       if (rx.evading.includes(me.uid)) throw bad('already evading this round');
-      spend(rx, me.uid);
+      spendReactionAction(rx, me.uid);
       rx.evading.push(me.uid);
     } else if (a.kind === 'catcher') {
       const d = declOf(rx, a.declId);
       if (d.targetUid === me.uid) throw bad('that attack is already aimed at you');
-      spend(rx, me.uid);
-      d.targetUid = me.uid;
-      d.caught = true;
+      spendReactionAction(rx, me.uid);
+      Object.assign(d, { targetUid: me.uid, caught: true, taunted: false, tauntEvade: false, evade: null });
     } else if (a.kind === 'taunt') {
       const d = declOf(rx, a.declId);
-      if (!Number.isInteger(a.total)) throw bad('total (your Taunt check) required');
+      if (d.targetUid === me.uid) throw bad('that attack is already aimed at you');
       const mob = mobOf(st, d.mobUid);
-      const dc = 10 + (Number(mob.stats?.int?.mod) || 2) + (floorOfState(st));
-      spend(rx, me.uid);
-      const ok = a.total >= dc;
-      if (ok) { d.targetUid = me.uid; d.taunted = true; }
+      const library = libraryOf(st, ctx.pack);
+      const intMod = mob.stats?.int?.mod ?? library.get(mob.sourceKind || 'monster', mob.sourceId)?.stats?.int?.mod ?? 2;
+      const dc = 10 + intMod + floorOfState(st);
+      const p = st.players.find((x) => x.id === me.playerId);
+      const skill = p?.sheet?.skills?.find((s) => s.skillId === 'taunt');
+      spendReactionAction(rx, me.uid);
+      let ok;
+      if (a.die === undefined) {
+        if (!Number.isInteger(a.total)) throw bad('enter the Taunt die or check total');
+        ok = a.total >= dc;
+      } else {
+        if (!Number.isInteger(a.die) || a.die < 1 || a.die > 20) throw bad('die must be 1..20');
+        const rs = ctx.pack.ruleset;
+        const what = skill ? { kind: 'skill', uid: skill.uid }
+          : rs.skills?.untrained && library.get('skill', 'taunt') ? { kind: 'untrained', skillId: 'taunt' }
+          : rs.stats.some((s) => s.id === 'cha') ? { kind: 'stat', id: 'cha' } : null;
+        if (what) {
+          const sub = { ...out, result: undefined };
+          SHEET.roll(st, { what, entered: a.die, dc, secret: true, card: false }, ctx, sub);
+          ok = sub.result.hit;
+        } else ok = a.die === 20 || (a.die > 1 && a.die >= dc);
+      }
+      if (ok) Object.assign(d, { targetUid: me.uid, taunted: true, tauntEvade: (skill?.rank ?? 0) >= 5, caught: false, evade: null });
       out.result = { ok };
     } else if (a.kind === 'heal' && ctx.pack.ruleset.combat?.healSpell) {
       // The heal every crawler has (DCC: 2 Mana → 2 Health slots), before the hits land.
       const hs = ctx.pack.ruleset.combat.healSpell;
       const p = st.players.find((y) => y.id === me.playerId);
+      requireStatusAllowed(st, ctx, p, 'spell');
       const mana = p?.sheet?.tracks?.[hs.track];
       const have = Number(mana?.cur ?? mana?.value ?? 0);
       if (!mana || have < hs.mana) throw bad(`not enough Mana (needs ${hs.mana})`);
       if (me.dead) throw bad('too late');
-      spend(rx, me.uid);
+      spendReactionAction(rx, me.uid);
       p.sheet.tracks[hs.track] = { ...mana, cur: have - hs.mana };
       const wasDying = me.dying != null;
       COMBAT_GM['combat.heal'](st, { uid: me.uid, amount: hs.slots }, ctx, { ...out, result: null });
       if (wasDying) dyingTick(st, ctx, out, 'heal', me.uid);
       out.result = { healed: hs.slots, mana: have - hs.mana };
     } else {
-      spend(rx, me.uid);
+      spendReactionAction(rx, me.uid);
       if (a.kind === 'intervene') rx.intervene.push(me.uid);
     }
     log(rx, `${nameOf(st, me)}: ${a.kind}.`);
@@ -503,11 +611,20 @@ export const REACTION_PLAYER = {
   /** `{ declId, die }` — my Evade roll against one attack. */
   'rx.evade'(st, a, ctx, out) { evadeRoll(st, ctx, out, a, ctx.actor.playerId); },
 
+  /** Spend one AI Favor to buy a single non-attack action this round. */
+  'rx.favor'(st, a, ctx, out) {
+    const me = crawlers(st).find((x) => x.playerId === ctx.actor.playerId);
+    if (!me) throw bad('you are not in this fight');
+    buyFavorAction(st, ctx, out, me);
+  },
+
   /** Intervene: `{ declId, d6 }` adds 1d6 to an ally's Evade roll (most useful on a Near miss). */
   'rx.intervene'(st, a, ctx, out) {
     const rx = rxOf(st);
     const me = crawlers(st).find((x) => x.playerId === ctx.actor.playerId);
     if (!me || !rx.intervene.includes(me.uid)) throw bad('spend an action on Intervene first');
+    if (!standing(me)) throw bad('that crawler cannot act');
+    requireStatusAllowed(st, ctx, playerOfCrawler(st, me), 'interrupt');
     const d = declOf(rx, a.declId);
     if (!d.evade || d.result) throw bad('no open Evade roll there');
     if (d.targetUid === me.uid) throw bad('Intervene helps someone else');
@@ -520,28 +637,34 @@ export const REACTION_PLAYER = {
     out.emit({ kind: 'rx.evade', declId: d.id, uid: d.targetUid, degree: d.evade.degree, helped: true }, 'all');
   },
 
-  /** Spend an action in the act step (an attack through the sheet, a move, an item): `{ n? }`. */
+  /** Spend a non-attack action for a move or item: `{ n? }`. */
   'rx.spend'(st, a, ctx) {
     const rx = rxOf(st);
     const me = crawlers(st).find((x) => x.playerId === ctx.actor.playerId);
     if (!me) throw bad('you are not in this fight');
+    if (!standing(me)) throw bad('that crawler cannot act');
     if (rx.step !== 'act' && rx.step !== 'react') throw bad('not now');
-    spend(rx, me.uid, a.n === 2 ? 2 : 1);
+    requireStatusAllowed(st, ctx, playerOfCrawler(st, me), rx.step === 'react' ? 'interrupt' : 'action');
+    spendReactionAction(rx, me.uid, a.n === 2 ? 2 : 1);
   },
 };
 
 /** Role-filtered view of the round: players never see difficulties or hidden mobs' plans. */
-export function reactionView(state, role) {
+export function reactionView(state, role, pack) {
   const c = state.combat;
   if (!c?.active || !isObj(c.rx) || c.rx.combatId !== c.id) return null;
   const rx = c.rx;
   const gm = role === 'gm';
   const mobs = new Map(c.combatants.filter((x) => x.type === 'mob').map((x) => [x.uid, x]));
+  const byUid = new Map(crawlers(state).map((x) => [x.uid, x]));
+  const library = pack && libraryOf(state, pack);
   const decls = rx.decls.filter((d) => gm || (rx.step !== 'declare' && !mobs.get(d.mobUid)?.hidden)).map((d) => {
     const m = mobs.get(d.mobUid);
-    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, splash: !!d.splash, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, ...(d.slots != null ? { slots: d.slots } : {}), evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0 } : null };
-    return gm ? { ...base, attackIndex: d.attackIndex, dc: d.attack.dc, damageDice: d.attack.damage, evadeTotal: d.evade?.total ?? null } : base;
+    const target = byUid.get(d.targetUid);
+    const blocked = library && !!statusBlocker(playerOfCrawler(state, target), library, 'interrupt');
+    const base = { id: d.id, mobUid: d.mobUid, mob: m?.name ?? '?', attack: d.attack.name, area: d.attack.area, splash: !!d.splash, adv: d.adv ?? null, targetUid: d.targetUid, caught: d.caught, taunted: d.taunted, result: d.result, damage: d.damage, ...evadeOptions(rx, d, target, blocked), ...(d.slots != null ? { slots: d.slots } : {}), evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die, helped: d.evade.helped ?? 0, free: !!d.evade.free } : null };
+    return gm ? { ...base, attackIndex: d.attackIndex, dc: d.attack.dc, damageDice: d.attack.damage, dtype: d.attack.dtype, effects: d.attack.effects, damageAfterDr: d.damageAfterDr, evadeTotal: d.evade?.total ?? null } : base;
   });
   const advantage = (rx.advantage ?? []).filter((v) => gm || !mobs.get(v.mobUid)?.hidden).map((v) => ({ uid: v.uid, mobUid: v.mobUid, mob: mobs.get(v.mobUid)?.name ?? '?' }));
-  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5) };
+  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, nonAttackActions: rx.nonAttackActions ?? {}, favor: rx.favor ?? [], evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5) };
 }

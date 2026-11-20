@@ -530,6 +530,18 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return evaluate(def.cost, { resolve: resolver(), labelOf: (id) => id.replace(/^mod\./, '').toUpperCase() + (id.startsWith('mod.') ? ' mod' : '') });
   }
 
+  const spellCooldown = (s) => M.computed.spells?.find((x) => x.uid === s.uid)?.cooldown;
+  function timeText(seconds) {
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor(seconds / 60) % 60;
+    const remainder = seconds % 60;
+    return [hours ? `${hours} h` : '', minutes ? `${minutes} min` : '', remainder ? `${remainder} s` : ''].filter(Boolean).join(' ');
+  }
+  function spellCooldownText(cooldown) {
+    if (!cooldown || cooldown.ready) return '';
+    return cooldown.kind === 'scene' ? 'Used this scene' : `Ready in ${timeText(cooldown.remainingSeconds)} game time`;
+  }
+
   function spellsPanel() {
     const list = M.sheet.spells || [];
     const trackId = M.rs.spells?.costTrack;
@@ -539,13 +551,16 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const def = { ...(libGet(M.lib, 'spell', s.spellId) || {}), ...s, name: s.name || libGet(M.lib, 'spell', s.spellId)?.name || s.spellId };
       const cost = spellCost(def, s);
       const short = have < cost.value;
-      const meta = [def.range, def.duration].filter(Boolean);
+      const cooldown = spellCooldownText(spellCooldown(s));
+      const prepared = M.rs.hotlist?.combat && M.sheet.hotlist?.includes(s.uid);
+      const meta = [def.range, def.duration, cooldown].filter(Boolean);
       return h('li.spell', { class: s.active ? 'spell active' : 'spell' },
         itemArt({ ...def, rarity: def.rarity || 'common' }, 'inv-ico sp-ico'),
         h('button.spell-n', { type: 'button', onclick: () => spellDrawer(s), title: def.desc || '' }, h('span.sn', def.name), h('span.sp-meta', [meta.join(', '), def.desc].filter(Boolean).join(' · ') || 'Details')),
         s.active ? h('span.pill.pill-on', 'Active') : null,
+        prepared ? h('span.hot-mark', { title: 'On the Hotlist', 'aria-label': 'On the Hotlist' }, icon('star', { size: 13 })) : null,
         h('div.sp-cost', h('span.mini-l', 'Cost'), num(cost, { title: `${def.name} cost`, text: `${cost.value}${track ? ` ${track.label.toLowerCase()}` : ''}` })),
-        h('button.btn.btn-sm', { type: 'button', class: short ? 'btn btn-sm' : 'btn btn-sm btn-primary', disabled: short || !can('play'), title: short ? `Needs ${cost.value}, you have ${have}` : `Spend ${cost.value} and cast`, onclick: () => cast(s, def, cost) }, icon('bolt', { size: 14 }), 'Cast'),
+        h('button.btn.btn-sm', { type: 'button', class: short || cooldown ? 'btn btn-sm' : 'btn btn-sm btn-primary', disabled: short || !!cooldown || !can('play'), title: cooldown || (short ? `Needs ${cost.value}, you have ${have}` : `Spend ${cost.value} and cast`), onclick: () => cast(s, def, cost) }, icon('bolt', { size: 14 }), 'Cast'),
       );
     });
     return h('section.panel-spells',
@@ -556,8 +571,23 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   }
 
   async function cast(s, def, cost) {
-    const r = await act({ t: 'spell.cast', uid: s.uid }, `Cast ${def.name}${cost.value ? ` for ${cost.value}` : ''}.`);
-    if (r && (def.dice || def.attack?.dice)) roll({ kind: 'custom', formula: def.dice || def.attack.dice, label: `${def.name}` });
+    if (M.rs.spells.attackChecks && def.attackCheck) {
+      roll({ kind: 'spell', uid: s.uid }, `${def.name} to hit`);
+      return;
+    }
+    const castTarget = async (target) => {
+      const r = await act({ t: 'spell.cast', uid: s.uid, ...(target ? { target } : {}) }, `Cast ${def.name}${cost.value ? ` for ${cost.value}` : ''}.`);
+      if (r && !def.healing && (def.dice || def.attack?.dice)) roll({ kind: 'custom', formula: def.dice || def.attack.dice, label: def.name });
+      return r;
+    };
+    if (def.healing?.target !== 'ally') { await castTarget(); return; }
+    const allies = (view.players || []).filter((p) => p.id !== player.id);
+    openDrawer({ title: def.name, sub: def.range, body: allies.length ? h('div.add-row', allies.map((p) => h('button.btn', { type: 'button', onclick: async (e) => {
+      const button = e.currentTarget;
+      button.disabled = true;
+      if (await castTarget(p.id)) closeDrawer();
+      else button.disabled = false;
+    } }, p.name))) : h('p.empty-s', 'No other crawler to heal.') });
   }
 
   function learnSpell() {
@@ -570,7 +600,11 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   function spellDrawer(s) {
     const def = { ...(libGet(M.lib, 'spell', s.spellId) || {}), ...s, name: s.name || libGet(M.lib, 'spell', s.spellId)?.name || s.spellId };
     const cost = spellCost(def, s);
-    const rows = [['Cost', `${cost.value}${typeof def.cost === 'string' ? ` (${def.cost})` : ''}`], ['Range', def.range], ['Duration', def.duration], ['Rank', s.rank], ['Dice', def.dice || def.attack?.dice], ['Scaling', def.rankScaling]].filter(([, v]) => v != null && v !== '');
+    const readySlot = M.sheet.hotlist?.indexOf(s.uid) ?? -1;
+    const openSlot = M.sheet.hotlist?.indexOf(null) ?? -1;
+    const cooldown = spellCooldownText(spellCooldown(s));
+    const cadence = def.cooldown === 'scene' ? 'Once per scene' : def.cooldown ? timeText(def.cooldown) : '';
+    const rows = [['Cost', `${cost.value}${typeof def.cost === 'string' ? ` (${def.cost})` : ''}`], ['Range', def.range], ['Duration', def.duration], ['Cooldown', [cadence, cooldown].filter(Boolean).join(' · ')], ['Rank', s.rank], ['Dice', def.dice || def.attack?.dice], ['Scaling', def.rankScaling]].filter(([, v]) => v != null && v !== '');
     openDrawer({
       title: def.name, sub: s.active ? 'Active now' : 'Spell',
       body: [
@@ -580,9 +614,13 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         def.effects?.length ? h('div', h('h3.sub-t', 'Effects while active'), h('ul.eff-list', def.effects.map((e) => h('li', effectText(M.rs, e))))) : null,
       ],
       actions: [
-        (gm || can('sheet')) ? h('button.btn.btn-quiet.danger', { type: 'button', onclick: async () => { if (await act({ t: 'spell.forget', uid: s.uid }, `Forgot ${def.name}.`)) closeDrawer(); } }, 'Forget') : null,
+        M.rs.hotlist?.combat && can('sheet') ? h('button.btn', { type: 'button', disabled: readySlot < 0 && openSlot < 0, onclick: async () => {
+          if (await act({ t: 'hotlist.set', index: readySlot >= 0 ? readySlot : openSlot, uid: readySlot >= 0 ? null : s.uid })) closeDrawer();
+        } }, readySlot >= 0 ? 'Remove from Hotlist' : 'Add to Hotlist') : null,
+        (gm || can('sheet')) && !M.rs.spells.starting?.includes(s.spellId) ? h('button.btn.btn-quiet.danger', { type: 'button', onclick: async () => { if (await act({ t: 'spell.forget', uid: s.uid }, `Forgot ${def.name}.`)) closeDrawer(); } }, 'Forget') : null,
         s.active ? h('button.btn', { type: 'button', onclick: async () => { if (await act({ t: 'spell.update', uid: s.uid, active: false }, `${def.name} ended.`)) closeDrawer(); } }, 'End effect') : null,
-        h('button.btn.btn-primary', { type: 'button', onclick: () => { closeDrawer(); cast(s, def, cost); } }, icon('bolt', { size: 14 }), 'Cast'),
+        gm && cooldown ? h('button.btn', { type: 'button', onclick: async () => { if (await act({ t: 'spell.ready', uid: s.uid }, `${def.name} is ready.`)) closeDrawer(); } }, 'Reset cooldown') : null,
+        h('button.btn.btn-primary', { type: 'button', disabled: !!cooldown, onclick: () => { closeDrawer(); cast(s, def, cost); } }, icon('bolt', { size: 14 }), 'Cast'),
       ],
     });
   }
@@ -725,7 +763,10 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         : h('button.btn', { type: 'button', disabled: free == null, onclick: () => act({ t: 'hotlist.set', index: free, uid }, 'Added to the hotlist.') }, icon('star', { size: 14 }), 'Add to hotlist'));
     }
     if (it.use && can('play')) {
-      actions.unshift(h('button.btn.btn-primary', { type: 'button', onclick: async () => { if (await act({ t: 'item.use', uid }, `Used ${it.name}.`)) { if ((inv.qty ?? 1) <= 1 && (it.use.consume ?? it.stackable)) closeDrawer(); } } }, useLabel(it.use)));
+      actions.unshift(h('button.btn.btn-primary', { type: 'button', onclick: async () => {
+        if (await useReadyItem(uid) && (inv.qty ?? 1) <= 1 && (it.use.consume ?? it.stackable)) closeDrawer();
+      } }, useLabel(it.use)));
+      if (M.rs.hotlist?.combat && it.tags?.includes('potion')) actions.push(h('button.btn', { type: 'button', onclick: () => choosePotionRecipient(uid) }, 'Give to ally'));
     }
     const atk = it.attack;
     const atkLine = atk ? h('div.item-atk', h('h3.sub-t', 'Attack'), h('div.atk-inline2', weaponNums(it)), atk.effects ? h('p.atk-fx', atk.effects) : null) : null;
@@ -779,6 +820,28 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
 
   /* ---------- hotlist ---------- */
 
+  async function useReadyItem(uid, target) {
+    const inv = M.sheet.inventory.find((i) => i.uid === uid);
+    if (!inv) return null;
+    const name = itemOf(M.lib, inv).name;
+    const result = await act({ t: 'item.use', uid, ...(target ? { target } : {}) });
+    if (result) toast(result.result?.potionSickness ? `${name} used · Potion Sickness` : `Used ${name}.`, { error: !!result.result?.potionSickness });
+    return result;
+  }
+
+  function choosePotionRecipient(uid) {
+    const inv = M.sheet.inventory.find((i) => i.uid === uid);
+    if (!inv) return;
+    const allies = (view.players || []).filter((p) => p.id !== player.id);
+    openDrawer({ title: itemOf(M.lib, inv).name, sub: 'Choose a nearby ally', body: allies.length ? h('div.add-row',
+      allies.map((p) => h('button.btn', { type: 'button', onclick: async (e) => {
+        const button = e.currentTarget;
+        button.disabled = true;
+        if (await useReadyItem(uid, p.id)) closeDrawer();
+        else button.disabled = false;
+      } }, p.name))) : h('p.empty-s', 'No other crawler in the party.') });
+  }
+
   function hotlistPanel() {
     const n = M.rs.hotlist?.size || 0;
     if (!n) return h('p.empty-s', 'This pack has no hotlist.');
@@ -787,6 +850,9 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const tiles = Array.from({ length: n }, (_, i) => {
       const uid = hl[i];
       const inv = uid ? M.sheet.inventory.find((x) => x.uid === uid) : null;
+      const spell = M.rs.hotlist?.combat && M.sheet.spells?.find((s) => s.uid === uid);
+      if (spell) return h('button.hot', { type: 'button', onclick: () => spellDrawer(spell), 'aria-label': `Hotlist slot ${i + 1}: ${spell.name}` },
+        h('span.hot-i', String((i + 1) % 10)), itemArt(spell, 'hot-art'), h('span.hot-n', spell.name), icon('bolt', { size: 12 }));
       if (!inv) {
         return h('button.hot', { type: 'button', class: 'hot empty', disabled: !ok, onclick: () => pickHot(i), 'aria-label': `Hotlist slot ${i + 1}, empty` }, h('span.hot-i', String((i + 1) % 10)), h('span.hot-n', ok ? 'Add' : 'Empty'));
       }
@@ -794,18 +860,21 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       return h('button.hot', { type: 'button', class: `hot r-${rarityOf(it.rarity)}`, onclick: () => itemDrawer(inv.uid), 'aria-label': `Hotlist slot ${i + 1}: ${it.name}`, title: [it.name, itemLine(it, inv)].filter(Boolean).join('\n') },
         h('span.hot-i', String((i + 1) % 10)), itemArt(it, 'hot-art'), h('span.hot-n', it.name), h('span.hot-q', `×${inv.qty ?? 1}`), it.attack ? h('span.hot-atk', icon('swords', { size: 12 })) : null);
     });
-    return h('section.panel-hot', h('div.hots', tiles), h('p.hint', 'Tap a tile for the item. Numbers are the slot keys.'));
+    return h('section.panel-hot', h('div.hots', tiles), h('p.hint', 'Tap a slot to open it.'));
   }
 
   function pickHot(index) {
     const inHot = new Set((M.sheet.hotlist || []).filter(Boolean));
     const cands = M.sheet.inventory.filter((i) => !inHot.has(i.uid));
+    const spells = M.rs.hotlist?.combat ? M.sheet.spells.filter((s) => !inHot.has(s.uid)) : [];
     openDrawer({
       title: `Hotlist slot ${index + 1}`,
-      body: cands.length ? h('ul.pick-list', cands.map((i) => {
+      body: cands.length || spells.length ? h('ul.pick-list', cands.map((i) => {
         const it = itemOf(M.lib, i);
         return h('li', h('button.pick.pick-art', { type: 'button', onclick: async () => { if (await act({ t: 'hotlist.set', index, uid: i.uid })) closeDrawer(); } }, itemArt(it, 'inv-ico'), h('span', h('b', it.name), h('span.dim.pick-line', itemLine(it, i))), h('span.dim', `×${i.qty ?? 1}`)));
-      })) : h('p.empty-s', 'Everything you carry is already on the hotlist.'),
+      }), spells.map((s) => h('li', h('button.pick.pick-art', { type: 'button', onclick: async () => {
+        if (await act({ t: 'hotlist.set', index, uid: s.uid })) closeDrawer();
+      } }, itemArt(s, 'inv-ico'), h('span', h('b', s.name), h('span.dim.pick-line', `Spell · Rank ${s.rank}`)))))) : h('p.empty-s', 'Your Hotlist has everything ready.'),
     });
   }
 
@@ -938,18 +1007,18 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     };
     const rest = async (kind) => {
       let heal;
-      if (kind === 'short') {
+      if (kind === 'short' && !M.rs.rests?.short) {
         const v = prompt('Short rest: how much health do they get back? (hit dice rolled at the table; empty = none)', '');
         if (v === null) return;
         heal = Math.max(0, Math.round(Number(v) || 0));
-      } else if (!(await ask(`Long rest for ${player.name}? Health and every resource back to full, every counter refilled.`, { ok: 'Long rest' }))) return;
+      } else if (kind === 'long' && !M.rs.rests?.long && !(await ask(`Long rest for ${player.name}? Health and every resource back to full, every counter refilled.`, { ok: 'Long rest' }))) return;
       const r = await act({ t: 'rest', kind, ...(heal ? { heal } : {}) }, null);
       if (r) toast(r.result?.restored?.length ? `${kind === 'long' ? 'Long' : 'Short'} rest: ${r.result.restored.join(', ')}.` : 'Rested. Nothing needed refilling.');
     };
     return h('section.sh-block.sh-pools',
-      can('play') ? h('div.rest-row', h('span.mini-l', 'Rest'),
-        h('button.btn.btn-sm', { type: 'button', title: 'Counters marked "short rest" refill; optional health back', onclick: () => rest('short') }, 'Short rest'),
-        h('button.btn.btn-sm', { type: 'button', title: 'Health, mana and every counter back to full', onclick: () => rest('long') }, 'Long rest')) : null,
+      can('play') && (gm || !M.rs.rests) ? h('div.rest-row', h('span.mini-l', 'Rest'),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => rest('short') }, 'Short rest'),
+        h('button.btn.btn-sm', { type: 'button', onclick: () => rest('long') }, 'Long rest')) : null,
       h('h2.blk-t', 'Limited uses'),
       pools.length ? h('ul.pool-list', rows) : h('p.empty-s', 'No counters yet.'),
       ok ? h('div.add-row', h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: add }, icon('plus', { size: 14 }), 'Add a counter')) : null,
@@ -1113,7 +1182,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     { id: 'notes', label: 'Notes' },
   ];
   function phoneSections() {
-    return PSECTIONS.filter((t) => t.id !== 'spells' || (M.sheet.spells || []).length)
+    const primaryExtras = (extraTabs() || []).filter((t) => t.phoneSection);
+    return [...primaryExtras, ...PSECTIONS].filter((t) => t.id !== 'spells' || (M.sheet.spells || []).length)
       .map((t) => ({ ...t, count: t.id === 'skills' ? M.sheet.skills?.length || '' : t.id === 'inventory' ? M.sheet.inventory?.length || '' : t.id === 'spells' ? M.sheet.spells?.length : '' }));
   }
   /** The "inspiration" slot: a number field the pack names favor / inspiration / luck / hero. */
@@ -1162,7 +1232,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     openDrawer({
       title: player.name || 'Menu',
       body: h('ul.more-list',
-        extra.map((x) => row(x.id === 'msg' ? 'chat' : 'star', x.label, null, x.badge, () => { closeDrawer(); openDrawer({ title: x.label, body: x.render(), onClose: () => draw(true) }); })),
+        extra.filter((x) => !x.phoneSection).map((x) => row(x.id === 'msg' ? 'chat' : 'star', x.label, null, x.badge, () => { closeDrawer(); openDrawer({ title: x.label, body: x.render(), onClose: () => draw(true) }); })),
         canEdit ? row('edit', ui.editing ? 'Stop editing' : 'Edit sheet', 'Identity, stats, counters', null, () => { closeDrawer(); ui.editing = !ui.editing; draw(true); }) : null,
         (gm || can('sheet')) && onBuilder ? row('sparkle', 'Character builder', 'Step by step', null, () => { closeDrawer(); onBuilder(M, player); }) : null,
         (gm || can('sheet')) ? row('users', 'Character picture', 'Shown on the TV', null, () => { closeDrawer(); portraitMenu(); }) : null,
@@ -1210,7 +1280,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       case 'prof': return proficienciesPanel();
       case 'background': return backgroundPanel();
       case 'notes': return notesPanel();
-      default: return skillsPanel();
+      default: return (extraTabs() || []).find((t) => t.id === id && t.phoneSection)?.render() || skillsPanel();
     }
   }
   function phoneBody() {
@@ -1303,6 +1373,12 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       draw(true);
     },
     setEditing(on) { ui.editing = !!on; draw(true); },
+    castReadySpell(uid) {
+      const spell = M.sheet.spells.find((s) => s.uid === uid);
+      if (spell) cast(spell, spell, spellCost(spell, spell));
+    },
+    useReadyItem,
+    choosePotionRecipient,
     act,
   };
 }

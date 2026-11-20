@@ -16,6 +16,7 @@ import { entryArt } from './portrait.js';
 import { openArtGallery } from './art-gallery.js';
 import { statBlock, hasStatBlock } from './statblock.js';
 import { initStrip } from './initiative.js';
+import { ratingBadge } from './gm-encounter.js';
 
 const PREF = 'system.combat.ui'; // UI preferences only (builder tab, roll visibility); no game state
 const loadPref = () => { try { return JSON.parse(localStorage.getItem(PREF) || '{}') || {}; } catch { return {}; } };
@@ -368,7 +369,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   function quick(x, wide) {
     const credit = () => ui.damageBy[x.uid] ? { by: ui.damageBy[x.uid] } : {};
     const dmg = (n) => act({ t: 'combat.damage', uid: x.uid, amount: n, ...credit() });
-    const custom = h('input.inp.inp-sm.cbt-amt', { type: 'number', min: 1, max: 999, placeholder: x.dr ? `#−${x.dr}` : '#', title: `Rolled damage after DR${x.slotValue ? `. Whole slots of ${x.slotValue} HP` : ''}. Shift+Enter heals.`, 'aria-label': `Damage amount for ${x.name} (Shift+Enter heals)`, inputmode: 'numeric' });
+    const custom = h('input.inp.inp-sm.cbt-amt', { type: 'number', min: 1, max: 999, placeholder: 'HP', title: `Enter rolled HP before DR${x.slotValue ? `. Shift+Enter restores whole slots (${x.slotValue} HP each).` : '. Shift+Enter heals.'}`, 'aria-label': `Damage amount for ${x.name} (Shift+Enter heals)`, inputmode: 'numeric' });
     custom.addEventListener('keydown', async (e) => {
       if (e.key !== 'Enter') return;
       e.preventDefault();
@@ -553,7 +554,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         m.attacks.filter((a) => a.effects).map((a) => h('p', h('b', `${a.name}. `), a.effects))) : null,
       h('div.cbt-info-row',
         h('label.cbt-mini', h('span.mini-l', 'Name'), field(m.name, { cls: 'inp-sm', attrs: { 'aria-label': 'Name', maxlength: 80 }, onCommit: (v) => v.trim() && act({ t: 'combat.update', uid: m.uid, name: v.trim() }) })),
-        h('label.cbt-mini', h('span.mini-l', 'Max HP'), field(m.hpMax, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 1, max: 999 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, hpMax: Math.max(1, Math.min(999, Math.round(v) || 1)) }) })),
+        h('label.cbt-mini', h('span.mini-l', m.slotValue ? 'Max slots' : 'Max HP'), field(m.hpMax, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: 1, max: 999 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, hpMax: Math.max(1, Math.min(999, Math.round(v) || 1)) }) })),
         h('label.cbt-mini', h('span.mini-l', DEF()), field(m.evade, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, evade: Math.round(v) || 0 }) })),
         hasDr() ? h('label.cbt-mini', h('span.mini-l', 'DR'), field(m.dr, { type: 'number', cls: 'inp-sm cbt-num', attrs: { min: -99, max: 99 }, onCommit: (v) => act({ t: 'combat.update', uid: m.uid, dr: Math.round(v) || 0 }) })) : null),
       select([{ value: '', label: 'Choose who dealt the damage' }, ...(view.players ?? []).map((p) => ({ value: p.id, label: `Damage by ${p.name}` }))], ui.damageBy[m.uid] || '', {
@@ -568,7 +569,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.cc-who',
         artBtn(entryArt({ name: m.name, image: m.image }, { cls: 'cbt-art' }), `Change the art of ${m.name}`, () => pickMobArt(m)),
         h('div.cc-nm', h('b', m.name),
-          h('span.dim', `${m.hp} / ${m.hpMax} HP`, m.sourceKind === 'boss' ? h('span.pill.pill-on', m.linked ? 'Boss · on TV' : 'Boss') : null, m.hidden ? h('span.pill', 'Hidden') : null)),
+          h('span.dim', { title: m.slotValue ? `${m.hp} of ${m.hpMax} health slots` : null }, `${m.hp}/${m.hpMax} ${m.slotValue ? `· ${m.slotValue} HP/slot` : 'HP'}`, m.sourceKind === 'boss' ? h('span.pill.pill-on', m.linked ? 'Boss · on TV' : 'Boss') : null, m.hidden ? h('span.pill', 'Hidden') : null)),
         h('button.icon-btn.cbt-eye', {
           type: 'button', 'aria-pressed': String(!m.hidden), class: m.hidden ? 'icon-btn cbt-eye' : 'icon-btn cbt-eye on',
           title: m.hidden ? 'Hidden: GM only. Tap to reveal on the TV and phones' : 'Revealed. Tap to hide again',
@@ -604,8 +605,11 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   /** Bodies to loot (downed mobs + crawlers) and the piles to hand out, item by item, to a crawler. */
   function lootPanel() {
     const ds = drops();
+    const rules = view?.pack?.ruleset;
+    const gold = rules?.loot?.corpseGold?.[view?.crawlers?.floor];
     const bodies = (C().combatants || []).filter((x) => x.down && !looted(x.uid) &&
-      (x.type === 'crawler' || libEntry(x)?.lootItems?.length));
+      (x.type === 'crawler' ? (x.dead || !rules?.combat?.dyingRounds)
+        : libEntry(x)?.lootItems?.length || (gold && x.sourceKind !== 'boss' && x.role !== 'boss')));
     if (!ds.length && !bodies.length) return null;
     const ps = view?.players || [];
     const name = (id) => ps.find((p) => p.id === id)?.name || '?';
@@ -613,7 +617,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.sec-head', h('h2', 'Loot'), h('span.dim', 'Confirm the killer or choose a crawler')),
       bodies.length ? h('div.cbt-bodies', bodies.map((x) => h('button.btn.btn-sm', {
         type: 'button',
-        title: x.type === 'mob' ? 'Its library loot falls on the TV' : 'Everything they carried falls on the TV',
+        title: x.type === 'mob' ? 'Show its loot on the TV' : 'Everything they carried falls on the TV',
         onclick: () => x.killedBy && ps.some((p) => p.id === x.killedBy)
           ? act({ t: 'loot.confirm', uid: x.uid }, `Loot → ${name(x.killedBy)}.`)
           : act({ t: 'loot.corpse', uid: x.uid }, `${x.name} dropped its loot.`),
@@ -771,9 +775,10 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   function monsterItem(kind, e) {
     const key = `${kind}:${e.id}`;
     const linkedHint = kind === 'boss' && view.scene?.kind === 'boss' && view.scene.data?.bossId === e.id ? ' · on TV' : '';
+    const sv = e.slotValue || view.pack?.ruleset?.combat?.mobSlotValue;
     return h('li.cbt-pick', { class: e.image ? 'cbt-pick' : 'cbt-pick no-art' },
       artBtn(entryArt(e, { cls: 'cbt-pick-art' }), e.image ? `Change the art of ${e.name}` : `${e.name} has no art yet: pick a picture`, () => pickLibArt(kind, e)),
-      h('div.cbt-pick-t', h('b', e.name), h('span.dim', [kind === 'boss' ? 'Boss' : e.group, e.floor !== '' && e.floor != null ? `F${e.floor}` : '', `${e.hpSlots} HP`, `${DEF() === 'Evade' ? 'Ev' : DEF()} ${e.evade ?? 0}`, hasDr() ? `DR ${e.dr ?? 0}` : ''].filter(Boolean).join(' · ') + linkedHint)),
+      h('div.cbt-pick-t', h('b', e.name), h('span.dim', [kind === 'boss' ? 'Boss' : e.group, e.floor !== '' && e.floor != null ? `F${e.floor}` : '', `${e.hpSlots} ${sv ? `slots × ${sv} HP` : 'HP'}`, `${DEF() === 'Evade' ? 'Ev' : DEF()} ${e.evade ?? 0}`, hasDr() ? `DR ${e.dr ?? 0}` : ''].filter(Boolean).join(' · ') + linkedHint)),
       kind === 'boss' ? h('span') : countStepper(key),
       h('button.btn.btn-sm', { type: 'button', onclick: () => addMob(kind, e, kind === 'boss' ? 1 : countOf(key)), 'aria-label': `Add ${e.name}` }, icon('plus', { size: 13 }), 'Add'));
   }
@@ -886,6 +891,8 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const living = mobs.filter((m) => !m.down);
     const dead = mobs.filter((m) => m.down);
     const hiddenN = living.filter((m) => m.hidden).length;
+    const strength = !c.active && !fixedRules() ? ratingBadge('crawler', c.previewCrawlers ?? view.players ?? [],
+      living.map((m) => ({ role: m.sourceKind === 'boss' ? 'boss' : m.role }))) : null;
     const list = h('section.panel.cbt-list-panel',
       h('section.cbt-party-col',
       h('div.sec-head', h('h2', 'Crawlers'), c.active ? h('span.dim', c.phase || '') : null),
@@ -896,7 +903,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       })) : crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', 'No crawlers in the fight.'),
       lateJoin(c, crawlers)),
       h('section.cbt-mob-col',
-      h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), h('span.grow'),
+      h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), strength, h('span.grow'),
         hiddenN ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, 'Every mob revealed.') }, icon('eye', { size: 13 }), 'Reveal all') : null,
         mobs.some((m) => m.sourceId) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Keep these mobs as a one-tap encounter for later', onclick: saveEncounter }, icon('plus', { size: 13 }), h('span.cbt-roster-action', 'Save as encounter')) : null,
         mobs.length ? h('button.btn.btn-sm.btn-quiet.danger', { type: 'button', onclick: async () => {

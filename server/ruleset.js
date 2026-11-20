@@ -176,28 +176,54 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
       cost = 0;
     }
     const dice = text(raw.dice, 60);
+    const attack = normalizeAttackDef(raw.attack, ctx, ctx.where);
+    if (attack && raw.attackCheck === true) {
+      const rank5Dice = text(raw.attack.rank5Dice, 60);
+      if (rank5Dice && formulaOk(rank5Dice, ctx, `${ctx.where} attack.rank5Dice`, { dice: true })) attack.rank5Dice = rank5Dice;
+      if (raw.attack.adv === 'dis') attack.adv = 'dis';
+      const dtype = text(raw.attack.dtype, 30).toLowerCase();
+      if (dtype) attack.dtype = dtype;
+    }
+    const healing = raw.healing;
+    const cooldown = raw.cooldown === 'scene' ? 'scene' : Number.isInteger(raw.cooldown) && raw.cooldown > 0 && raw.cooldown <= 3_600_000 ? raw.cooldown : null;
+    const healAmount = (v) => (Number.isInteger(v) && v > 0 && v <= 100) || (typeof v === 'string' && /^\d{1,2}d\d{1,3}$/.test(v) && !validateFormula(v, { dice: true }));
     Object.assign(e, {
       cost,
       costTrack: safeId(raw.costTrack) ? raw.costTrack : null,
       range: text(raw.range, 80),
       duration: text(raw.duration, 80),
       effects: normalizeEffects(raw.effects, ctx),
-      attack: normalizeAttackDef(raw.attack, ctx, ctx.where),
+      attack,
+      ...(attack?.dice && raw.attackCheck === true ? { attackCheck: true } : {}),
+      ...(cooldown ? { cooldown } : {}),
+      ...(isObj(healing) && safeId(healing.track) && healAmount(healing.amount) ? { healing: {
+        track: healing.track, amount: healing.amount, target: healing.target === 'ally' ? 'ally' : 'self',
+        ...(healAmount(healing.rank5Amount) ? { rank5Amount: healing.rank5Amount } : {}),
+      } } : {}),
+      ...(Number.isInteger(raw.rankMax) && raw.rankMax > 0 && raw.rankMax <= 1000 ? { rankMax: raw.rankMax } : {}),
       dice: dice && formulaOk(dice, ctx, `${ctx.where} dice`, { dice: true }) ? dice : '',
       rankScaling: text(raw.rankScaling, 500),
       applies: safeId(raw.applies) ? raw.applies : null,
       flavor: text(raw.flavor, 2000),
     });
   } else if (kind === 'skill') {
+    const rank5Damage = text(raw.rank5Damage, 60);
     Object.assign(e, {
       stat: safeId(raw.stat) ? raw.stat : '',
       checkType: text(raw.checkType, 40),
+      ...(raw.melee === true ? { melee: true } : {}),
+      ...(rank5Damage && formulaOk(rank5Damage, ctx, `${ctx.where} rank5Damage`, { dice: true }) ? { rank5Damage } : {}),
+      ...(raw.rank5IgnoreDr === true ? { rank5IgnoreDr: true } : {}),
       upgrades: Array.isArray(raw.upgrades)
         ? raw.upgrades.filter((u) => isObj(u) && Number.isInteger(u.rank) && isStr(u.text)).slice(0, 50).map((u) => ({ rank: u.rank, text: text(u.text, 500) }))
         : [],
     });
   } else if (kind === 'buff') {
     Object.assign(e, { effects: normalizeEffects(raw.effects, ctx), duration: text(raw.duration, 80), external: raw.external === true });
+    const blocks = idList(raw.blocks, 4).filter((key) => ['action', 'interrupt', 'spell', 'heal'].includes(key));
+    if (blocks.length) e.blocks = blocks;
+    if (Number.isInteger(raw.rounds) && raw.rounds >= 1 && raw.rounds <= 99) e.rounds = raw.rounds;
+    if (raw.endCombat === true) e.endCombat = true;
     // Damage at every clean up while it lasts (Blood Trail, Burned, Poisoned…): dice + the floor if plusFloor.
     if (raw.tick && typeof raw.tick === 'object' && /^\d*d\d+([+-]\d+)?$/.test(String(raw.tick.damage ?? '').replace(/\s/g, ''))) {
       e.tick = { damage: String(raw.tick.damage).replace(/\s/g, ''), plusFloor: raw.tick.plusFloor === true, type: text(raw.tick.type, 30).toLowerCase() };
@@ -277,6 +303,7 @@ function normalizeBossEntry(raw, ctx, opts) {
     flavor: text(raw.flavor, 600),
     color,
     lootTier: safeId(raw.lootTier) ? raw.lootTier : null,
+    lootItems: idList(raw.lootItems, 20),
     floor: floorText(raw.floor),
     intro: text(raw.intro, 600), // the System's announcement: TV + voice
     defeatLine: text(raw.defeatLine, 300), // TV + voice on defeat
@@ -355,8 +382,10 @@ function normalizeStatAttacks(raw, ctx) {
     }
     let damage = typeof a.damage === 'number' && Number.isInteger(a.damage) ? String(a.damage) : text(a.damage, 60);
     if (damage && !formulaOk(damage, ctx, `${w} damage`, { dice: true })) damage = '';
+    const majorFailBuffs = idList(a.majorFailBuffs, 10);
     out.push({
       name: text(a.name, 60), toHit, damage, effects: text(a.effects, 400), buffs: idList(a.buffs, 10),
+      ...(majorFailBuffs.length ? { majorFailBuffs } : {}),
       // Book stat block extras: damage type, range, Area of Effect ("20ft Cone +10ft Splash").
       ...(typeof a.dtype === 'string' && /^[a-z][a-z -]{0,29}$/i.test(a.dtype.trim()) ? { dtype: a.dtype.trim().toLowerCase() } : {}),
       ...(isStr(a.range) ? { range: text(a.range, 60) } : {}),
@@ -557,6 +586,7 @@ function normalizeCombatRules(raw, derived, unv) {
     defense: has(r.defense) ? r.defense : fallbackDef?.id ?? null,
     defenseLabel: text(r.defenseLabel, 20),
     dr: r.dr === null ? null : has(r.dr) ? r.dr : fallbackDr?.id ?? null,
+    ...(Number.isInteger(r.drMin) && r.drMin >= 0 && r.drMin <= 5 ? { drMin: r.drMin } : {}),
     hitRule: r.hitRule === '>' ? '>' : '>=',
     crit: CRIT_RULES.includes(r.crit) ? r.crit : null, // null = the tracker setting decides (crawler packs)
     critRange: Number.isInteger(r.critRange) && r.critRange >= 2 && r.critRange <= 20 ? r.critRange : 20,
@@ -576,6 +606,7 @@ function normalizeCombatRules(raw, derived, unv) {
     floorScaled: r.floorScaled === true,
     // Combat flow: 'reaction' = reaction rounds (reaction.js), mobs never roll d20.
     flow: r.flow === 'reaction' ? 'reaction' : 'phases',
+    ...(Number.isInteger(r.roundSeconds) && r.roundSeconds > 0 && r.roundSeconds <= 3600 ? { roundSeconds: r.roundSeconds } : {}),
     // Dying at 0 health (reaction rounds): rounds left = this formula (DCC: Con mod); −1 each clean up and each
     // time a dying crawler is damaged; at 0 they die. Healed above 0 = no longer dying.
     // Injuries after combat: buff ids for { minor, major, minorLong, majorLong }; a second one of the same
@@ -720,7 +751,23 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
 
   const ext = isObj(r.buffSlots) && isObj(r.buffSlots.external) ? r.buffSlots.external : {};
   const buffSlots = { external: { label: text(ext.label, 40) || 'External buffs', max: Number.isInteger(ext.max) && ext.max >= 0 ? ext.max : null } };
-  const hotlist = { size: Number.isInteger(r.hotlist?.size) && r.hotlist.size >= 0 && r.hotlist.size <= 50 ? r.hotlist.size : 10 };
+  const hotlist = {
+    size: Number.isInteger(r.hotlist?.size) && r.hotlist.size >= 0 && r.hotlist.size <= 50 ? r.hotlist.size : 10,
+    ...(r.hotlist?.combat === true ? { combat: true } : {}),
+    ...(safeId(r.hotlist?.potionSickness) ? { potionSickness: r.hotlist.potionSickness } : {}),
+  };
+  const rests = {};
+  for (const kind of ['calm', 'short', 'long', 'day']) {
+    const rest = r.rests?.[kind];
+    if (!isObj(rest) || !Number.isInteger(rest.hours) || rest.hours < 1 || rest.hours > 1000) continue;
+    const restore = {};
+    for (const { id } of tracks) {
+      const gain = rest.restore?.[id];
+      if (gain === 'full' || (Number.isInteger(gain) && gain >= 0 && gain <= 9999)) restore[id] = gain;
+      else if (isObj(gain) && Number.isFinite(gain.maxFraction) && gain.maxFraction > 0 && gain.maxFraction <= 1) restore[id] = { maxFraction: gain.maxFraction };
+    }
+    rests[kind] = { hours: rest.hours, restore, removeBuffs: idList(rest.removeBuffs) };
+  }
 
   const sk = isObj(r.skills) ? r.skills : {};
   let rankUp = null;
@@ -730,7 +777,9 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     let target = typeof sk.rankUp.target === 'number' ? sk.rankUp.target : isStr(sk.rankUp.target) ? sk.rankUp.target.trim() : 'rank';
     if (typeof target === 'string' && !formulaOk(target, ctx, 'ruleset.json skills.rankUp.target')) target = 'rank';
     const amount = Number.isInteger(sk.rankUp.amount) && sk.rankUp.amount >= 1 && sk.rankUp.amount <= 100 ? sk.rankUp.amount : 1;
-    rankUp = { roll, rule, target, amount, ...noteOf(sk.rankUp) };
+    const max = sk.rankUp.sessionMaxRank;
+    rankUp = { roll, rule, target, amount, ...noteOf(sk.rankUp),
+      ...(Number.isInteger(max) && max >= 0 && max < 1000 ? { sessionMaxRank: max } : {}) };
     unverified(sk.rankUp, 'skills.rankUp', unv);
   }
   const checkTypes = Array.isArray(sk.checkTypes) && sk.checkTypes.some(isStr) ? sk.checkTypes.filter(isStr).map((x) => x.trim().slice(0, 40)).slice(0, 20) : ['Standard'];
@@ -831,9 +880,15 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     slots,
     buffSlots,
     hotlist,
+    ...(Object.keys(rests).length ? { rests } : {}),
     skills,
     attack,
-    spells: { costTrack },
+    spells: { costTrack,
+      ...(r.spells?.attackChecks === true ? { attackChecks: true } : {}),
+      ...(Array.isArray(r.spells?.starting) ? { starting: idList(r.spells.starting, 12) } : {}),
+    },
+    ...(isObj(r.loot?.corpseGold) ? { loot: { corpseGold: Object.fromEntries(Object.entries(r.loot.corpseGold)
+      .filter(([floor, dice]) => /^[1-9]\d?$/.test(floor) && Number.isInteger(dice) && dice >= 1 && dice <= 1000)) } } : {}),
     identity: strList(r.identity, ['name', 'race', 'class', 'level', 'floor', 'pronouns']),
     // Sheet values only the GM sets (identity keys or field ids), e.g. level, floor, crawler number, AI Favor.
     gmOnly: strList(r.gmOnly, []),
@@ -1149,22 +1204,35 @@ export function computeSheet(ch, ruleset, library) {
   // 9. attacks
   const attacks = (Array.isArray(ch.attacks) ? ch.attacks : []).map((k) => {
     const sk = k.skillUid ? skillKey.get(k.skillUid) : null;
+    const skillDef = sk?.skillId ? library.get('skill', sk.skillId) : null;
+    const upgraded = sk?.rank >= 5;
+    const damageDice = k.dice && upgraded && skillDef?.rank5Damage ? `${k.dice}+${skillDef.rank5Damage}` : k.dice || '';
     const extra = { 'skill.rank': { value: sk ? finite(sk.rank, 0) : 0, label: sk ? `${sk.name} rank` : 'Skill rank' } };
     const stat = k.stat && statById.has(k.stat) ? k.stat : '';
     const zeroBuff = (p) => !(p.source?.startsWith('buff.') && p.value === 0 && !p.parts?.length);
     const th = evaluate(tmpl(ruleset.attack.toHit, stat, ''), (n) => resolveFull(n, extra));
     // dmgStat: the stat the damage adds when it differs from the to-hit stat ('none' = no stat), e.g. a dagger.
     const dStat = k.dmgStat === 'none' ? '' : k.dmgStat && statById.has(k.dmgStat) ? k.dmgStat : stat;
-    const dmg = diceText(tmpl(ruleset.attack.damage, dStat, k.dice || ''), (n) => resolveFull(n, extra));
-    return { uid: k.uid, toHit: { value: th.value, parts: th.parts.filter(zeroBuff), warnings: th.warnings }, damage: dmg.text, damageParts: dmg.parts.filter(zeroBuff) };
+    const dmg = diceText(tmpl(ruleset.attack.damage, dStat, damageDice), (n) => resolveFull(n, extra));
+    return { uid: k.uid, toHit: { value: th.value, parts: th.parts.filter(zeroBuff), warnings: th.warnings },
+      damage: dmg.text, damageParts: dmg.parts.filter(zeroBuff), damageDice,
+      ...(skillDef?.melee ? { melee: true } : {}), ...(upgraded && skillDef?.rank5IgnoreDr ? { ignoreDr: true } : {}) };
   });
 
-  // 10. spells: current cost
+  // 10. spells: current cost and optional attack profile
   const spells = (Array.isArray(ch.spells) ? ch.spells : []).map((sp) => {
     const def = library.get('spell', sp.spellId);
     const extra = { rank: { value: finite(sp.rank, 1), label: 'Spell rank' } };
     const cost = def ? evaluate(def.cost, (n) => resolveFull(n, extra)) : { value: 0, parts: [], warnings: [] };
-    return { uid: sp.uid, cost: { value: Math.max(0, cost.value), parts: cost.parts, warnings: cost.warnings }, costTrack: def?.costTrack ?? ruleset.spells.costTrack, active: !!sp.active };
+    const row = { uid: sp.uid, cost: { value: Math.max(0, cost.value), parts: cost.parts, warnings: cost.warnings }, costTrack: def?.costTrack ?? ruleset.spells.costTrack, active: !!sp.active };
+    if (ruleset.spells.attackChecks && def?.attackCheck) {
+      const stat = statById.has(def.attack.stat) ? def.attack.stat : '';
+      const resolve = (n) => resolveFull(n, { ...extra, 'skill.rank': extra.rank });
+      row.toHit = evaluate(tmpl(ruleset.attack.toHit, stat, ''), resolve);
+      const dice = sp.rank >= 5 && def.attack.rank5Dice ? def.attack.rank5Dice : def.attack.dice;
+      row.damage = diceText(tmpl(ruleset.attack.damage, stat, dice), resolve).text;
+    }
+    return row;
   });
 
   const external = (ch.buffs ?? []).filter((b) => b.external).length;

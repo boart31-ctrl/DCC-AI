@@ -294,6 +294,7 @@ export function normalizeRuleset(pack) {
     slots: r?.slots || (legacy ? [] : DEFAULT_SLOTS),
     buffSlots: r?.buffSlots || {},
     hotlist: r?.hotlist || { size: 0 },
+    rests: r?.rests || null,
     skills: {
       columns: skills.columns || ['rank', 'stat', 'checkType'],
       rankMax: skills.rankMax ?? 15,

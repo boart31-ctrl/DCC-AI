@@ -18,9 +18,9 @@
 //   { label, start, floors: [{ floor, start, perHour, min, hours }], events: [{ id, label, min, max, line? }],
 //     numberLine: "{count} crawlers remain.", collapseKeep, dayHours }
 //
-// Floor clock: state.crawlers.clock = { hours, shown } in-game hours until this floor collapses. Game time is
-// not real time: the GM advances it (an hour of exploring, a short / long rest, a day). A floor's `hours`
-// (DCC: Floor 1 = 5 days of 30 h) refills it on collapse. Editable and hideable like the counter.
+// Floor clock: `hours` left until collapse, plus `elapsedSeconds` for cooldowns across floors. The GM
+// advances game time while exploring or resting. Rulesets with roundSeconds also advance it in combat.
+// `scene` tracks the fictional scene independently of what is on the TV.
 
 import { bad, notFound } from './errors.js';
 
@@ -127,7 +127,7 @@ export function initCrawlers(pack, now) {
 /** A fresh floor clock: the floor's hours (pack), or none. */
 function clockFor(cfg, floor) {
   const h = cfg?.floors?.find((x) => x.floor === floor)?.hours ?? null;
-  return { hours: h, shown: !!h };
+  return { hours: h, shown: !!h, elapsedSeconds: 0, scene: null };
 }
 
 export function normalizeCrawlers(raw, pack, now) {
@@ -145,8 +145,24 @@ export function normalizeCrawlers(raw, pack, now) {
     speak: raw.speak !== false,
     last: isObj(raw.last) ? raw.last : null,
     history: Array.isArray(raw.history) ? raw.history.filter(isObj).slice(-HISTORY_SIZE) : [],
-    clock: isObj(raw.clock) ? { hours: Number.isFinite(raw.clock.hours) ? Math.max(0, Math.min(100_000, raw.clock.hours)) : null, shown: raw.clock.shown === true } : clockFor(pack?.crawlers, floor),
+    clock: isObj(raw.clock) ? {
+      hours: Number.isFinite(raw.clock.hours) ? Math.max(0, Math.min(100_000, raw.clock.hours)) : null,
+      shown: raw.clock.shown === true,
+      elapsedSeconds: Number.isSafeInteger(raw.clock.elapsedSeconds) && raw.clock.elapsedSeconds >= 0 ? raw.clock.elapsedSeconds : 0,
+      scene: typeof raw.clock.scene === 'string' && raw.clock.scene.length <= 80 ? raw.clock.scene : null,
+    } : clockFor(pack?.crawlers, floor),
   };
+}
+
+/** Advance the fictional clock using whole seconds, with optional collapse countdown. */
+export function advanceGameTime(st, seconds, out) {
+  const clock = st.crawlers?.clock;
+  if (!clock || !seconds) return;
+  clock.elapsedSeconds = (clock.elapsedSeconds ?? 0) + seconds;
+  if (clock.hours == null) return;
+  const before = Math.round(clock.hours * 3600);
+  clock.hours = Math.max(0, before - seconds) / 3600;
+  if (before > 0 && clock.hours === 0) out.emit({ kind: 'floor.timeup', floor: st.crawlers.floor }, 'all');
 }
 
 /** Never fewer crawlers in the world than at this table. */
@@ -257,7 +273,7 @@ export const CRAWLERS_GM = {
 
   /**
    * Floor clock: `{ hours? }` set the hours left, `{ advance }` game time passes (hours, e.g. 2 = short rest,
-   * 8 = long rest, a day), `{ shown? }` on the TV / phones or not. Reaching 0 announces nothing by itself.
+   * 8 = long rest, a day), `{ shown? }` on the TV / phones or not, `{ scene: true }` start a fictional scene.
    */
   'crawlers.clock'(st, a, ctx, out) {
     const c = st.crawlers;
@@ -269,11 +285,16 @@ export const CRAWLERS_GM = {
     }
     if (a.advance !== undefined) {
       if (!Number.isFinite(a.advance) || a.advance <= 0 || a.advance > 1000) throw bad('advance must be 0..1000 hours');
-      if (c.clock.hours == null) throw bad('set the hours first');
-      const before = c.clock.hours;
-      c.clock.hours = Math.max(0, Math.round((before - a.advance) * 4) / 4);
-      if (before > 0 && c.clock.hours === 0) out.emit({ kind: 'floor.timeup', floor: c.floor }, 'all');
+      if (ctx.pack.ruleset.combat.roundSeconds) advanceGameTime(st, Math.round(a.advance * 3600), out);
+      else {
+        if (c.clock.hours == null) throw bad('set the hours first');
+        const before = c.clock.hours;
+        c.clock.elapsedSeconds = (c.clock.elapsedSeconds ?? 0) + Math.round(a.advance * 3600);
+        c.clock.hours = Math.max(0, Math.round((before - a.advance) * 4) / 4);
+        if (before > 0 && c.clock.hours === 0) out.emit({ kind: 'floor.timeup', floor: c.floor }, 'all');
+      }
     }
+    if (boolOf(a.scene, 'scene')) c.clock.scene = ctx.genId('story');
     if (a.shown !== undefined) c.clock.shown = boolOf(a.shown, 'shown');
     out.result = { hours: c.clock.hours };
   },
@@ -333,7 +354,7 @@ export const CRAWLERS_GM = {
     c.start = Math.max(1, to);
     c.running = true;
     const fresh = clockFor(ctx.pack.crawlers, next);
-    c.clock = { hours: fresh.hours, shown: fresh.hours != null ? (c.clock?.shown ?? true) : false };
+    c.clock = { ...c.clock, hours: fresh.hours, shown: fresh.hours != null ? (c.clock?.shown ?? true) : false, scene: ctx.genId('story') };
     dropMoment(st, ctx, out, {
       from, to, reason: 'collapse', label: `Floor ${prevFloor} collapsed`, category: 'crawlers_collapse', announce: a.announce !== false,
     });

@@ -19,9 +19,8 @@
 import { h, toast, ask } from './client.js';
 import { icon, field, select, openDrawer, closeDrawer } from './ui.js';
 import { libraryOf } from './rules.js';
-import { benchmark } from './prep-bench.js';
 import { pickFromLibrary, KIND_LABEL } from './lib-picker.js';
-import { encounterEditor, strengthBadge } from './gm-encounter.js';
+import { encounterEditor, ratingBadge, strengthBadge } from './gm-encounter.js';
 import { createMaps } from './gm-maps.js';
 
 const REF_LABEL = { ...KIND_LABEL, loot: 'Loot box' };
@@ -78,19 +77,6 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     if (['monster', 'boss', 'npc', 'location'].includes(ref.kind) && !(e.image || e.imageSquare || e.portrait)) return { cls: 'rd-amber', why: 'No picture yet: the TV shows a generated placeholder.' };
     return { cls: 'rd-green', why: 'Has a picture.' };
   }
-  function encounterMobs(card) {
-    return (card?.payload?.mobs || []).map((m) => {
-      const kind = m.kind || 'monster';
-      const e = (lib()[kind] || []).find((x) => x.id === m.sourceId);
-      return { count: m.count || 1, level: e?.level, cr: e?.cr, role: kind === 'boss' ? 'boss' : (e?.role || 'standard') };
-    });
-  }
-  function benchBadge(mobs) {
-    const b = benchmark(family(), party(), mobs);
-    if (b.level < 0) return null;
-    return h('span.pp-bench', { class: `pp-bench pp-b${b.level}`, title: b.detail }, b.label);
-  }
-
   /* ---------- actions ---------- */
   const select_ = (id) => { st.sel = id; store.set('sel', id); sig = ''; draw(); };
   async function newAdventure(template) {
@@ -320,7 +306,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
           e ? h('button.btn.btn-sm', { type: 'button', onclick: () => openRef(it.ref) }, openLabel(it.ref)) : null,
           itemTools(d, s, it, i));
       })),
-      mobs.length > 1 ? h('p.pp-hint', 'All of these at once: ', benchBadge(mobs), h('span.dim', party().length ? ` for ${party().length} character${party().length === 1 ? '' : 's'}` : ' (no characters yet: counted as one)')) : null,
+      mobs.length > 1 ? h('p.pp-hint', 'All of these at once: ', ratingBadge(family(), party(), mobs), h('span.dim', party().length ? ` for ${party().length} character${party().length === 1 ? '' : 's'}` : ' (no characters yet: counted as one)')) : null,
       refPicker(d, s),
     ];
   }

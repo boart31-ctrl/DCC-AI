@@ -9,6 +9,7 @@
 import { bad, notFound } from './errors.js';
 import { libraryOf, giveItem } from './character.js';
 import { combatantOf } from './combat.js';
+import { floorOfState } from './outcome.js';
 
 export const MAX_DROPS = 128;
 export const MAX_DROP_ITEMS = 40;
@@ -35,6 +36,7 @@ export function normalizeDrops(raw) {
       rarity: typeof x.rarity === 'string' ? x.rarity : null,
       image: typeof x.image === 'string' ? x.image : null,
       qty: Number.isInteger(x.qty) && x.qty > 0 ? x.qty : 1,
+      ...(x.currency === 'gold' ? { currency: 'gold' } : {}),
       ...(typeof x.invUid === 'string' ? { invUid: x.invUid } : {}),
       takenBy: typeof x.takenBy === 'string' ? x.takenBy : null,
     })),
@@ -55,6 +57,16 @@ function stock(lib, entryIds, ctx) {
   });
 }
 
+function corpseItems(st, ctx, mob, ids, lib) {
+  const items = stock(lib, ids.map((id) => ({ id, qty: 1 })), ctx);
+  const sides = ctx.pack.ruleset.loot?.corpseGold?.[floorOfState(st)];
+  if (sides && items.length < MAX_DROP_ITEMS && mob.sourceKind !== 'boss' && mob.role !== 'boss') {
+    const qty = (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(sides) + 1;
+    items.push({ key: ctx.genId('lk'), itemId: null, name: 'Gold', rarity: null, image: null, qty, currency: 'gold', takenBy: null });
+  }
+  return items;
+}
+
 function saveDrop(st, ctx, from, items, suggestedFor) {
   const drop = { id: ctx.genId('dr'), at: ctx.now, from, items, suggestedFor: suggestedFor ?? null };
   st.drops ??= [];
@@ -73,7 +85,7 @@ export function prepareEndLoot(st, ctx, outcome) {
   for (const mob of (c.combatants ?? [])) {
     if (mob.type !== 'mob' || mob.hp > 0 || st.drops?.some((d) => d.from.uid === mob.uid)) continue;
     const ids = lib.get(mob.sourceKind, mob.sourceId)?.lootItems ?? [];
-    const items = stock(lib, ids.map((id) => ({ id, qty: 1 })), ctx);
+    const items = corpseItems(st, ctx, mob, ids, lib);
     if (items.length) saveDrop(st, ctx, { type: 'mob', uid: mob.uid, name: mob.name, image: mob.image ?? null }, items, mob.killedBy);
   }
   if (outcome === 'victory') {
@@ -115,9 +127,10 @@ export const LOOT_GM = {
         const src = x.sourceKind && x.sourceId ? lib.get(x.sourceKind, x.sourceId) : null;
         ids = src?.lootItems ?? [];
       }
-      items = stock(lib, ids.map((id) => ({ id, qty: 1 })), ctx);
+      items = corpseItems(st, ctx, x, ids, lib);
       from = { type: 'mob', uid: x.uid, name: x.name, image: x.image ?? null };
     } else {
+      if (ctx.pack.ruleset.combat?.dyingRounds && !x.dead) throw bad('that crawler is still alive');
       const p = playerOf(st, x.playerId);
       items = p.inventory.slice(0, MAX_DROP_ITEMS).map((i) => ({ key: ctx.genId('lk'), itemId: i.itemId ?? null, name: i.name, rarity: i.rarity ?? null, image: i.image ?? null, qty: i.qty ?? 1, invUid: i.uid, takenBy: null }));
       from = { type: 'crawler', uid: x.uid, name: p.name, image: null, playerId: p.id };
@@ -154,7 +167,9 @@ export const LOOT_GM = {
     if (it.takenBy) throw bad(`${it.name} is already taken`);
     const p = playerOf(st, a.playerId);
     let inv;
-    if (it.invUid) {
+    if (it.currency === 'gold') {
+      p.gold = (p.gold ?? 0) + it.qty;
+    } else if (it.invUid) {
       const owner = st.players.find((x) => x.id === d.from.playerId);
       const idx = owner ? owner.inventory.findIndex((i) => i.uid === it.invUid) : -1;
       if (idx < 0) throw bad(`${it.name} is no longer on ${d.from.name}`);
@@ -174,7 +189,7 @@ export const LOOT_GM = {
     it.takenBy = p.id;
     const ev = out.emit({ kind: 'loot.take', dropId: d.id, playerId: p.id, name: p.name, item: pub(it), from: d.from.name }, 'all');
     ctx.h.feedPush?.(st, ev, `${p.name} took ${it.name} from ${d.from.name}`);
-    out.result = { uid: inv.uid };
+    out.result = inv ? { uid: inv.uid } : { gold: p.gold };
   },
 
   /** Forget a pile (what is left stays where it was: a dead crawler keeps their untaken items). */

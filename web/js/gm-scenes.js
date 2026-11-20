@@ -143,19 +143,22 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
 
   let defeatArmed = null;
   let armTimer = 0;
-  /** Damage / heal by any amount (5e / PF2e bosses take 12-30 a hit). */
-  function bossAmount(d, max) {
-    const inp = h('input.inp.inp-sm.sc-amt', { type: 'number', min: 1, max: 9999, placeholder: '#', 'aria-label': 'Amount', inputmode: 'numeric' });
-    const go = (kind) => {
+  /** Typed damage is rolled HP. Healing uses the health track's units. */
+  function bossAmount(d, max, fighter) {
+    const limit = fighter ? 999 : 9999;
+    const inp = h('input.inp.inp-sm.sc-amt', { type: 'number', min: 1, max: limit, placeholder: 'HP', 'aria-label': 'Amount', inputmode: 'numeric' });
+    const go = async (kind) => {
       const v = Math.round(Number(inp.value));
       if (!(v >= 1)) { inp.focus(); return; }
-      act({ t: kind, amount: Math.min(9999, v) });
+      const damage = kind === 'damage';
+      const ack = await act({ t: `${fighter ? 'combat' : 'boss'}.${kind}`, amount: Math.min(limit, v), ...(fighter ? { uid: fighter.uid } : {}), ...(damage ? { dr: true } : {}) });
+      if (ack?.result?.belowSlot) toast(`${ack.result.rolled} HP after defenses. One slot needs ${ack.result.slotValue} HP.`);
       inp.value = '';
     };
-    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? 'boss.heal' : 'boss.damage'); } });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(e.shiftKey ? 'heal' : 'damage'); } });
     return h('span.sc-amt-wrap', inp,
-      h('button.btn.btn-sm.sc-dmg', { type: 'button', disabled: d.hp <= 0, onclick: () => go('boss.damage'), title: 'Damage this much (Enter)' }, 'Hit'),
-      h('button.btn.btn-sm.sc-heal', { type: 'button', disabled: d.hp >= max, onclick: () => go('boss.heal'), title: 'Heal this much (Shift+Enter)' }, 'Heal'));
+      h('button.btn.btn-sm.sc-dmg', { type: 'button', disabled: d.hp <= 0, onclick: () => go('damage'), title: 'Apply rolled HP before DR (Enter)' }, 'Hit'),
+      h('button.btn.btn-sm.sc-heal', { type: 'button', disabled: d.hp >= max, onclick: () => go('heal'), title: d.boss.slotValue ? 'Restore whole slots (Shift+Enter)' : 'Heal this much (Shift+Enter)' }, d.boss.slotValue ? 'Heal slots' : 'Heal'));
   }
 
   function setDevice(d) {
@@ -212,7 +215,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     if (sc?.kind === 'combat') what = 'Fight: arena';
     else if (sc?.kind === 'finale') what = 'Fight: finale';
     let detail = '';
-    if (sc?.kind === 'boss') detail = `${sc.data.boss?.name || ''}, ${sc.data.hp}/${sc.data.boss?.hpSlots} HP`;
+    if (sc?.kind === 'boss') detail = `${sc.data.boss?.name || ''}, ${sc.data.hp}/${sc.data.boss?.hpSlots} ${sc.data.boss?.slotValue ? 'slots' : 'HP'}`;
     else if (sc?.kind === 'npc') detail = sc.data.npc?.name || '';
     else if (sc?.kind === 'explore') detail = [sc.data.floor, sc.data.location].filter(Boolean).join(', ');
     else if (sc?.kind === 'combat') { const c = view().combat || {}; detail = c.active ? `round ${c.round}` : 'not started'; }
@@ -522,6 +525,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     const b = d.boss;
     const lib = d.bossId ? bossLib(d.bossId) : null;
     const max = b.hpSlots;
+    const unit = b.slotValue ? 'slots' : 'HP';
     const next = b.phases[d.phase + 1];
     const cur = b.phases[d.phase];
     const send = (a, msg) => act(a, msg);
@@ -529,7 +533,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     const hpBar = h('div.sc-hp', { style: { '--n': String(max) } }, Array.from({ length: max }, (_, i) => h('i', { class: i < d.hp ? 'on' : '' })));
     const sug = d.suggestPhase != null && b.phases[d.suggestPhase]
       ? h('div.sc-suggest', icon('warn', { size: 16 }),
-        h('span', `HP ${d.hp}: phase "${b.phases[d.suggestPhase].name}" is due.`),
+        h('span', `${d.hp} ${unit} left: phase "${b.phases[d.suggestPhase].name}" is due.`),
         h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => send({ t: 'boss.phase', index: d.suggestPhase }, `Phase: ${b.phases[d.suggestPhase].name}.`) }, 'Advance'))
       : null;
     const tvLoot = field(d.lootHint, { placeholder: 'e.g. Silver crate incoming', onCommit: (v) => send({ t: 'scene.update', data: { lootHint: v } }, 'Loot line set.') });
@@ -537,7 +541,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     const attacks = fighter?.attacks || lib?.attacks || [];
     const standing = minionRows(view().combat).flatMap((r) => r.members).filter((m) => !m.down);
     const zero = d.hp <= 0 && !d.defeated
-      ? h('div.sc-suggest.sc-zero', icon('skull', { size: 18 }), h('span', h('b', `${b.name} is at 0 HP.`), ' Finish him: the defeat cinematic and the loot line play on the TV.'),
+      ? h('div.sc-suggest.sc-zero', icon('skull', { size: 18 }), h('span', h('b', `${b.name} is at 0 ${unit}.`), ' Finish him: the defeat cinematic and the loot line play on the TV.'),
         h('button.btn.btn-danger', { type: 'button', onclick: () => send({ t: 'boss.defeat' }, 'Boss defeated.') }, 'Defeat now'))
       : null;
     const after = d.defeated && standing.length
@@ -549,7 +553,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     return h('div.sc-boss',
       h('div.sc-boss-top',
         h('div', h('div.sc-boss-name', b.name), b.title ? h('div.dim', b.title) : null),
-        h('div.sc-boss-hp', h('b', String(d.hp)), h('span.dim', ` / ${max} HP`))),
+        h('div.sc-boss-hp', h('b', String(d.hp)), h('span.dim', ` / ${max} ${unit}${b.slotValue ? ` · ${b.slotValue} HP/slot` : ''}`))),
       hpBar,
       zero || sug,
       after,
@@ -558,7 +562,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
         big('−2', '.sc-dmg', () => send({ t: 'boss.damage', amount: 2 }), { disabled: d.hp <= 0 }),
         big('−3', '.sc-dmg', () => send({ t: 'boss.damage', amount: 3 }), { disabled: d.hp <= 0 }),
         big('+1', '.sc-heal', () => send({ t: 'boss.heal', amount: 1 }), { disabled: d.hp >= max, title: 'Heal 1' }),
-        bossAmount(d, max),
+        bossAmount(d, max, fighter),
         d.phase > 0 ? big('◀', '.sc-phase', () => send({ t: 'boss.phase', back: true }, 'Back one phase.'), { title: 'Back one phase' }) : null,
         big(next ? `Phase: ${next.name}` : 'Last phase', '.sc-phase', () => send({ t: 'boss.phase' }, next ? `Phase: ${next.name}.` : null), { disabled: !next }),
         big(d.defeated ? 'Defeated' : defeatArmed === 'defeat' ? 'Sure? Tap again' : 'Defeat', '.btn-danger.sc-defeat', () => {
@@ -666,7 +670,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
       const alive = aliveOf(r);
       const hidden = r.members.some((m) => m.hidden);
       const first = r.members[0];
-      const hpTxt = r.pack ? `${alive.length}/${r.members.length} standing` : `${first.hp}/${first.hpMax} HP`;
+      const hpTxt = r.pack ? `${alive.length}/${r.members.length} standing` : `${first.hp}/${first.hpMax} ${first.slotValue ? `slots · ${first.slotValue} HP/slot` : 'HP'}`;
       return h('li.sh-min', { class: `sh-min${alive.length ? '' : ' down'}${r.pack ? ' pack' : ''}` },
         h('div.sh-min-top',
           itemArt({ name: r.name, image: first.image || null, rarity: 'common' }, 'sh-min-art'),
@@ -684,7 +688,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     };
     if (!addPick || !mons.some((m) => m.id === addPick)) addPick = mons[0]?.id || '';
     const add = mons.length ? h('div.sh-min-add',
-      select(mons.map((m) => ({ value: m.id, label: `${m.floor != null && m.floor !== '' ? `F${m.floor} ` : ''}${m.name} (${m.hpSlots ?? '?'} HP)` })), addPick, { onChange: (v) => { addPick = v; } }),
+      select(mons.map((m) => ({ value: m.id, label: `${m.floor != null && m.floor !== '' ? `F${m.floor} ` : ''}${m.name} (${m.hpSlots ?? '?'} ${m.slotValue ? `slots × ${m.slotValue} HP` : 'HP'})` })), addPick, { onChange: (v) => { addPick = v; } }),
       h('input.inp.inp-sm.sh-cnt', { type: 'number', min: 1, max: 20, value: addCount, 'aria-label': 'How many', onchange: (e) => { addCount = Math.max(1, Math.min(20, Number(e.target.value) || 1)); } }),
       h('button.btn.btn-sm', {
         type: 'button',
@@ -824,7 +828,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     },
     h('b', b.name),
     h('span.dim', b.title || ''),
-    h('span.sc-bc-meta', `${b.hpSlots} HP`, b.phases?.length ? `, ${b.phases.length} phases` : '', b.floor ? `, floor ${b.floor}` : '', b.source === 'homebrew' ? ', homebrew' : ''),
+    h('span.sc-bc-meta', `${b.hpSlots} ${b.slotValue ? `slots × ${b.slotValue} HP` : 'HP'}`, b.phases?.length ? `, ${b.phases.length} phases` : '', b.floor ? `, floor ${b.floor}` : '', b.source === 'homebrew' ? ', homebrew' : ''),
     )) : h('p.dim', 'No bosses in the pack yet. Add bosses.json, create one in the Library, or switch to Ad hoc.')),
     h('div.span-all', minionSection(false)),
     picked?.attacks?.length ? h('div.span-all', attackSection(picked.name, picked.attacks, null, picked.id, { boss: true, prep: !isLive('boss') })) : null,

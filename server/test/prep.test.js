@@ -227,3 +227,55 @@ test('prepared adventure loads linked encounters and rewards once without changi
   assert.equal(legacy.state.scene.data.dice.length, 2);
   assert.throws(() => act(classic, { t: 'scene.check' }), /unavailable in this campaign/);
 });
+
+test('prepared map imports are hidden, linked to encounters and preserve existing campaign edits', () => {
+  const seed = {
+    id: 'outpost_maps', title: 'Outpost maps',
+    sections: [{ key: 'scenes', label: 'Scenes', kind: 'parts', items: [
+      { id: 'gate_scene', title: 'Gate', links: [{ kind: 'map', id: 'gate' }, { kind: 'encounter', id: 'patrol' }] },
+    ] }],
+    maps: [{ id: 'gate', name: 'Gate', image: '/pack/images/gate.svg', aspect: 1.6, zones: [
+      { name: 'Path', shape: { x: 0, y: 0, w: 0.25, h: 0.5 }, text: 'A path', notes: 'Hidden patrol' },
+    ] }],
+    encounters: [{ id: 'patrol', label: 'Patrol', mapId: 'gate', mobs: [{ kind: 'monster', sourceId: 'guard' }] }],
+  };
+  const broken = { ...seed, id: 'maps_broken', encounters: [{ ...seed.encounters[0], mapId: 'missing' }] };
+  const { pack: loaded } = loadPack(writePack(tmpDir(), {
+    'adventures.json': [seed, broken],
+    'monsters.json': [{ id: 'guard', name: 'Guard', hpSlots: 4 }],
+  }));
+  const p = deserializePack(serializePack(loaded));
+  const act = (state, action) => reduce(state, { role: 'gm', ...action }, { ...ctx(), pack: p });
+  const initial = act(createState(p, 0), { t: 'map.add', name: 'Gate', image: '/pack/images/custom.png' });
+  assert.throws(() => act(initial.state, { t: 'prep.adventure.load', id: broken.id }), /no prepared map missing/);
+  assert.equal(initial.state.maps.list.length, 1);
+  assert.equal(initial.state.prepCards.length, 0);
+
+  const imported = act(initial.state, { t: 'prep.adventure.load', id: seed.id });
+  const { state } = imported;
+  const [original, map] = state.maps.list;
+  const [encounter] = state.prepCards;
+  assert.equal(imported.result.maps, 1);
+  assert.equal(original.image, '/pack/images/custom.png');
+  assert.notEqual(map.id, original.id);
+  assert.equal(map.zones[0].revealed, false);
+  assert.equal(map.zones[0].notes, 'Hidden patrol');
+  assert.equal(encounter.payload.mapId, map.id);
+  assert.deepEqual(state.prep.docs[0].sections[0].items[0].links, [
+    { kind: 'map', id: map.id }, { kind: 'encounter', id: encounter.id },
+  ]);
+  assert.deepEqual(state.combat, initial.state.combat);
+
+  const renamed = act(state, { t: 'map.update', id: map.id, name: 'Renamed' });
+  const repeated = act(renamed.state, { t: 'prep.adventure.load', id: seed.id });
+  assert.deepEqual(repeated.result, { id: imported.result.id, existing: true });
+  assert.deepEqual(repeated.state.maps.list.map((m) => m.name), ['Gate', 'Renamed']);
+  assert.equal(repeated.state.prepCards.length, 1);
+
+  const run = act(repeated.state, { t: 'enc.run', id: encounter.id });
+  assert.equal(run.state.combat.mapId, map.id);
+  assert.equal(run.result.bound, 1);
+  const token = run.state.maps.list[1].tokens[0];
+  assert.equal(token.ref, run.result.uids[0]);
+  assert.equal(token.hidden, true);
+});

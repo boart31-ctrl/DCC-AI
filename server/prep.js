@@ -21,6 +21,7 @@
 // A template with `families` only shows up in campaigns whose ruleset family matches.
 import { bad, notFound } from './errors.js';
 import { libraryOf } from './character.js';
+import { MAPS_GM, MAX_MAPS } from './maps.js';
 
 export const DOC_TYPES = ['adventure', 'session'];
 export const SECTION_KINDS = ['text', 'list', 'refs', 'parts'];
@@ -129,9 +130,11 @@ export function normalizePrepConfig(raw, warnings = []) {
     }
     const doc = normalizeDoc({ ...d, type: 'adventure' });
     if (!doc?.sections.length) return null;
+    const maps = (Array.isArray(d.maps) ? d.maps : []).filter((m) => isObj(m) && ID_RE.test(m.id ?? '')).slice(0, MAX_MAPS);
     return {
       id: doc.id, title: doc.title, families: Array.isArray(d.families) ? d.families.filter(isStr).slice(0, 8) : null,
       sections: doc.sections, encounters: (Array.isArray(d.encounters) ? d.encounters : []).filter((e) => isObj(e) && ID_RE.test(e.id ?? '')).slice(0, 80),
+      ...(maps.length ? { maps } : {}),
     };
   }).filter(Boolean);
   return { templates, ...(adventures.length ? { adventures } : {}) };
@@ -248,7 +251,7 @@ export function prepView(state, pack) {
   };
 }
 
-/** Copies the pack's prepared scenes and encounter cards into this campaign without touching the live fight. */
+/** Copies the pack's prepared scenes, maps and encounter cards without touching the live fight. */
 export function loadPreparedAdventure(st, a, ctx, out, saveEncounter) {
   const seed = ctx.pack.prep?.adventures?.find((d) => d.id === a.id && (!d.families || d.families.includes(ctx.pack.ruleset.system.family)));
   if (!seed) throw notFound(`no prepared adventure ${a.id}`);
@@ -257,19 +260,35 @@ export function loadPreparedAdventure(st, a, ctx, out, saveEncounter) {
   if (existing) { out.result = { id: existing.id, existing: true }; out.changed = false; return; }
   checkRoom(prep);
   const library = libraryOf(st, ctx.pack);
+  const maps = new Map();
   const encounters = new Map();
   const requireEntry = (kind, id) => {
     if (!library.get(kind, id)) throw notFound(`prepared adventure ${seed.id} references missing ${kind} ${id}`);
   };
+  const requireMap = (id) => {
+    if (!maps.has(id)) throw notFound(`no prepared map ${id}`);
+    return maps.get(id);
+  };
+  for (const map of seed.maps ?? []) {
+    if (maps.has(map.id)) throw bad(`duplicate prepared map ${map.id}`);
+    if (map.zones != null && !Array.isArray(map.zones)) throw bad(`prepared map ${map.id} zones must be an array`);
+    const sub = {};
+    MAPS_GM['map.add'](st, map, ctx, sub);
+    const id = sub.result.id;
+    for (const zone of map.zones ?? []) MAPS_GM['map.zone.add'](st, { ...zone, id }, ctx, sub);
+    maps.set(map.id, id);
+  }
   for (const enc of seed.encounters) {
     if (encounters.has(enc.id)) throw bad(`duplicate prepared encounter ${enc.id}`);
     for (const m of enc.mobs ?? []) requireEntry(m.kind ?? 'monster', m.sourceId);
     for (const it of enc.items ?? []) requireEntry('item', it.id);
     const sub = { ...out, result: undefined };
-    saveEncounter(st, { label: enc.label, mobs: enc.mobs, items: enc.items, notes: enc.notes }, ctx, sub);
+    const mapId = enc.mapId == null ? undefined : requireMap(enc.mapId);
+    saveEncounter(st, { label: enc.label, mobs: enc.mobs, items: enc.items, notes: enc.notes, mapId }, ctx, sub);
     encounters.set(enc.id, sub.result.id);
   }
   const link = (ref) => {
+    if (ref.kind === 'map') return { kind: 'map', id: requireMap(ref.id) };
     if (ref.kind === 'encounter') {
       if (!encounters.has(ref.id)) throw notFound(`no prepared encounter ${ref.id}`);
       return { kind: 'encounter', id: encounters.get(ref.id) };
@@ -282,7 +301,7 @@ export function loadPreparedAdventure(st, a, ctx, out, saveEncounter) {
   const sections = seed.sections.map((s) => ({ ...s, items: s.items.map((it) => ({ ...it, ref: it.ref ? link(it.ref) : null, links: it.links.map(link) })) }));
   const id = ctx.genId('pa');
   prep.docs.push({ id, title: seed.title, type: 'adventure', template: seed.id, adventureId: null, createdAt: ctx.now, sections });
-  out.result = { id, encounters: encounters.size };
+  out.result = { id, encounters: encounters.size, ...(maps.size ? { maps: maps.size } : {}) };
 }
 
 // ---------- helpers ----------

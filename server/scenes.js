@@ -9,7 +9,7 @@
 // Players never get any of these (they are not in the PLAYER table → bad_request).
 import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
-import { recordKillCredit } from './outcome.js';
+import { combatRules, mobHealthSlot, rolledDamage, recordKillCredit } from './outcome.js';
 
 export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map'];
 // combat-auto.js OUTCOMES (kept here too: scenes.js must not import combat-auto.js, which imports combat.js → scenes.js).
@@ -129,6 +129,7 @@ export function normalizeBoss(raw, ctx) {
   });
   const lootTier = raw.lootTier == null || raw.lootTier === '' ? null : raw.lootTier;
   if (lootTier !== null && (typeof lootTier !== 'string' || !ctx.pack.tiersById.has(lootTier))) throw notFound(`unknown loot tier ${lootTier}`);
+  const slotValue = raw.slotValue == null ? mobHealthSlot(ctx.pack, null) : intIn(raw.slotValue, 'boss.slotValue', 1, 50);
   return {
     name: reqTxt(raw.name, 'boss.name', 80),
     title: raw.title == null ? '' : txt(raw.title, 'boss.title', 120),
@@ -137,6 +138,7 @@ export function normalizeBoss(raw, ctx) {
     // square crop of a 16:9 splash: the TV boss frame and intro figure are portrait-shaped
     ...(raw.imageSquare ? { imageSquare: imageUrl(raw.imageSquare, 'boss.imageSquare') } : {}),
     hpSlots: raw.hpSlots == null ? 10 : intIn(raw.hpSlots, 'boss.hpSlots', 1, MAX_BOSS_HP),
+    ...(slotValue ? { slotValue } : {}),
     phases,
     flavor: raw.flavor == null ? '' : txt(raw.flavor, 'boss.flavor', 600),
     color: hex(raw.color, 'boss.color'),
@@ -155,7 +157,7 @@ function bossFromLibrary(st, ctx, id, required = true) {
   if (!e) return null;
   // Library entries are already normalized; normalizeBoss again keeps one shape for both paths.
   return normalizeBoss({
-    name: e.name, title: e.title, image: e.image, imageSquare: e.imageSquare, imageKo: e.imageKo, hpSlots: e.hpSlots,
+    name: e.name, title: e.title, image: e.image, imageSquare: e.imageSquare, imageKo: e.imageKo, hpSlots: e.hpSlots, slotValue: e.slotValue || undefined,
     // Library phase `text` is GM mechanics (spoilers); only an optional TV-safe `tv` line reaches the scene.
     phases: Array.isArray(e.phases) ? e.phases.map((p) => ({ name: p?.name, atHp: p?.atHp, image: p?.image, text: p?.tv ?? '' })) : e.phases, flavor: e.flavor || e.desc, color: e.color,
     lootTier: e.lootTier && ctx.pack.tiersById.has(e.lootTier) ? e.lootTier : null,
@@ -165,7 +167,18 @@ function bossFromLibrary(st, ctx, id, required = true) {
 
 const BOSS_KEYS = new Set(['bossId', 'boss', 'phase', 'hp', 'revealed', 'defeated', 'lootHint']);
 
-/** Restore art added to the pack since this linked scene was saved. */
+function bossCombatant(st, bossId) {
+  if (!bossId || !Array.isArray(st.combat?.combatants)) return null;
+  return st.combat.combatants.find((x) => x?.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === bossId) ?? null;
+}
+
+function bossAtMax(boss, hpSlots) {
+  if (boss.hpSlots === hpSlots || !Number.isInteger(hpSlots) || hpSlots < 1) return boss;
+  const phases = boss.phases.map((p) => p.atHp == null ? p : { ...p, atHp: Math.round(p.atHp * hpSlots / boss.hpSlots) });
+  return { ...boss, hpSlots, phases };
+}
+
+/** Restore art and slot denomination added since the linked scene was saved. */
 export function fillMissingBossArt(st, pack) {
   if (st.scene.kind !== 'boss') return;
   const d = st.scene.data;
@@ -175,14 +188,16 @@ export function fillMissingBossArt(st, pack) {
   const saved = d.boss;
   const phases = Array.isArray(saved.phases) ? saved.phases : [];
   const boss = { ...saved };
-  for (const field of ['image', 'imageSquare', 'imageKo']) {
+  for (const field of ['image', 'imageSquare', 'imageKo', 'slotValue']) {
     if (!saved[field] && current[field]) boss[field] = current[field];
   }
   boss.phases = phases.length ? phases.map((p, i) => {
     const image = current.phases[i]?.image;
     return !p?.image && image ? { ...p, image } : p;
   }) : current.phases;
-  d.boss = boss;
+  const m = st.combat?.active ? bossCombatant(st, d.bossId) : null;
+  d.boss = m ? bossAtMax({ ...boss, slotValue: mobHealthSlot(pack, m) || undefined }, m.hpMax) : boss;
+  if (Number.isInteger(m?.hp)) d.hp = m.hp;
 }
 
 function bossMerge(st, ctx, prev, patch, fresh) {
@@ -199,11 +214,12 @@ function bossMerge(st, ctx, prev, patch, fresh) {
     swapped = true;
   }
   if (!out.boss) throw bad('boss scene needs bossId (from the library) or an ad-hoc boss {name, ...}');
+  const m = bossCombatant(st, out.bossId);
+  if (m) out.boss = bossAtMax({ ...out.boss, slotValue: mobHealthSlot(ctx.pack, m) || undefined }, m.hpMax);
   const max = out.boss.hpSlots;
   if (swapped && fresh) {
     Object.assign(out, { hp: max, phase: 0, revealed: false, defeated: false });
     // Back on the TV mid-fight (an NPC cut-in, a misfired key): the boss keeps his HP and phase, no second intro.
-    const m = out.bossId && st.combat?.active ? (st.combat.combatants ?? []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === out.bossId) : null;
     if (m) Object.assign(out, { hp: Math.max(0, Math.min(max, m.hp)), phase: Number.isInteger(m.bossPhase) ? m.bossPhase : 0, revealed: m.bossRevealed === true, defeated: m.hp <= 0 });
   }
   if (patch.hp !== undefined) out.hp = intIn(patch.hp, 'hp', 0, max);
@@ -439,13 +455,25 @@ function amountOf(a) {
  * the scene's boss.hit / boss.heal is the one the TV plays.
  */
 function syncBossCombatant(st, d) {
-  if (!st.combat?.active || !d.bossId) return;
-  for (const m of st.combat.combatants ?? []) {
-    if (m.type !== 'mob' || m.sourceKind !== 'boss' || m.sourceId !== d.bossId) continue;
-    const before = m.hp;
-    m.hp = Math.max(0, Math.min(m.hpMax, d.hp));
-    recordKillCredit(st.combat, m, before);
-  }
+  const m = bossCombatant(st, d.bossId);
+  if (!m) return;
+  const before = m.hp;
+  m.hp = Math.max(0, Math.min(m.hpMax, d.hp));
+  recordKillCredit(st.combat, m, before);
+}
+
+/** Copy the active combatant's authoritative health to the boss scene, with its existing cinematic events. */
+export function syncBossHealth(st, mob, out) {
+  const d = st.scene?.kind === 'boss' ? st.scene.data : null;
+  if (!d?.boss) return;
+  if (bossCombatant(st, d.bossId)?.uid !== mob.uid) return;
+  const from = d.hp;
+  d.boss = bossAtMax(d.boss, mob.hpMax);
+  d.hp = mob.hp;
+  if (d.hp > 0) d.defeated = false;
+  if (from === d.hp) return;
+  if (d.hp < from) out.emit({ kind: 'boss.hit', sceneId: st.scene.id, amount: from - d.hp, from, hp: d.hp, max: d.boss.hpSlots, suggestPhase: phaseFor(d) }, STAGE_GM);
+  else out.emit({ kind: 'boss.heal', sceneId: st.scene.id, amount: d.hp - from, from, hp: d.hp, max: d.boss.hpSlots }, STAGE_GM);
 }
 
 /**
@@ -502,6 +530,7 @@ export const SCENE_GM = {
     const sc = st.scene;
     if (a.data === undefined) throw bad('data required');
     sc.data = mergeData(st, ctx, sc.kind, sc.data, a.data, false);
+    if (sc.kind === 'boss' && a.data.hp !== undefined) syncBossCombatant(st, sc.data);
     if (sc.kind === 'npc' && a.data?.npcId && a.intro !== false) {
       const line = introLine(st, ctx, 'npc', a.data.npcId);
       if (line) out.lines.push(line);
@@ -617,13 +646,27 @@ export const SCENE_GM = {
 
   'boss.damage'(st, a, ctx, out) {
     const d = bossScene(st);
-    const amount = amountOf(a);
+    let amount = amountOf(a);
+    let breakdown = null;
+    if (a.rolled === true || a.dr === true) {
+      const rules = combatRules(ctx.pack, st.combat?.settings);
+      const m = bossCombatant(st, d.bossId);
+      const target = m ?? (d.bossId ? libraryOf(st, ctx.pack).get('boss', d.bossId) : null);
+      const dr = a.dr === true && rules.useDr ? target?.dr ?? 0 : 0;
+      breakdown = rolledDamage(amount, { dr, drMin: a.dr === true ? rules.drMin : 0, dtype: a.dtype, target, slotValue: (m ? mobHealthSlot(ctx.pack, m) : d.boss.slotValue) || 1 });
+      amount = breakdown.amount;
+      if (!amount) {
+        out.changed = false;
+        out.result = { ...breakdown, hp: d.hp, max: d.boss.hpSlots, blocked: true, ...(breakdown.rolled > 0 ? { belowSlot: true } : {}) };
+        return;
+      }
+    }
     const from = d.hp;
     d.hp = Math.max(0, d.hp - amount);
     syncBossCombatant(st, d);
     const suggestPhase = phaseFor(d);
     out.emit({ kind: 'boss.hit', sceneId: st.scene.id, amount: from - d.hp, from, hp: d.hp, max: d.boss.hpSlots, suggestPhase }, STAGE_GM);
-    out.result = { hp: d.hp, max: d.boss.hpSlots, suggestPhase };
+    out.result = { hp: d.hp, max: d.boss.hpSlots, suggestPhase, ...breakdown };
   },
 
   'boss.heal'(st, a, ctx, out) {

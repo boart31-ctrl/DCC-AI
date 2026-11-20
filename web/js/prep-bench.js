@@ -4,9 +4,8 @@
 //   party  [{ level }]          the characters in the campaign (any count: never assumes 4)
 //   mobs   [{ level?, cr?, role?, count? }]  role 'boss' | 'elite' | 'minion' | 'standard'
 //
-// crawler: the Starter Set's rule of thumb (GM toolkit, adversary power table): strength = number of mobs
-//          against party size — 50 % weak, 100 % moderate, 150 % strong, 200 %+ overwhelming. Elites and
-//          bosses act once per crawler, so they count as one mob per crawler; minions count half.
+// crawler: Table 3 in the GM Campaign Toolkit gives the reference counts for standard mobs.
+//          The app estimates equivalent strength including extra boss/elite actions and weaker minions.
 // dnd:     Lazy Encounter Benchmark — may be deadly when Σ CR > Σ levels / 4 (/ 2 when the average level > 4).
 // pf2e:    XP budget by creature level relative to the party level, budget scaled for party size.
 export const LEVELS = ['Weak', 'Moderate', 'Strong', 'Overwhelming'];
@@ -54,14 +53,18 @@ export function benchmark(family, party, mobs) {
   }
   const units = crawlerUnits(list, size);
   const pct = units / size;
-  const level = pct < 0.75 ? 0 : pct < 1.25 ? 1 : pct < 1.75 ? 2 : 3;
-  return { level, label: LEVELS[level], detail: `${round(units)} mob${units === 1 ? '' : 's'} vs ${size} crawler${size === 1 ? '' : 's'} (${Math.round(pct * 100)} %)`, units };
+  const level = pct < 0.75 ? 0 : pct < 1.25 ? 1 : pct < 2 ? 2 : 3;
+  const count = list.reduce((n, m) => n + countOf(m), 0);
+  const reference = crawlerTable(size).map(({ label, mobs }, i) => `${label} ${mobs}${i === 3 ? '+' : ''}`).join(' · ');
+  const weighted = units === count ? '' : ` (${round(units)} standard mob equivalents)`;
+  const detail = `${count} mob${count === 1 ? '' : 's'}${weighted} vs ${size} crawler${size === 1 ? '' : 's'}. Toolkit counts for standard mobs: ${reference}.`;
+  return { level, label: LEVELS[level], detail, units };
 }
 
 /** How many mobs make each strength step for this party (crawler family): for the GM cheat sheet. */
 export function crawlerTable(size) {
   const n = Math.max(1, size);
-  return [0.5, 1, 1.5, 2].map((f, i) => ({ label: LEVELS[i], mobs: Math.max(1, Math.round(n * f)) }));
+  return [0.5, 1, 1.5, 2].map((ratio, i) => ({ label: LEVELS[i], mobs: Math.max(1, Math.round(n * ratio)), ratio }));
 }
 
 function round(v) {

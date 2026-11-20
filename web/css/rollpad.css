@@ -20,6 +20,8 @@
 .rp-act { display: flex; justify-content: space-between; align-items: center; gap: 8px; min-height: 48px; padding: 8px 12px; text-align: left;
   font: 600 15px var(--f-ui); color: var(--c-ink); background: var(--c-sunk); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
 .rp-act b { color: var(--c-accent); font-size: 17px; }
+.rp-act small { display: block; }
+.rp-act:disabled { opacity: 0.55; }
 .rp-act:active { border-color: var(--c-accent); }
 .rp-l { font: 600 13px var(--f-ui); color: var(--c-ink-3); text-transform: uppercase; letter-spacing: 0.05em; }
 .rp-targets, .rp-mods { display: grid; gap: 8px; }
@@ -90,6 +92,4 @@ body.rp-open .roll-fab { display: none; }
 .ini-pad .ask-inner { gap: 12px; }
 .ini-pad-h { margin: 0; font: 700 22px var(--f-ui); }
 .ini-pad-sub { margin: 0; color: var(--c-ink-2, inherit); }
-.ini-pad-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 8px; }
-.ini-pad-n { min-width: 0; min-height: 52px; padding: 0; font: 700 20px var(--f-ui); }
 .ini-pad .ask-inner > * { min-width: 0; }

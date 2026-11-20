@@ -19,7 +19,7 @@ export function combatRules(pack, settings = DEFAULT_SETTINGS) {
     critRange: cr.critRange ?? 20,
     nat1: cr.nat1 ?? 'miss',
     evadeBase: fixed ? 0 : settings.evadeBase ?? 0,
-    drMin: fixed ? 0 : settings.drMin ?? 1,
+    drMin: cr.drMin ?? (fixed ? 0 : settings.drMin ?? 1),
     useDr: fixed ? !!cr.dr : true,
     defenseLabel: cr.defenseLabel || 'Evade',
     advantage: !!cr.advantage,
@@ -106,21 +106,38 @@ export function mobSlotValue(pack, mob) {
   return Number.isInteger(r) && r >= 1 ? r : 1;
 }
 
+/** Slot denomination for views. A plain HP pool has no slot denomination. */
+export function mobHealthSlot(pack, mob) {
+  return mob?.slotValue > 0 || pack.ruleset.combat?.mobSlotValue > 0 || pack.ruleset.combat?.hpModel === 'slots'
+    ? mobSlotValue(pack, mob) : null;
+}
+
 /** Rolled damage (after DR) → whole health slots; damage below one slot's worth is lost. */
 export function damageToSlots(amount, slotValue) {
   return slotValue > 1 ? Math.floor(Math.max(0, amount) / slotValue) : Math.max(0, amount);
 }
 
-/** Damage after DR by type against a target's { resist, vulnerable, immune } lists (lower-case types). */
-export function typedDamage(amount, type, target) {
-  const t = String(type || '').toLowerCase();
+/** Typed protection from mob stat blocks or active crawler gear, spells and buffs. */
+export function typedDamage(amount, type, target, protections) {
+  const t = String(type || '').trim().toLowerCase();
   if (!t || !target) return { amount, why: null };
-  if ((target.immune ?? []).includes(t)) return { amount: 0, why: 'immune' };
+  const has = (kind) => (target[kind] ?? []).includes(t) || protections?.[`${kind}.${t}`]?.value > 0;
+  if (has('immune')) return { amount: 0, why: 'immune' };
   let out = amount;
   let why = null;
-  if ((target.resist ?? []).includes(t)) { out = Math.floor(out / 2); why = 'resistant'; }
-  if ((target.vulnerable ?? []).includes(t)) { out *= 2; why = why ? null : 'vulnerable'; }
+  if (has('resist')) { out = Math.floor(out / 2); why = 'resistant'; }
+  if (has('vulnerable')) { out *= 2; why = why ? null : 'vulnerable'; }
   return { amount: out, why };
+}
+
+/** Rolled HP damage: apply DR, typed protection and finally convert to whole slots. */
+export function rolledDamage(amount, { dr = 0, drMin = 0, dtype, target, protections, slotValue = 1 } = {}) {
+  const afterDr = Math.max(drMin, amount - Math.max(0, dr));
+  const { amount: rolled, why } = typedDamage(afterDr, dtype, target, protections);
+  return {
+    amount: damageToSlots(rolled, slotValue), rolled, slotValue, dr, drApplied: amount - afterDr,
+    ...(why ? { typed: why } : {}),
+  };
 }
 
 /** Update loot credit when a mob is defeated or gets back up. */

@@ -131,6 +131,66 @@ function run(state, ...actions) {
 const sheetOf = (state, id, p = pack) => viewFor(state, p, 'player', { playerId: id }).me.sheet;
 const pmap = (parts) => parts.map((p) => [p.label, p.value]);
 
+test('spell cooldown uses game time through rounds, floor changes and reloads', () => {
+  const { pack: timed } = loadPack(writePack(tmpDir(), files({
+    'ruleset.json': { ...RULESET, combat: { flow: 'reaction', roundSeconds: 10 } },
+    'spells.json': [{ id: 'ward', name: 'Ward', cost: 1, cooldown: 300 }],
+  })));
+  const g = (st, a) => gm(st, a, { pack: timed }).state;
+  let st = g(createState(timed, 0), { t: 'player.add', name: 'Mage' });
+  const id = st.players[0].id;
+  st = g(st, { t: 'spell.learn', playerId: id, spellId: 'ward' });
+  const cast = { t: 'spell.cast', playerId: id, uid: st.players[0].sheet.spells[0].uid };
+  const cooldown = () => sheetOf(st, id, timed).computed.spells[0].cooldown;
+  st = g(st, cast);
+  assert.deepEqual(cooldown(), { kind: 'time', ready: false, remainingSeconds: 300 });
+  assert.throws(() => gm(st, cast, { now: 10_000_000, pack: timed }), /still cooling down/);
+  assert.equal(sheetOf(st, id, timed).computed.tracks.mana.cur, 5);
+  st = g(st, { ...cast, t: 'spell.forget' });
+  st = g(st, { t: 'spell.learn', playerId: id, spellId: 'ward' });
+  cast.uid = st.players[0].sheet.spells[0].uid;
+  assert.throws(() => g(st, cast), /still cooling down/);
+  st = g(st, { t: 'crawlers.clock', hours: 5, advance: 290 / 3600 });
+  st = g(st, { t: 'crawlers.collapse', announce: false });
+  st = normalizeState(JSON.parse(JSON.stringify(st)), timed, 1_000_000);
+  assert.equal(cooldown().remainingSeconds, 10);
+  st = g(st, { t: 'combat.start' });
+  st = g(st, { t: 'rx.round' });
+  assert.deepEqual(cooldown(), { kind: 'time', ready: true, remainingSeconds: 0 });
+  st = g(st, cast);
+  st = g(st, { ...cast, t: 'spell.ready' });
+  assert.equal(cooldown().ready, true);
+});
+
+test('once-per-scene spell attack stays spent after combat and follows undo/redo', () => {
+  const { pack: timed } = loadPack(writePack(tmpDir(), files({
+    'ruleset.json': { ...RULESET, spells: { costTrack: 'mana', attackChecks: true } },
+    'spells.json': [{ id: 'flare', name: 'Flare', cost: 0, cooldown: 'scene', attackCheck: true, attack: { stat: 'int', dice: '1d4' } }],
+  })));
+  const g = (st, a) => gm(st, a, { pack: timed });
+  let { state: st, result: { playerId: id } } = g(createState(timed, 0), { t: 'player.add', name: 'Mage' });
+  st = g(st, { t: 'spell.learn', playerId: id, spellId: 'flare' }).state;
+  const uid = st.players[0].sheet.spells[0].uid;
+  const cast = { t: 'roll', playerId: id, what: { kind: 'spell', uid }, entered: 12 };
+  const ready = () => sheetOf(st, id, timed).computed.spells[0].cooldown.ready;
+  st = g(st, { t: 'combat.start' }).state;
+  const hit = g(st, cast);
+  st = hit.state;
+  assert.equal(ready(), false);
+  assert.throws(() => g(st, cast), /only be cast once per scene/);
+  st = g(st, { t: 'roll.void', id: hit.result.rollId }).state;
+  assert.equal(ready(), true);
+  st = g(st, { t: 'roll.restore', id: hit.result.rollId }).state;
+  assert.equal(ready(), false);
+  st = g(st, { t: 'combat.end' }).state;
+  assert.equal(ready(), false);
+  st = g(st, { t: 'crawlers.clock', scene: true }).state;
+  assert.equal(ready(), true);
+  st = g(st, cast).state;
+  st = g(st, { t: 'combat.start' }).state;
+  assert.equal(ready(), true);
+});
+
 // ---------- pack / ruleset ----------
 
 test('pack loads ruleset + library files; bad effects skipped with warnings', () => {
@@ -487,6 +547,11 @@ test('roll: stat / derived / skill / attack / custom with breakdowns, events, na
   assert.equal(r.result.total, 23);
   r = gm(r.state, { t: 'roll', playerId: a, what: { kind: 'stat', id: 'dex' } });
   assert.equal(r.result.total, 10 + 3);
+  const attack = gm(r.state, { t: 'roll', playerId: a, dc: 99, what: { kind: 'attack', uid: atk } });
+  assert.equal(attack.result.hit, false);
+  assert.equal(attack.state.players[0].sheet.skills[0].used, true, 'a missed weapon check marks its linked skill');
+  const damage = gm(r.state, { t: 'roll', playerId: a, what: { kind: 'attack', uid: atk, part: 'damage' } });
+  assert.equal(damage.state.players[0].sheet.skills[0].used, false, 'damage alone is not a skill check');
   r = gm(r.state, { t: 'roll', playerId: a, what: { kind: 'skill', uid: sk } });
   assert.equal(r.result.total, 10 + 2);
   assert.equal(r.state.players[0].sheet.skills[0].used, true, 'rolling a skill marks it used');
@@ -570,6 +635,61 @@ test('skills.rankUp with injected RNG: gt rank, rankMax cap, used cleared, every
   // no rule → error
   const p3 = loadPack(writePack(tmpDir())).pack;
   assert.throws(() => reduce(createState(p3, 0), { role: 'gm', t: 'skills.rankUp' }, ctx({ pack: p3 })), /no skills.rankUp/);
+});
+
+test('session advancement and floor advancement roll and clear different marked ranks', () => {
+  const ruleset = { ...RULESET, skills: { ...RULESET.skills, rankUp: { rule: 'gte', sessionMaxRank: 4 } } };
+  const p = loadPack(writePack(tmpDir(), files({ 'ruleset.json': ruleset }))).pack;
+  const apply = (s, a) => reduce(s, { role: 'gm', ...a }, ctx({ pack: p, rollInt: () => 7 }));
+  let { state } = apply(createState(p, 0), { t: 'player.add', name: 'Crawler' });
+  const playerId = state.players[0].id;
+  for (const [name, rank] of [['Due now', 4], ['Due on the floor', 5], ['Unused', 8]]) {
+    ({ state } = apply(state, { t: 'skill.add', playerId, name, rank }));
+  }
+  state.players[0].sheet.skills.filter((s) => s.name !== 'Unused').forEach((s) => { s.used = true; });
+  const session = apply(state, { t: 'level.party', rankUp: true });
+  assert.deepEqual(session.result.rankUps.map((s) => [s.name, s.to]), [['Due now', 5]]);
+  assert.deepEqual(session.state.players[0].sheet.skills.map((s) => s.used), [false, true, false]);
+  const repeated = apply(session.state, { t: 'skills.rankUp' });
+  assert.deepEqual(repeated.result.results, []);
+  const floor = apply(repeated.state, { t: 'skills.rankUp', when: 'floor' });
+  assert.deepEqual(floor.result.results.map((s) => [s.name, s.to]), [['Due on the floor', 6]]);
+  assert.deepEqual(floor.state.players[0].sheet.skills.map((s) => s.used), [false, false, false]);
+  assert.throws(() => apply(floor.state, { t: 'skills.rankUp', when: 'tomorrow' }), /when must be session or floor/);
+});
+
+test('attack spell checks mark the spell for session or floor advancement and respect its own cap', () => {
+  const ruleset = {
+    ...RULESET,
+    skills: { ...RULESET.skills, rankUp: { rule: 'gte', sessionMaxRank: 4 } },
+    spells: { ...RULESET.spells, attackChecks: true },
+  };
+  const attack = { skill: 'magic', stat: 'str', dice: '1d6' };
+  const spells = [
+    { id: 'spark', name: 'Spark', cost: 0, attackCheck: true, attack },
+    { id: 'shock', name: 'Shock', cost: 0, attackCheck: true, attack, rankMax: 6 },
+    { id: 'light', name: 'Light', cost: 0 },
+  ];
+  const p = loadPack(writePack(tmpDir(), files({ 'ruleset.json': ruleset, 'spells.json': spells }))).pack;
+  const apply = (s, a) => reduce(s, { role: 'gm', ...a }, ctx({ pack: p, rollInt: () => 10 }));
+  let { state } = apply(createState(p, 0), { t: 'player.add', name: 'Caster' });
+  const playerId = state.players[0].id;
+  for (const [spellId, rank] of [['spark', 4], ['shock', 6], ['light', 4]]) {
+    const learned = apply(state, { t: 'spell.learn', playerId, spellId, rank });
+    state = spellId === 'light'
+      ? apply(learned.state, { t: 'spell.cast', playerId, uid: learned.result.uid }).state
+      : apply(learned.state, { t: 'roll', playerId, dc: 99, what: { kind: 'spell', uid: learned.result.uid, part: 'hit' } }).state;
+  }
+  state = normalizeState(JSON.parse(JSON.stringify(state)), p);
+  assert.deepEqual(state.players[0].sheet.spells.map((s) => !!s.used), [true, true, false]);
+  const session = apply(state, { t: 'level.party', rankUp: true });
+  assert.deepEqual(session.result.rankUps.map((s) => [s.name, s.from, s.to]), [['Spark', 4, 5]]);
+  assert.equal(session.state.players[0].sheet.spells[1].used, true);
+  const floor = apply(session.state, { t: 'skills.rankUp', when: 'floor' });
+  assert.deepEqual(floor.result.results.map((s) => [s.name, s.from, s.to]), [['Shock', 6, 6]]);
+  const logged = floor.state.rolls.find((r) => r.id === floor.result.results[0].rollId);
+  assert.equal(logged.rankUp.spellUid, floor.state.players[0].sheet.spells[1].uid);
+  assert.deepEqual(floor.state.players[0].sheet.spells.map((s) => !!s.used), [false, false, false]);
 });
 
 test('library: upsert / remove homebrew, pack read-only, give each kind, views carry source', () => {
@@ -833,7 +953,7 @@ test('private DCC pack (skipped when absent): sheet model works end to end', { s
   const spell = dcc.library.spell.find((s) => s.applies && dcc.library.buff.find((b) => b.id === s.applies && !(b.tags ?? []).includes('debuff')));
   if (spell) {
     st = g(st, { t: 'spell.learn', playerId: pid, spellId: spell.id }).state;
-    const cast = g(st, { t: 'spell.cast', playerId: pid, uid: st.players[0].sheet.spells[0].uid });
+    const cast = g(st, { t: 'spell.cast', playerId: pid, uid: st.players[0].sheet.spells.find((s) => s.spellId === spell.id).uid });
     assert.equal(cast.result.applied.buffId, spell.applies);
   }
   st = g(st, { t: 'track.set', playerId: pid, track: 'hp', cur: 5 }).state;
@@ -924,6 +1044,7 @@ test('private DCC pack: seven degrees on attacks, Amazing adds the floor, AI Fav
   const [fargo, lina] = st.players.map((p) => p.id);
   st = reduce(st, { role: 'gm', t: 'combat.addAdhoc', name: 'Rat', hp: 6, evade: 0, hidden: false }, c()).state;
   st = reduce(st, { role: 'gm', t: 'combat.start' }, c()).state;
+  st = reduce(st, { role: 'gm', t: 'rx.step', to: 'act' }, c()).state;
   const rat = st.combat.combatants.find((x) => x.type === 'mob');
   const atk = st.players[0].sheet.attacks[0];
   const as = (pid, a) => reducePlayerAction(st, a, c({ playerId: pid }));
@@ -958,6 +1079,10 @@ test('private DCC pack: seven degrees on attacks, Amazing adds the floor, AI Fav
   assert.equal(r.result.roll.vs.margin, undefined);
   assert.equal(st.players[0].sheet.fields.aiFavor, 0);
   assert.throws(() => as(fargo, { t: 'roll.favor', rollId: rec.id, entered: 17 }), /already|no AI Favor/);
+  st = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'damage' }, target: rat.uid, after: rec.id, entered: 1 }).state;
+  assert.equal(st.rolls.at(-1).vs.amazing, 1);
+  st = reduce(st, { role: 'gm', t: 'rx.round' }, c()).state;
+  st = reduce(st, { role: 'gm', t: 'rx.step', to: 'act' }, c()).state;
   st = as(fargo, { t: 'roll', what: { kind: 'attack', uid: atk.uid, part: 'hit' }, target: rat.uid, entered: 1 }).state;
   assert.equal(st.rolls.at(-1).vs.deg7, 'critfail');
 });

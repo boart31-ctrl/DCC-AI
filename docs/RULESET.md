@@ -94,9 +94,12 @@ so the UI can show "Evade 7 = DEX mod 3 + Buffs 4 (Ring of Dodging +2, Haste +2)
 - `when`: `equipped` (item in a gear slot or hotlist-equipped), `carried` (in inventory), `active`
   (buff/spell currently active), `always`.
 - Debuffs are effects with negative values; the sheet lists them under Debuffs.
+- For rolled damage, a positive `resist.<type>`, `vulnerable.<type>`, or `immune.<type>` effect grants typed protection or vulnerability. Use the same lower-case damage type as the attack, for example `immune.sonic`.
 
 Effect sources: equipped items, active buffs (incl. the capped *external* buffs), active spells,
 race/class features, GM ad-hoc modifiers on a character.
+
+Buffs may define `blocks` with `action`, `interrupt`, `spell`, or `heal`. The last restricts the recipient of health restoration. `rounds` counts down on round cleanup and `endCombat` removes the buff when the fight ends. Use both when either can end an effect.
 
 ## 4. Library (homebrew) — campaign-wide, GM editable
 
@@ -105,14 +108,16 @@ Kinds and shapes (all have `id`, `name`, `desc`, `tags[]`, `source: "pack" | "ho
 | kind | extra fields |
 |---|---|
 | `item` | `rarity`, `slot` (gear slot id or null), `stackable`, `effects[]`, `attack?` `{skill, stat, dice, effects:"text"}`, `flavor`, `image?` |
-| `spell` | `cost` (number or formula), `costTrack`, `range`, `duration`, `effects[]`, `attack?`, `dice?`, `rankScaling?` (text) |
+| `spell` | `cost` (number or formula), `costTrack`, `range`, `duration`, `effects[]`, `attack?`, `dice?`, `rankScaling?` (text), `cooldown?` (game seconds or `"scene"`) |
 | `skill` | `stat`, `checkType`, `upgrades[]` (`{rank, text}`) |
-| `buff` | `effects[]`, `duration`, `external` (bool, counts toward external cap) |
+| `buff` | `effects[]`, `duration`, `external` (bool, counts toward external cap), optional `blocks[]`, `rounds`, `endCombat` |
 | `feature` | `effects[]` (race/class/background features) |
 | `race`/`class`/`background` | `features[]` (feature ids), `statBonuses?` effects, `skills?` starting skill ids |
 
 Pack content (`items.json` etc.) is loaded into the library as `source: "pack"` (read-only, but the GM
 can "duplicate & edit"). Homebrew is stored in state and survives sessions.
+
+A spell cooldown starts at cast, including a missed attack. The floor clock's `advance` moves game time. When configured, `combat.roundSeconds` adds that many seconds at the end of each completed round and enables minute-level advances on the GM desk. Each new encounter or floor starts a fictional scene. The GM can also start a scene explicitly from the clock controls or reset a single cooldown from a character's spell details.
 
 ## 5. Character (player) shape additions
 
@@ -161,6 +166,7 @@ Players may edit **their own** sheet only where the GM allows: `session.permissi
 | `attack.add/update/remove` | `playerId?`, attack fields / `uid` | GM / player |
 | `spell.learn/forget` | `playerId?`, `spellId` / `uid` | GM (player if sheet) |
 | `spell.cast` | `playerId?`, `uid` | GM / player — deducts cost from track, logs, optional effect activation |
+| `spell.ready` | `playerId`, `uid` | GM only. Reset a known spell's cooldown |
 | `item.equip` | `playerId?`, `uid`, `slot` (or null to unequip) | GM / player — enforces slot `max` |
 | `item.qty` | `playerId?`, `uid`, `qty` | GM / player |
 | `hotlist.set` | `playerId?`, `index`, `uid|null` | GM / player |

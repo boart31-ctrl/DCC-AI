@@ -22,9 +22,10 @@
 // Views: the GM sees everything. Players and the TV see crawlers + revealed mobs only, mob HP as a
 // rounded fraction (exact numbers only with `showMobHp`), never notes / attacks / library GM fields.
 import { bad, notFound } from './errors.js';
-import { combatRules, mobSlotValue, damageToSlots, typedDamage, recordKillCredit } from './outcome.js';
-import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
-import { SCENE_GM, introLine } from './scenes.js';
+import { combatRules, mobHealthSlot, rolledDamage, recordKillCredit } from './outcome.js';
+import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack, requireStatusAllowed } from './character.js';
+import { introLine, syncBossHealth } from './scenes.js';
+import { advanceGameTime } from './crawlers.js';
 
 export const DEFAULT_PHASES = ['Crawlers', 'Mobs'];
 export const MAX_COMBATANTS = 40;
@@ -247,6 +248,7 @@ function cleanAttacks(list) {
     damage: typeof a.damage === 'string' ? a.damage.slice(0, 60) : '',
     effects: typeof a.effects === 'string' ? a.effects.slice(0, 400) : '',
     buffs: Array.isArray(a.buffs) ? a.buffs.filter((b) => typeof b === 'string' && ID_RE.test(b)).slice(0, 10) : [],
+    ...(Array.isArray(a.majorFailBuffs) && a.majorFailBuffs.length ? { majorFailBuffs: a.majorFailBuffs.filter((b) => typeof b === 'string' && ID_RE.test(b)).slice(0, 10) } : {}),
     ...(typeof a.dtype === 'string' && a.dtype ? { dtype: a.dtype.slice(0, 30) } : {}),
     ...(typeof a.range === 'string' && a.range ? { range: a.range.slice(0, 60) } : {}),
     ...(typeof a.area === 'string' && a.area ? { area: a.area.slice(0, 120) } : {}),
@@ -338,41 +340,31 @@ function changeHp(st, a, ctx, out, sign) {
   const x = combatantOf(st, a.uid);
   let amount = a.amount === undefined ? 1 : intIn(a.amount, 'amount', 1, MAX_MOB_HP);
   const kind = sign < 0 ? 'combat.hit' : 'combat.heal';
-  // a.dr === true: `amount` is the rolled damage, the target's DR comes off (never below the rules' minimum).
+  // Direct track adjustments and healing use the target's track units. Rolled HP needs conversion, even when bypassing DR.
   let drApplied = 0;
-  if (sign < 0 && a.dr === true) {
-    let dr = 0;
-    if (x.type === 'mob') dr = x.dr || 0;
-    else {
-      const p = st.players.find((y) => y.id === x.playerId);
-      try { dr = defenseOf(ctx.pack, computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed).dr; } catch { dr = 0; }
-    }
-    const min = combatRules(ctx.pack, c.settings).drMin ?? 0;
-    let after = Math.max(min, amount - Math.max(0, dr));
-    // a.dtype: the damage type; a mob's resist / vulnerable / immune lists change it (after DR).
-    if (a.dtype && x.type === 'mob') after = typedDamage(after, a.dtype, x).amount;
-    drApplied = amount - after;
-    amount = after;
-    if (amount <= 0) { out.result = { hp: x.hp ?? null, blocked: true, dr }; out.changed = false; return; }
-    // Slot health bars: rolled damage removes whole slots (outcome.js damageToSlots); less than one slot = nothing.
-    let sv = 1;
-    if (x.type === 'mob') sv = mobSlotValue(ctx.pack, x);
-    else {
-      const p = st.players.find((y) => y.id === x.playerId);
-      const t = hpTrackOf(ctx.pack);
-      try { sv = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.tracks[t.id].slotValue || 1; } catch { sv = 1; }
-    }
-    if (sv > 1) {
-      const rolled = amount;
-      amount = damageToSlots(amount, sv);
-      if (amount <= 0) { out.result = { hp: x.hp ?? null, blocked: true, belowSlot: true, rolled, slotValue: sv, dr }; out.changed = false; return; }
+  let rb = null;
+  const crawler = x.type === 'crawler' ? crawlerHp(st, ctx, x) : null;
+  if (sign > 0) requireStatusAllowed(st, ctx, crawler?.p ?? x, 'heal');
+  const lib = crawler ? libraryOf(st, ctx.pack) : null;
+  const computed = crawler ? computeFor(crawler.p, ctx.pack, lib).computed : null;
+  const track = crawler ? computed.tracks[crawler.t.id] : null;
+  if (sign < 0 && (a.rolled === true || a.dr === true)) {
+    const rules = combatRules(ctx.pack, c.settings);
+    const dr = a.dr === true && rules.useDr ? (track ? defenseOf(ctx.pack, computed).dr : x.dr || 0) : 0;
+    const sv = track ? track.slotValue : mobHealthSlot(ctx.pack, x);
+    const damage = rolledDamage(amount, { dr, drMin: a.dr === true ? rules.drMin : 0, dtype: a.dtype, target: x, protections: computed?.buffs, slotValue: sv ?? 1 });
+    ({ amount, drApplied } = damage);
+    rb = { rolled: damage.rolled, ...(sv ? { slotValue: sv } : {}), ...(damage.typed ? { typed: damage.typed } : {}) };
+    if (amount <= 0) {
+      out.result = { hp: track?.cur ?? x.hp, blocked: true, ...(damage.rolled > 0 ? { belowSlot: true } : {}), ...rb, dr, drApplied };
+      out.changed = false;
+      return;
     }
   }
-  if (x.type === 'crawler') {
+  if (crawler) {
     // Sheets stay the single source of truth: same path as the sheet's own track.set.
-    const { p, t } = crawlerHp(st, ctx, x);
-    const lib = libraryOf(st, ctx.pack);
-    const before = computeFor(p, ctx.pack, lib).computed.tracks[t.id].cur;
+    const { p, t } = crawler;
+    const before = track.cur;
     setTrack(st, p, { track: t.id, delta: sign * amount }, ctx, out);
     const cur = computeFor(p, ctx.pack, lib).computed.tracks[t.id];
     const down = cur.cur <= 0;
@@ -383,7 +375,7 @@ function changeHp(st, a, ctx, out, sign) {
       const line = a.line === false ? null : comboLine(st, ctx, 'crawler_down', 900);
       if (line) out.lines.push(line);
     }
-    out.result = { hp: cur.cur, max: cur.max, amount, actualAmount: Math.abs(before - cur.cur), drApplied };
+    out.result = { hp: cur.cur, max: cur.max, amount, actualAmount: Math.abs(before - cur.cur), drApplied, ...rb };
     return;
   }
   const from = x.hp;
@@ -407,8 +399,8 @@ function changeHp(st, a, ctx, out, sign) {
       }
     }
   }
-  if (linkedBoss(st, x)) SCENE_GM[sign < 0 ? 'boss.damage' : 'boss.heal'](st, { amount }, ctx, out);
-  out.result = { hp: x.hp, max: x.hpMax, amount, drApplied };
+  if (linkedBoss(st, x)) syncBossHealth(st, x, out);
+  out.result = { hp: x.hp, max: x.hpMax, amount, drApplied, ...rb };
 }
 
 /** Damage from a player's entered / digital damage roll (character.js resolveAgainst). */
@@ -432,19 +424,22 @@ function conditionOf(st, ctx, a) {
   if (a.buffId !== undefined) {
     const def = libraryOf(st, ctx.pack).get('buff', a.buffId);
     if (!def) throw notFound(`unknown buff ${a.buffId}`);
-    return { id: def.id, name: def.name };
+    return { id: def.id, name: def.name, rounds: def.rounds };
   }
   return { id: null, name: txt(a.name, 'name', 40) };
 }
 
 /** A new round: timed conditions tick down (mobs: condition.rounds, crawlers in the fight: buff.roundsLeft). */
-function tickConditions(st, ctx) {
+function tickConditions(st, ctx, out) {
+  if (C(st).active) advanceGameTime(st, ctx.pack.ruleset.combat.roundSeconds, out);
+  const lib = libraryOf(st, ctx.pack);
   const ended = [];
   for (const x of C(st).combatants) {
     if (x.type === 'mob') {
       x.conditions = x.conditions.filter((k) => {
-        if (!k.rounds) return true;
-        k.rounds -= 1;
+        const rounds = k.rounds ?? lib.get('buff', k.id)?.rounds;
+        if (!rounds) return true;
+        k.rounds = rounds - 1;
         if (k.rounds > 0) return true;
         ended.push(`${k.name} on ${x.name}`);
         return false;
@@ -453,8 +448,9 @@ function tickConditions(st, ctx) {
       const p = st.players.find((y) => y.id === x.playerId);
       if (!p) continue;
       p.sheet.buffs = p.sheet.buffs.filter((b) => {
-        if (!b.roundsLeft) return true;
-        b.roundsLeft -= 1;
+        const rounds = b.roundsLeft ?? lib.get('buff', b.buffId)?.rounds;
+        if (!rounds) return true;
+        b.roundsLeft = rounds - 1;
         if (b.roundsLeft > 0) { b.until = `${b.roundsLeft} round${b.roundsLeft === 1 ? '' : 's'}`; return true; }
         ended.push(`${b.name} on ${p.name}`);
         return false;
@@ -636,7 +632,7 @@ function nextTurn(st, ctx, out) {
       turnEvent(st, out);
       return;
     }
-    if (i <= I.turn) { c.round += 1; tickConditions(st, ctx); }
+    if (i <= I.turn) { c.round += 1; tickConditions(st, ctx, out); }
     I.turn = i;
     turnEvent(st, out);
     return;
@@ -713,6 +709,7 @@ export const COMBAT_GM = {
       c.stats = initStats();
       c.startedAt = ctx.now;
       c.id = ctx.genId('cbt');
+      if (st.crawlers?.clock) st.crawlers.clock.scene = c.id;
       c.spreadNext = 0;
       c.lastAuto = null;
       c.autoQueue = null;
@@ -747,7 +744,7 @@ export const COMBAT_GM = {
       out.result = { round: c.round, turn: c.init.turn };
       return;
     }
-    if (c.phaseIndex >= c.phases.length - 1) { c.phaseIndex = 0; c.round += 1; tickConditions(st, ctx); } else c.phaseIndex += 1;
+    if (c.phaseIndex >= c.phases.length - 1) { c.phaseIndex = 0; c.round += 1; tickConditions(st, ctx, out); } else c.phaseIndex += 1;
     out.emit({ kind: 'combat.phase', round: c.round, phaseIndex: c.phaseIndex, phase: c.phases[c.phaseIndex] }, 'all');
     out.result = { round: c.round, phaseIndex: c.phaseIndex };
   },
@@ -880,13 +877,14 @@ export const COMBAT_GM = {
     out.result = { uid: x?.uid ?? C(st).combatants.find((y) => y.playerId === a.playerId).uid, added: !!x };
   },
 
-  'combat.update'(st, a) {
+  'combat.update'(st, a, ctx, out) {
     const m = mobOf(st, a.uid);
     if (a.name !== undefined) m.name = txt(a.name, 'name', 80);
     const previousHp = m.hp;
     if (a.hpMax !== undefined) { m.hpMax = intIn(a.hpMax, 'hpMax', 1, MAX_MOB_HP); m.hp = Math.min(m.hp, m.hpMax); }
     if (a.hp !== undefined) m.hp = intIn(a.hp, 'hp', 0, m.hpMax);
     recordKillCredit(C(st), m, previousHp);
+    if ((a.hp !== undefined || a.hpMax !== undefined) && linkedBoss(st, m)) syncBossHealth(st, m, out);
     if (a.evade !== undefined) m.evade = intIn(a.evade, 'evade', -99, 99);
     if (a.dr !== undefined) m.dr = intIn(a.dr, 'dr', -99, 99);
     if (a.notes !== undefined) m.notes = txt(a.notes, 'notes', 500, { allowEmpty: true });
@@ -910,13 +908,17 @@ export const COMBAT_GM = {
     const on = flag(a.on, 'on');
     const k = conditionOf(st, ctx, a);
     // Optional duration: counts down at every new round, gone at 0 (null / 0 = until removed).
-    const rounds = a.rounds == null || a.rounds === 0 ? null : intIn(a.rounds, 'rounds', 1, 99);
+    const rounds = a.rounds === undefined ? k.rounds : a.rounds == null || a.rounds === 0 ? 0 : intIn(a.rounds, 'rounds', 1, 99);
+    delete k.rounds;
     if (x.type === 'crawler') {
       const { p } = crawlerHp(st, ctx, x);
       if (on) {
         SHEET_GM['buff.add'](st, k.id ? { playerId: p.id, buffId: k.id } : { playerId: p.id, name: k.name }, ctx, out);
         const b = p.sheet.buffs.find((y) => y.uid === out.result?.uid);
-        if (b && rounds) { b.roundsLeft = rounds; b.until = `${rounds} round${rounds === 1 ? '' : 's'}`; }
+        if (b && rounds !== undefined) {
+          b.roundsLeft = rounds;
+          b.until = rounds ? `${rounds} round${rounds === 1 ? '' : 's'}` : '';
+        }
       } else {
         const b = p.sheet.buffs.find((y) => (k.id ? y.buffId === k.id : y.name.toLowerCase() === k.name.toLowerCase()));
         if (!b) throw notFound(`${p.name} does not have ${k.name}`);
@@ -926,9 +928,9 @@ export const COMBAT_GM = {
     }
     if (on) {
       const had = x.conditions.find((c) => sameCond(c, k));
-      if (had) { if (rounds) had.rounds = rounds; else delete had.rounds; } else {
+      if (had) { if (rounds !== undefined) had.rounds = rounds; else delete had.rounds; } else {
         if (x.conditions.length >= MAX_CONDITIONS) throw bad(`max ${MAX_CONDITIONS} conditions`);
-        x.conditions.push(rounds ? { ...k, rounds } : k);
+        x.conditions.push(rounds !== undefined ? { ...k, rounds } : k);
       }
     } else x.conditions = x.conditions.filter((c) => !sameCond(c, k));
   },
@@ -1111,7 +1113,8 @@ export function combatView(state, pack, role) {
   if (gm) {
     const la = c.lastAuto;
     Object.assign(head, {
-      id: c.id, mapId: c.mapId, victoryItems: c.victoryItems, lastKill: c.lastKill, startedAt: c.startedAt, settings: c.settings, unverified: UNVERIFIED_RULES, stats: c.stats,
+      id: c.id, mapId: c.mapId, victoryItems: c.victoryItems, lastKill: c.lastKill, startedAt: c.startedAt, settings: c.settings,
+      unverified: UNVERIFIED_RULES.filter((key) => key !== 'drMin' || pack.ruleset.combat?.drMin == null), stats: c.stats,
       manualUndo: (state.combat?.manualUndo ?? []).length ? { label: state.combat.manualUndo.at(-1).label, count: state.combat.manualUndo.length } : null,
       lastAuto: la ? { id: la.id, at: la.at, steps: la.steps, canUndo: !!la.undo && !la.undone, undone: !!la.undone, startAt: la.startAt, stepMs: la.stepMs } : null,
       autoQueue: c.autoQueue ? { id: c.autoQueue.id, uids: c.autoQueue.uids, done: c.autoQueue.done ?? 0 } : null,
@@ -1134,7 +1137,8 @@ export function combatView(state, pack, role) {
     }
     if (gm) {
       const { sourceKey, ...m } = x;
-      combatants.push({ ...m, image: combatArt(state, library, m), down: m.hp <= 0, linked: !!linkedBoss(state, x) });
+      const sv = mobHealthSlot(pack, m);
+      combatants.push({ ...m, ...(sv ? { slotValue: sv } : {}), image: combatArt(state, library, m), down: m.hp <= 0, linked: !!linkedBoss(state, x) });
       continue;
     }
     if (x.hidden) continue;
@@ -1146,7 +1150,10 @@ export function combatView(state, pack, role) {
       // Size class (book stat blocks): the phone suggests Advantage / Disadvantage from the size gap.
       ...(Number.isInteger(x.size) ? { size: x.size } : {}),
     };
-    if (c.showMobHp) Object.assign(row, { hp: x.hp, hpMax: x.hpMax });
+    if (c.showMobHp) {
+      const sv = mobHealthSlot(pack, x);
+      Object.assign(row, { hp: x.hp, hpMax: x.hpMax, ...(sv ? { slotValue: sv } : {}) });
+    }
     combatants.push(row);
   }
   return { ...head, combatants };
@@ -1205,8 +1212,7 @@ COMBAT_GM['combat.undo'] = function combatUndo(st, a, ctx, out) {
     const now = i >= 0 ? c.combatants[i] : null;
     if (now) c.combatants[i] = obj; else c.combatants.splice(Math.min(idx, c.combatants.length), 0, obj);
     // A boss linked to the TV follows its combatant's HP.
-    const diff = obj.hp - (now ? now.hp : obj.hp);
-    if (diff && linkedBoss(st, obj)) SCENE_GM[diff > 0 ? 'boss.heal' : 'boss.damage'](st, { amount: Math.abs(diff) }, ctx, out);
+    if (linkedBoss(st, obj)) syncBossHealth(st, obj, out);
   }
   if (mobs.length && ['combat.damage', 'combat.heal', 'combat.update'].includes(e.type) && Object.hasOwn(e.snap, 'lastKill')) c.lastKill = e.snap.lastKill;
   if (init) c.init = normalizeInit(init, c.combatants.map((x) => x.uid));

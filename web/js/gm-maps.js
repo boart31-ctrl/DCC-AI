@@ -285,10 +285,12 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
       const src = (lib()[token.sourceKind] || []).find((e) => e.id === token.sourceId);
       const c = combatantOf(token);
       const def = c ? { ...src, ...c } : src;
+      const health = c?.slotValue ? `${c.hp}/${c.hpMax} slots · ${c.slotValue} HP/slot` : `${c?.hp}/${c?.hpMax} HP`;
       return h('section.gmap-details',
         h('h4', token.label),
         def?.desc ? h('p', def.desc) : null,
-        c ? h('p.dim', `${c.hp} / ${c.hpMax} · ${c.hidden ? 'Hidden' : c.down ? 'Defeated' : 'In the fight'}`) : null,
+        c && Number.isFinite(c.hp) && Number.isFinite(c.hpMax)
+          ? h('p.dim', `${health} · ${c.hidden ? 'Hidden' : c.down ? 'Defeated' : 'In the fight'}`) : null,
         def && hasStatBlock(def) ? statBlock(def, view?.pack?.ruleset?.combat || {}) : null,
         def?.tactics ? h('p', def.tactics) : null,
         def?.notes ? h('p', def.notes) : null,

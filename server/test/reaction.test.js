@@ -31,6 +31,196 @@ function fight({ boss = false } = {}) {
 const crawlerUid = (s, name) => s.combat.combatants.find((x) => x.type === 'crawler' && s.players.find((p) => p.id === x.playerId)?.name === name).uid;
 const playerId = (s, name) => s.players.find((p) => p.name === name).id;
 
+test('a disadvantaged attack gives its target a free Evade and one paid retry on failure', () => {
+  let s = fight();
+  const targetUid = crawlerUid(s, 'Carl'), pid = playerId(s, 'Carl');
+  const mobUid = s.combat.combatants.find((x) => x.type === 'mob').uid;
+  const first = gm(s, { t: 'rx.declare', targetUid, mobUid });
+  const declId = first.result.declId;
+  const second = gm(first.state, { t: 'rx.declare', targetUid, mobUid });
+  const normalId = second.result.declId;
+  s = gm(second.state, { t: 'rx.adv', declId, adv: 'dis' }).state;
+  s = gm(s, { t: 'rx.step', to: 'react' }).state;
+  const gmDecl = viewFor(s, pack, 'gm', { now: 0 }).combat.rx.decls[0];
+  assert.equal(gmDecl.dc, 7);
+  assert.equal(gmDecl.freeEvade, true);
+  assert.throws(() => gm(s, { t: 'rx.step', to: 'resolve' }), /1 Evade roll/);
+  assert.throws(() => pl(s, pid, { t: 'rx.evade', declId: normalId, die: 20 }), /spend an action/);
+  const missed = pl(s, pid, { t: 'rx.evade', declId, die: 1 });
+  assert.equal(missed.result.free, true);
+  s = missed.state;
+  assert.equal(s.combat.rx.acts[targetUid], 2);
+  assert.throws(() => pl(s, pid, { t: 'rx.evade', declId, die: 20 }), /spend an action/);
+  s = pl(s, pid, { t: 'rx.interrupt', kind: 'evade' }).state;
+  assert.equal(s.combat.rx.acts[targetUid], 1);
+  assert.equal(viewFor(s, pack, 'gm', { now: 0 }).combat.rx.decls[0].canReroll, true);
+  const retry = pl(s, pid, { t: 'rx.evade', declId, die: 20 });
+  assert.equal(retry.result.free, false);
+  assert.equal(retry.state.combat.rx.acts[targetUid], 1);
+  assert.throws(() => pl(retry.state, pid, { t: 'rx.evade', declId, die: 1 }), /already evaded/);
+  s = pl(retry.state, pid, { t: 'rx.evade', declId: normalId, die: 20 }).state;
+  assert.equal(s.combat.rx.acts[targetUid], 1);
+  s = gm(s, { t: 'rx.step', to: 'resolve' }).state;
+  assert.deepEqual(s.combat.rx.decls.map((d) => d.result), ['evaded', 'evaded']);
+});
+
+test('elite suggestions count fallen crawlers and target only standing crawlers', () => {
+  let s = fight({ boss: true });
+  const standingUid = crawlerUid(s, 'Carl'), dyingUid = crawlerUid(s, 'Donut'), deadUid = crawlerUid(s, 'Katia');
+  const get = (uid) => s.combat.combatants.find((x) => x.uid === uid);
+  get(dyingUid).dying = 2;
+  get(deadUid).dead = true;
+  const elite = s.combat.combatants.find((x) => x.role === 'elite');
+  const suggestions = suggestDecls(s, ctx());
+  assert.equal(suggestions.filter((x) => x.mobUid === elite.uid).length, 3);
+  assert.ok(suggestions.every((x) => x.targetUid === standingUid));
+  assert.throws(() => gm(s, { t: 'rx.declare', targetUid: deadUid, mobUid: elite.uid }), /already dead/);
+  const declared = gm(s, { t: 'rx.declare', targetUid: dyingUid, mobUid: elite.uid });
+  s = gm(declared.state, { t: 'rx.adv', declId: declared.result.declId, adv: 'dis' }).state;
+  s = gm(s, { t: 'rx.step', to: 'react' }).state;
+  assert.equal(viewFor(s, pack, 'gm', { now: 0 }).combat.rx.decls[0].freeEvade, false);
+  assert.throws(() => pl(s, playerId(s, 'Donut'), { t: 'rx.interrupt', kind: 'evade' }), /cannot act/);
+  assert.throws(() => pl(s, playerId(s, 'Katia'), { t: 'rx.spend' }), /cannot act/);
+  get(standingUid).dead = true;
+  assert.deepEqual(suggestDecls(s, ctx()), []);
+});
+
+test('AI Favor buys one non-attack action and leaves attack spending on the base pool', () => {
+  const favorPack = { ...pack, ruleset: { ...pack.ruleset, fields: [
+    ...pack.ruleset.fields, { id: 'aiFavor', label: 'AI Favor', type: 'number', default: 2 },
+  ] } };
+  let s = createState(favorPack, 0);
+  const doGm = (a) => gm(s, a, { pack: favorPack });
+  s = doGm({ t: 'player.add', name: 'Runner' }).state;
+  const pid = s.players[0].id;
+  const act = (a) => reducePlayerAction(s, a, { ...ctx({ pack: favorPack }), playerId: pid });
+  const weapon = doGm({ t: 'attack.add', playerId: pid, name: 'Axe', dice: '1d6' });
+  s = weapon.state;
+  s = doGm({ t: 'combat.start' }).state;
+  s = doGm({ t: 'rx.step', to: 'act' }).state;
+  const uid = crawlerUid(s, 'Runner');
+  s = doGm({ t: 'rx.actions', uid, delta: -2 }).state;
+  const bought = act({ t: 'rx.favor' });
+  s = bought.state;
+  assert.equal(s.players[0].sheet.fields.aiFavor, 1);
+  assert.equal(s.combat.rx.nonAttackActions[uid], 1);
+  assert.throws(() => act({ t: 'rx.favor' }), /already used AI Favor/);
+  const strike = { t: 'roll', what: { kind: 'attack', uid: weapon.result.uid }, entered: 17, useAction: true };
+  assert.throws(() => act(strike), /no actions left/);
+  s = doGm({ t: 'rx.actions', uid, delta: 1 }).state;
+  s = act(strike).state;
+  assert.equal(s.combat.rx.acts[uid], 0);
+  assert.equal(s.combat.rx.nonAttackActions[uid], 1);
+  s = act({ t: 'rx.spend' }).state;
+  assert.equal(s.combat.rx.nonAttackActions[uid], 0);
+  assert.throws(() => act({ t: 'rx.spend' }), /no actions left/);
+  s = doGm({ t: 'rx.round' }).state;
+  s = doGm({ t: 'rx.step', to: 'act' }).state;
+  assert.equal(act({ t: 'rx.favor' }).state.players[0].sheet.fields.aiFavor, 0);
+});
+
+test('a phone attack spends an action only on submission and undo refunds it within that round', () => {
+  let s = fight();
+  const pid = playerId(s, 'Carl');
+  const crawler = crawlerUid(s, 'Carl');
+  const added = gm(s, { t: 'attack.add', playerId: pid, name: 'Axe', dice: '1d6' });
+  s = added.state;
+  const target = s.combat.combatants.find((x) => x.type === 'mob').uid;
+  const payload = { t: 'roll', what: { kind: 'attack', uid: added.result.uid }, target, entered: 17 };
+  assert.throws(() => pl(s, pid, payload), /cannot attack in this phase/);
+  assert.throws(() => pl(s, pid, { ...payload, useAction: false }), /cannot attack in this phase/);
+  s = gm(s, { t: 'rx.step', to: 'act' }).state;
+  const initial = s.combat.rx.acts[crawler];
+  assert.throws(() => pl(s, pid, { ...payload, entered: 21 }), /higher than d20/);
+  assert.equal(s.combat.rx.acts[crawler], initial);
+  const rolled = pl(s, pid, payload);
+  s = rolled.state;
+  assert.equal(s.combat.rx.acts[crawler], initial - 1);
+  assert.equal(rolled.result.roll.natural, 17);
+  assert.equal(rolled.result.roll.actionReceipt, undefined);
+  s = pl(s, pid, { t: 'roll.undo' }).state;
+  assert.equal(s.combat.rx.acts[crawler], initial);
+  s = gm(s, { t: 'roll.restore', id: rolled.result.rollId }).state;
+  assert.equal(s.combat.rx.acts[crawler], initial - 1);
+  s = gm(s, { t: 'rx.round' }).state;
+  s = pl(s, pid, { t: 'roll.undo' }).state;
+  assert.equal(s.combat.rx.acts[crawler], initial, 'undo does not add actions to a later round');
+});
+
+test('reaction weapon damage belongs to one live hit against the chosen enemy', () => {
+  let s = fight();
+  const pid = playerId(s, 'Carl');
+  const crawler = crawlerUid(s, 'Carl');
+  const added = gm(s, { t: 'attack.add', playerId: pid, name: 'Axe', dice: '1d6' });
+  s = gm(added.state, { t: 'rx.step', to: 'act' }).state;
+  const [target, another] = s.combat.combatants.filter((x) => x.type === 'mob').map((x) => x.uid);
+  const what = { kind: 'attack', uid: added.result.uid };
+  const damage = { t: 'roll', target, entered: 1, what: { ...what, part: 'damage' } };
+  assert.throws(() => pl(s, pid, damage), /successful attack/);
+  const hit = pl(s, pid, { t: 'roll', target, entered: 20, what, useAction: false });
+  const linked = { ...damage, after: hit.result.rollId };
+  assert.throws(() => pl(hit.state, pid, { ...linked, target: another }), /successful attack/);
+  const landed = pl(hit.state, pid, linked);
+  assert.ok(landed.result.applied?.delta < 0);
+  assert.equal(landed.state.combat.rx.acts[crawler], ACTIONS_PER_ROUND - 1);
+  assert.throws(() => pl(landed.state, pid, linked), /already rolled/);
+  assert.throws(() => gm(landed.state, { t: 'roll.void', id: hit.result.rollId }), /undo the (?:weapon )?damage/);
+  s = pl(landed.state, pid, { t: 'roll.undo' }).state;
+  assert.ok(pl(s, pid, linked).result.applied?.delta < 0);
+});
+
+test('a physical Taunt result can redirect a declared attack and clears its prior Evade', () => {
+  let s = fight();
+  const target = crawlerUid(s, 'Carl');
+  const taunter = crawlerUid(s, 'Donut');
+  const pid = playerId(s, 'Donut');
+  const mob = s.combat.combatants.find((x) => x.type === 'mob');
+  mob.stats = { int: { mod: 0 } };
+  const mobUid = mob.uid;
+  s = gm(s, { t: 'lib.upsert', kind: 'skill', entry: { id: 'taunt', name: 'Taunt', stat: 'str', checkType: 'Opposed' } }).state;
+  s = gm(s, { t: 'skill.add', playerId: pid, skillId: 'taunt', rank: 3 }).state;
+  const declared = gm(s, { t: 'rx.declare', mobUid, targetUid: target });
+  const { declId } = declared.result;
+  s = gm(declared.state, { t: 'rx.step', to: 'react' }).state;
+  s = pl(s, playerId(s, 'Carl'), { t: 'rx.interrupt', kind: 'evade' }).state;
+  s = pl(s, playerId(s, 'Carl'), { t: 'rx.evade', declId, die: 20 }).state;
+  const action = { t: 'rx.interrupt', kind: 'taunt', declId };
+  assert.throws(() => pl(s, pid, { ...action, die: 21 }), /die must be 1..20/);
+  assert.equal(s.combat.rx.acts[taunter], ACTIONS_PER_ROUND);
+  const { total } = viewFor(s, pack, 'player', { playerId: pid }).me.sheet.computed.skills[0];
+  const exactFace = 11 - total.value;
+  const taunt = pl(s, pid, { ...action, die: exactFace });
+  assert.equal(taunt.result.ok, true);
+  assert.equal(taunt.state.combat.rx.acts[taunter], ACTIONS_PER_ROUND - 1);
+  assert.equal(taunt.state.combat.rx.decls[0].targetUid, taunter);
+  assert.equal(taunt.state.combat.rx.decls[0].evade, null);
+  assert.equal(viewFor(taunt.state, pack, 'player', { playerId: pid }).combat.rx.decls[0].freeEvade, false);
+  assert.equal(taunt.state.rolls.at(-1).total, 11, 'includes the stored skill modifier and honors Int +0');
+});
+
+test('Rank 5 Taunt grants a free Evade against the redirected attack', () => {
+  let s = fight();
+  const targetUid = crawlerUid(s, 'Carl');
+  const taunter = crawlerUid(s, 'Donut');
+  const pid = playerId(s, 'Donut');
+  const mobUid = s.combat.combatants.find((x) => x.type === 'mob').uid;
+  s = gm(s, { t: 'lib.upsert', kind: 'skill', entry: { id: 'taunt', name: 'Taunt', stat: 'str', checkType: 'Opposed' } }).state;
+  s = gm(s, { t: 'skill.add', playerId: pid, skillId: 'taunt', rank: 5 }).state;
+  const declared = gm(s, { t: 'rx.declare', mobUid, targetUid });
+  const { declId } = declared.result;
+  s = gm(declared.state, { t: 'rx.step', to: 'react' }).state;
+  s = pl(s, pid, { t: 'rx.interrupt', kind: 'taunt', declId, die: 20 }).state;
+  assert.equal(viewFor(s, pack, 'player', { playerId: pid }).combat.rx.decls[0].freeEvade, true);
+  const failed = pl(s, pid, { t: 'rx.evade', declId, die: 1 });
+  assert.equal(failed.result.free, true);
+  assert.equal(failed.state.combat.rx.acts[taunter], ACTIONS_PER_ROUND - 1, 'only the Taunt used an action');
+  s = pl(failed.state, pid, { t: 'rx.interrupt', kind: 'evade' }).state;
+  const retry = pl(s, pid, { t: 'rx.evade', declId, die: 20 });
+  assert.equal(retry.result.degree, 'crit');
+  assert.equal(retry.result.free, false);
+  assert.equal(retry.state.combat.rx.acts[taunter], 0);
+});
+
 test('degreeOf: seven degrees, nat 20 / nat 1 win over the margin', () => {
   assert.equal(degreeOf(20, 5, 30), 'crit');
   assert.equal(degreeOf(1, 40, 10), 'critfail');

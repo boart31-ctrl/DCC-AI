@@ -18,8 +18,12 @@ test('crawler: mobs vs party size, bosses count once per crawler, minions half',
   assert.equal(benchmark('crawler', party(4), [{ role: 'minion', count: 4 }]).label, 'Weak');
   assert.equal(benchmark('crawler', [], [{ count: 1 }]).label, 'Moderate', 'empty party counts as one');
   assert.equal(benchmark('crawler', party(4), []).level, -1);
-  assert.deepEqual(crawlerTable(4).map((r) => r.mobs), [2, 4, 6, 8]);
-  assert.deepEqual(crawlerTable(5).map((r) => r.mobs), [3, 5, 8, 10]);
+  const table = [[1, 2, 3, 4], [2, 3, 5, 6], [2, 4, 6, 8], [3, 5, 8, 10], [3, 6, 9, 12], [4, 7, 11, 14]];
+  table.forEach((row, i) => assert.deepEqual(crawlerTable(i + 2).map((r) => r.mobs), row));
+  const almost = benchmark('crawler', party(7), [{ count: 13 }]);
+  assert.equal(almost.label, 'Strong');
+  assert.match(almost.detail, /13 mobs vs 7 crawlers.*Weak 4 · Moderate 7 · Strong 11 · Overwhelming 14\+/);
+  assert.equal(benchmark('crawler', party(7), [{ count: 14 }]).label, 'Overwhelming');
 });
 
 test('dnd: Lazy benchmark (quarter of levels, half above level 4)', () => {
@@ -48,4 +52,7 @@ test('fitToParty preserves boss/elite counts and includes all of them in the str
   assert.equal(fitted.find((m) => m.sourceId === 'grunt').count, 1, 'two bosses already exhaust the overwhelming budget');
   const b = benchmark('crawler', view.players, fitted.map((m) => ({ role: m.kind === 'boss' ? 'boss' : 'standard', count: m.count })));
   assert.equal(b.level, 3);
+  const standardOnly = { mobs: [{ kind: 'monster', sourceId: 'grunt', count: 3 }] };
+  assert.equal(fitToParty({ ...view, players: party(3) }, standardOnly, 1.5)[0].count, 5, 'Strong rounds up for three players');
+  assert.equal(fitToParty({ ...view, players: party(5) }, standardOnly, 0.5)[0].count, 3, 'Weak rounds up for five players');
 });

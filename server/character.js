@@ -53,6 +53,23 @@ function cleanMap(raw, maxLen = 4000) {
   return o;
 }
 
+function cleanSpellCast(raw) {
+  if (!isObj(raw) || typeof raw.id !== 'string' || raw.id.length > 80) return null;
+  if (Number.isSafeInteger(raw.readyAt) && raw.readyAt > 0) return { id: raw.id, readyAt: raw.readyAt };
+  if (typeof raw.scene === 'string' && raw.scene.length <= 80) return { id: raw.id, scene: raw.scene };
+  return null;
+}
+
+function cleanSpellCasts(raw) {
+  const casts = {};
+  if (!isObj(raw)) return casts;
+  for (const [id, v] of Object.entries(raw)) {
+    const cast = cleanSpellCast(v);
+    if (safeKey(id) && cast) casts[id] = cast;
+  }
+  return casts;
+}
+
 /** A new character sheet for `ruleset` (stored as player.sheet). */
 export function freshSheet(ruleset) {
   const sheet = migrateSheet({}, {}, ruleset);
@@ -81,6 +98,17 @@ export function migrateSheet(sheet, legacy, ruleset) {
   const hot = Array.isArray(s.hotlist) ? s.hotlist.slice(0, size).map((x) => (typeof x === 'string' ? x : null)) : [];
   while (hot.length < size) hot.push(null);
   const arr = (v) => (Array.isArray(v) ? v.filter(isObj) : []);
+  const spells = [
+    ...arr(s.spells).map((k) => ({ uid: k.uid, spellId: k.spellId, rank: finite(k.rank, 1), active: !!k.active, ...(k.used ? { used: true } : {}) })),
+    ...(ruleset.spells?.starting ?? []).filter((id) => !arr(s.spells).some((k) => k.spellId === id))
+      .map((id) => ({ uid: `sp_starter_${id}`, spellId: id, rank: 1, active: false })),
+  ];
+  if (ruleset.hotlist.combat && !s.preparedSpellHotlist) {
+    for (const spell of spells) {
+      const free = hot.indexOf(null);
+      if (free >= 0 && !hot.includes(spell.uid)) hot[free] = spell.uid;
+    }
+  }
   return {
     identity: cleanMap(s.identity, 200),
     stats,
@@ -88,9 +116,11 @@ export function migrateSheet(sheet, legacy, ruleset) {
     tracks,
     skills: arr(s.skills).map((k) => ({ uid: k.uid, skillId: k.skillId ?? null, name: k.name ?? '', rank: finite(k.rank, 0), stat: k.stat ?? '', checkType: k.checkType ?? '', notes: k.notes ?? '', used: !!k.used })),
     attacks: arr(s.attacks).map((k) => ({ uid: k.uid, name: k.name ?? '', skillUid: k.skillUid ?? null, stat: k.stat ?? '', dice: k.dice ?? '', effects: k.effects ?? '', ...(typeof k.dmgStat === 'string' && k.dmgStat ? { dmgStat: k.dmgStat } : {}), ...(typeof k.dtype === 'string' && k.dtype ? { dtype: k.dtype } : {}) })),
-    spells: arr(s.spells).map((k) => ({ uid: k.uid, spellId: k.spellId, rank: finite(k.rank, 1), active: !!k.active })),
+    spells,
+    spellCasts: cleanSpellCasts(s.spellCasts),
     hotlist: hot,
-    buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0), ...(Number.isInteger(b.roundsLeft) && b.roundsLeft > 0 ? { roundsLeft: b.roundsLeft } : {}) })),
+    ...(ruleset.hotlist.combat ? { preparedSpellHotlist: true } : {}),
+    buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0), ...(Number.isInteger(b.roundsLeft) && b.roundsLeft >= 0 ? { roundsLeft: b.roundsLeft } : {}) })),
     story: cleanMap(s.story),
     portrait: typeof s.portrait === 'string' ? s.portrait : null,
     // Counters like "Lay on Hands": { uid, name, cur, max, desc } (player-trackable, GM/sheet-editable).
@@ -253,12 +283,14 @@ export function enrichInventory(inv, library) {
 }
 
 /** View shape: raw character (enriched with library data) + `computed`. */
-export function sheetView(p, pack, library) {
+export function sheetView(p, pack, library, st) {
   const { ch, computed } = computeFor(p, pack, library);
   const spells = ch.spells.map((s) => {
     const def = library.get('spell', s.spellId);
     if (!def) return { ...s, name: s.spellId, missing: true };
     const { id, ...rest } = def;
+    const cooldown = spellCooldown(st, def.cooldown, p.sheet.spellCasts?.[s.spellId]);
+    if (cooldown) computed.spells.find((v) => v.uid === s.uid).cooldown = cooldown;
     return { ...rest, ...s };
   });
   return { ...ch, inventory: enrichInventory(ch.inventory, library), spells, computed };
@@ -420,7 +452,24 @@ export function nextInjuryDescription(p, rules, severity, requested) {
 }
 
 function buffFromDef(def, ctx) {
-  return { uid: ctx.genId('b'), buffId: def.id, name: def.name, desc: def.desc ?? '', external: !!def.external, effects: def.effects ?? [], until: def.duration ?? '', at: ctx.now };
+  return { uid: ctx.genId('b'), buffId: def.id, name: def.name, desc: def.desc ?? '', external: !!def.external, effects: def.effects ?? [], until: def.duration ?? '', at: ctx.now, ...(def.rounds ? { roundsLeft: def.rounds } : {}) };
+}
+
+/** Resolve status restrictions from library ids, including statuses already active in older saves. */
+export function statusBlocker(target, library, kind) {
+  const conditions = target?.sheet?.buffs ?? target?.conditions ?? [];
+  for (const b of conditions) {
+    const id = b.buffId ?? b.id;
+    const def = id && library.get('buff', id);
+    if (def?.blocks?.includes(kind) || (kind !== 'heal' && def?.blocks?.includes('action'))) return def.name;
+  }
+  return null;
+}
+
+export function requireStatusAllowed(st, ctx, target, kind) {
+  if (!(target?.sheet?.buffs?.length || target?.conditions?.length)) return;
+  const name = statusBlocker(target, libraryOf(st, ctx.pack), kind);
+  if (name) throw bad(`Blocked by ${name}.`);
 }
 
 /** Adds a buff (enforcing the external cap). Library buffs never stack: same buffId → existing entry. */
@@ -454,13 +503,45 @@ function trackDelta(p, pack, library, track, delta, out) {
   return { track, from, to, max: c.max };
 }
 
+const gameSeconds = (st) => st?.crawlers?.clock?.elapsedSeconds ?? 0;
+const storyScene = (st) => st?.crawlers?.clock?.scene ?? st?.combat?.id ?? 'initial';
+
+function spellCooldown(st, cooldown, cast) {
+  if (!cooldown) return null;
+  if (cooldown === 'scene') return { kind: 'scene', ready: cast?.scene !== storyScene(st) };
+  const remainingSeconds = Math.max(0, (cast?.readyAt ?? 0) - gameSeconds(st));
+  return { kind: 'time', ready: remainingSeconds === 0, remainingSeconds };
+}
+
+function payForSpell(st, p, library, computed, spell, ctx, out) {
+  const pack = ctx.pack;
+  const def = library.get('spell', spell.spellId);
+  const { cost: { value: cost }, costTrack: track } = computed.spells.find((x) => x.uid === spell.uid);
+  const before = p.sheet.spellCasts?.[def.id] ?? null;
+  const cooldown = spellCooldown(st, def.cooldown, before);
+  if (cooldown && !cooldown.ready) throw bad(`${def.name} ${cooldown.kind === 'scene' ? 'can only be cast once per scene' : 'is still cooling down'}`);
+  let cur = null;
+  if (cost) {
+    const resource = computed.tracks[track];
+    if (!resource) throw bad(`spell cost track "${track}" does not exist in the ruleset`);
+    if (resource.cur < cost) throw bad(`not enough ${pack.ruleset.tracks.find((t) => t.id === track).label}: ${resource.cur}/${cost}`);
+    cur = trackDelta(p, pack, library, track, -cost, out).to;
+  }
+  if (!cooldown) return { cost, track, cur };
+  const when = cooldown.kind === 'scene' ? { scene: storyScene(st) } : { readyAt: gameSeconds(st) + def.cooldown };
+  const cast = { id: ctx.genId('sc'), ...when };
+  (p.sheet.spellCasts ??= {})[def.id] = cast;
+  return { cost, track, cur, cooldown: { spellId: def.id, before, cast } };
+}
+
 // ---------- rolls ----------
 
 /** What players and the TV may see of a roll: never the target's defence or the margin. */
 export function publicRoll(rec) {
-  if (!rec.vs) return rec;
+  const { actionReceipt, spellPayment, evadeAdvantage, weaponHitId, ...visible } = rec;
+  if (!rec.vs) return visible;
   const { defense, margin, ...vs } = rec.vs;
-  return { ...rec, vs };
+  return { ...visible, vs };
 }
 
 function pushRoll(st, rec, out, ctx) {
@@ -470,7 +551,7 @@ function pushRoll(st, rec, out, ctx) {
   else if (rec.vs) {
     out.emit({ kind: 'roll', ...rec }, { roles: ['gm'] });
     out.emit({ kind: 'roll', ...publicRoll(rec) }, { roles: ['player', 'stage'] });
-  } else out.emit({ kind: 'roll', ...rec }, 'all');
+  } else out.emit({ kind: 'roll', ...publicRoll(rec) }, 'all');
   ctx.h?.onSheetRoll?.(st, ctx, out, rec);
   const near = rec.vs && !rec.secret ? nearness(rec.vs, rec.natural) : null;
   if (near && ctx.h?.categoryLine) {
@@ -522,12 +603,23 @@ function rollWith(dice, bd, label, ctx, source) {
 
 // ---------- rolls against a target (dice entry) ----------
 
+const SIZE_CLASSES = ['tiny', 'small', 'petite', 'medium', 'large', 'huge', 'colossal', 'gargantuan'];
+
+function attackSizeRelation(rules, crawlerSize, mobSize) {
+  if (!rules.sizeGap || !Number.isInteger(mobSize)) return null;
+  const size = SIZE_CLASSES.indexOf(String(crawlerSize ?? '').toLowerCase()) + 1 || rules.crawlerSize;
+  const gap = mobSize - size;
+  if (gap >= rules.sizeGap) return { adv: 'adv' };
+  if (gap <= -rules.sizeGap) return { adv: 'dis', damage: size };
+  return null;
+}
+
 /**
  * a.target = a combatant uid (attack / check against it) or a.dc = a number (check vs a difficulty).
  * To-hit rolls resolve against the target's defence (rec.vs: hit / crit / degree; defence + margin GM-only).
  * Damage rolls with a target are applied to that mob (minus its DR where the game has DR) and can be undone.
  */
-function resolveAgainst(st, ctx, a, rec, p, out) {
+function resolveAgainst(st, ctx, a, rec, p, out, earned, attackProfile) {
   const rules = combatRules(ctx.pack, st.combat?.settings);
   let defense = null;
   let target = null;
@@ -542,17 +634,22 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
     if (prev?.vs?.crit && rules.crit !== 'dice') dmg *= critMultiplier(rules);
     // Seven degrees: an Amazing hit adds the floor to the damage.
     const amazing = rules.seven && prev?.vs?.deg7 === 'amazing' ? floorOfState(st) : 0;
-    dmg += amazing;
-    dmg = Math.max(0, dmg - (rules.useDr ? Math.max(0, target.dr ?? 0) : 0));
+    const sizeDamage = !prev?.void && prev?.part === 'hit' && prev.what === 'attack' && rec.what === 'attack'
+      && prev.whatId === rec.whatId && prev.vs?.hit && prev.vs.uid === target.uid ? prev.sizeDamage ?? 0 : 0;
+    dmg += amazing + sizeDamage;
+    dmg = Math.max(0, dmg - (rules.useDr && !attackProfile?.ignoreDr ? Math.max(0, target.dr ?? 0) : 0));
     // Damage type vs the mob's resistances (after DR): the attack's dtype.
-    const atk = a.what?.kind === 'attack' ? (p.sheet.attacks ?? []).find((k) => k.uid === a.what.uid) : null;
+    const atk = a.what?.kind === 'attack' ? (p.sheet.attacks ?? []).find((k) => k.uid === a.what.uid)
+      : a.what?.kind === 'spell' ? libraryOf(st, ctx.pack).get('spell', p.sheet.spells.find((s) => s.uid === a.what.uid)?.spellId)?.attack : null;
     const typed = typedDamage(dmg, atk?.dtype, target);
     dmg = typed.amount;
     // Slot health bars: whole slots only (damage below one slot's worth is lost).
     const sv = mobSlotValue(ctx.pack, target);
     const rolled = dmg;
     if (sv > 1) dmg = damageToSlots(dmg, sv);
-    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg, ...(sv > 1 ? { rolled, slotValue: sv } : {}), ...(amazing ? { amazing } : {}), ...(typed.why ? { typed: typed.why, dtype: atk.dtype } : {}) };
+    rec.vs = { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name, damage: dmg,
+      ...(sv > 1 ? { rolled, slotValue: sv } : {}), ...(amazing ? { amazing } : {}), ...(sizeDamage ? { sizeDamage } : {}),
+      ...(attackProfile?.ignoreDr && rules.useDr ? { ignoredDr: true } : {}), ...(typed.why ? { typed: typed.why, dtype: atk.dtype } : {}) };
     if (dmg > 0 && ctx.h?.applyDamage) {
       const before = target.hp;
       const previousKill = st.combat.lastKill ?? null;
@@ -569,15 +666,12 @@ function resolveAgainst(st, ctx, a, rec, p, out) {
   else if (a.dc !== undefined) defense = int(a.dc, 'dc', -10, 99);
   else return;
   const res = attackOutcome(rules, { d20: rec.natural, total: rec.total, target: defense });
-  // An Advantage earned by a great Evade against this mob is used up by this attack.
-  const rxAdv = target && st.combat?.rx?.advantage;
-  let hadAdv = false;
-  if (rxAdv?.length) {
-    const me = (st.combat.combatants ?? []).find((x) => x.type === 'crawler' && x.playerId === p.id);
-    const i = me ? rxAdv.findIndex((v) => v.uid === me.uid && v.mobUid === target.uid) : -1;
-    if (i >= 0) { rxAdv.splice(i, 1); hadAdv = true; }
+  if (earned) {
+    const rx = st.combat.rx;
+    rx.advantage = rx.advantage.filter((v) => v !== earned);
+    rec.evadeAdvantage = { ...earned, combatId: rx.combatId, round: rx.round };
   }
-  rec.vs = { ...(hadAdv ? { advantage: true } : {}), ...(target ? { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name } : { dc: true }), hit: res.hit, crit: res.crit, degree: res.degree, degrees: rules.degrees, defense, margin: res.margin, ...(res.deg7 ? { deg7: res.deg7 } : {}) };
+  rec.vs = { ...(earned ? { advantage: true } : {}), ...(target ? { uid: target.uid, name: target.hidden ? 'Something unseen' : target.name } : { dc: true }), hit: res.hit, crit: res.crit, degree: res.degree, degrees: rules.degrees, defense, margin: res.margin, ...(res.deg7 ? { deg7: res.deg7 } : {}) };
   if (target && rec.part === 'hit') undoPush(st, rec);
 }
 
@@ -586,6 +680,7 @@ function rollOf(st, id) {
   if (!rec) throw notFound('no such roll');
   return rec;
 }
+const hasResolvedDamage = (st, id) => st.rolls.some((r) => !r.void && (r.spellHitId === id || r.weaponHitId === id));
 /** Works out a changed roll (AI Favor, Intervene) against its target again. */
 function rescore(st, ctx, rec) {
   if (!rec.vs || rec.vs.defense == null || rec.vs.damage !== undefined) return;
@@ -599,9 +694,64 @@ function undoPush(st, rec) {
   st.rollRedo = [];
 }
 
+/** A void or restore changes actions only while the roll's original action phase is open. */
+function adjustActionReceipt(st, rec, delta) {
+  const r = rec.actionReceipt;
+  const rx = st.combat?.rx;
+  if (!r || rx?.step !== 'act' || rx.combatId !== r.combatId || rx.round !== r.round || !Object.hasOwn(rx.acts, r.uid)) return;
+  const left = rx.acts[r.uid] + delta;
+  if (left < 0) throw bad('no action left to restore this attack');
+  rx.acts[r.uid] = left;
+}
+
+function adjustEvadeAdvantage(st, rec, restore) {
+  const saved = rec.evadeAdvantage;
+  const rx = st.combat?.active ? st.combat.rx : null;
+  if (!saved || rx?.combatId !== saved.combatId || rx.round !== saved.round) return;
+  const { uid, mobUid } = saved;
+  const current = rx.advantage ?? [];
+  if (restore) {
+    if (!current.some((a) => a.uid === uid && a.mobUid === mobUid)) rx.advantage = [...current, { uid, mobUid }].slice(-20);
+  } else rx.advantage = current.filter((a) => a.uid !== uid || a.mobUid !== mobUid);
+}
+
+function adjustSpellPayment(st, ctx, out, rec, refund) {
+  const payment = rec.spellPayment;
+  const p = payment && st.players.find((v) => v.id === rec.playerId);
+  if (!p) return;
+  const library = libraryOf(st, ctx.pack);
+  if (payment.cooldown) {
+    const { spellId, before, cast } = payment.cooldown;
+    const current = p.sheet.spellCasts?.[spellId];
+    if (refund && current?.id === cast.id) {
+      if (before) p.sheet.spellCasts[spellId] = before;
+      else delete p.sheet.spellCasts[spellId];
+    } else if (!refund) {
+      const def = library.get('spell', spellId);
+      const restored = spellCooldown(st, def?.cooldown, cast);
+      if (restored && !restored.ready) {
+        if (!spellCooldown(st, def.cooldown, current).ready) throw bad('this spell is already cooling down');
+        (p.sheet.spellCasts ??= {})[spellId] = cast;
+      }
+    }
+  }
+  if (!payment.cost) return;
+  const resource = computeFor(p, ctx.pack, library).computed.tracks[payment.track];
+  if (!resource) return;
+  if (!refund && resource.cur < payment.cost) throw bad('not enough resources to restore this spell');
+  trackDelta(p, ctx.pack, library, payment.track, refund ? payment.cost : -payment.cost, out);
+}
+
 /** Cancels a roll: struck through everywhere, its damage put back, its initiative removed. */
 export function voidRoll(st, ctx, out, rec, by) {
   if (rec.void) return;
+  if (rec.part === 'hit' && hasResolvedDamage(st, rec.id)) throw bad(rec.what === 'spell' ? 'undo the spell damage before undoing the cast' : 'undo the damage before undoing the attack');
+  if (rec.what === 'attack' && rec.part === 'hit' && st.rolls.some((v) => v.weaponHitId === rec.id && !v.void)) {
+    throw bad('undo the weapon damage before undoing the attack');
+  }
+  adjustActionReceipt(st, rec, 1);
+  adjustEvadeAdvantage(st, rec, true);
+  adjustSpellPayment(st, ctx, out, rec, true);
   rec.void = { by, at: ctx.now };
   if (rec.applied) {
     const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
@@ -610,6 +760,7 @@ export function voidRoll(st, ctx, out, rec, by) {
       const latest = st.combat.lastKill?.uid === m.uid;
       m.hp = Math.max(0, Math.min(m.hpMax, m.hp - rec.applied.delta));
       recordKillCredit(st.combat, m, before);
+      ctx.h?.syncBossHealth?.(st, m, out);
       if (latest && before <= 0 && m.hp > 0 && Object.hasOwn(rec.applied, 'previousKill')) st.combat.lastKill = rec.applied.previousKill;
     }
   }
@@ -629,6 +780,14 @@ export function voidRoll(st, ctx, out, rec, by) {
 
 function unvoidRoll(st, ctx, out, rec) {
   if (!rec.void) return;
+  const hitId = rec.spellHitId ?? rec.weaponHitId;
+  if (hitId && !st.rolls.some((v) => v.id === hitId && !v.void)) throw bad('restore the hit before restoring its damage');
+  if (hitId && hasResolvedDamage(st, hitId)) throw bad('damage for this hit was already applied');
+  if (rec.weaponHitId && !st.rolls.some((v) => v.id === rec.weaponHitId && !v.void)) throw bad('restore the attack before restoring its damage');
+  if (rec.weaponHitId && st.rolls.some((v) => v.weaponHitId === rec.weaponHitId && !v.void)) throw bad('damage for that attack was already rolled');
+  adjustActionReceipt(st, rec, -1);
+  adjustEvadeAdvantage(st, rec, false);
+  adjustSpellPayment(st, ctx, out, rec, false);
   rec.void = null;
   if (rec.applied) {
     const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
@@ -636,6 +795,7 @@ function unvoidRoll(st, ctx, out, rec) {
       const before = m.hp;
       m.hp = Math.max(0, Math.min(m.hpMax, m.hp + rec.applied.delta));
       recordKillCredit(st.combat, m, before, rec.playerId);
+      ctx.h?.syncBossHealth?.(st, m, out);
     }
   }
   if (rec.what === 'derived') ctx.h?.onSheetRoll?.(st, ctx, out, rec);
@@ -781,11 +941,26 @@ export const SHEET = {
    */
   'rest'(st, a, ctx, out) {
     const p = targetOf(st, a, ctx, 'play');
-    if (a.kind !== 'short' && a.kind !== 'long') throw bad('kind must be short or long');
     const rs = ctx.pack.ruleset;
-    const heal = a.heal === undefined ? 0 : int(a.heal, 'heal', 0, 9999);
+    const rest = rs.rests && Object.hasOwn(rs.rests, a.kind) ? rs.rests[a.kind] : null;
+    if (!rest && a.kind !== 'short' && a.kind !== 'long') throw bad('kind must be short or long');
+    const heal = rest || a.heal === undefined ? 0 : int(a.heal, 'heal', 0, 9999);
     const done = [];
-    if (a.kind === 'long') {
+    if (rest) {
+      if (ctx.actor.role !== 'gm') throw forbidden('the GM confirms rests in this campaign');
+      if (st.combat?.active) throw bad('finish combat before resting');
+      const library = libraryOf(st, ctx.pack);
+      if (computeFor(p, ctx.pack, library).computed.tracks[rs.hpTrack ?? 'hp']?.cur === 0) throw bad('a down character must be saved before resting');
+      for (const b of p.sheet.buffs) if (rest.removeBuffs.includes(b.buffId)) done.push(b.name);
+      p.sheet.buffs = p.sheet.buffs.filter((b) => !rest.removeBuffs.includes(b.buffId));
+      const tracks = computeFor(p, ctx.pack, library).computed.tracks;
+      for (const [id, gain] of Object.entries(rest.restore)) {
+        const { max } = tracks[id];
+        const amount = gain === 'full' ? max : typeof gain === 'number' ? gain : Math.floor(max * gain.maxFraction);
+        const { to, from } = trackDelta(p, ctx.pack, library, id, amount, out);
+        if (to > from) done.push(`${rs.tracks.find((t) => t.id === id).label} +${to - from}`);
+      }
+    } else if (a.kind === 'long') {
       const c = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed;
       for (const t of rs.tracks) {
         const tr = c.tracks[t.id];
@@ -796,7 +971,7 @@ export const SHEET = {
       if (hp) { setTrack(st, p, { track: hp.id, delta: heal }, ctx, out); done.push(`${hp.label} +${heal}`); }
     }
     for (const pl of p.sheet.pools) {
-      if ((a.kind === 'long' || pl.reset === 'short') && pl.cur < pl.max) { pl.cur = pl.max; done.push(pl.name); }
+      if ((a.kind === 'long' || a.kind === 'day' || (a.kind === 'short' && pl.reset === 'short')) && pl.cur < pl.max) { pl.cur = pl.max; done.push(pl.name); }
     }
     out.result = { restored: done };
   },
@@ -926,15 +1101,18 @@ export const SHEET = {
 
   'spell.forget'(st, a, ctx) {
     const p = targetOf(st, a, ctx, 'sheet');
-    findUid(p.sheet.spells, a.uid, 'spell');
+    const s = findUid(p.sheet.spells, a.uid, 'spell');
+    if (ctx.pack.ruleset.spells.starting?.includes(s.spellId)) throw bad('this spell is always known');
     p.sheet.spells = p.sheet.spells.filter((s) => s.uid !== a.uid);
+    p.sheet.hotlist = p.sheet.hotlist.map((uid) => uid === s.uid ? null : uid);
   },
 
   /** Extension: change a known spell's rank (sheet) or switch it off/on (play). */
   'spell.update'(st, a, ctx) {
     const p = targetOf(st, a, ctx, a.rank !== undefined ? 'sheet' : 'play');
     const s = findUid(p.sheet.spells, a.uid, 'spell');
-    const rank = int(a.rank, 'rank', 0, 1000, { optional: true });
+    const def = libraryOf(st, ctx.pack).get('spell', s.spellId);
+    const rank = int(a.rank, 'rank', def?.rankMax ? 1 : 0, def?.rankMax ?? 1000, { optional: true });
     const active = bool(a.active, 'active', { optional: true });
     if (rank !== undefined) s.rank = rank;
     if (active !== undefined) s.active = active;
@@ -942,23 +1120,28 @@ export const SHEET = {
 
   'spell.cast'(st, a, ctx, out) {
     const p = targetOf(st, a, ctx, 'play');
+    requireStatusAllowed(st, ctx, p, 'spell');
     const rs = ctx.pack.ruleset;
     const library = libraryOf(st, ctx.pack);
     const s = findUid(p.sheet.spells, a.uid, 'spell');
     const def = library.get('spell', s.spellId);
     if (!def) throw notFound(`spell ${s.spellId} is not in the library`);
     const { computed } = computeFor(p, ctx.pack, library);
-    const c = computed.spells.find((x) => x.uid === s.uid);
-    const cost = c.cost.value;
-    const track = c.costTrack;
-    let paid = null;
-    if (cost > 0) {
-      if (!track || !computed.tracks[track]) throw bad(`spell cost track "${track}" does not exist in the ruleset`);
-      const have = computed.tracks[track].cur;
-      const label = rs.tracks.find((t) => t.id === track).label;
-      if (have < cost) throw bad(`not enough ${label}: ${have}/${cost}`);
+    if (rs.spells.attackChecks && def.attackCheck) throw bad('roll the spell attack against its target');
+    let healTarget = null;
+    if (def.healing) {
+      if (def.healing.target === 'ally') {
+        healTarget = playerOf(st, a.target);
+        if (healTarget.id === p.id) throw bad('choose another character to heal');
+      } else {
+        if (a.target != null && a.target !== p.id) throw bad('this spell can only heal its caster');
+        healTarget = p;
+      }
+      if (!rs.tracks.some((t) => t.id === def.healing.track)) throw bad('this spell has no health track');
+      if (st.combat?.combatants.some((c) => c.playerId === healTarget.id && c.dead)) throw bad('that crawler is already dead');
+      requireStatusAllowed(st, ctx, healTarget, 'heal');
     }
-    // Buff application is validated before anything is spent.
+    const { cost, track, cur } = payForSpell(st, p, library, computed, s, ctx, out);
     let applied = null;
     if (def.applies) {
       const buffDef = library.get('buff', def.applies);
@@ -973,12 +1156,18 @@ export const SHEET = {
         applied = { playerId: who.id, buffId: buffDef.id, uid: r.buff.uid, added: r.added };
       }
     }
-    if (cost > 0) paid = trackDelta(p, ctx.pack, library, track, -cost, out);
+    let healed = null;
+    if (healTarget) {
+      const heal = def.healing;
+      const amount = (s.rank >= 5 && heal.rank5Amount) || heal.amount;
+      const slots = typeof amount === 'number' ? amount : doRoll(amount, undefined, ctx).total;
+      healed = { playerId: healTarget.id, ...trackDelta(healTarget, ctx.pack, library, heal.track, slots, out) };
+    }
     const activate = a.activate ?? (def.effects ?? []).some((e) => e.when === 'active');
     if (activate) s.active = true;
-    const ev = out.emit({ kind: 'spell', playerId: p.id, spellId: def.id, name: def.name, cost, track, applied }, 'all');
+    const ev = out.emit({ kind: 'spell', playerId: p.id, spellId: def.id, name: def.name, cost, track, applied, ...(healed ? { healed } : {}) }, 'all');
     ctx.h.feedPush(st, ev, `${p.name} cast ${def.name}`);
-    out.result = { cost, track, cur: paid?.to ?? null, active: s.active, applied };
+    out.result = { cost, track, cur, active: s.active, applied, ...(healed ? { healed } : {}) };
   },
 
   'item.equip'(st, a, ctx) {
@@ -1009,6 +1198,7 @@ export const SHEET = {
 
   'item.use'(st, a, ctx, out) {
     const p = targetOf(st, a, ctx, 'play');
+    if (st.combat?.active) requireStatusAllowed(st, ctx, p, 'action');
     const library = libraryOf(st, ctx.pack);
     const inv = findUid(p.inventory, a.uid, 'item');
     const def = library.get('item', inv.itemId);
@@ -1016,8 +1206,10 @@ export const SHEET = {
     const use = def.use;
     let who = null;
     if (a.target !== undefined && a.target !== null) {
-      if (ctx.actor.role !== 'gm' && a.target !== p.id) throw forbidden('only the GM can use items on another character');
+      const shareable = ctx.pack.ruleset.hotlist.combat && def.tags?.includes('potion');
+      if (ctx.actor.role !== 'gm' && a.target !== p.id && !shareable) throw forbidden('only the GM can use this item on another character');
       who = playerOf(st, a.target);
+      if (st.combat?.active && st.combat.combatants.some((c) => c.playerId === who.id && c.dead)) throw bad('that crawler is already dead');
     } else if (use.target === 'self') who = p;
     let applied = null;
     if (use.applyBuff && who) {
@@ -1030,6 +1222,8 @@ export const SHEET = {
     let healed = null;
     if (use.heal) {
       if (!ctx.pack.ruleset.tracks.some((t) => t.id === use.heal.track)) throw bad(`item heals unknown track ${use.heal.track}`);
+      const tracks = ctx.pack.ruleset.tracks;
+      if (use.heal.track === (tracks.find((t) => t.id === 'hp') ?? tracks[0])?.id) requireStatusAllowed(st, ctx, healTarget, 'heal');
       healed = { playerId: healTarget.id, ...trackDelta(healTarget, ctx.pack, library, use.heal.track, use.heal.amount, out) };
     }
     let removed = 0;
@@ -1060,6 +1254,7 @@ export const SHEET = {
     const p = targetOf(st, a, ctx, 'play');
     const rec = rollOf(st, a.rollId);
     if (rec.playerId !== p.id) throw forbidden('only your own roll');
+    if (rec.void || rec.part === 'damage' || hasResolvedDamage(st, rec.id)) throw bad('this roll can no longer be rerolled');
     if (rec.natural == null) throw bad('that roll has no d20');
     if (rec.natural === 1) throw bad('a natural 1 cannot be rerolled');
     if (rec.favored) throw bad('already rerolled');
@@ -1086,27 +1281,29 @@ export const SHEET = {
   },
 
   /**
-   * `{ rollId, entered? }` Intervene: add 1d6 to another crawler's missed check / attack after the result
-   * (turns a near miss into a hit). Once per roll; in reaction rounds it costs one of your actions.
+   * `{ rollId, entered? }` Intervene: add 1d6 to another crawler's check before it is acted on.
+   * In reaction combat it uses one action, including a prepared Intervene action.
    */
   'roll.intervene'(st, a, ctx, out) {
     const rec = rollOf(st, a.rollId);
     if (rec.partyCheck) throw bad('no Intervene on a party check');
+    if (rec.void || hasResolvedDamage(st, rec.id)) throw bad('this roll can no longer be helped');
     const me = ctx.actor.role === 'gm' ? (a.playerId ? playerOf(st, a.playerId) : null) : playerOf(st, ctx.actor.playerId);
     if (me && rec.playerId === me.id) throw bad('you cannot intervene on your own roll');
     if (!rec.vs || rec.vs.damage !== undefined || rec.vs.defense == null) throw bad('only a check or attack against a target');
-    if (rec.vs.hit) throw bad('it already worked');
+    if (rec.vs.hit && (rec.vs.deg7 !== 'success' || rec.natural === 20)) throw bad('it already worked');
     if (rec.intervened) throw bad('someone already intervened');
     if (rec.what === 'stat') throw bad('no help on stat checks');
     if (ctx.now - rec.at > 10 * 60_000) throw bad('too late');
     const rx = st.combat?.active ? st.combat.rx : null;
     if (rx && me) {
       const cb = (st.combat.combatants ?? []).find((x) => x.type === 'crawler' && (x.playerId === me.id || x.uid === me.id));
-      if (cb) {
-        const left = rx.acts?.[cb.uid] ?? 2;
-        if (left < 1) throw bad('no actions left this round');
-        rx.acts[cb.uid] = left - 1;
-      }
+      if (!cb || cb.dead || cb.dying != null) throw bad('that crawler cannot act');
+      if (rx.step !== 'react' && rx.step !== 'act') throw bad('you cannot intervene in this phase');
+      requireStatusAllowed(st, ctx, me, 'interrupt');
+      const reserved = rx.intervene?.indexOf(cb.uid) ?? -1;
+      if (reserved >= 0) rx.intervene.splice(reserved, 1);
+      else ctx.h.spendReactionAction(rx, cb.uid);
     }
     const d6 = a.entered === undefined ? (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(6) + 1 : int(a.entered, 'entered', 1, 6);
     rec.total += d6;
@@ -1124,7 +1321,7 @@ export const SHEET = {
     if (!size) throw bad('this ruleset has no hotlist');
     if (a.uid === null) p.sheet.hotlist[i] = null;
     else {
-      findUid(p.inventory, a.uid, 'item');
+      if (!ctx.pack.ruleset.hotlist.combat || !p.sheet.spells.some((s) => s.uid === a.uid)) findUid(p.inventory, a.uid, 'item');
       p.sheet.hotlist = p.sheet.hotlist.map((x) => (x === a.uid ? null : x));
       p.sheet.hotlist[i] = a.uid;
     }
@@ -1141,8 +1338,22 @@ export const SHEET = {
     // Untrained check (ruleset skills.untrained): always with the ruleset's Disadvantage, no Ranks.
     const unt = w.kind === 'untrained' ? rs.skills?.untrained : null;
     if (w.kind === 'untrained' && !unt) throw bad('this game has no untrained checks');
-    // Untrained Disadvantage + a reason for Advantage cancel out (R4S p.13): a plain roll.
-    const adv = unt?.adv ? (a.adv && a.adv !== unt.adv ? null : unt.adv) : a.adv === undefined || a.adv === null ? null : ['adv', 'dis'].includes(a.adv) ? a.adv : (() => { throw bad('adv must be adv or dis'); })();
+    const requestedAdv = a.adv == null || ['adv', 'dis'].includes(a.adv) ? a.adv : (() => { throw bad('adv must be adv or dis'); })();
+    const spellPlayer = w.kind === 'spell' ? targetOf(st, a, ctx0, 'play') : null;
+    const ownedSpell = spellPlayer ? findUid(spellPlayer.sheet.spells, w.uid, 'spell') : null;
+    const spellDef = ownedSpell ? libraryOf(st, ctx0.pack).get('spell', ownedSpell.spellId) : null;
+    if (ownedSpell && (!rs.spells.attackChecks || !spellDef?.attackCheck)) throw bad('that spell does not use an attack check');
+    const isStrike = (w.kind === 'attack' || w.kind === 'spell') && w.part !== 'damage';
+    const attackPlayer = isStrike ? spellPlayer ?? targetOf(st, a, ctx0, 'play') : null;
+    const combat = st.combat;
+    const actor = attackPlayer && combat?.active && combat.combatants.find((v) => v.type === 'crawler' && v.playerId === attackPlayer.id);
+    const earned = actor && combat.rx?.advantage?.find((v) => v.uid === actor.uid && v.mobUid === a.target);
+    const inherent = unt?.adv ?? (isStrike && spellDef ? spellDef.attack.adv : null);
+    const sizeRelation = attackPlayer && attackSizeRelation(combatRules(ctx0.pack, combat?.settings), attackPlayer.sheet.fields.size,
+      combat?.combatants.find((v) => v.uid === a.target && v.type === 'mob')?.size);
+    const sources = [requestedAdv, inherent, sizeRelation?.adv, earned ? 'adv' : null];
+    const advCount = sources.reduce((n, source) => n + (source === 'adv' ? 1 : source === 'dis' ? -1 : 0), 0);
+    const adv = advCount > 0 ? 'adv' : advCount < 0 ? 'dis' : null;
     const bonus = a.bonus === undefined ? 0 : int(a.bonus, 'bonus', -50, 50);
     const natural = { first: null, kept: null, other: null };
     const base = ctx0.dieInt ?? ctx0.rollInt ?? ctx0.randInt;
@@ -1174,6 +1385,8 @@ export const SHEET = {
         rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown.parts ?? []), { label: 'Situational', value: bonus, source: 'bonus' }] };
       }
       rec.natural = rec.dice.find((d) => d.die === 'd20')?.value ?? null;
+      if (ctx0.actionReceipt) rec.actionReceipt = ctx0.actionReceipt;
+      if (ctx0.weaponHitId) rec.weaponHitId = ctx0.weaponHitId;
       if (ctx0.partyCheck) rec.partyCheck = true;
       if (rec.natural !== 20) rec.nat20 = false;
       if (rec.natural !== 1) rec.nat1 = false;
@@ -1197,12 +1410,35 @@ export const SHEET = {
       out.result = { rollId: rec.id, total: rec.total, roll: rec };
       return;
     }
-    const p = targetOf(st, a, ctx, 'play');
-    const { ch, computed } = computeFor(p, ctx.pack, libraryOf(st, ctx.pack));
+    const p = spellPlayer ?? attackPlayer ?? targetOf(st, a, ctx, 'play');
+    const library = libraryOf(st, ctx.pack);
+    const { ch, computed } = computeFor(p, ctx.pack, library);
+    const attackProfile = w.kind === 'attack' ? computed.attacks.find((x) => x.uid === w.uid) : null;
     let r;
     let formula;
     let label;
-    if (w.kind === 'stat') {
+    let spellHitId;
+    let spellPayment;
+    if (ownedSpell) {
+      if (w.part === 'damage') {
+        const hit = st.rolls.find((v) => v.id === a.after && v.playerId === p.id && v.what === 'spell' && v.whatId === w.uid && v.part === 'hit' && !v.void);
+        if (!hit || (hit.vs && (!hit.vs.hit || hit.vs.uid !== a.target))) throw bad('roll a successful attack with this spell first');
+        if (st.rolls.some((v) => v.spellHitId === hit.id && !v.void)) throw bad('damage for that spell attack was already rolled');
+        spellHitId = hit.id;
+        const atk = spellDef.attack;
+        const dice = ownedSpell.rank >= 5 && atk.rank5Dice ? atk.rank5Dice : atk.dice;
+        formula = tmpl(rs.attack.damage, atk.stat ?? '', entered != null ? String(entered) : hit.vs?.crit ? critFormula(dice, combatRules(ctx.pack, st.combat?.settings)) : dice);
+        r = doRoll(formula, sheetResolver(computed, ch, rs, { 'skill.rank': { value: ownedSpell.rank, label: 'Spell rank' } }), ctx);
+        label = `${spellDef.name} damage`;
+      } else {
+        requireStatusAllowed(st, ctx, p, 'spell');
+        const row = computed.spells.find((v) => v.uid === w.uid);
+        label = `${spellDef.name} to hit`;
+        ({ r, formula } = rollWith(rs.attack.roll || rs.dice, row.toHit, spellDef.name, ctx, `spell:${w.uid}`));
+        spellPayment = payForSpell(st, p, library, computed, ownedSpell, ctx, out);
+        if (rs.skills.usedTracking) ownedSpell.used = true;
+      }
+    } else if (w.kind === 'stat') {
       const def = rs.stats.find((s) => s.id === w.id);
       if (!def) throw notFound(`unknown stat ${w.id}`);
       label = `${def.abbr} check`;
@@ -1224,7 +1460,7 @@ export const SHEET = {
         const sk = k.skillUid ? p.sheet.skills.find((s) => s.uid === k.skillUid) : null;
         const stat0 = k.stat && rs.stats.some((s) => s.id === k.stat) ? k.stat : '';
         const stat = k.dmgStat === 'none' ? '' : k.dmgStat && rs.stats.some((s) => s.id === k.dmgStat) ? k.dmgStat : stat0;
-        formula = tmpl(rs.attack.damage, stat, k.dice);
+        formula = tmpl(rs.attack.damage, stat, attackProfile.damageDice);
         // After a critical hit (a.after = the to-hit roll): the game's crit rule (5e: double dice).
         const prev = typeof a.after === 'string' ? st.rolls.find((x) => x.id === a.after && x.playerId === p.id) : null;
         // Entered damage = what the real damage dice showed (already doubled by the player on a 5e crit).
@@ -1235,7 +1471,9 @@ export const SHEET = {
         r.parts = r.parts.filter((x) => !(x.source?.startsWith('buff.') && x.value === 0 && !x.parts?.length));
       } else {
         label = `${k.name} to hit`;
-        ({ r, formula } = rollWith(rs.attack.roll || rs.dice, computed.attacks.find((x) => x.uid === k.uid).toHit, `${k.name} to hit`, ctx, `attack:${k.uid}`));
+        ({ r, formula } = rollWith(rs.attack.roll || rs.dice, attackProfile.toHit, `${k.name} to hit`, ctx, `attack:${k.uid}`));
+        const skill = rs.skills.usedTracking && w.markUsed !== false && p.sheet.skills.find((s) => s.uid === k.skillUid);
+        if (skill) skill.used = true;
       }
     } else if (w.kind === 'untrained') {
       const def = libraryOf(st, ctx.pack).get('skill', str(w.skillId, 'skillId', 80));
@@ -1248,10 +1486,16 @@ export const SHEET = {
       r = doRoll(formula, sheetResolver(computed, ch, rs), ctx);
       // Tried this session: the Tutorial Floors teach one of them (Rank 1) at the end of the session.
       if (unt.learn && !(unt.learnMaxFloor && floorOfState(st) > unt.learnMaxFloor)) p.sheet.untried = [...new Set([...(p.sheet.untried ?? []), def.id])].slice(-MAX_UNTRIED);
-    } else throw bad('what.kind must be stat, derived, skill, attack, untrained or custom');
+    } else throw bad('what.kind must be stat, derived, skill, attack, spell, untrained or custom');
     const rec = finish(rollRecord(r, { ctx, p, by, label, formula, secret, what: w.kind, whatId: w.kind === 'stat' || w.kind === 'derived' ? w.id : w.kind === 'untrained' ? w.skillId : w.uid ?? null }));
-    if (w.kind === 'attack') rec.part = w.part === 'damage' ? 'damage' : 'hit';
-    resolveAgainst(st, ctx0, a, rec, p, out);
+    if (w.kind === 'attack' || w.kind === 'spell') rec.part = w.part === 'damage' ? 'damage' : 'hit';
+    if (isStrike && attackProfile?.melee && adv === 'dis' && sizeRelation?.damage) rec.sizeDamage = sizeRelation.damage;
+    if (spellHitId) rec.spellHitId = spellHitId;
+    if (spellPayment?.cost || spellPayment?.cooldown) {
+      const { cur, ...payment } = spellPayment;
+      rec.spellPayment = payment;
+    }
+    resolveAgainst(st, ctx0, a, rec, p, out, earned, attackProfile);
     pushRoll(st, rec, out, ctx0);
     const shown = ctx0.actor.role === 'gm' ? rec : publicRoll(rec);
     out.result = { rollId: rec.id, total: rec.total, roll: shown, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, typed: rec.vs.typed ?? null, advantage: !!rec.vs.advantage, applied: rec.applied ?? null } : {}) };
@@ -1305,8 +1549,12 @@ function learnSpell(st, p, spellId, rank, ctx) {
   if (!def) throw notFound(`unknown spell ${spellId}`);
   if (p.sheet.spells.some((s) => s.spellId === def.id)) throw bad(`${p.name} already knows ${def.name}`);
   if (p.sheet.spells.length >= MAX_SPELLS) throw bad(`max ${MAX_SPELLS} spells`);
-  const s = { uid: ctx.genId('sp'), spellId: def.id, rank: int(rank, 'rank', 0, 1000, { optional: true }) ?? 1, active: false };
+  const s = { uid: ctx.genId('sp'), spellId: def.id, rank: int(rank, 'rank', def.rankMax ? 1 : 0, def.rankMax ?? 1000, { optional: true }) ?? 1, active: false };
   p.sheet.spells.push(s);
+  if (ctx.pack.ruleset.hotlist.combat && !st.combat?.active) {
+    const free = p.sheet.hotlist.indexOf(null);
+    if (free >= 0) p.sheet.hotlist[free] = s.uid;
+  }
   return s;
 }
 
@@ -1337,6 +1585,12 @@ export function setTrack(st, p, a, ctx, out) {
 
 /** GM-only character / library actions. */
 export const SHEET_GM = {
+  /** Table correction: allow a known spell to be cast again. */
+  'spell.ready'(st, a, ctx) {
+    const p = targetOf(st, a, ctx, 'sheet');
+    const s = findUid(p.sheet.spells, a.uid, 'spell');
+    if (p.sheet.spellCasts) delete p.sheet.spellCasts[s.spellId];
+  },
   /** `{ playerId? }` Wipe the untrained list (one crawler, or everyone): the session ended without learning. */
   'untrained.clear'(st, a) {
     for (const p of st.players) if (a.playerId === undefined || p.id === a.playerId) p.sheet.untried = [];
@@ -1411,26 +1665,37 @@ export const SHEET_GM = {
     const rs = ctx.pack.ruleset;
     const rule = rs.skills.rankUp;
     if (!rule) throw bad('this ruleset has no skills.rankUp rule');
+    const when = a.when ?? 'session';
+    if (when !== 'session' && when !== 'floor') throw bad('when must be session or floor');
+    if (when === 'floor' && rule.sessionMaxRank == null) throw bad('this ruleset has no separate floor rank-up');
     const players = a.playerId === undefined ? st.players : [playerOf(st, a.playerId)];
     const library = libraryOf(st, ctx.pack);
     const results = [];
     for (const p of players) {
-      for (const s of p.sheet.skills) {
+      const advancing = p.sheet.skills.filter((s) => s.used)
+        .map((s) => ({ s, name: s.name, max: rs.skills.rankMax, key: 'skillUid' }));
+      if (rs.spells.attackChecks) for (const s of p.sheet.spells) {
         if (!s.used) continue;
+        const def = library.get('spell', s.spellId);
+        if (!def?.attackCheck) continue;
+        advancing.push({ s, name: def.name, max: Math.min(rs.skills.rankMax, def.rankMax ?? Infinity), key: 'spellUid' });
+      }
+      for (const { s, name, max, key } of advancing) {
+        if (rule.sessionMaxRank != null && (s.rank > rule.sessionMaxRank) !== (when === 'floor')) continue;
         const { ch, computed } = computeFor(p, ctx.pack, library);
-        const resolve = sheetResolver(computed, ch, rs, { rank: { value: s.rank, label: `${s.name} rank` } });
+        const resolve = sheetResolver(computed, ch, rs, { rank: { value: s.rank, label: `${name} rank` } });
         const target = typeof rule.target === 'number' ? rule.target : evaluate(rule.target, resolve).value;
         const r = doRoll(rule.roll, resolve, ctx);
         const ok = rule.rule === 'gt' ? r.total > target : rule.rule === 'gte' ? r.total >= target : rule.rule === 'lt' ? r.total < target : r.total <= target;
         const from = s.rank;
-        const to = ok ? Math.min(rs.skills.rankMax, from + (rule.amount ?? 1)) : from;
+        const to = ok && from < max ? Math.min(max, from + (rule.amount ?? 1)) : from;
         s.rank = to;
         s.used = false;
-        const rec = rollRecord(r, { ctx, p, by: 'gm', label: `Rank-up: ${s.name}`, formula: rule.roll, secret: false, what: 'rankUp' });
-        rec.rankUp = { skillUid: s.uid, name: s.name, rule: rule.rule, target, success: ok, from, to };
+        const rec = rollRecord(r, { ctx, p, by: 'gm', label: `Rank-up: ${name}`, formula: rule.roll, secret: false, what: 'rankUp' });
+        rec.rankUp = { [key]: s.uid, name, rule: rule.rule, target, success: ok, from, to };
         if (rule.verify) rec.breakdown.warnings.push({ kind: 'unverified', path: 'skills.rankUp', note: rule.note ?? 'not verified against the rulebook' });
         pushRoll(st, rec, out, ctx);
-        results.push({ playerId: p.id, uid: s.uid, name: s.name, roll: r.total, target, success: ok, from, to, rollId: rec.id });
+        results.push({ playerId: p.id, uid: s.uid, name, roll: r.total, target, success: ok, from, to, rollId: rec.id });
       }
     }
     out.result = { results };

@@ -264,12 +264,32 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
   .tool-page .ask-dlg .btn { min-height: 44px; }
 }
 
-/* Reaction rounds on the phone (rx-phone.js) */
-.rxp { position: fixed; left: 8px; right: 8px; bottom: calc(8px + env(safe-area-inset-bottom, 0px)); z-index: 40; max-height: 70vh; overflow: auto; display: grid; gap: 8px; padding: 12px; background: var(--c-panel, #1b1530); border: 2px solid var(--c-accent, #ff2fb9); border-radius: 14px; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.6); }
+/* Combat page and one-tap entry for physical dice. */
+.pl-combat { display: grid; gap: 12px; scroll-margin-top: calc(var(--ph-top-h, 110px) + 50px); }
+.pl-combat-bar, .pl-combat-roster { display: grid; gap: 8px; }
+.pl-combat-bar p, .pl-combat-roster p { margin: 0; }
+.pl-combat-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
+.pl-combat-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.pl-combat-actions .btn { min-height: 44px; }
+.pl-quick .btn { max-width: 100%; white-space: normal; }
+.pl-quick { display: grid; gap: 5px; }
+.pl-quick h3 { margin: 0; }
+.pl-quick-item { display: inline-flex; gap: 4px; max-width: 100%; }
+.pl-quick-item .btn { white-space: normal; }
+.pl-quick-item .icon-btn { flex: 0 0 44px; }
+.pl-targets { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 6px; margin: 0; padding: 0; }
+.pl-target { width: 100%; min-height: 48px; display: flex; gap: 8px; padding: 4px 8px; align-items: center; justify-content: flex-start; text-align: left; }
+.pl-target > span { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.pl-target > span small { display: block; }
+.pl-target-art { flex: 0 0 36px; width: 36px; height: 36px; }
+.combat-prompt { position: fixed; right: 12px; bottom: max(52px, env(safe-area-inset-bottom)); z-index: 43; box-shadow: 0 4px 16px #000a; }
+body:has(.tp-combat) :is(.combat-prompt, .roll-fab, .ini-prompt), .combat-prompt[hidden] { display: none; }
+.die-faces { display: grid; grid-template-columns: repeat(var(--faces-cols), minmax(0, 1fr)); gap: 6px; }
+.die-faces .btn { min-width: 0; min-height: 44px; font-size: 18px; font-weight: 700; padding-inline: 0; }
+.rxp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px; background: var(--c-panel); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
 .rxp[hidden] { display: none; }
-@media (min-width: 700px) { .rxp { left: auto; width: 420px; right: 16px; } }
-.rxp-head { display: flex; align-items: center; gap: 8px; }
-.rxp-step { text-transform: uppercase; font-size: 12px; letter-spacing: 0.06em; padding: 1px 8px; border-radius: 999px; background: var(--c-accent, #ff2fb9); color: #000; font-weight: 700; }
+.rxp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.rxp-step { text-transform: uppercase; font-size: 12px; letter-spacing: 0.06em; padding: 1px 8px; border-radius: 999px; background: var(--c-accent); color: var(--c-accent-ink); font-weight: 700; }
 .rxp-dots { display: inline-flex; gap: 4px; align-items: center; }
 .rxp-dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--c-accent, #ff2fb9); display: inline-block; }
 .rxp-hint { margin: 0; font-size: 14px; color: var(--c-dim, #aaa); }
@@ -278,18 +298,15 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 .rxp-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
 .rxp-mini { display: inline-flex; gap: 4px; }
 .rxp-btns { display: flex; flex-wrap: wrap; gap: 8px; }
-.rxp-btns .btn { flex: 1 1 auto; min-height: 44px; }
+.rxp-btns .btn { min-height: 44px; }
 .rxp-deg { font-weight: 700; }
 .rx-deg-crit, .rx-deg-amazing, .rx-deg-success { color: #3ddc5f; }
 .rx-deg-near { color: #ffb020; }
 .rx-deg-fail, .rx-deg-major, .rx-deg-critfail { color: #ff2448; }
 .rxp-pad { display: grid; gap: 8px; }
 .rxp-pad p { margin: 0; font-weight: 700; }
-.rxp-grid { display: grid; gap: 6px; }
-.rxp-g20 { grid-template-columns: repeat(5, 1fr); }
-.rxp-g6 { grid-template-columns: repeat(6, 1fr); }
-.rxp-grid .btn { min-height: 44px; font-size: 18px; font-weight: 700; }
-.rxp-opt { display: grid; justify-items: start; text-align: left; gap: 2px; flex: 1 1 100%; }
+.rxp-pad { scroll-margin-top: calc(var(--ph-top-h, 110px) + 50px); }
+.rxp-btns .rxp-opt { display: grid; justify-content: stretch; justify-items: start; text-align: left; white-space: normal; gap: 2px; flex: 1 1 100%; min-width: 0; padding-block: 6px; line-height: 1.2; }
 .rxp-opt small { font-weight: 400; opacity: 0.8; font-size: 12px; }
 .rp-note { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: rgba(58, 141, 255, 0.12); border: 1px solid rgba(58, 141, 255, 0.45); font-size: 14px; }
 .ivn { position: fixed; left: 10px; right: 10px; bottom: 84px; z-index: 60; display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--c-panel, #15121f); border: 2px solid #3a8dff; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); }
@@ -298,5 +315,3 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 .ivn-row button.num { width: 44px; height: 44px; font-size: 18px; font-weight: 800; }
 .rp-favor { flex-basis: 100%; display: grid; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid var(--c-accent); }
 .rp-favor p { margin: 0; }
-.rp-favor-keys { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
-.rp-favor-keys .btn { min-height: 40px; font-weight: 800; }

@@ -134,7 +134,7 @@ export default function combat(root, sc, env) {
     foeArt(x),
     h('div.ar-main',
       h('div.ar-name', x.name),
-      h('div.ar-hp', bar, exact ? h('b.ar-num', `${x.hp}`) : null),
+      h('div.ar-hp', bar, exact ? h('b.ar-num', { title: x.slotValue ? `${x.slotValue} HP per slot` : null }, x.slotValue ? `${x.hp}/${x.hpMax} slots` : `${x.hp}`) : null),
       conds(x.conditions)),
     h('i.ar-flash'));
   }

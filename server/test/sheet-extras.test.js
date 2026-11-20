@@ -174,3 +174,46 @@ test('rest: long refills tracks and every counter; short refills short-reset cou
   assert.ok(r.result.restored.includes(hp.label));
   assert.throws(() => reduce(s, { role: 'gm', t: 'rest', playerId: pid, kind: 'nap' }, ctx), /short or long/);
 });
+
+test('configured party rests restore slots and mana, clear the correct injuries and advance the clock once', async () => {
+  const { loadPack, serializePack, deserializePack } = await import('../pack.js');
+  const { createState, reduce, reducePlayerAction } = await import('../state.js');
+  const { tmpDir, writePack } = await import('./fixtures.js');
+  const rests = {
+    short: { hours: 2, restore: { hp: 5, mana: { maxFraction: 0.5 } }, removeBuffs: ['minor'] },
+    long: { hours: 8, restore: { hp: 'full', mana: 'full' }, removeBuffs: ['fatigued', 'minor'] },
+  };
+  const dir = writePack(tmpDir(), {
+    'ruleset.json': { id: 'resting', rests, tracks: [{ id: 'hp', label: 'Health', kind: 'slots', slots: 10, default: 10 }, { id: 'mana', label: 'Mana', kind: 'pool', default: 15 }] },
+    'buffs.json': [{ id: 'minor', name: 'Minor Injury' }, { id: 'fatigued', name: 'Fatigued' }],
+  });
+  const pack = deserializePack(serializePack(loadPack(dir).pack));
+  let n = 0;
+  const ctx = { now: 1000, pack, genId: (id) => `${id}_${++n}` };
+  const gm = (s, a) => reduce(s, { role: 'gm', ...a }, ctx);
+  let s = createState(pack, 0);
+  const players = ['Walker', 'Runner', 'Fallen'].map((name) => {
+    const r = gm(s, { t: 'player.add', name });
+    s = r.state;
+    return r.result.playerId;
+  });
+  for (const [i, playerId] of players.entries()) {
+    s = gm(s, { t: 'track.set', playerId, track: 'hp', cur: i === 2 ? 0 : 2 }).state;
+    s = gm(s, { t: 'track.set', playerId, track: 'mana', cur: 3 }).state;
+    for (const buffId of ['minor', 'fatigued']) s = gm(s, { t: 'buff.add', playerId, buffId }).state;
+  }
+  assert.throws(() => reducePlayerAction(s, { t: 'rest', kind: 'short' }, { ...ctx, playerId: players[0] }), /GM confirms/);
+  s = gm(s, { t: 'crawlers.clock', hours: 11 }).state;
+  const short = gm(s, { t: 'rest.party', kind: 'short' });
+  assert.equal(short.result.hours, 9);
+  assert.equal(short.result.results.length, 2);
+  assert.deepEqual(short.state.players.map((p) => [p.sheet.tracks.hp.cur, p.sheet.tracks.mana.cur, p.sheet.buffs.map((b) => b.buffId)]), [
+    [7, 10, ['fatigued']], [7, 10, ['fatigued']], [0, 3, ['minor', 'fatigued']],
+  ]);
+  const long = gm(short.state, { t: 'rest.party', kind: 'long' });
+  assert.equal(long.result.hours, 1);
+  assert.deepEqual(long.state.players.map((p) => [p.sheet.tracks.hp.cur, p.sheet.tracks.mana.cur, p.sheet.buffs.length]), [[10, 15, 0], [10, 15, 0], [0, 3, 2]]);
+  assert.throws(() => gm(long.state, { t: 'rest.party', kind: 'short' }), /not enough time/);
+  const active = gm(long.state, { t: 'combat.start' }).state;
+  assert.throws(() => gm(active, { t: 'rest.party', kind: 'short' }), /finish combat/);
+});

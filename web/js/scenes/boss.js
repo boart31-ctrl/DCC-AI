@@ -118,7 +118,7 @@ export default function boss(root, sc, env) {
       if ((s.className === 'break' && want === 'gone') || (s.className === 'heal' && want === 'on')) return;
       s.className = want;
     });
-    hpNum.replaceChildren(h('b', String(cur)), h('span', ` / ${max}`));
+    hpNum.replaceChildren(h('b', String(cur)), h('span', ` / ${max}${b.slotValue ? ' slots' : ''}`));
     root.classList.toggle('low', cur > 0 && cur / max <= 0.25);
   }
 
@@ -226,7 +226,7 @@ export default function boss(root, sc, env) {
       s.style.setProperty('--k', String(i - segOf(to)));
       T.after(700, () => { if (s.className === 'break') s.className = 'gone'; });
     }
-    hpNum.replaceChildren(h('b', String(to)), h('span', ` / ${b.hpSlots}`));
+    hpNum.replaceChildren(h('b', String(to)), h('span', ` / ${b.hpSlots}${b.slotValue ? ' slots' : ''}`));
     root.classList.toggle('low', to > 0 && to / b.hpSlots <= 0.25);
     if (env.reduced) return;
     replay(flash, 'go');
@@ -240,7 +240,7 @@ export default function boss(root, sc, env) {
     for (let i = segOf(e.from); i < segOf(e.hp) && i < kids.length; i++) { kids[i].className = 'heal'; }
     d = { ...d, hp: e.hp };
     hpShown = e.hp;
-    hpNum.replaceChildren(h('b', String(e.hp)), h('span', ` / ${b.hpSlots}`));
+    hpNum.replaceChildren(h('b', String(e.hp)), h('span', ` / ${b.hpSlots}${b.slotValue ? ' slots' : ''}`));
     root.classList.toggle('low', e.hp > 0 && e.hp / b.hpSlots <= 0.25);
     root.classList.remove('dead');
     if (!env.reduced) popNumber(`+${e.amount}`, 'heal');

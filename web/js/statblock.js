@@ -26,7 +26,8 @@ export function statBlock(e, rules = {}) {
     ['DR', e.dr ?? 0],
   ].filter(([, v]) => v != null && v !== '');
   const stats = e.stats ? STAT_ORDER.filter((k) => e.stats[k]).map((k) => [k, e.stats[k]]) : [];
-  const health = e.hpSlots ? `${e.hpSlots} slots${e.slotValue > 1 ? ` × ${e.slotValue}` : ''}` : null;
+  const sv = e.slotValue || rules.mobSlotValue;
+  const health = e.hpSlots ? `${e.hpSlots} ${sv ? `slots × ${sv} HP` : 'HP'}` : null;
   return h('div.statblock',
     top ? h('p.sb-top', top, health ? h('span.sb-hp', ` · Health ${health}`) : null) : null,
     h('dl.sb-nums', nums.map(([k, v]) => h('div', h('dt', k), h('dd', String(v))))),

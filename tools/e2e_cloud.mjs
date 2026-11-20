@@ -183,7 +183,7 @@ async function main() {
   const contentHeaders = { 'Content-Type': 'application/zip', 'X-System-Campaign-Id': campaignId };
   const contentZip = process.env.E2E_CONTENT_ZIP ? fs.readFileSync(process.env.E2E_CONTENT_ZIP) : sampleZip();
   const { assets } = await readContentArchive(contentZip, validateManifest);
-  const upload = (headers) => fetch(base + '/api/content/import', { method: 'POST', headers, body: contentZip });
+  const upload = (headers, body = contentZip) => fetch(base + '/api/content/import', { method: 'POST', headers, body });
   const gmZipHeaders = { ...contentHeaders, 'X-GM-Key': KEY };
   r = await upload(gmZipHeaders);
   assert.equal(r.status, 201, await r.clone().text());
@@ -384,7 +384,7 @@ async function main() {
   assert.equal((await fetch(base + mapPicture.image)).status, 200, 'restored export carries the map picture');
   r = await fetch(`${base}/api/import`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: pfExport });
   assert.equal(r.status, 401, 'import needs the GM key');
-  assert.equal((await upload(contentHeaders)).status, 401, 'content import needs the GM key');
+  assert.equal((await upload(contentHeaders, sampleZip())).status, 401, 'content import needs the GM key');
   step('campaigns: new PF2e campaign, switch back, restore from an export file (GM key only)');
 
   for (const c of [gm2, dn2]) c.ws.close();

@@ -2,6 +2,17 @@
 // the "why" breakdown popover, drawers, segmented tabs, steppers and small form helpers.
 import { h, portraitSrc } from './client.js';
 
+/** One tap enters the face of a physical die, including two-digit faces. */
+export function dieFaces(sides, pick, { disabled = false } = {}) {
+  return h('div.die-faces', { role: 'group', 'aria-label': `d${sides} faces`, style: { '--faces-cols': sides === 6 ? 6 : 5 } },
+    Array.from({ length: sides }, (_, i) => h('button.btn', { type: 'button', disabled, onclick: () => pick(i + 1) }, String(i + 1))));
+}
+
+export function spellCooldownHint(cooldown) {
+  if (cooldown?.ready !== false) return null;
+  return cooldown.kind === 'scene' ? 'Used this scene' : 'Cooling down';
+}
+
 /* ---------------- icons (24px grid, 1.75 stroke, currentColor) ---------------- */
 
 const PATHS = {
