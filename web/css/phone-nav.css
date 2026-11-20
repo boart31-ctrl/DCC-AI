@@ -1,0 +1,48 @@
+.ph-primary { display: none; }
+
+@media (max-width: 699px) {
+  body.play { --ph-dock-size: 56px; }
+  #app:has(.ph-primary:not([hidden])) { padding-bottom: calc(var(--ph-dock-size) + env(safe-area-inset-bottom)); }
+  #app:has(#start:not([hidden])) .ph-primary { display: none; }
+  .ph-primary:not([hidden]) {
+    position: fixed;
+    z-index: 38;
+    inset: auto 0 0;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    min-height: calc(var(--ph-dock-size) + env(safe-area-inset-bottom));
+    padding: 0 max(5px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(5px, env(safe-area-inset-left));
+    color: var(--c-ink-2);
+    background: var(--c-panel);
+    border-top: 1px solid var(--c-line-2);
+    box-shadow: 0 -6px 18px -10px rgba(0, 0, 0, .62);
+  }
+  .ph-dock-btn {
+    position: relative;
+    display: grid;
+    place-content: center;
+    justify-items: center;
+    gap: 3px;
+    padding: 5px 2px 4px;
+    min-height: 54px;
+    min-width: 0;
+    color: inherit;
+    background: none;
+    border: 0;
+    border-top: 2px solid transparent;
+    font: 600 13px/1.1 var(--f-ui);
+    cursor: pointer;
+    touch-action: manipulation;
+  }
+  .ph-dock-btn[aria-current="page"] { color: var(--c-accent); border-top-color: currentColor; }
+  .ph-dock-btn:focus-visible { outline: 2px solid var(--c-accent); outline-offset: -3px; }
+  .ph-dock-badge { position: absolute; top: 4px; left: calc(50% + 7px); min-width: 17px; min-height: 17px; display: grid; place-items: center; border-radius: 9px; padding-inline: 4px; color: #fff; background: var(--c-bad); font: 700 11px/1 var(--f-ui); }
+  .ph-dock-badge[hidden] { display: none; }
+  .ph-app-page { min-width: 0; padding-block: max(10px, env(safe-area-inset-top)) 12px; }
+  body.play:has(.ph-primary:not([hidden])) .why-pop.as-sheet { bottom: calc(var(--ph-dock-size) + env(safe-area-inset-bottom)); padding-bottom: 16px; }
+  .ph-view-more { display: grid; gap: 10px; }
+  .ph-view-more h2 { margin: 0; }
+  .ph-view-combat .rxp-pad { scroll-margin-top: max(8px, env(safe-area-inset-top)); }
+  body.play:has(:is(.ph-view-messages, .ph-view-more)) :is(.roll-fab, .ini-prompt) { display: none; }
+  body.play .combat-prompt { display: none; }
+}

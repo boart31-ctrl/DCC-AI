@@ -57,6 +57,25 @@ test('reactions toggle, only on messages you can see, and only known ids', () =>
   assert.throws(() => pl(s, d, { t: 'msg.react', id, r: 'nope' }), /unknown reaction/);
 });
 
+test('private message envelopes share the same delivery ID and stay off the stage and other phones', () => {
+  const { s, ids: [c, d] } = party();
+  const sent = gm(s, { t: 'msg.send', to: [c], onStage: true, text: 'Secret drop point' });
+  assert.deepEqual(sent.events.map(({ event }) => [event.kind, event.messageId ?? event.id]), [
+    ['message', sent.result.id],
+    ['secret', sent.result.id],
+  ]);
+  assert.deepEqual(sent.events[0].to, { roles: ['gm'], playerIds: [c] });
+  assert.deepEqual(sent.events[1].to, { roles: ['gm'], playerId: c });
+  assert.equal(viewFor(sent.state, pack, 'player', { playerId: d }).me.messages.length, 0);
+  assert.ok(!JSON.stringify(viewFor(sent.state, pack, 'stage')).includes('Secret drop point'));
+  const unrelatedRead = pl(sent.state, d, { t: 'msg.read', thread: c }).state;
+  assert.equal(viewFor(unrelatedRead, pack, 'player', { playerId: c }).me.messages[0].read, false);
+  const reply = pl(unrelatedRead, c, { t: 'msg.post', to: [], text: 'Received privately' });
+  const thread = viewFor(reply.state, pack, 'gm').gm.messages;
+  assert.deepEqual(thread.map((m) => [m.thread, m.gmRead]), [[c, true], [c, false]]);
+  assert.equal(viewFor(reply.state, pack, 'player', { playerId: d }).me.messages.length, 0);
+});
+
 test('pack reactions and stickers; sticker-only messages; GM pause; flood limit', () => {
   let { s, ids: [c] } = party(packUi);
   assert.ok(packUi.ui.stickers.quack.src.endsWith('duck.webp'));

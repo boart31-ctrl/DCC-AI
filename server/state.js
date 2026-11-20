@@ -25,6 +25,7 @@ import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventur
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
 import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage, spendReactionAction } from './reaction.js';
+import { combatHistoryFor, normalizeCombatHistory, recordCombatHistory } from './combat-history.js';
 import { makeEncounterGM } from './encounters.js';
 import { makeCreation } from './creation.js';
 
@@ -127,6 +128,7 @@ export function createState(basePack, now = Date.now(), campaign = {}) {
     rollRedo: [],
     scene: initScene(now), // scenes.js
     combat: initCombat(), // combat.js
+    combatHistory: normalizeCombatHistory(null),
     combatLog: [], // combat-auto.js: one summary per finished fight (this session), for the recap
     drops: [], // loot.js: piles from looted bodies, handed out by the GM
     show: initShow(),
@@ -173,6 +175,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   fillMissingBossArt(s, pack);
   s.show = normalizeShow(raw.show);
   s.combat = normalizeCombat(raw.combat);
+  s.combatHistory = normalizeCombatHistory(raw.combatHistory);
   fillMissingMobArt(s, pack);
   s.drops = normalizeDrops(raw.drops);
   s.crawlers = normalizeCrawlers(raw.crawlers, pack, now);
@@ -1139,6 +1142,7 @@ export function reduce(state, action, ctx) {
     syncCombatTokens(st, full);
   }
   if (out.changed && full.pack && (combatDangerAffected(action) || action.t === 'prep.scene.run')) refreshCombatDanger(st, full.pack);
+  if (out.changed && full.pack) recordCombatHistory(state, st, action, out, full);
   // Play clock: time between actions counts as play when the gap is under 15 minutes (breaks don't count).
   // Drives the level-up reminder (DCC: a level every 2 hours of play; nothing happens automatically).
   if (out.changed && action.role !== 'system' && st.session) {
@@ -1245,6 +1249,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;
+    v.combat.history = p ? combatHistoryFor(state, p.id) : [];
     v.checkPrompts = p ? prepChecksFor(state, p.id) : [];
     v.library = playerLibrary(state, pack, library, p ?? null);
   } else if (role === 'stage') {

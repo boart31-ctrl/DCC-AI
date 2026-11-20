@@ -1,7 +1,7 @@
 // The System — service worker. Caches the app shell only.
 // Never touches /ws, /pack/* (images, audio), /qr or anything else dynamic.
 
-const CACHE = 'system-shell-v52';
+const CACHE = 'system-shell-v53';
 const SHELL = [
   '/',
   '/gm',
@@ -10,6 +10,8 @@ const SHELL = [
   '/css/base.css',
   '/css/gm.css',
   '/css/play.css',
+  '/css/phone-nav.css',
+  '/css/phone-combat.css',
   '/css/stage.css',
   '/css/tool.css',
   '/css/sheet.css',

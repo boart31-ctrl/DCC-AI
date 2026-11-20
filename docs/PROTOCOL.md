@@ -466,6 +466,13 @@ or `steady` relative to the last material board change or round start. The share
 `dangerRules` (effective combat rules) and `dangerFloor`. An active fight estimates the current combat roster.
 With `showThreat` on, the stage view gets only `threatMeter {label, level, trend}` from revealed foes.
 
+The player's private `view.combat.history` lists up to five recent personal outcomes, newest first. Entries are
+`{ id, kind, label, detail?, result?, total?, die?, amount?, round, phase, at }` with kinds `incoming`, `attack`,
+`evade`, `action` and `heal`. A resolved or skipped attack replaces the corresponding Evade row. Linked hit and
+damage rolls share one row. Undo removes or restores the recorded outcome. The latest fight's history remains
+visible after combat ends and clears when a new fight or session starts. Results are personal and reveal no
+hidden attackers or GM-only roll data.
+
 Scene kind `finale` — `outcome`, `title`, `text`, `summary {rounds, dealt, taken, mobsDefeated, mobsTotal, downs, standing,
 crawlers: [{playerId, name, color, dealt, taken, downs, kills, down}], mvp: {playerId, name, color, dealt, kills} | null,
 tracked}`, `at`. Set by `combat.end`; `scene.set` with `outcome` / `title` / `text` replays one (no summary).

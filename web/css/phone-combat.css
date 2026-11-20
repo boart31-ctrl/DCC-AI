@@ -1,0 +1,55 @@
+/* Combat on a crawler's sheet. Keep incoming attacks nearest the health and action counters. */
+.pl-combat { display: grid; gap: 10px; scroll-margin-top: calc(var(--ph-top-h, 110px) + 50px); }
+.pl-combat p, .pl-combat h2, .pl-combat h3, .rxp-tools p { margin: 0; }
+.pl-combat-bar, .pl-combat-actions, .pl-combat-recent, .pl-combat-choices { display: grid; gap: 6px; min-width: 0; }
+.pl-combat-roster:empty, .pl-combat-actions:empty { display: none; }
+.pl-combat-health { padding: 9px 10px; background: var(--c-panel); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
+.pl-health-meta, .pl-phase-row { display: flex; align-items: center; flex-wrap: wrap; gap: 5px 8px; }
+.pl-health-meta h2 { font-size: 0.98rem; }
+.pl-health-meta b { font-variant-numeric: tabular-nums; }
+.pl-health-danger { margin-left: auto; color: var(--c-bad); font-weight: 700; }
+.pl-health-fill { height: 6px; margin: 7px 0 6px; overflow: hidden; border-radius: 99px; background: var(--c-line-2); }
+.pl-health-fill i { display: block; height: 100%; background: var(--me, var(--c-accent)); border-radius: 99px; }
+.pl-combat-health[data-danger] .pl-health-fill i { background: var(--c-bad); }
+.pl-phase-row { justify-content: space-between; color: var(--c-dim); font-size: 0.79rem; }
+.pl-remaining, .pl-pips { display: inline-flex; align-items: center; gap: 5px; }
+.pl-pips i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--c-line-2); background: var(--c-sunk); }
+.pl-pips i.ready { background: var(--c-accent); border-color: var(--c-accent); }
+.pl-action-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; }
+.pl-action-grid > .btn { justify-content: start; min-width: 0; min-height: 44px; padding: 6px 9px; text-align: left; white-space: normal; }
+.pl-action-grid > .btn:last-child { grid-column: 1 / -1; }
+.pl-action-grid > .btn svg { flex: none; }
+.pl-combat-adv { color: var(--c-accent); font-size: 0.82rem; }
+.pl-combat-choices > .btn { display: grid; justify-content: start; justify-items: start; text-align: left; }
+.pl-combat-choices > .btn small { color: var(--c-dim); }
+.pl-quick-item { display: flex; align-items: stretch; gap: 4px; }
+.pl-quick-item .btn { flex: 1; min-width: 0; white-space: normal; }
+.pl-quick-item .icon-btn { flex: 0 0 44px; }
+.pl-combat-recent h3, .rxp h3 { font-size: 0.93rem; }
+.pl-combat-history, .pl-targets, .rxp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.pl-combat-history li { display: grid; gap: 2px; padding: 6px 8px; border-left: 2px solid var(--c-line-2); font-size: 0.84rem; }
+.pl-combat-history li > span { font-size: 0.78rem; }
+.pl-target-book summary { padding: 6px 0; cursor: pointer; color: var(--c-dim); }
+.pl-targets { grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); }
+.pl-target { width: 100%; min-height: 48px; display: flex; gap: 8px; padding: 4px 8px; align-items: center; justify-content: flex-start; text-align: left; }
+.pl-target > span { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
+.pl-target > span small { display: block; }
+.pl-target-art { flex: 0 0 36px; width: 36px; height: 36px; }
+.rxp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px; padding: 8px; background: var(--c-panel); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
+.rxp[hidden] { display: none; }
+.rxp-incoming-head, .rxp-list li { display: flex; align-items: center; justify-content: space-between; gap: 6px; }
+.rxp-incoming-copy { flex: 1; min-width: 0; }
+.rxp-incoming-copy small, .rxp-ally small { display: block; color: var(--c-dim); }
+.rxp-list li { flex-wrap: wrap; border-top: 1px solid var(--c-line); padding-top: 4px; }
+.rxp-incoming-head .btn, .rxp-list .btn { flex: none; min-height: 44px; padding: 6px 9px; }
+.rx-evade small { font-weight: 500; }
+.rxp-deg { font-size: 0.76rem; font-weight: 700; }
+.rx-deg-crit, .rx-deg-amazing, .rx-deg-success { color: var(--c-good, #3ddc5f); }
+.rx-deg-near { color: var(--c-warn, #ffb020); }
+.rx-deg-fail, .rx-deg-major, .rx-deg-critfail { color: var(--c-bad, #ff2448); }
+.rxp-pad, .rxp-tools { display: grid; gap: 7px; min-width: 0; }
+.rxp-pad { scroll-margin-top: calc(var(--ph-top-h, 110px) + 50px); }
+.rxp-pad p { font-size: 0.83rem; }
+.rxp-tools .rxp-opt { display: grid; justify-content: start; justify-items: start; text-align: left; white-space: normal; }
+.rxp-mini { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
+.rxp-ally { padding: 6px; border: 1px solid var(--c-line); border-radius: var(--r-1); }

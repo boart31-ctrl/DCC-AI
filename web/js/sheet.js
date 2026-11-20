@@ -6,7 +6,7 @@ import {
   sheetModel, itemOf, libGet, evaluate, activeEffects, effectText, playerEditLevel, rollFormula, diceText, validateFormula,
 } from './rules.js';
 import {
-  icon, signed, minus, explain, whyContent, unverifiedBadge, hasUnverified, openDrawer, closeDrawer, stepper,
+  icon, signed, minus, explain, hideWhy, whyContent, unverifiedBadge, hasUnverified, openDrawer, closeDrawer, stepper,
   tabBar, field, select, labeled, lockHint, avatar,
 } from './ui.js';
 import { showRollCard } from './dicelog.js';
@@ -23,13 +23,21 @@ const humanize = (id) => String(id || '').replace(/([a-z])([A-Z])/g, '$1 $2').re
  * @param {object} o
  * @param {'player'|'gm'} o.mode
  * @param {(action:object)=>Promise<object>} o.send   transport send (ack promise)
- * @param {()=>Array} [o.extraTabs]  [{id,label,badge?,render:()=>Node}] appended after the sheet tabs
+ * @param {()=>Array} [o.extraTabs]  [{id,label,badge?,phonePage?,render:()=>Node}] appended after the sheet tabs
  * @param {(model)=>void} [o.onBuilder]  opens the character builder
  */
-export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools, phone = () => false, moreItems = () => [], top = null, onRoll = null, rollsOn = () => true } = {}) {
+export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools, phone = () => false, onPhonePage, moreItems = () => [], top = null, onRoll = null, rollsOn = () => true } = {}) {
   const gm = mode === 'gm';
   const root = h('article.sheet', { class: `sheet sheet-${mode}` });
-  const ui = { tab: null, editing: false, openSkill: null, invQuery: '', drawer: null, ptab: 'skills', skillQuery: '', openBoxes: {} };
+  const ui = { tab: null, page: 'sheet', editing: false, openSkill: null, invQuery: '', drawer: null, ptab: 'skills', skillQuery: '', openBoxes: {} };
+  const phoneNav = h('nav.ph-primary', { 'aria-label': 'Player navigation', hidden: true });
+  const primary = [['sheet', 'Sheet', 'book'], ['combat', 'Combat', 'swords'], ['msg', 'Messages', 'chat'], ['more', 'More', 'more']];
+  const dock = new Map(primary.map(([id, label, glyph]) => {
+    const badge = h('span.ph-dock-badge', { 'aria-hidden': 'true', hidden: true });
+    const button = h('button.ph-dock-btn', { type: 'button', 'data-page': id, onclick: () => setTab(id) }, icon(glyph, { size: 21 }), h('span', label), badge);
+    phoneNav.append(button);
+    return [id, { button, badge }];
+  }));
   let view = null;
   let player = null;
   let M = null; // model
@@ -1182,8 +1190,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     { id: 'notes', label: 'Notes' },
   ];
   function phoneSections() {
-    const primaryExtras = (extraTabs() || []).filter((t) => t.phoneSection);
-    return [...primaryExtras, ...PSECTIONS].filter((t) => t.id !== 'spells' || (M.sheet.spells || []).length)
+    return PSECTIONS.filter((t) => t.id !== 'spells' || (M.sheet.spells || []).length)
       .map((t) => ({ ...t, count: t.id === 'skills' ? M.sheet.skills?.length || '' : t.id === 'inventory' ? M.sheet.inventory?.length || '' : t.id === 'spells' ? M.sheet.spells?.length : '' }));
   }
   /** The "inspiration" slot: a number field the pack names favor / inspiration / luck / hero. */
@@ -1208,8 +1215,6 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     });
     const lf = luckField();
     const lv = lf ? Number(M.sheet.fields?.[lf.id] ?? lf.default ?? 0) : null;
-    const extra = extraTabs() || [];
-    const unread = extra.reduce((n, x) => n + (Number(x.badge) || 0), 0);
     return h('header.ph-top',
       h('div.ph-row',
         portraitButton(name, 44),
@@ -1220,25 +1225,32 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
             can('sheet') ? h('button.ph-mini', { type: 'button', disabled: lv <= 0, 'aria-label': `${lf.label} minus 1`, onclick: () => act({ t: 'sheet.set', path: `fields.${lf.id}`, value: lv - 1 }) }, icon('minus', { size: 12 })) : null,
             h('b', String(lv)),
             can('sheet') && (gm || !(M.rs.gmOnly || []).includes(lf.id)) ? h('button.ph-mini', { type: 'button', 'aria-label': `${lf.label} plus 1`, onclick: () => act({ t: 'sheet.set', path: `fields.${lf.id}`, value: lv + 1 }) }, icon('plus', { size: 12 })) : null)) : null,
-        h('button.ph-menu', { type: 'button', 'aria-label': unread ? `Menu, ${unread} unread` : 'Menu', onclick: () => phoneMenu() }, icon('more', { size: 22 }), unread ? h('span.ph-badge', String(unread)) : null),
       ),
       h('div.ph-tracks', bars),
     );
   }
-  function phoneMenu() {
-    const extra = extraTabs() || [];
+  function openSecondary(tab) {
+    const dlg = openDrawer({ title: tab.label, body: tab.render(), onClose: () => draw(true) });
+    dlg.dataset.phoneNavigation = 'true';
+  }
+
+  function phoneMore() {
+    const extra = (extraTabs() || []).filter((t) => !t.phonePage);
     const row = (ic, label, sub, badge, fn) => h('li', h('button.more-row', { type: 'button', onclick: fn }, icon(ic, { size: 20 }), h('span', h('b', label), sub ? h('small', sub) : null), badge ? h('span.ph-badge.inline', String(badge)) : icon('chevron', { size: 16 })));
     const canEdit = gm || can('story');
-    openDrawer({
-      title: player.name || 'Menu',
-      body: h('ul.more-list',
-        extra.filter((x) => !x.phoneSection).map((x) => row(x.id === 'msg' ? 'chat' : 'star', x.label, null, x.badge, () => { closeDrawer(); openDrawer({ title: x.label, body: x.render(), onClose: () => draw(true) }); })),
-        canEdit ? row('edit', ui.editing ? 'Stop editing' : 'Edit sheet', 'Identity, stats, counters', null, () => { closeDrawer(); ui.editing = !ui.editing; draw(true); }) : null,
-        (gm || can('sheet')) && onBuilder ? row('sparkle', 'Character builder', 'Step by step', null, () => { closeDrawer(); onBuilder(M, player); }) : null,
-        (gm || can('sheet')) ? row('users', 'Character picture', 'Shown on the TV', null, () => { closeDrawer(); portraitMenu(); }) : null,
-        (moreItems() || []).map((x) => row(x.icon || 'chevron', x.label, x.sub, x.badge, () => { closeDrawer(); x.onClick(); })),
-      ),
-    });
+    return h('section.ph-view-more', { 'aria-label': 'More' }, h('h2', 'More'), h('ul.more-list',
+      extra.map((x) => row(x.id === 'maps' ? 'map' : 'star', x.label, null, x.badge, () => openSecondary(x))),
+      canEdit ? row('edit', ui.editing ? 'Stop editing' : 'Edit sheet', 'Identity, stats, counters', null, () => { ui.editing = !ui.editing; setTab('sheet'); }) : null,
+      (gm || can('sheet')) && onBuilder ? row('sparkle', 'Character builder', 'Step by step', null, () => onBuilder(M, player)) : null,
+      (gm || can('sheet')) ? row('users', 'Character picture', 'Shown on the TV', null, portraitMenu) : null,
+      (moreItems() || []).map((x) => row(x.icon || 'chevron', x.label, x.sub, x.badge, () => {
+        x.onClick();
+        if (x.navigationDrawer) {
+          const dlg = document.querySelector('dialog.drawer[open]');
+          if (dlg) dlg.dataset.phoneNavigation = 'true';
+        }
+      })),
+    ));
   }
   /** Starting things from guided creation, waiting for the GM: the GM gives or drops them, the player sees them. */
   function gearRequestBox() {
@@ -1280,10 +1292,17 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       case 'prof': return proficienciesPanel();
       case 'background': return backgroundPanel();
       case 'notes': return notesPanel();
-      default: return (extraTabs() || []).find((t) => t.id === id && t.phoneSection)?.render() || skillsPanel();
+      default: return skillsPanel();
     }
   }
   function phoneBody() {
+    if (ui.page !== 'sheet') {
+      root.style.removeProperty('--ph-top-h');
+      if (ui.page === 'more') return [h('div.ph-app-page', phoneMore())];
+      const tab = (extraTabs() || []).find((t) => t.phonePage && t.id === ui.page);
+      const cls = ui.page === 'combat' ? 'ph-view-combat tp-combat' : 'ph-view-messages tp-msg';
+      return [h('div.ph-app-page', { class: `ph-app-page ${cls}` }, tab?.render())];
+    }
     const list = phoneSections();
     if (!list.some((t) => t.id === ui.ptab)) ui.ptab = 'skills';
     const nav = h('nav.ph-secs', { 'aria-label': 'Sheet sections' }, list.map((t) => h('button', {
@@ -1309,12 +1328,56 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return [phoneTop(), phoneInfo(), nav, h('div.ph-panel.tab-panel', { class: `ph-panel tab-panel tp-${ui.ptab}` }, phoneSection(ui.ptab))];
   }
 
+  function updatePhoneNav(ph, tabs) {
+    phoneNav.hidden = !ph;
+    if (!ph) return;
+    for (const [id, { button, badge }] of dock) {
+      if (ui.page === id) button.setAttribute('aria-current', 'page');
+      else button.removeAttribute('aria-current');
+      const count = Number(tabs.find((t) => t.id === id)?.badge) || 0;
+      const description = count && id === 'msg' ? `${count} unread message${count === 1 ? '' : 's'}`
+        : count && id === 'combat' ? `${count} incoming attack${count === 1 ? '' : 's'}` : '';
+      if (description) button.setAttribute('aria-description', description);
+      else button.removeAttribute('aria-description');
+      badge.hidden = !count;
+      badge.textContent = count > 99 ? '99+' : count ? String(count) : '';
+    }
+  }
+
+  function setTab(id) {
+    if (!phone()) { ui.tab = id === 'sheet' ? null : id; draw(true); return; }
+    hideWhy();
+    const extra = (extraTabs() || []).find((t) => t.id === id);
+    if (extra && !extra.phonePage) { openSecondary(extra); return; }
+    const isPage = dock.has(id);
+    const before = ui.page;
+    const page = isPage ? id : 'sheet';
+    const section = { attacks: 'actions', gear: 'inventory', hotlist: 'inventory', story: 'background' }[id] || id;
+    const changedSection = !isPage && ui.ptab !== section;
+    if (!isPage) {
+      ui.ptab = section;
+      try { sessionStorage.setItem(`system.sheetPhoneTab.${mode}`, section); } catch { /* storage unavailable */ }
+    }
+    ui.page = page;
+    if (before !== page || changedSection) draw(true);
+    if (before !== page) onPhonePage?.(page);
+    if (isPage) window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+    else {
+      const info = root.querySelector('.ph-info');
+      const top = root.querySelector('.ph-top')?.offsetHeight || 0;
+      if (info) window.scrollTo({ top: Math.max(0, window.scrollY + info.getBoundingClientRect().bottom - top), behavior: 'auto' });
+    }
+  }
+
   /* ---------- assemble ---------- */
 
   function draw(force = false) {
     if (!view || !player) return;
     M = sheetModel(view, player);
-    const s = JSON.stringify([player, view.library ? 1 : 0, view.session?.permissions, ui, view.pack?.ruleset?.id, M.lib.item.length, M.lib.spell.length, extraTabs().map((x) => [x.id, x.badge, x.sig]), !!phone(), top ? view.audience?.viewers : 0]);
+    const ph = !!phone();
+    const extras = extraTabs() || [];
+    updatePhoneNav(ph, extras);
+    const s = JSON.stringify([player, view.library ? 1 : 0, view.session?.permissions, ui, view.pack?.ruleset?.id, M.lib.item.length, M.lib.spell.length, extras.map((x) => [x.id, x.badge, x.sig]), ph, top ? view.audience?.viewers : 0]);
     if (!force && s === sig) return;
     const ae = document.activeElement;
     if (!force && ae?.matches?.('input, textarea, select') && (root.contains(ae) || ae.closest('.drawer'))) { pending = true; return; }
@@ -1323,7 +1386,6 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     const empty = !M.legacy && !M.sheet.identity?.race && !M.sheet.identity?.class && !(M.sheet.skills || []).length;
     root.classList.toggle('editing', ui.editing);
     root.classList.toggle('legacy', M.rs.legacy);
-    const ph = !!phone();
     root.classList.toggle('phone', ph);
     if (ph) {
       root.replaceChildren(...phoneBody());
@@ -1354,24 +1416,17 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
 
   return {
     el: root,
+    phoneNav,
     update(v, p) {
       const switched = player && p && player.id !== p.id;
       view = v; player = p;
-      if (switched) { ui.openSkill = null; ui.drawer = null; }
+      if (switched) { ui.openSkill = null; ui.drawer = null; ui.page = 'sheet'; }
       draw(switched);
     },
     redraw: () => draw(true),
     model: () => M,
-    setTab(id) {
-      ui.tab = id;
-      if (phone() && ['msg', 'ach'].includes(id)) {
-        const x = (extraTabs() || []).find((t) => t.id === id);
-        if (x) openDrawer({ title: x.label, body: x.render(), onClose: () => draw(true) });
-        return;
-      }
-      if (phone()) ui.ptab = { attacks: 'actions', gear: 'inventory', hotlist: 'inventory', story: 'background' }[id] || id;
-      draw(true);
-    },
+    setTab,
+    currentPage: () => phone() ? ui.page : ui.tab,
     setEditing(on) { ui.editing = !!on; draw(true); },
     castReadySpell(uid) {
       const spell = M.sheet.spells.find((s) => s.uid === uid);

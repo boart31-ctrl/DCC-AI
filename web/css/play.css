@@ -130,28 +130,6 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 }
 .sys-scroll .sys-desc { line-height: 1.55; font-size: 0.95rem; overflow-wrap: anywhere; padding-bottom: 14px; white-space: pre-wrap; }
 
-/* group message banner (smaller takeover) */
-.takeover.banner { place-items: start center; background: rgba(5, 2, 12, 0.72); padding-top: max(24px, env(safe-area-inset-top)); }
-.takeover.banner::before { display: none; }
-.to-banner {
-  position: relative;
-  width: min(100%, 420px);
-  padding: 14px 16px 10px;
-  background: var(--deck);
-  border: 2px solid var(--magenta);
-  box-shadow: 0 0 40px -6px var(--magenta);
-  animation: dropin 0.45s var(--ease-out) both;
-  display: grid;
-  gap: 6px;
-  max-height: 70dvh;
-  overflow-y: auto;
-}
-.to-banner .tag { justify-self: start; font-family: var(--f-mono); font-size: 0.7rem; font-weight: 700; letter-spacing: 0.14em; padding: 1px 6px; background: var(--magenta); color: var(--void); }
-.bn-from { margin: 0; font-weight: 800; }
-.bn-text { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.45; }
-.to-banner .to-hint { margin: 4px 0 0; text-align: right; }
-@keyframes dropin { from { transform: translateY(-120%); } }
-
 @keyframes slam {
   0% { transform: scale(2.4); opacity: 0; filter: blur(8px); }
   60% { transform: scale(0.94); opacity: 1; filter: none; }
@@ -199,14 +177,6 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 .reveal .art { flex: none; aspect-ratio: auto; height: min(34dvh, 340px); }
 .reveal .meta { overflow-y: auto; min-height: 0; }
 @keyframes reveal { 0% { transform: scale(0.3) rotate(-8deg); opacity: 0; } 100% { transform: none; opacity: 1; } }
-
-.envelope {
-  font-size: 5rem;
-  line-height: 1;
-  color: var(--magenta);
-  filter: drop-shadow(0 0 24px var(--magenta));
-  animation: slam 0.6s var(--ease-slam) both;
-}
 
 /* ---------- Reconnect ---------- */
 
@@ -265,23 +235,6 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 }
 
 /* Combat page and one-tap entry for physical dice. */
-.pl-combat { display: grid; gap: 12px; scroll-margin-top: calc(var(--ph-top-h, 110px) + 50px); }
-.pl-combat-bar, .pl-combat-roster { display: grid; gap: 8px; }
-.pl-combat-bar p, .pl-combat-roster p { margin: 0; }
-.pl-combat-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; }
-.pl-combat-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.pl-combat-actions .btn { min-height: 44px; }
-.pl-quick .btn { max-width: 100%; white-space: normal; }
-.pl-quick { display: grid; gap: 5px; }
-.pl-quick h3 { margin: 0; }
-.pl-quick-item { display: inline-flex; gap: 4px; max-width: 100%; }
-.pl-quick-item .btn { white-space: normal; }
-.pl-quick-item .icon-btn { flex: 0 0 44px; }
-.pl-targets { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 190px), 1fr)); gap: 6px; margin: 0; padding: 0; }
-.pl-target { width: 100%; min-height: 48px; display: flex; gap: 8px; padding: 4px 8px; align-items: center; justify-content: flex-start; text-align: left; }
-.pl-target > span { flex: 1 1 0; min-width: 0; overflow-wrap: anywhere; }
-.pl-target > span small { display: block; }
-.pl-target-art { flex: 0 0 36px; width: 36px; height: 36px; }
 .combat-prompt { position: fixed; right: 12px; bottom: max(52px, env(safe-area-inset-bottom)); z-index: 43; box-shadow: 0 4px 16px #000a; }
 body:has(.tp-combat) :is(.combat-prompt, .roll-fab, .ini-prompt), .combat-prompt[hidden] { display: none; }
 .die-faces { display: grid; grid-template-columns: repeat(var(--faces-cols), minmax(0, 1fr)); gap: 6px; }
@@ -289,28 +242,6 @@ body:has(.tp-combat) :is(.combat-prompt, .roll-fab, .ini-prompt), .combat-prompt
 .prep-prompts { display: grid; gap: 6px; margin: 8px 12px 0; }
 .prep-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
 .prep-prompt b { flex: 1; }
-.rxp { display: grid; grid-template-columns: minmax(0, 1fr); gap: 8px; padding: 10px; background: var(--c-panel); border: 1px solid var(--c-line-2); border-radius: var(--r-2); }
-.rxp[hidden] { display: none; }
-.rxp-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
-.rxp-step { text-transform: uppercase; font-size: 12px; letter-spacing: 0.06em; padding: 1px 8px; border-radius: 999px; background: var(--c-accent); color: var(--c-accent-ink); font-weight: 700; }
-.rxp-dots { display: inline-flex; gap: 4px; align-items: center; }
-.rxp-dots i { width: 14px; height: 14px; border-radius: 50%; background: var(--c-accent, #ff2fb9); display: inline-block; }
-.rxp-hint { margin: 0; font-size: 14px; color: var(--c-dim, #aaa); }
-.rxp-alert { margin: 0; font-weight: 700; color: #ffb020; }
-.rxp-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
-.rxp-list li { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 6px; }
-.rxp-mini { display: inline-flex; gap: 4px; }
-.rxp-btns { display: flex; flex-wrap: wrap; gap: 8px; }
-.rxp-btns .btn { min-height: 44px; }
-.rxp-deg { font-weight: 700; }
-.rx-deg-crit, .rx-deg-amazing, .rx-deg-success { color: #3ddc5f; }
-.rx-deg-near { color: #ffb020; }
-.rx-deg-fail, .rx-deg-major, .rx-deg-critfail { color: #ff2448; }
-.rxp-pad { display: grid; gap: 8px; }
-.rxp-pad p { margin: 0; font-weight: 700; }
-.rxp-pad { scroll-margin-top: calc(var(--ph-top-h, 110px) + 50px); }
-.rxp-btns .rxp-opt { display: grid; justify-content: stretch; justify-items: start; text-align: left; white-space: normal; gap: 2px; flex: 1 1 100%; min-width: 0; padding-block: 6px; line-height: 1.2; }
-.rxp-opt small { font-weight: 400; opacity: 0.8; font-size: 12px; }
 .rp-note { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: rgba(58, 141, 255, 0.12); border: 1px solid rgba(58, 141, 255, 0.45); font-size: 14px; }
 .ivn { position: fixed; left: 10px; right: 10px; bottom: 84px; z-index: 60; display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--c-panel, #15121f); border: 2px solid #3a8dff; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); }
 .ivn p { margin: 0; }

@@ -1151,7 +1151,7 @@ var msgCenter = createMsgCenter({
   getView: () => view,
   onUnread: (n) => { for (const id of ['#msg-badge', '#msg-badge-b']) { const b = $(id); if (b) { b.hidden = !n; b.textContent = n > 99 ? '99+' : String(n); } } },
 });
-$('#view-messages').append(h('div.view-head', h('h1', 'Messages'), h('span.dim', 'Private lines, groups and the whole table. Crawlers can answer, react and write to each other; you see everything.')), msgCenter.el);
+$('#view-messages').append(h('div.view-head', h('h1', 'Messages')), msgCenter.el);
 
 $('#hud-crawlers')?.addEventListener('change', (e) => act({ t: 'crawlers.set', shown: e.target.checked }, e.target.checked ? 'Counter on the TV.' : 'Counter hidden.'));
 

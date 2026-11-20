@@ -4,7 +4,7 @@ import {
 } from './client.js';
 import { createSheet, localRolls, onLocalRoll } from './sheet.js';
 import { createMapView } from './map-view.js';
-import { createRxPhone } from './rx-phone.js';
+import { combatBlocked, createRxPhone, reactionControls } from './rx-phone.js';
 import { openBuilder as openPlainBuilder } from './builder.js';
 import { openCreator, hasCreator } from './creator.js';
 // Rulesets with guided creation (ruleset.creation) get the step-by-step creator; others the plain builder.
@@ -13,7 +13,7 @@ import { createDiceLog, showRollCard } from './dicelog.js';
 import { icon, applyTheme, toggleTheme, applyAccent, applyPackTheme, openDrawer, closeDrawer, dieFaces, spellCooldownHint } from './ui.js';
 import { playerEditLevel } from './rules.js';
 import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
-import { createMsgCenter } from './msgcenter.js';
+import { createMsgCenter, threadKey } from './msgcenter.js';
 import { createRollPad } from './rollpad.js';
 
 const $ = (s, r = document) => r.querySelector(s);
@@ -47,6 +47,9 @@ export const ext = { hosted: false, saveNotes: null };
 let view = null;
 let me = null;
 let everJoined = false;
+let resumePhoneFight = false;
+let phoneFight = null;
+let phoneTargets = new Set();
 
 function remember(campaignName) {
   store.set('localStorage', KEY, JSON.stringify({ room, pin, campaignName }));
@@ -248,6 +251,7 @@ client.on('status', (s) => {
 
 client.on('welcome', (m) => {
   everJoined = true;
+  resumePhoneFight = true;
   if (!ext.hosted) remember(m.view?.campaign?.name);
   // Keep the personal link in the address bar so "Add to Home Screen" saves it.
   if (token && !location.pathname.startsWith('/p/')) {
@@ -291,7 +295,7 @@ client.on('event', (e) => {
     const self = view?.combat?.combatants.find((x) => x.type === 'crawler' && x.playerId === me.id);
     if (self && e.targets?.includes(self.uid)) {
       buzz([50, 45, 100]);
-      toast('You are targeted. Open Combat to react before the attacks land.', { ms: 6000 });
+      if (!phoneMq.matches) toast('You are targeted. Open Combat to react before the attacks land.', { ms: 6000 });
     }
     return;
   }
@@ -318,17 +322,8 @@ client.on('event', (e) => {
     else if (e.next?.playerId === me.id) { buzz(30); toast("You're next", { ms: 3000 }); }
     return;
   }
-  if (e.kind === 'message' && e.fromId && e.fromId !== 'gm') {
-    // Crawler chatter: no takeover, a nudge unless the conversation is already open.
-    if (e.fromId !== me.id && !msgCenter.el.isConnected) { buzz(12); toast(`${e.from || 'A crawler'} wrote ${e.to === 'all' ? 'to everyone' : 'to you'}`); }
-    return;
-  }
   if (e.kind === 'secret' || e.kind === 'message') {
-    // Group messages may target everyone (no playerId, or a list). The text arrives in the next view.
-    const forMe = !e.playerId || e.playerId === me.id || (Array.isArray(e.to) && (e.to.includes(me.id) || e.to.includes('all'))) || e.to === 'all' || e.group;
-    // The server sends `message` (new) and, for private ones, the legacy `secret` too: handle each message once.
-    const mid = e.kind === 'message' ? e.id : (e.messageId || e.id);
-    if (forMe && !seenMsgs.has(mid)) { seenMsgs.add(mid); awaitMessage(e); }
+    notifyMessage(e);
     return;
   }
   if (e.playerId !== me.id) return;
@@ -474,20 +469,21 @@ const sheet = createSheet({
   onRoll: (what, label) => rollPad.open(what, label),
   rollsOn: diceOn,
   extraTabs: () => (me ? [
-    { id: 'combat', label: 'Combat', phoneSection: true, render: () => combatPanel },
+    { id: 'combat', label: 'Combat', phonePage: true, badge: combatAttention(), render: () => combatPanel },
     { id: 'ach', label: 'Achievements', count: me.achievements?.length || '', sig: achSig(), render: renderAchievements },
-    { id: 'msg', label: 'Messages', badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
+    { id: 'msg', label: 'Messages', phonePage: true, badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
     ...((view?.maps || []).length ? [{ id: 'maps', label: 'Maps', count: view.maps.length, sig: JSON.stringify(view.maps), render: renderMaps }] : []),
   ] : []),
   onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act, allowOrigins: !!view?.session?.permissions?.allowOrigins }),
   // Phones: app layout (sticky crawler bar, section tabs); the app bar items move into the menu.
   phone: () => phoneMq.matches,
+  onPhonePage: () => { if (me) renderStart(); },
   top: () => [h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
     h('span.ph-crawlers.js-crawlers', { 'data-fmt': 'compact', title: 'Crawlers still alive in the dungeon' })],
   moreItems: () => [
     { icon: 'dice', label: 'Dice on this phone', sub: DICE_LABEL[me?.diceMode ?? 'enter'], onClick: () => setDiceMode({ off: 'enter', enter: 'digital', digital: 'off' }[me?.diceMode ?? 'enter']) },
     { icon: 'dice', label: 'Dice log', sub: 'Every roll at the table', onClick: () => setLogOpen(true) },
-    { icon: 'book', label: 'Rules', sub: view?.pack?.ruleset?.system?.short || 'How this game is played', onClick: openRules },
+    { icon: 'book', label: 'Rules', sub: view?.pack?.ruleset?.system?.short || 'How this game is played', navigationDrawer: true, onClick: openRules },
     // Printable cheat sheets from the pack (pack.json "cheats", player ones only).
     ...(view?.pack?.cheats || []).map((c) => ({ icon: 'info', label: c.label, sub: 'Cheat sheet: one page, also printable', onClick: () => window.open(c.url, '_blank', 'noopener') })),
     { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
@@ -495,17 +491,61 @@ const sheet = createSheet({
   ].filter(Boolean),
 });
 // Combat is a sheet tab on small and large screens. Keep the reaction panel mounted while it updates.
-const rxPhone = createRxPhone({ send: (a) => client.send(a), toast, onAttack: () => rollPad.openPicker({ attacksOnly: true }) });
+const rxPhone = createRxPhone({ send: (a) => client.send(a), toast });
 const combatBar = h('div.pl-combat-bar');
+const combatActions = h('div.pl-combat-actions');
+const combatHistory = h('section.pl-combat-recent');
 const combatRoster = h('div.pl-combat-roster');
-const combatPanel = h('section.pl-combat', { 'aria-label': 'Combat' }, combatBar, rxPhone.el, combatRoster);
+const combatPanel = h('section.pl-combat', { 'aria-label': 'Combat' }, combatBar, rxPhone.el, combatActions, combatHistory, combatRoster);
 const combatPrompt = h('button.btn.btn-primary.combat-prompt', { type: 'button', hidden: true, onclick: openCombat }, icon('swords', { size: 18 }), 'Under attack · Combat');
 document.body.append(combatPrompt);
 let combatKey = '';
 
-function openCombat() {
+function closePhoneNavigationOverlays() {
+  if (document.querySelector('dialog[data-phone-navigation][open]')) closeDrawer();
+  if (document.body.classList.contains('log-open')) setLogOpen(false);
+}
+
+function openCombat({ automatic = false } = {}) {
+  if (automatic && phoneMq.matches) { closePhoneNavigationOverlays(); markStartSeen(); }
   sheet.setTab('combat');
-  if (phoneMq.matches) combatPanel.scrollIntoView({ block: 'start' });
+}
+
+function combatMember() {
+  return view?.combat?.active ? view.combat.combatants.find((x) => x.type === 'crawler' && x.playerId === me?.id) : null;
+}
+
+function incomingAttacks(member = combatMember()) {
+  const rx = view?.combat?.rx;
+  return member && rx?.step === 'react' ? rx.decls.filter((d) => d.targetUid === member.uid && !d.caught && !d.result) : [];
+}
+
+function combatAttention() {
+  const member = combatMember();
+  if (!member || member.down || member.dead || member.dying != null) return 0;
+  return incomingAttacks(member).filter((d) => !d.evade || d.canReroll).length;
+}
+
+function syncPhoneNavigation(force = false) {
+  const member = combatMember();
+  const key = member ? JSON.stringify([view.campaign?.id, me.id, member.uid]) : null;
+  const incoming = incomingAttacks(member);
+  const begin = !!key && key !== phoneFight;
+  const retargeted = incoming.some((d) => !phoneTargets.has(d.id));
+  const ended = !!phoneFight && !key;
+  const resume = resumePhoneFight;
+  resumePhoneFight = false;
+  phoneFight = key;
+  phoneTargets = new Set(incoming.map((d) => d.id));
+  if (!phoneMq.matches) return;
+  if (key && (begin || force || resume || retargeted)) openCombat({ automatic: true });
+  else if (ended) { closePhoneNavigationOverlays(); sheet.setTab('sheet'); }
+}
+
+const COMBAT_PHASES = { declare: 'Mobs choose', react: 'React', resolve: 'Hits land', act: 'Crawlers act', cleanup: 'Clean up' };
+
+function combatChoices(title, rows) {
+  return openDrawer({ title, body: h('div.pl-combat-choices', rows) });
 }
 
 function drawCombat() {
@@ -513,64 +553,115 @@ function drawCombat() {
   const own = c?.combatants?.find((x) => x.type === 'crawler' && x.playerId === me.id);
   const active = !!c?.active;
   const rx = c?.rx;
+  const reaction = reactionControls(view, me);
+  const rs = view?.pack?.ruleset;
+  const reactionRules = rs?.combat?.flow === 'reaction';
   const standing = own && !own.down && !own.dead && own.dying == null;
   const targeted = active && standing && rx?.step === 'react' && rx.decls.some((d) => d.targetUid === own.uid && !d.result && !d.caught && (!d.evade || d.canReroll));
   combatPrompt.hidden = !targeted;
   rxPhone.update(view, me);
-  const mobs = active ? c.combatants.filter((x) => x.type === 'mob') : [];
+  const step = rx?.step ?? (active ? 'active' : 'idle');
+  combatPanel.dataset.combatStep = step;
   const isMyTurn = c?.init?.turnUid === own?.uid && !!own;
-  const canStrike = active && standing && (!rx || (rx.step === 'act' && (rx.acts[own.uid] ?? 2) > 0));
-  const hasSpells = !!me.sheet?.spells?.length;
-  const rs = view?.pack?.ruleset;
-  const canUse = rx && standing && (rx.acts[own.uid] + (rx.nonAttackActions?.[own.uid] ?? 0)) > 0;
+  const classicAct = active && !reactionRules && !rx && (!c.init?.on || isMyTurn);
+  const mayAct = active && standing && (reaction ? reaction.act && reaction.canAct : classicAct && !combatBlocked(view, me, 'action'));
+  const canStrike = mayAct && (!reaction || reaction.left > 0);
+  const interrupt = reaction?.react && reaction.canInterrupt;
+  const available = mayAct && (!reaction || reaction.left + reaction.extra > 0);
+  const mayCast = !combatBlocked(view, me, 'spell') && (available || !!interrupt);
+  const mayUse = !combatBlocked(view, me, 'action') && (available || !!interrupt);
+  const hotlist = !!rs?.hotlist?.combat;
   const ready = new Set(me.sheet?.hotlist ?? []);
-  const hpTrack = rs?.tracks?.find((t) => t.kind === 'slots')?.id;
-  const quickItems = rs?.hotlist?.combat && canUse ? (me.sheet?.inventory ?? []).filter((i) => ready.has(i.uid) && i.use
-    && (rx.step === 'act' || (rx.step === 'react' && i.tags?.includes('potion') && i.use.heal?.track === hpTrack))) : [];
-  const quickSpells = rs?.hotlist?.combat && canUse ? (me.sheet?.spells ?? []).filter((s) => ready.has(s.uid) && !s.attackCheck
-    && (rx.step === 'act' || (rx.step === 'react' && (s.healing || s.tags?.includes('interrupt'))))) : [];
+  const hpTrack = rs?.tracks?.find((t) => t.id === 'hp') ?? rs?.tracks?.[0];
+  const potionTrack = rs?.tracks?.find((t) => t.kind === 'slots')?.id;
+  const health = own ? { cur: own.hp, max: own.hpMax, slotValue: own.slotValue } : me.sheet?.computed?.tracks?.[hpTrack?.id];
+  const quickItems = mayUse && hotlist ? (me.sheet?.inventory ?? []).filter((i) => ready.has(i.uid) && i.use
+    && (!reaction?.react || (i.tags?.includes('potion') && i.use.heal?.track === potionTrack))) : [];
+  const quickSpells = mayCast ? (me.sheet?.spells ?? []).filter((s) => (!hotlist || ready.has(s.uid))
+    && (s.attackCheck ? canStrike : !reaction?.react || s.healing || s.tags?.includes('interrupt'))) : [];
   const mana = me.sheet?.computed?.tracks;
   const costs = me.sheet?.computed?.spells;
+  const basicHeal = reaction && mayCast && reaction.canInterrupt ? rs?.combat?.healSpell : null;
   const needsInitiative = waitingForMe();
-  const key = JSON.stringify([active, own?.uid, own?.down, c?.round, c?.phase, isMyTurn, canStrike, hasSpells, needsInitiative, mobs, quickItems, quickSpells, mana, costs]);
+  const mobs = active ? (c.combatants ?? []).filter((m) => m.type === 'mob' && !m.down) : [];
+  const advantages = (rx?.advantage ?? []).filter((a) => a.uid === own?.uid);
+  const history = (c?.history ?? []).slice(0, 5);
+  const phaseLabel = COMBAT_PHASES[step] ?? (isMyTurn ? 'Your turn' : active ? c.phase || 'Fight in progress' : 'No active fight');
+  const key = JSON.stringify([step, active, own?.uid, own?.dying, own?.dead, health, c?.round, phaseLabel, needsInitiative, canStrike,
+    reaction?.left, reaction?.extra, reaction?.canHelp, reaction?.canDoSomething, mayCast, mayUse, quickSpells, quickItems, basicHeal, mana, costs, advantages, mobs, history]);
   if (key === combatKey) return;
   combatKey = key;
-  const quick = [
-    ...quickSpells.map((s) => {
-      const t = costs?.find((row) => row.uid === s.uid);
-      const affordable = (t?.cost.value ?? 0) <= (mana?.[t?.costTrack]?.cur ?? 0);
+
+  const current = health?.cur ?? 0;
+  const max = health?.max ?? 0;
+  const percent = max ? Math.round(100 * current / max) : 0;
+  const hpLabel = health?.slotValue != null ? `${percent}% · ${current}/${max} slots` : `${current}/${max} HP`;
+  const danger = own?.dead ? 'Dead' : own?.dying != null ? `Dying · ${own.dying} round${own.dying === 1 ? '' : 's'} left` : own?.down ? 'Down' : null;
+  const pips = reaction ? Math.max(rx.surprised && rx.round === 0 ? 1 : 2, reaction.left) : 0;
+  combatBar.replaceChildren(...[h('div.pl-combat-health', { 'data-danger': danger ? 'true' : null },
+    h('div.pl-health-meta', h('h2', 'Health'), h('b', hpLabel), danger ? h('span.pl-health-danger', danger) : null),
+    h('div.pl-health-fill', { role: 'meter', 'aria-label': 'Health', 'aria-valuemin': 0, 'aria-valuenow': current, 'aria-valuemax': max },
+      h('i', { style: { width: `${percent}%` } })),
+    h('div.pl-phase-row', h('span', active ? `${rx?.round === 0 ? 'Surprise' : `Round ${c.round}`} · ${phaseLabel}` : phaseLabel),
+      reaction ? h('div.pl-remaining', { 'aria-label': 'Actions remaining' },
+        h('span.pl-pips', { 'aria-hidden': 'true' }, Array.from({ length: pips }, (_, i) => h('i', { class: i < reaction.left ? 'ready' : null }))),
+        h('span', `${reaction.left} left${reaction.extra ? ` + ${reaction.extra} utility` : ''}`)) : null)),
+    active && !own ? h('p.dim', 'The GM can add you to this fight.') : null,
+    active && own && !rx && reactionRules ? h('p.dim', 'Waiting for the GM to start the round.') : null].filter(Boolean));
+
+  const action = (label, glyph, enabled, onclick, primary = false) => h('button.btn.pl-fight-action', {
+    type: 'button', class: primary && enabled ? 'btn btn-primary pl-fight-action' : null, disabled: !enabled, onclick,
+  }, icon(glyph, { size: 19 }), label);
+  function pickSpell() {
+    const rows = quickSpells.map((s) => {
+      const t = costs?.find((x) => x.uid === s.uid);
+      const affordable = (t?.cost?.value ?? 0) <= (mana?.[t?.costTrack]?.cur ?? 0);
       const cooldown = spellCooldownHint(t?.cooldown);
-      return h('button.btn', { type: 'button', disabled: !affordable || !!cooldown, onclick: () => sheet.castReadySpell(s.uid) },
-        icon('bolt', { size: 14 }), cooldown ? `${s.name} · ${cooldown}` : s.name);
-    }),
-    ...quickItems.map((i) => h('div.pl-quick-item',
-      h('button.btn', { type: 'button', onclick: () => sheet.useReadyItem(i.uid) }, `${i.name} · ${i.qty}`),
-      i.tags?.includes('potion') ? h('button.icon-btn', {
-        type: 'button', 'aria-label': `Give ${i.name} to an ally`, onclick: () => sheet.choosePotionRecipient(i.uid),
-      }, icon('users', { size: 15 })) : null)),
-  ];
-  combatBar.replaceChildren(h('div.pl-combat-head', h('h2', 'Combat'),
-    !active || rx ? null : h('span.pill', isMyTurn ? 'Your turn' : c.init?.on ? `Round ${c.round} · ${c.phase || 'Initiative'}` : `Round ${c.round}`)),
-    !active ? h('p.dim', 'The GM hasn’t started a fight yet.') : !own ? h('p.dim', 'You haven’t joined this fight.') : null,
-    active && own ? h('div.pl-combat-actions',
-      needsInitiative ? h('button.btn.btn-primary', { type: 'button', onclick: initPrompt }, 'Roll initiative') : null,
-      canStrike && !rx ? h('button.btn.btn-primary', { type: 'button', onclick: () => rollPad.openPicker({ attacksOnly: true }) }, icon('swords', { size: 16 }), 'Attack') : null,
-      hasSpells ? h('button.btn', { type: 'button', onclick: () => sheet.setTab('spells') }, 'Spells') : null,
-      h('button.btn', { type: 'button', onclick: () => sheet.setTab('inventory') }, 'Inventory')) : null,
-    quick.length ? h('section.pl-quick', { 'aria-label': 'Hotlist' }, h('h3', 'Hotlist'), h('div.pl-combat-actions', quick)) : null);
-  combatRoster.replaceChildren(!active ? '' : h('h3', 'Targets'),
-    active && !mobs.length ? h('p.dim', 'No revealed enemies.') : '',
-    mobs.length ? h('ul.pl-targets', mobs.map((m) => {
-      const label = m.down ? 'Defeated' : m.hpMax != null ? `${m.hp}/${m.hpMax} ${m.slotValue != null ? 'slots' : 'HP'}` : `${Math.round(100 * (m.hpPct ?? 1))}%`;
+      return h('button.btn', { type: 'button', disabled: !affordable || !!cooldown, onclick: () => {
+        closeDrawer();
+        if (s.attackCheck) rollPad.open({ kind: 'spell', uid: s.uid }, `${s.name} to hit`);
+        else sheet.castReadySpell(s.uid);
+      } }, s.name, cooldown ? h('small', cooldown) : !affordable ? h('small', 'Not enough Mana') : null);
+    });
+    if (basicHeal) rows.unshift(h('button.btn', { type: 'button', disabled: (mana?.[basicHeal.track]?.cur ?? 0) < basicHeal.mana,
+      onclick: async () => {
+        try { await client.send({ t: 'rx.interrupt', kind: 'heal' }); closeDrawer(); }
+        catch (err) { toast(err.message, { error: true }); }
+      } }, 'Heal', h('small', `${basicHeal.mana} Mana · ${basicHeal.slots} slots`)));
+    combatChoices('Spells', rows);
+  }
+  function pickItem() {
+    if (!hotlist) { sheet.setTab('inventory'); return; }
+    combatChoices('Hotlist', quickItems.map((i) => h('div.pl-quick-item',
+      h('button.btn', { type: 'button', onclick: () => { closeDrawer(); sheet.useReadyItem(i.uid); } }, `${i.name} · ${i.qty}`),
+      i.tags?.includes('potion') ? h('button.icon-btn', { type: 'button', 'aria-label': `Give ${i.name} to an ally`,
+        onclick: () => { closeDrawer(); sheet.choosePotionRecipient(i.uid); } }, icon('users', { size: 17 })) : null)));
+  }
+
+  combatActions.replaceChildren(...[needsInitiative ? h('button.btn.btn-primary', { type: 'button', onclick: initPrompt }, 'Roll initiative') : null,
+    active && own ? h('div.pl-action-grid',
+      action('Attack', 'swords', canStrike, () => rollPad.openPicker({ attacksOnly: true }), true),
+      action('Spell', 'bolt', quickSpells.length || basicHeal, pickSpell),
+      action(hotlist ? 'Item (Hotlist)' : 'Item', 'gift', hotlist ? quickItems.length : mayUse, pickItem),
+      action('Help a friend', 'users', reaction?.canHelp, rxPhone.showHelp),
+      action('Something else', 'more', reaction ? reaction.canDoSomething : mayAct, reaction ? rxPhone.showUtility : () => rollPad.openPicker())) : null,
+    rx?.step === 'act' && advantages.length ? h('p.pl-combat-adv', `Advantage against ${advantages.map((a) => a.mob).join(', ')}. Roll 2d20 and keep the higher.`) : null].filter(Boolean));
+  combatHistory.replaceChildren(h('h3', 'Recent combat'), history.length ? h('ol.pl-combat-history', { 'aria-label': 'Recent combat' }, history.map((row) => h('li', { 'data-result-kind': row.kind },
+    h('strong', row.label), row.detail || row.result ? h('span.dim', row.detail || row.result) : null))) : h('p.dim', 'Your results appear here.'));
+  const existingTargets = combatRoster.querySelector('details')?.open;
+  combatRoster.replaceChildren(...(mobs.length ? [h('details.pl-target-book', { open: existingTargets || null }, h('summary', `Targets (${mobs.length})`),
+    h('ul.pl-targets', mobs.map((m) => {
+      const label = m.hpMax != null ? `${m.hp}/${m.hpMax} ${m.slotValue != null ? 'slots' : 'HP'}` : `${Math.round(100 * (m.hpPct ?? 1))}%`;
       const body = [itemArt({ name: m.name, image: m.image }, 'pl-target-art'), h('span', h('b', m.name), h('small.dim', label))];
-      return h('li', canStrike && !m.down
-        ? h('button.btn.pl-target', { type: 'button', 'aria-label': `Attack ${m.name}`, onclick: () => rollPad.openPicker({ target: m.uid, attacksOnly: true }) }, body, icon('chevron', { size: 15 }))
-        : h('div.pl-target', body));
-    })) : '');
+      return h('li', canStrike ? h('button.btn.pl-target', { type: 'button', 'aria-label': `Attack ${m.name}`,
+        onclick: () => rollPad.openPicker({ target: m.uid, attacksOnly: true }) }, body, icon('chevron', { size: 15 })) : h('div.pl-target', body));
+    })))] : []));
 }
+
 const phoneMq = matchMedia('(max-width: 699px)');
-phoneMq.addEventListener?.('change', () => { if (me) sheet.redraw(); });
+phoneMq.addEventListener?.('change', () => { if (me) { sheet.redraw(); syncPhoneNavigation(true); renderStart(); } });
 $('#sheet-root').append(sheet.el);
+$('#app').append(sheet.phoneNav);
 
 const diceLog = createDiceLog({
   gm: false,
@@ -617,6 +708,7 @@ function render() {
   renderPrivateChecks();
   drawCombat();
   sheet.update(view, me);
+  syncPhoneNavigation();
   iniPrompt.hidden = !waitingForMe();
   if (initWanted && waitingForMe()) { initWanted = 0; initPrompt(); } else if (initWanted && Date.now() - initWanted > 10_000) initWanted = 0;
   if (!waitingForMe()) document.querySelector('.ini-pad')?.remove();
@@ -707,21 +799,28 @@ function intervenePrompt(r) {
 /* ---------- first visit: friendly start instead of an empty sheet ---------- */
 
 const startKey = () => `system.startSeen.${me?.id}`;
+const startSeen = new Set();
+function markStartSeen() {
+  if (!me) return;
+  startSeen.add(me.id);
+  try { sessionStorage.setItem(startKey(), '1'); } catch { /* storage unavailable */ }
+}
 function renderStart() {
   const sh = me.sheet || {};
   // Fresh = nothing chosen yet. The starter attack (ruleset combat.starterAttack) does not count as chosen.
   const starter = view?.pack?.ruleset?.combat?.starterAttack?.skill;
   const ownSkills = (sh.skills || []).filter((s) => !starter || s.skillId !== starter);
   const empty = !!me.sheet && !sh.created && !sh.identity?.race && !sh.identity?.class && !ownSkills.length && !(sh.inventory || []).length;
-  let seen = false;
-  try { seen = sessionStorage.getItem(startKey()) === '1'; } catch {}
+  let seen = startSeen.has(me.id);
+  try { seen ||= sessionStorage.getItem(startKey()) === '1'; } catch { /* storage unavailable */ }
   const box = $('#start');
   const show = empty && !seen;
   box.hidden = !show;
   $('#sheet-root').hidden = show;
   // Guided creation not finished yet: a strip above the sheet brings it back (draft kept on the phone).
   let strip = document.getElementById('cr-banner');
-  const wantStrip = !show && !!view?.pack?.ruleset?.creation && !sh.created && playerEditLevel(view) === 'sheet';
+  const wantStrip = !show && (!phoneMq.matches || sheet.currentPage() === 'sheet')
+    && !!view?.pack?.ruleset?.creation && !sh.created && playerEditLevel(view) === 'sheet';
   if (wantStrip && !strip) {
     strip = h('div.cr-banner#cr-banner', icon('info', { size: 16 }), h('span', 'Your crawler is not finished: background, weapon, stats, stuff.'),
       h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => { const M = sheet.model(); if (M) openBuilder({ model: M, player: me, gm: false, act: sheet.act }); } }, 'Continue'));
@@ -734,7 +833,7 @@ function renderStart() {
   const sig = JSON.stringify([name, lvl, me.color]);
   if (box.dataset.sig === sig) return;
   box.dataset.sig = sig;
-  const look = () => { try { sessionStorage.setItem(startKey(), '1'); } catch {} renderStart(); };
+  const look = () => { markStartSeen(); renderStart(); };
   box.replaceChildren(h('div.start-inner', { style: { '--me': me.color || 'var(--c-accent)' } },
     h('p.start-k', sysName()),
     h('h1.start-t', `Welcome, ${name}.`),
@@ -787,16 +886,16 @@ function renderAchievements() {
 
 const sysName = () => view?.pack?.systemName || 'The System';
 const myMessages = () => me?.messages || me?.secrets || [];
-const isGroup = (m) => !!(m.group || m.to === 'all' || (Array.isArray(m.to) && m.to.includes('all')));
 const unreadCount = () => myMessages().filter((m) => !m.read && m.fromId !== me?.id).length;
 const msgSig = () => JSON.stringify(myMessages().map((m) => [m.id, m.read]));
 // Message centre: conversations with the GM and the other crawlers (the Messages tab).
 const msgCenter = createMsgCenter({ role: 'player', send: (a) => client.send(a), getView: () => view });
 msgCenter.setVisible(true);
 function renderMessages() {
-  msgCenter.update();
+  queueMicrotask(msgCenter.update);
   return msgCenter.el;
 }
+document.addEventListener('visibilitychange', () => msgCenter.update());
 
 let tickSig = '';
 function renderTicker() {
@@ -811,21 +910,19 @@ function renderTicker() {
 }
 
 const seenMsgs = new Set();
-function awaitMessage(e) {
-  const known = new Set(myMessages().map((m) => m.id));
-  const deliver = () => {
-    const list = myMessages();
-    const mid = e.kind === 'message' ? e.id : (e.messageId || e.id);
-    const m = list.find((x) => x.id === mid)
-      || [...list].reverse().find((x) => !known.has(x.id))
-      || [...list].reverse().find((x) => !x.read)
-      || (e.text ? { text: e.text, from: e.from, group: e.group } : null);
-    const grp = e.group ?? (m ? isGroup(m) : false);
-    enqueueTakeover({ ...e, kind: 'secret', _group: grp, _msg: m });
-  };
-  let done = false;
-  const off = client.on('view', () => { if (!done) { done = true; off(); setTimeout(deliver, 0); } });
-  setTimeout(() => { if (!done) { done = true; off(); deliver(); } }, 600);
+function notifyMessage(e) {
+  const legacy = e.kind === 'secret';
+  const id = legacy ? (e.messageId || e.id) : e.id;
+  const addressed = legacy ? e.playerId === me.id : e.to === 'all' || (Array.isArray(e.to) && e.to.includes(me.id));
+  if (!addressed || !id || e.fromId === me.id || seenMsgs.has(id)) return;
+  seenMsgs.add(id);
+  if (seenMsgs.size > 400) seenMsgs.delete(seenMsgs.values().next().value);
+  const thread = legacy ? me.id : threadKey(e.to);
+  const privateLine = thread === me.id;
+  if (privateLine) buzz([200, 100, 200]);
+  if (msgCenter.isReading(thread)) return;
+  if (privateLine) toast('Private message from the GM.');
+  else toast(thread === 'all' ? 'New message to everyone.' : 'New group message.');
 }
 
 let lastRecap = null;
@@ -857,7 +954,6 @@ function nextTakeover() {
   const el = $('#takeover');
   if (!e) { toBusy = false; el.hidden = true; el.replaceChildren(); return; }
   toBusy = true;
-  el.classList.remove('banner');
   const reduced = prefersReducedMotion();
   el.hidden = false;
   el.onclick = null;
@@ -919,36 +1015,6 @@ function nextTakeover() {
     ));
     el.querySelector('.sys-scroll')?.addEventListener('click', (ev) => ev.stopPropagation());
     dismissable(reduced ? 200 : 1500);
-  } else if (e.kind === 'secret' && e._group) {
-    buzz([80, 60, 80]);
-    el.style.setProperty('--glow', 'var(--magenta)');
-    el.classList.add('banner');
-    const close = () => { if (el.classList.contains('banner')) { el.classList.remove('banner'); nextTakeover(); } };
-    el.replaceChildren(h('div.to-banner',
-      h('span.tag', 'TO ALL CRAWLERS'),
-      h('p.bn-from', e._msg?.from || sysName()),
-      h('p.bn-text', e._msg?.text || 'New message for everyone.'),
-      h('p.to-hint', 'Tap to close'),
-    ));
-    el.onclick = close;
-    setTimeout(close, Math.min(14000, 5000 + (e._msg?.text || '').split(/\s+/).length * 250));
-  } else if (e.kind === 'secret') {
-    buzz([200, 100, 200]);
-    el.style.setProperty('--glow', 'var(--magenta)');
-    el.replaceChildren(h('div.to-inner',
-      h('div.envelope', { 'aria-hidden': 'true' }, '✉'),
-      h('div.to-kicker', { style: { background: 'var(--magenta)' } }, 'Private message'),
-      h('p', 'Someone wants a word. Only you can read it.'),
-      h('button.btn.btn-hot', {
-        type: 'button',
-        onclick: (ev) => {
-          ev.stopPropagation();
-          sheet.setTab('msg');
-          nextTakeover();
-        },
-      }, 'Open messages'),
-    ));
-    dismissable(400);
   } else {
     nextTakeover();
   }

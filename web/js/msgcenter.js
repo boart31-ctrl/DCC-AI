@@ -22,7 +22,10 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
   let draftIds = null; // a new group being picked (ids)
   let paletteFor = null; // message id whose reaction palette is open
   let stickersOpen = false;
-  const reading = new Set();
+  let sending = false;
+  const requestedReads = new Set();
+  const drafts = new Map();
+  const groupDraft = Symbol('group draft');
 
   const v = () => getView() || {};
   const meId = () => (gm ? 'gm' : v().me?.id);
@@ -57,28 +60,26 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
     return ids.length > 1 ? h('span.mc-av-stack', a, h('span.mc-av-n', `+${ids.length - 1}`)) : a;
   }
 
-  /** Conversation list: Everyone, direct lines, then groups; newest activity first after Everyone. */
+  /** Fixed common threads, then the remaining conversations by most recent activity. */
   function threads() {
     const by = new Map();
     const add = (k) => { if (!by.has(k)) by.set(k, { key: k, last: null, unread: 0 }); return by.get(k); };
     add('all');
     if (gm) for (const p of players()) add(p.id);
-    else if (meId()) {
-      add(meId());
-      for (const p of players()) if (p.id !== meId()) add(threadKey([meId(), p.id]));
-    }
+    else if (meId()) add(meId());
     for (const m of msgs()) {
       const t = add(mThread(m));
       t.last = m;
       if (isUnread(m)) t.unread++;
     }
-    const rest = [...by.values()].filter((t) => t.key !== 'all');
+    const pinned = gm || !meId() ? ['all'] : [meId(), 'all'];
+    const rest = [...by.values()].filter((t) => !pinned.includes(t.key));
     rest.sort((a, b) => (b.last?.at || 0) - (a.last?.at || 0) || title(a.key).localeCompare(title(b.key)));
-    return [by.get('all'), ...rest];
+    return [...pinned.map((k) => by.get(k)), ...rest];
   }
 
   /* ---------- shell ---------- */
-  const listEl = h('div.mc-threads', { role: 'list' });
+  const listEl = h('ul.mc-threads', { 'aria-label': 'Conversations' });
   const headEl = h('div.mc-head');
   const feedEl = h('div.mc-feed', { 'aria-live': 'polite' });
   const text = h('textarea.mc-text', { rows: 1, maxlength: 1000, placeholder: 'Write a message', 'aria-label': 'Message' });
@@ -86,7 +87,7 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
   const tvBox = gm ? h('input', { type: 'checkbox' }) : null;
   const tvWrap = gm ? h('label.mc-tv', tvBox, 'Also on the TV') : null;
   const stickerBtn = h('button.btn.btn-quiet.mc-stk-btn', { type: 'button', title: 'Stickers', 'aria-label': 'Stickers', onclick: () => { stickersOpen = !stickersOpen; drawComposer(); } }, icon('sparkle', { size: 18 }));
-  const sendBtn = h('button.btn.btn-primary.mc-send', { type: 'submit' }, icon('chat', { size: 16 }), h('span.mc-send-l', 'Send'));
+  const sendBtn = h('button.btn.btn-primary.mc-send', { type: 'submit', 'aria-label': 'Send' }, icon('chat', { size: 16 }), h('span.mc-send-l', 'Send'));
   const stickerGrid = h('div.mc-stickers', { hidden: true });
   const pausedNote = h('p.mc-paused', { hidden: true });
   const form = h('form.mc-compose', { onsubmit: (e) => { e.preventDefault(); post({ text: text.value }); } },
@@ -97,13 +98,29 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
   text.addEventListener('input', () => { text.style.height = 'auto'; text.style.height = `${Math.min(140, text.scrollHeight)}px`; });
 
   const pauseBtn = gm ? h('button.btn.btn-sm.btn-quiet.mc-pause', { type: 'button', onclick: () => send({ t: 'msg.players', on: !(v().session?.chatPlayers !== false) }).catch((e) => toast(e.message, { error: true })) }) : null;
-  const newBtn = h('button.btn.btn-sm.mc-new', { type: 'button', onclick: () => { draftIds = []; cur = null; draw(); } }, icon('plus', { size: 14 }), 'New group');
+  const newBtn = h('button.btn.btn-sm.mc-new', { type: 'button', onclick: () => select(null, []) }, icon('plus', { size: 14 }), 'New group');
   const side = h('aside.mc-side', h('div.mc-side-head', h('h2', 'Messages'), h('span.grow'), newBtn), listEl, gm ? h('div.mc-side-foot', pauseBtn) : h('p.mc-note', 'The GM can read every conversation.'));
   const main = h('section.mc-main', headEl, feedEl, form);
   const el = h('div.mc', { class: `mc mc-${role}` }, side, main);
 
   /* ---------- actions ---------- */
+  const draftKey = () => draftIds ? groupDraft : cur;
+  function select(k, group = null) {
+    const was = draftKey();
+    if (was && text.value) drafts.set(was, text.value);
+    else drafts.delete(was);
+    cur = k;
+    draftIds = group;
+    paletteFor = null;
+    stickersOpen = false;
+    if (tvBox) tvBox.checked = false;
+    text.value = drafts.get(draftKey()) || '';
+    text.style.height = 'auto';
+    draw();
+  }
+
   async function post({ text: t = '', icon: stk = null }) {
+    if (sending) return;
     const body = t.trim();
     if (!body && !stk) { text.focus(); return; }
     const k = draftIds ? threadKey(gm ? draftIds : [meId(), ...draftIds]) : cur;
@@ -116,27 +133,37 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
       if (tvBox.checked && !tvWrap.hidden) a.onStage = true;
     } else a = { t: 'msg.post', to: k === 'all' ? 'all' : ids.filter((id) => id !== meId()), text: body };
     if (stk) a.icon = stk;
+    const fromDraft = draftKey();
     try {
-      sendBtn.disabled = true;
+      sending = true;
+      drawComposer();
       await send(a);
       buzz(8);
-      if (!stk) { text.value = ''; text.style.height = 'auto'; }
-      if (tvBox) tvBox.checked = false;
-      stickersOpen = false;
-      draftIds = null;
-      cur = k;
-      draw();
-      text.focus();
-    } catch (err) { toast(err.message || 'Could not send', { error: true }); } finally { sendBtn.disabled = false; }
+      if (!stk) drafts.delete(fromDraft);
+      if (draftKey() === fromDraft) {
+        if (!stk) text.value = '';
+        select(k);
+      }
+    } catch (err) {
+      toast(err.message || 'Could not send', { error: true });
+    } finally {
+      sending = false;
+      drawComposer();
+    }
   }
   const react = (m, r) => { paletteFor = null; send({ t: 'msg.react', id: m.id, r }).catch((e) => toast(e.message, { error: true })); buzz(6); };
 
+  function isReading(key) {
+    return visible && key && key === cur && !draftIds && el.isConnected && !el.closest('[hidden]') && document.visibilityState !== 'hidden';
+  }
   function markRead() {
-    if (!visible || !cur || reading.has(cur) || !el.isConnected || el.closest('[hidden]')) return;
-    if (!msgs().some((m) => mThread(m) === cur && isUnread(m))) return;
-    const k = cur;
-    reading.add(k);
-    send(gm ? { t: 'msg.gmRead', thread: k } : { t: 'msg.read', thread: k }).catch(() => {}).finally(() => setTimeout(() => reading.delete(k), 800));
+    if (!isReading(cur)) return;
+    const pending = msgs().filter((m) => mThread(m) === cur && isUnread(m) && !requestedReads.has(m.id));
+    if (!pending.length) return;
+    for (const m of pending) requestedReads.add(m.id);
+    send({ t: gm ? 'msg.gmRead' : 'msg.read', thread: cur }).catch(() => {
+      for (const m of pending) requestedReads.delete(m.id);
+    });
   }
 
   /* ---------- drawing ---------- */
@@ -144,11 +171,15 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
     listEl.replaceChildren(...ts.map((t) => {
       const last = t.last;
       const prev = last ? `${last.fromId === meId() ? 'You' : (last.from || sysName())}: ${last.text || (last.icon ? 'sticker' : '')}` : (t.key === 'all' ? 'The whole party' : 'No messages yet');
-      return h('button.mc-thread', {
-        type: 'button', role: 'listitem', class: `mc-thread${t.key === cur && !draftIds ? ' on' : ''}${t.unread ? ' unread' : ''}`,
-        onclick: () => { cur = t.key; draftIds = null; paletteFor = null; draw(); text.focus({ preventScroll: true }); },
+      const active = t.key === cur && !draftIds;
+      const name = title(t.key);
+      return h('li', h('button.mc-thread', {
+        type: 'button', 'data-thread': t.key, 'aria-current': active ? 'true' : null,
+        'aria-label': t.unread ? `${name}, ${t.unread} unread message${t.unread === 1 ? '' : 's'}` : name,
+        class: `mc-thread${active ? ' on' : ''}${t.unread ? ' unread' : ''}`,
+        onclick: () => select(t.key),
       }, threadAvatar(t.key), h('span.mc-tmeta', h('b', title(t.key)), h('span.mc-prev', prev)),
-      h('span.mc-tside', last ? h('time', timeAgo(last.at)) : null, t.unread ? h('span.mc-badge', String(t.unread)) : null));
+      h('span.mc-tside', last ? h('time', timeAgo(last.at)) : null, t.unread ? h('span.mc-badge', String(t.unread)) : null)));
     }));
   }
 
@@ -157,14 +188,14 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
       const chip = (p) => h('button.chip', { type: 'button', 'aria-pressed': String(draftIds.includes(p.id)), style: { '--cc': p.color }, onclick: () => { draftIds = draftIds.includes(p.id) ? draftIds.filter((x) => x !== p.id) : [...draftIds, p.id]; drawHead(); } }, p.name);
       const pick = players().filter((p) => gm || p.id !== meId());
       headEl.replaceChildren(
-        h('button.btn.btn-quiet.mc-back', { type: 'button', 'aria-label': 'Back', onclick: () => { draftIds = null; cur = null; draw(); } }, icon('back', { size: 18 })),
+        h('button.btn.btn-quiet.mc-back', { type: 'button', 'aria-label': 'Back', onclick: () => select(null) }, icon('back', { size: 18 })),
         h('div.mc-pick', h('b', 'New group: who is in it?'), h('div.chips', pick.length ? pick.map(chip) : h('span.dim', 'No other crawlers yet.')), h('span.dim', gm ? 'Pick two or more for a group, one for a private line.' : 'You and the GM are always in it.')));
       return;
     }
     if (!cur) { headEl.replaceChildren(); return; }
     const n = cur === 'all' ? players().length : threadIds(cur).length;
     headEl.replaceChildren(
-      h('button.btn.btn-quiet.mc-back', { type: 'button', 'aria-label': 'All conversations', onclick: () => { cur = null; draw(); } }, icon('back', { size: 18 })),
+      h('button.btn.btn-quiet.mc-back', { type: 'button', 'aria-label': 'All conversations', onclick: () => select(null) }, icon('back', { size: 18 })),
       threadAvatar(cur, 32),
       h('div.mc-htitle', h('b', title(cur)), h('span.dim', cur === 'all' ? `Everyone at the table (${n})` : gm ? (n > 1 ? `Group of ${n}` : 'Private line') : (threadIds(cur).length > 1 ? 'The GM sees this too' : 'Private line to the GM'))));
   }
@@ -217,7 +248,8 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
     form.hidden = !on;
     pausedNote.hidden = !paused;
     pausedNote.textContent = 'The GM has paused messages for now.';
-    text.disabled = paused; sendBtn.disabled = paused; stickerBtn.disabled = paused;
+    newBtn.disabled = sending;
+    text.disabled = paused || sending; sendBtn.disabled = paused || sending; stickerBtn.disabled = paused || sending;
     const st = stickers();
     stickerBtn.hidden = !st.length;
     stickerGrid.hidden = !stickersOpen || !st.length;
@@ -226,7 +258,9 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
     }
     const toAll = !draftIds && cur === 'all';
     sendBtn.classList.toggle('mc-send-all', toAll);
-    sendBtn.querySelector('.mc-send-l').textContent = toAll ? 'Send to everyone' : 'Send';
+    const sendLabel = toAll ? 'Send to everyone' : 'Send';
+    sendBtn.querySelector('.mc-send-l').textContent = sendLabel;
+    sendBtn.setAttribute('aria-label', sendLabel);
     if (gm) {
       const group = draftIds ? draftIds.length > 1 : cur === 'all' || (cur && threadIds(cur).length > 1);
       tvWrap.hidden = !group;
@@ -252,9 +286,11 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
 
   function update() {
     const s = JSON.stringify([msgs().map((m) => [m.id, m.read, m.gmRead, m.reactions]), players().map((p) => [p.id, p.name, p.color, !!p.portrait]), v().session?.chatPlayers, cur, !!draftIds]);
-    if (s === sig) return;
+    if (s === sig) { markRead(); return; }
+    const unreadIds = new Set(msgs().filter(isUnread).map((m) => m.id));
+    for (const id of requestedReads) if (!unreadIds.has(id)) requestedReads.delete(id);
+    if (document.activeElement && el.contains(document.activeElement) && document.activeElement.closest('.mc-pick')) { onUnread?.(unread()); return; }
     sig = s;
-    if (document.activeElement && el.contains(document.activeElement) && document.activeElement.closest('.mc-pick')) return;
     draw();
   }
 
@@ -262,7 +298,8 @@ export function createMsgCenter({ role, send, getView, onUnread }) {
     el,
     update,
     unread,
+    isReading,
     setVisible(on) { visible = on; if (on) { sig = ''; update(); markRead(); } },
-    open(k) { cur = k; draftIds = null; sig = ''; update(); },
+    open(k) { select(k); },
   };
 }
