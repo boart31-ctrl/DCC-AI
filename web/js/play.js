@@ -18,6 +18,9 @@ import { createRollPad } from './rollpad.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
+const phoneMapViews = new Map();
+let phoneMapsEl;
+let phoneMapsSig = '';
 
 /* ---------- room + PIN ---------- */
 
@@ -259,11 +262,17 @@ client.on('welcome', (m) => {
 });
 
 client.on('view', (v) => {
+  const currentMapIds = new Set((v.maps ?? []).map((m) => m.id));
+  for (const [id, row] of phoneMapViews) if (v.campaign?.id !== view?.campaign?.id || !currentMapIds.has(id)) {
+    row.mv.destroy();
+    phoneMapViews.delete(id);
+  }
   view = v;
   const prev = me;
   me = v.me || null;
   if (!me) return;
   render();
+  if (phoneMapsEl?.isConnected) renderMaps();
   msgCenter.update();
   maybeRecap(v.recap);
   replayMissed(v);
@@ -742,15 +751,28 @@ function renderStart() {
 const achSig = () => JSON.stringify(me?.achievements || []);
 /** Maps the GM shared (server/maps.js): revealed part only; with the token layer on, drag your own token. */
 function renderMaps() {
-  return h('div.ph-maps', (view.maps || []).map((m) => {
-    const mv = createMapView({
-      canMoveToken: (t) => m.tokensOn && t.kind === 'pc' && t.ref === me?.id,
-      onTokenMove: (t, x, y) => client.send({ t: 'map.token.move', id: m.id, tokenId: t.id, x, y }).catch((err) => toast(err.message, { error: true })),
-    });
-    mv.set(m, { labels: true });
-    return h('section.ph-map', h('h3', m.name), mv.el,
+  phoneMapsEl ??= h('div.ph-maps');
+  const maps = view.maps ?? [];
+  const sig = JSON.stringify([view.campaign?.id, me?.id, maps]);
+  if (phoneMapsSig === sig) return phoneMapsEl;
+  phoneMapsSig = sig;
+  const renderMap = (m) => {
+    let row = phoneMapViews.get(m.id);
+    if (!row) {
+      row = { map: m };
+      row.mv = createMapView({
+        canMoveToken: (t) => row.map.tokensOn && t.kind === 'pc' && t.ref === me?.id,
+        onTokenMove: (t, x, y) => client.send({ t: 'map.token.move', id: row.map.id, tokenId: t.id, x, y }).catch((err) => toast(err.message, { error: true })),
+      });
+      phoneMapViews.set(m.id, row);
+    }
+    row.map = m;
+    row.mv.set(m, { labels: true });
+    return h('section.ph-map', h('h3', m.name), row.mv.el,
       m.zones.some((z) => z.text) ? h('ul.ph-map-zones', m.zones.filter((z) => z.text).map((z) => h('li', h('b', z.name), h('p', z.text)))) : null);
-  }));
+  };
+  phoneMapsEl.replaceChildren(...(maps.length ? maps.map(renderMap) : [h('p.empty-s', 'No maps shared.')]));
+  return phoneMapsEl;
 }
 
 function renderAchievements() {

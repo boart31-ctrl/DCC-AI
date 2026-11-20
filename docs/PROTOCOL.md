@@ -285,7 +285,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.card.remove` | `id` | |
 | `prep.card.fire` | `id`, `playerId?`, `to?` | Runs the card's action with its payload (`playerId`/`to` override it), marks the card `used`. Same events/voice lines as the underlying action |
 | `prep.adventure.add` | `title`, `template?` | Příprava: new adventure (neighbourhood, quest, dungeon) from an adventure template (default: the pack's flagged one, else built-in `adventure`); ack `result.id`. GM-only data in `view.gm.prep` |
-| `prep.adventure.load` | `id` from `view.gm.prep.adventures` | Copy a pack's ready-made adventure, encounters and optional fog maps into the campaign. Resolve library, loot-tier, encounter and map links atomically. Reopening an existing import keeps GM edits and returns its ID. |
+| `prep.adventure.load` | `id` from `view.gm.prep.adventures` | Copy a pack's ready-made adventure, encounters and fog maps into the campaign. Reopening keeps GM edits and returns the existing ID. Published map art can be upgraded in place, with count in `result.upgradedMaps` when changed. |
 | `prep.session.add` | `title?`, `template?`, `adventureId?`, `carryFrom?` | New session plan from a session template (default: pack's, else `lazy_session`). Unfinished items of `carry` sections are copied from `carryFrom` (default: current session); inherits its adventure unless `adventureId` is given (`null` = none). Becomes current. Ack `result {id, carried}` |
 | `prep.session.current` | `id` (session) or `null` | Marks tonight's plan (drives "Within reach" on the Show tab) |
 | `prep.evening.plan` | `adventureId?`, `key?`, `title?`, `minutes?` (1..1440) | Start tonight's session from a prepared evening in `view.gm.prep.evenings` or from scratch. Installs and links seeds once. A continuation carries unplayed scenes and unrevealed clues. Returns `{id,sceneId}`. |
@@ -507,10 +507,12 @@ manual }` (totals for the GM only); `combat.defenseLabel`; GM `combat.rules`.
 
 `view.maps`: GM = every map in full; TV = only the map on air (scene kind `map`, `data.mapId`); phones = maps with `phones: true` plus the one on air. TV and phones get revealed zones only (`{id, name, shape, text}`, never `notes`), the fog bitmap (`cols × rows`, base64, row-major, LSB first), the tokens that are not hidden and the drawings that are not GM-only (`strokes`). A mob token bound to a combatant (`ref` = uid, set by `enc.run`) is hidden while the mob is hidden and carries `down: true` once it is down or gone. `tokensOn` only lets players drag their own token. Coordinates are 0..1 of the image.
 
+Map views may include an alternate `fallbackImage`. The GM view also includes authored `mobStarts`, used in encounter order when creating tokens. Existing tokens keep their positions. A prepared map can upgrade from its exact published fallback SVG to current art and refit unedited zone geometry while preserving map and zone IDs, reveal state, fog and tokens.
+
 | Action | Payload | Notes |
 |---|---|---|
-| `map.add` | `name`, `image` (https:// or /pack/ URL), `aspect?` (w/h, 0.2..5) | Ack `result.id` |
-| `map.update` | `id`, `name?`, `image?`, `aspect?`, `phones?`, `tokensOn?` | A new aspect resets the fog grid |
+| `map.add` | `name`, `image` (URL, /pack/ or /art/ path), `fallbackImage?`, `aspect?` (w/h, 0.2..5), `mobStarts?` (up to 40 `[x,y]` pairs) | Ack `result.id`. |
+| `map.update` | `id`, `name?`, `image?`, `fallbackImage?`, `aspect?`, `phones?`, `tokensOn?` | A new aspect resamples painted fog at the same relative coordinates. Changing the image clears its old fallback unless one is supplied. `fallbackImage: null` explicitly clears it. |
 | `map.remove` | `id` | |
 | `map.fog` | `id`, `rect {x,y,w,h}` + `reveal` (bool) — or `all` (true reveals everything, false covers it and hides every zone) | Event `map.fog` when the map is on air |
 | `map.zone.add` | `id`, `name`, `shape` (`{x,y,w,h}` or `{points:[[x,y]…]}` 3..40), `text?`, `notes?` | Ack `result.zoneId` |

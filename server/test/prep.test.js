@@ -6,6 +6,7 @@ import { loadPack } from '../pack.js';
 import { serializePack, deserializePack } from '../pack-core.js';
 import { createState, normalizeState, reduce, viewFor, GM_ACTIONS } from '../state.js';
 import { normalizePrepConfig, templatesFor, withinReach, BUILTIN_TEMPLATES, normalizePrep } from '../prep.js';
+import { cellOn, decodeFog, fogRows } from '../maps.js';
 import { tmpDir, writePack, seq } from './fixtures.js';
 
 const PREP = {
@@ -395,4 +396,87 @@ test('prepared map imports are hidden, linked to encounters and preserve existin
   const token = run.state.maps.list[1].tokens[0];
   assert.equal(token.ref, run.result.uids[0]);
   assert.equal(token.hidden, true);
+});
+
+test('official map upgrades refit untouched geometry and restore twice without losing GM changes', () => {
+  const oldImage = '/pack/images/harbour.svg', newImage = '/pack/images/harbour.webp';
+  const oldZones = [
+    { name: 'Gate', shape: { x: 0.1, y: 0.1, w: 0.25, h: 0.25 }, notes: 'GM only' },
+    { name: 'Ramp', shape: { x: 0.5, y: 0.55, w: 0.2, h: 0.35 } },
+  ];
+  const art = { id: 'harbour', name: 'Harbour', image: oldImage, aspect: 1.3, zones: oldZones };
+  const upgradedArt = { ...art, image: newImage, fallbackImage: oldImage, aspect: 16 / 9, legacyZones: oldZones,
+    zones: [
+      { name: 'Gate', shape: { points: [[0.12, 0.12], [0.4, 0.15], [0.25, 0.48]] } },
+      { name: 'Ramp', shape: { x: 0.62, y: 0.55, w: 0.18, h: 0.27 } },
+    ],
+    mobStarts: [[0.2, 0.3], [0.42, 0.43]],
+  };
+  const makePack = (map) => deserializePack(serializePack(loadPack(writePack(tmpDir(), {
+    'adventures.json': [{ id: 'docks', title: 'Docks', maps: [map], sections: [
+      { key: 'route', label: 'Route', kind: 'refs', items: [{ id: 'pier', ref: { kind: 'map', id: 'harbour' } }] },
+    ], encounters: [{ id: 'watch', label: 'Watch', mapId: 'harbour', mobs: [{ sourceId: 'guard' }] }] }],
+    'monsters.json': [{ id: 'guard', name: 'Guard', hpSlots: 4 }],
+  })).pack));
+  const oldPack = makePack(art), nextPack = makePack(upgradedArt);
+  let state = createState(oldPack, 0);
+  const act = (a, p = oldPack) => reduce(state, { role: 'gm', ...a }, { ...ctx(), pack: p });
+  const step = (a, p) => { const result = act(a, p); state = result.state; return result.result; };
+  step({ t: 'prep.adventure.load', id: 'docks' });
+  delete state.prep.docs[0].seedRefs; // pre-seedRefs restore uses installed section references
+  const id = state.maps.list[0].id;
+  const [gate, ramp] = state.maps.list[0].zones;
+  step({ t: 'map.update', id, name: 'My harbour', phones: true, tokensOn: true });
+  step({ t: 'map.zone.reveal', id, zoneId: gate.id });
+  step({ t: 'map.zone.update', id, zoneId: ramp.id, shape: { x: 0.61, y: 0.59, w: 0.22, h: 0.3 } });
+  step({ t: 'map.zone.add', id, name: 'Crates', shape: { x: 0.45, y: 0.43, w: 0.15, h: 0.15 } });
+  step({ t: 'map.fog', id, rect: { x: 0.2, y: 0.2, w: 0.2, h: 0.18 } });
+  step({ t: 'map.zone.reveal', id, zoneId: '0', on: false });
+  const e = state.prepCards[0].id;
+  const attached = step({ t: 'enc.run', id: e });
+  const tokenId = state.maps.list[0].tokens[0].id;
+  step({ t: 'map.token.move', id, tokenId, x: 0.88, y: 0.93 });
+  const { id: copy } = step({ t: 'map.add', name: 'Harbour', image: oldImage });
+  step({ t: 'scene.set', kind: 'map', data: { mapId: id } });
+  const old = state.maps.list[0];
+  const manuallyReplaced = act({ t: 'map.update', id, image: '/art/other.webp' }).state;
+
+  const loaded = normalizeState(JSON.parse(JSON.stringify(state)), nextPack, 0);
+  const installed = loaded.maps.list[0];
+  assert.equal(installed.image, newImage);
+  assert.equal(installed.fallbackImage, oldImage);
+  assert.equal(installed.name, 'My harbour');
+  assert.equal(installed.zoneZero, false);
+  assert.deepEqual(installed.zones[0], { ...old.zones[0], shape: upgradedArt.zones[0].shape });
+  assert.deepEqual(installed.zones.slice(1), old.zones.slice(1), 'edited and custom zones are preserved');
+  assert.deepEqual(installed.tokens, old.tokens);
+  assert.equal(installed.tokens[0].ref, attached.uids[0]);
+  assert.equal(installed.aspect, 1.778);
+  assert.equal(installed.rows, fogRows(16 / 9));
+  const bits = decodeFog(installed.fog, installed.cols, installed.rows);
+  assert.equal(cellOn(bits, installed.cols, Math.floor(0.3 * installed.cols), Math.floor(0.3 * installed.rows)), true);
+  assert.equal(loaded.maps.list.find((m) => m.id === copy).image, oldImage, 'same published image on an unrelated map is left alone');
+  assert.equal(normalizeState(manuallyReplaced, nextPack, 0).maps.list[0].image, '/art/other.webp');
+  const twice = normalizeState(JSON.parse(JSON.stringify(loaded)), nextPack, 0);
+  assert.deepEqual(twice.maps, loaded.maps);
+
+  const upgraded = act({ t: 'prep.adventure.load', id: 'docks' }, nextPack);
+  assert.equal(upgraded.changed, true);
+  assert.equal(upgraded.result.upgradedMaps, 1);
+  assert.deepEqual(upgraded.state.maps, loaded.maps);
+  state = upgraded.state;
+  assert.equal(act({ t: 'prep.adventure.load', id: 'docks' }, nextPack).changed, false);
+  step({ t: 'enc.save', id: e, label: 'Watch', mapId: id, mobs: [{ sourceId: 'guard', count: 2 }] }, nextPack);
+  step({ t: 'enc.tokens', id: e }, nextPack);
+  const [first, second] = state.maps.list[0].tokens;
+  assert.deepEqual([first.x, first.y], [0.88, 0.93]);
+  assert.deepEqual([second.x, second.y], upgradedArt.mobStarts[1]);
+  assert.equal(viewFor(state, nextPack, 'stage').maps[0].mobStarts, undefined);
+
+  state = createState(nextPack, 0);
+  step({ t: 'prep.adventure.load', id: 'docks' }, nextPack);
+  step({ t: 'enc.tokens', id: state.prepCards[0].id }, nextPack);
+  const fresh = state.maps.list[0];
+  assert.deepEqual([fresh.tokens[0].x, fresh.tokens[0].y], upgradedArt.mobStarts[0]);
+  assert.equal(fresh.fallbackImage, oldImage);
 });

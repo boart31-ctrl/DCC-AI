@@ -31,6 +31,7 @@ export const MAX_POINTS = 40;
 export const MAX_STROKES = 150;
 export const MAX_STROKE_POINTS = 300;
 export const FOG_COLS = 48;
+const MAX_MOB_STARTS = 40;
 export const TOKEN_KINDS = ['pc', 'mob', 'mark'];
 export const ZONE_LINK_KINDS = ['monster', 'boss', 'npc', 'location', 'item', 'card'];
 const IMAGE_RE = /^(https?:\/\/|\/pack\/|\/art\/)[^\s"'<>]{1,700}$/;
@@ -69,6 +70,28 @@ function setCell(bits, cols, c, r, on) {
   const i = r * cols + c;
   if (on) bits[i >> 3] |= 1 << (i & 7);
   else bits[i >> 3] &= ~(1 << (i & 7));
+}
+
+/** Sample the old bitmap at each new cell's normalized center. The brush remains at the same map location. */
+function resizedFog(fog, cols, oldRows, rows) {
+  if (!Number.isInteger(oldRows) || oldRows < 6 || oldRows > 96) return encode(emptyFog(cols, rows));
+  const before = decodeFog(fog, cols, oldRows);
+  if (oldRows === rows) return encode(before);
+  const after = emptyFog(cols, rows);
+  for (let r = 0; r < rows; r++) {
+    const source = Math.min(oldRows - 1, Math.floor((r + 0.5) * oldRows / rows));
+    for (let c = 0; c < cols; c++) if (cellOn(before, cols, c, source)) setCell(after, cols, c, r, true);
+  }
+  return encode(after);
+}
+
+function changeAspect(map, aspect) {
+  const rows = fogRows(aspect);
+  if (rows !== map.rows) {
+    map.fog = resizedFog(map.fog, map.cols, map.rows, rows);
+    map.rows = rows;
+  }
+  map.aspect = aspect;
 }
 
 // Zone Zero uses the complement of all zones, including their overlaps. Only the derived fog grid goes to viewers.
@@ -135,6 +158,17 @@ function imageArg(v) {
   if (typeof v !== 'string' || !IMAGE_RE.test(v.trim())) throw bad('image must be an https:// or /pack/ URL');
   return v.trim();
 }
+function fallbackArg(v, primary) {
+  if (v == null || v === '') return null;
+  const image = imageArg(v);
+  return image === primary ? null : image;
+}
+
+function startsOf(value) {
+  if (!Array.isArray(value)) return [];
+  return value.slice(0, MAX_MOB_STARTS).filter((p) => Array.isArray(p) && fin(p[0]) && fin(p[1]))
+    .map(([x, y]) => [round4(clamp01(x)), round4(clamp01(y))]);
+}
 function aspectArg(v) {
   if (!fin(v) || v < 0.2 || v > 5) throw bad('aspect must be a number 0.2..5');
   return Math.round(v * 1000) / 1000;
@@ -192,9 +226,14 @@ function normMap(m) {
   const aspect = fin(m.aspect) && m.aspect >= 0.2 && m.aspect <= 5 ? m.aspect : 1.5;
   const cols = FOG_COLS;
   const rows = fogRows(aspect);
-  const fog = Number.isInteger(m.rows) && m.rows === rows && m.cols === cols ? encode(decodeFog(m.fog, cols, rows)) : encode(emptyFog(cols, rows));
+  const fog = m.cols === cols ? resizedFog(m.fog, cols, m.rows, rows) : encode(emptyFog(cols, rows));
+  const image = typeof m.image === 'string' && IMAGE_RE.test(m.image) ? m.image : '';
+  const fallbackImage = typeof m.fallbackImage === 'string' && m.fallbackImage !== image && IMAGE_RE.test(m.fallbackImage) ? m.fallbackImage : null;
+  const mobStarts = startsOf(m.mobStarts);
   return {
-    id: m.id, name: text(m.name, 80) || 'Map', image: typeof m.image === 'string' && IMAGE_RE.test(m.image) ? m.image : '',
+    id: m.id, name: text(m.name, 80) || 'Map', image,
+    ...(fallbackImage ? { fallbackImage } : {}),
+    ...(mobStarts.length ? { mobStarts } : {}),
     aspect, phones: m.phones === true, tokensOn: m.tokensOn === true, cols, rows, fog,
     ...(typeof m.zoneZero === 'boolean' ? { zoneZero: m.zoneZero } : {}),
     zones: (Array.isArray(m.zones) ? m.zones : []).map(normZone).filter(Boolean).slice(0, MAX_ZONES),
@@ -206,6 +245,31 @@ function normMap(m) {
 export function normalizeMaps(raw) {
   if (!isObj(raw)) return initMaps();
   return { list: (Array.isArray(raw.list) ? raw.list : []).map(normMap).filter(Boolean).slice(0, MAX_MAPS) };
+}
+
+/** Refit an installed map only while its primary image is the exact published old art. */
+export function upgradePreparedMap(map, seed) {
+  if (typeof seed?.fallbackImage !== 'string' || !/^\/pack\/.*\.svg$/i.test(seed.fallbackImage)
+    || map?.image !== seed.fallbackImage || typeof seed.image !== 'string'
+    || !seed.image.startsWith('/pack/') || !IMAGE_RE.test(seed.image) || seed.image === map.image
+    || !fin(seed.aspect) || seed.aspect < 0.2 || seed.aspect > 5) return false;
+  const primaries = Array.isArray(seed.zones) ? seed.zones : [];
+  for (const old of (Array.isArray(seed.legacyZones) ? seed.legacyZones : []).slice(0, MAX_ZONES)) {
+    const shape = normShape(old?.shape);
+    const replacement = primaries.find((z) => (z?.legacyName ?? z?.name) === old?.name);
+    const next = normShape(replacement?.shape);
+    if (!shape || !next || typeof old.name !== 'string') continue;
+    const canonical = JSON.stringify(shape);
+    const installed = map.zones.filter((z) => z.name === old.name.trim() && JSON.stringify(z.shape) === canonical);
+    // With two exact matches their provenance is ambiguous. Keep both geometries.
+    if (installed.length === 1) installed[0].shape = next;
+  }
+  const starts = startsOf(seed.mobStarts);
+  if (starts.length && !map.mobStarts?.length) map.mobStarts = starts;
+  map.fallbackImage = seed.fallbackImage;
+  map.image = seed.image;
+  changeAspect(map, aspectArg(seed.aspect));
+  return true;
 }
 
 function mapOf(st, id) {
@@ -232,27 +296,36 @@ const onTv = (st, mapId) => st.scene?.kind === 'map' && st.scene.data?.mapId ===
 // ---------- GM actions ----------
 
 export const MAPS_GM = {
-  /** `{ name, image, aspect? }` → result `{ id }` */
+  /** `{ name, image, fallbackImage?, aspect?, mobStarts? }` → result `{ id }` */
   'map.add'(st, a, ctx, out) {
     const maps = ensure(st);
     if (maps.list.length >= MAX_MAPS) throw bad(`max ${MAX_MAPS} maps`);
     const aspect = a.aspect === undefined ? 1.5 : aspectArg(a.aspect);
     const rows = fogRows(aspect);
-    const m = { id: ctx.genId('map'), name: nameArg(a.name), image: imageArg(a.image), aspect, phones: false, tokensOn: false, cols: FOG_COLS, rows, fog: encode(emptyFog(FOG_COLS, rows)), zones: [], tokens: [], strokes: [], createdAt: ctx.now };
+    const image = imageArg(a.image);
+    const fallbackImage = fallbackArg(a.fallbackImage, image);
+    const mobStarts = startsOf(a.mobStarts);
+    const m = { id: ctx.genId('map'), name: nameArg(a.name), image, aspect, phones: false, tokensOn: false, cols: FOG_COLS, rows, fog: encode(emptyFog(FOG_COLS, rows)), zones: [], tokens: [], strokes: [], createdAt: ctx.now,
+      ...(fallbackImage ? { fallbackImage } : {}), ...(mobStarts.length ? { mobStarts } : {}) };
     maps.list.push(m);
     out.result = { id: m.id };
   },
 
-  /** `{ id, name?, image?, aspect?, phones?, tokensOn? }` — a new aspect resets the fog grid. */
+  /** Changing the image or aspect keeps normalized geometry and resamples the revealed bitmap. */
   'map.update'(st, a) {
     const m = mapOf(st, a.id);
     if (a.name !== undefined) m.name = nameArg(a.name);
-    if (a.image !== undefined) m.image = imageArg(a.image);
-    if (a.aspect !== undefined) {
-      const aspect = aspectArg(a.aspect);
-      if (fogRows(aspect) !== m.rows) { m.rows = fogRows(aspect); m.fog = encode(emptyFog(m.cols, m.rows)); }
-      m.aspect = aspect;
+    if (a.image !== undefined) {
+      const image = imageArg(a.image);
+      if (image !== m.image) delete m.fallbackImage;
+      m.image = image;
     }
+    if (a.fallbackImage !== undefined) {
+      const fallback = fallbackArg(a.fallbackImage, m.image);
+      if (fallback) m.fallbackImage = fallback;
+      else delete m.fallbackImage;
+    }
+    if (a.aspect !== undefined) changeAspect(m, aspectArg(a.aspect));
     if (a.phones !== undefined) m.phones = a.phones === true;
     if (a.tokensOn !== undefined) m.tokensOn = a.tokensOn === true;
   },
@@ -442,8 +515,9 @@ export function placeEncounterTokens(st, mapId, encId, mobs, ctx, { cx = 0.7, cy
     if (m.tokens.length >= MAX_TOKENS) return;
     const col = i % 4;
     const row = Math.floor(i / 4);
+    const [x, y] = m.mobStarts?.[i] ?? [round4(clamp01(cx + (col - 1.5) * 0.065)), round4(clamp01(cy + (row - 0.5) * 0.1))];
     m.tokens.push({ id: ctx.genId('tk'), kind: 'mob', ref: null, label: mob.name.slice(0, 40), color: mob.color || '#ff3355',
-      x: round4(clamp01(cx + (col - 1.5) * 0.065)), y: round4(clamp01(cy + (row - 0.5) * 0.1)), hidden: mob.hidden !== false, enc: encId, slot: i,
+      x, y, hidden: mob.hidden !== false, enc: encId, slot: i,
       sourceKind: mob.sourceKind, sourceId: mob.sourceId, artIndex: mob.artIndex ?? 0 });
     added++;
   });
@@ -527,6 +601,7 @@ function withLive(st, m, library, rows) {
 export function publicMap(m) {
   return {
     id: m.id, name: m.name, image: m.image, aspect: m.aspect, cols: m.cols, rows: m.rows, fog: m.fog,
+    ...(m.fallbackImage ? { fallbackImage: m.fallbackImage } : {}),
     tokensOn: m.tokensOn, phones: m.phones,
     zones: m.zones.filter((z) => z.revealed).map(({ id, name, shape, text: t }) => ({ id, name, shape, text: t })),
     tokens: m.tokens.filter((t) => !t.hidden).map(({ id, kind, ref, label, color, x, y, down, image }) => ({ id, kind, ref, label, color, x, y, ...(image ? { image } : {}), ...(down ? { down: true } : {}) })),

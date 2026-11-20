@@ -2,7 +2,7 @@
 // and the GM editor.
 //
 // createMapView({ gm = false, onDrag, onPen, onPoly, tool, onTokenMove, canMoveToken, onToken }) →
-//   { el, set(map, opts), toLocal(evt) }
+//   { el, set(map, opts), toLocal(evt), destroy() }
 //   gm            translucent fog, every zone outlined with its name (revealed ones solid), hidden tokens dim,
 //                 GM-only drawings dashed
 //   tool()        GM: what a drag on the map does: 'zone' | 'reveal' | 'cover' (rectangle → onDrag),
@@ -38,7 +38,9 @@ function tracePath(ctx, shape, W, H) {
 }
 
 export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly = null, tool = () => (onDrag ? 'zone' : 'move'), onTokenMove = null, canMoveToken = () => false, onToken = null, fit = false } = {}) {
-  const img = h('img.mv-img', { alt: '', draggable: false });
+  const mapImage = () => h('img.mv-img', { alt: '', draggable: false });
+  let img = mapImage();
+  const unavailable = h('p.mv-image-unavailable', { role: 'status', hidden: true }, 'Map picture unavailable');
   const fog = h('canvas.mv-fog', { 'aria-hidden': 'true' });
   const svg = document.createElementNS(SVGNS, 'svg');
   svg.setAttribute('class', 'mv-zones');
@@ -50,11 +52,12 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   ink.setAttribute('preserveAspectRatio', 'none');
   const tokens = h('div.mv-tokens');
   const sel = h('div.mv-sel', { hidden: true });
-  const stage = h('div.mv-stage', img, fog, svg, ink, tokens, sel);
+  const stage = h('div.mv-stage', img, fog, svg, ink, tokens, sel, unavailable);
   const el = h('div.mv', { class: gm ? 'mv mv-gm' : 'mv' }, stage);
   let map = null;
   let opts = {};
   let lastSig = '';
+  let pictureKey = null;
   let tokenDragging = false;
   // fit: scale the map to fit inside the element (TV), "contain" style, instead of full width.
   function fitNow() {
@@ -67,7 +70,31 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
     stage.style.width = `${Math.floor(w)}px`;
     stage.style.height = `${Math.floor(w / a)}px`;
   }
-  if (fit && typeof ResizeObserver !== 'undefined') new ResizeObserver(fitNow).observe(el);
+  const resize = fit && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fitNow) : null;
+  resize?.observe(el);
+
+  function updatePicture(m) {
+    const primary = m?.image ?? '';
+    const fallback = m?.fallbackImage && m.fallbackImage !== primary ? m.fallbackImage : '';
+    const nextKey = m ? JSON.stringify([m.id, primary, fallback]) : null;
+    if (nextKey === pictureKey) return;
+    pictureKey = nextKey;
+    unavailable.hidden = true;
+    function load(source, backup = '') {
+      // An old request can finish after another map is selected. A distinct image node keeps its error isolated.
+      const next = mapImage();
+      img.replaceWith(next);
+      img = next;
+      if (!source) { unavailable.hidden = !m; return; }
+      next.addEventListener('error', () => {
+        if (next !== img || nextKey !== pictureKey) return;
+        if (backup) load(backup);
+        else unavailable.hidden = false;
+      }, { once: true });
+      next.src = source;
+    }
+    load(primary || fallback, primary ? fallback : '');
+  }
 
   function toLocal(e) {
     const r = stage.getBoundingClientRect();
@@ -301,13 +328,13 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   function set(m, o = {}) {
     map = m;
     opts = o;
-    if (!m) { el.hidden = true; return; }
+    updatePicture(m);
+    if (!m) { el.hidden = true; lastSig = ''; return; }
     el.hidden = false;
     stage.style.aspectRatio = String(m.aspect || 1.5);
     fitNow();
-    if (img.getAttribute('src') !== m.image) img.src = m.image;
     stage.dataset.tool = gm ? tool() : '';
-    const sig = JSON.stringify([m.fog, m.zones, m.tokens, m.strokes, o.selected, o.selectedToken, o.labels, o.names]);
+    const sig = JSON.stringify([m.id, m.cols, m.rows, m.fog, m.zones, m.tokensOn, m.tokens, m.strokes, o.selected, o.selectedToken, o.labels, o.names]);
     if (sig === lastSig) return;
     lastSig = sig;
     drawFog();
@@ -317,6 +344,7 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
     drawTokens();
   }
 
-  onPortraits(() => { if (map && el.isConnected) drawTokens(); });
-  return { el, set, toLocal, cancelPoly: () => { poly = []; drawPoly(); } };
+  const stopPortraits = onPortraits(() => { if (map && el.isConnected) drawTokens(); });
+  const destroy = () => { set(null); resize?.disconnect(); stopPortraits(); };
+  return { el, set, toLocal, destroy, cancelPoly: () => { poly = []; drawPoly(); } };
 }

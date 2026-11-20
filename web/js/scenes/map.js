@@ -15,5 +15,5 @@ export default function map(root, sc, env) {
     mv.set(m, { labels: true });
   }
   update(sc, env.view);
-  return { update };
+  return { update, destroy: mv.destroy };
 }

@@ -21,7 +21,7 @@
 // A template with `families` only shows up in campaigns whose ruleset family matches.
 import { bad, notFound } from './errors.js';
 import { libraryOf } from './character.js';
-import { MAPS_GM, MAX_MAPS } from './maps.js';
+import { MAPS_GM, MAX_MAPS, upgradePreparedMap } from './maps.js';
 
 export const DOC_TYPES = ['adventure', 'session'];
 export const SECTION_KINDS = ['text', 'list', 'refs', 'parts'];
@@ -357,13 +357,42 @@ function compatibleAdventures(pack) {
   return (pack.prep?.adventures ?? []).filter((d) => !d.families || d.families.includes(pack.ruleset.system.family));
 }
 
+function upgradeAdventureMaps(st, doc, seed) {
+  let changed = 0;
+  for (const map of seed.maps ?? []) {
+    if (!map.fallbackImage) continue;
+    // The installed adventure must identify the map. A name match alone could be a GM's unrelated copy.
+    const id = legacySeedRef(st, doc, seed, 'map', map.id, { allowNameFallback: false });
+    const target = st.maps?.list.find((m) => m.id === id);
+    if (!upgradePreparedMap(target, map)) continue;
+    doc.seedRefs ??= { encounters: {}, maps: {} };
+    doc.seedRefs.maps = { ...doc.seedRefs.maps, [map.id]: id };
+    changed++;
+  }
+  return changed;
+}
+
+/** Refit only published maps linked to an already installed adventure in this save. */
+export function upgradePreparedMaps(st, pack) {
+  const seeds = new Map(compatibleAdventures(pack).map((seed) => [seed.id, seed]));
+  for (const doc of st.prep?.docs ?? []) {
+    const seed = doc.type === 'adventure' && seeds.get(doc.template);
+    if (seed) upgradeAdventureMaps(st, doc, seed);
+  }
+}
+
 /** Copies the pack's prepared scenes, maps and encounter cards without touching the live fight. */
 export function loadPreparedAdventure(st, a, ctx, out, saveEncounter) {
   const seed = compatibleAdventures(ctx.pack).find((d) => d.id === a.id);
   if (!seed) throw notFound(`no prepared adventure ${a.id}`);
   const prep = ensurePrep(st);
   const existing = prep.docs.find((d) => d.type === 'adventure' && d.template === seed.id);
-  if (existing) { out.result = { id: existing.id, existing: true }; out.changed = false; return; }
+  if (existing) {
+    const upgradedMaps = upgradeAdventureMaps(st, existing, seed);
+    out.result = { id: existing.id, existing: true, ...(upgradedMaps ? { upgradedMaps } : {}) };
+    out.changed = upgradedMaps > 0;
+    return;
+  }
   checkRoom(prep);
   const library = libraryOf(st, ctx.pack);
   const maps = new Map();
@@ -508,11 +537,12 @@ function carryScenes(prev, ctx) {
   return ready;
 }
 
-function legacySeedRef(st, doc, seed, kind, key) {
+function legacySeedRef(st, doc, seed, kind, key, { allowNameFallback = true } = {}) {
   const bucket = kind === 'encounter' ? 'encounters' : 'maps';
   const rows = kind === 'encounter' ? (st.prepCards ?? []).filter((c) => c.kind === 'encounter') : st.maps?.list ?? [];
   const recorded = doc.seedRefs?.[bucket];
   if (recorded && Object.hasOwn(recorded, key) && rows.some((r) => r.id === recorded[key])) return recorded[key];
+  if (!allowNameFallback && recorded && Object.hasOwn(recorded, key)) return null;
   for (const seedSection of seed.sections) {
     const installed = doc.sections.find((s) => s.key === seedSection.key);
     for (const seedItem of seedSection.items) {
@@ -525,6 +555,7 @@ function legacySeedRef(st, doc, seed, kind, key) {
       if (candidate?.kind === kind && rows.some((r) => r.id === candidate.id)) return candidate.id;
     }
   }
+  if (!allowNameFallback) return null;
   const entry = seed[bucket]?.find((r) => r.id === key);
   const exact = rows.filter((r) => kind === 'encounter' ? r.label === entry?.label : r.name === entry?.name);
   return exact.length === 1 ? exact[0].id : null;
@@ -532,7 +563,7 @@ function legacySeedRef(st, doc, seed, kind, key) {
 
 function installedAdventure(st, seed, ctx, out, GM) {
   const existing = st.prep.docs.find((d) => d.type === 'adventure' && d.template === seed.id);
-  if (existing) return existing;
+  if (existing) { upgradeAdventureMaps(st, existing, seed); return existing; }
   const sub = { ...out, result: undefined };
   loadPreparedAdventure(st, { id: seed.id }, ctx, sub, GM['enc.save']);
   return docOf(st, sub.result.id);

@@ -42,7 +42,8 @@ function measure(url) {
 }
 
 async function mapPng(file) {
-  if (!file || file.size > 20 * 1024 * 1024 || !['image/png', 'image/jpeg', 'image/webp'].includes(file.type)) {
+  const supported = file?.type ? ['image/png', 'image/jpeg', 'image/webp'].includes(file.type) : /\.(png|jpe?g|webp)$/i.test(file?.name ?? '');
+  if (!supported || file.size > 20 * 1024 * 1024) {
     throw new Error('Choose a PNG, JPEG or WebP picture up to 20 MiB.');
   }
   const url = URL.createObjectURL(file);
@@ -134,16 +135,27 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
   function newMap(then = null, existing = null) {
     const locs = (lib().location || []).filter((l) => l.image);
     let dropped = null;
-    const file = h('input.inp', { type: 'file', name: 'picture', accept: 'image/png,image/jpeg,image/webp' });
+    let drawer;
+    const file = h('input.inp', { type: 'file', name: 'picture', accept: 'image/png,image/jpeg,image/webp,.png,.jpg,.jpeg,.webp' });
     const status = h('p.dim', { role: 'status' });
+    const dropZone = h('label.lbl.gmap-upload', h('span.lbl-t', 'Choose or drop a map picture'), file);
+    const dragFiles = (evt) => evt.dataTransfer?.types.includes('Files');
     file.addEventListener('change', () => { dropped = null; status.textContent = file.files[0]?.name || ''; });
     const submit = h('button.btn.btn-primary', { type: 'submit' }, existing ? 'Replace picture' : 'Create map');
     const form = h('form.gmap-new', {
-      ondragover: (e) => e.preventDefault(),
+      ondragover: (e) => {
+        if (!dragFiles(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'copy';
+        dropZone.classList.add('drag-over');
+      },
+      ondragleave: (e) => { if (!e.currentTarget.contains(e.relatedTarget)) dropZone.classList.remove('drag-over'); },
       ondrop: (e) => {
+        dropZone.classList.remove('drag-over');
+        if (!e.dataTransfer?.files.length) return;
         e.preventDefault();
         dropped = e.dataTransfer.files[0] ?? null;
-        if (dropped) status.textContent = dropped.name;
+        if (dropped) { file.value = ''; status.textContent = dropped.name; }
       },
       onsubmit: async (e) => {
         e.preventDefault();
@@ -178,8 +190,9 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
             id = existing ? r && existing.id : r?.result?.id;
           }
           if (id) {
-            closeDrawer(true);
-            if (maps().some((m) => m.id === id)) pick(id); else awaitingMap = id;
+            if (drawer?.isConnected) closeDrawer(true);
+            if (!maps().some((m) => m.id === id)) awaitingMap = id;
+            else if (st.sel !== id) pick(id);
             then?.(id);
           }
         } catch (err) { status.textContent = err.message; }
@@ -187,13 +200,13 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
       },
     },
     existing ? null : h('label.lbl', h('span.lbl-t', 'Name'), h('input.inp', { name: 'n', maxlength: 80, placeholder: 'Map name' })),
-    h('label.lbl.gmap-upload', h('span.lbl-t', 'Choose or drop a map picture'), file),
+    dropZone,
     locs.length ? h('label.lbl', h('span.lbl-t', 'Library location'), select([{ value: '', label: 'None' }, ...locs.map((l) => ({ value: l.image, label: l.name }))], '', { label: 'Location picture' })) : null,
     h('label.lbl', h('span.lbl-t', 'Image URL'), h('input.inp', { name: 'url', placeholder: 'https://…' })),
     status, submit);
     const sel = form.querySelector('select');
     if (sel) sel.name = 'loc';
-    openDrawer({ title: existing ? 'Map picture' : 'New map', body: form });
+    drawer = openDrawer({ title: existing ? 'Map picture' : 'New map', body: form });
   }
 
   /* ---------- zones ---------- */

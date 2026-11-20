@@ -21,7 +21,7 @@ import {
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, requireStatusAllowed, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
-import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene } from './prep.js';
+import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
 import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage, spendReactionAction } from './reaction.js';
@@ -157,6 +157,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.prep = normalizePrep(raw.prep);
   s.prepChecks = normalizePrepChecks(raw.prepChecks);
   s.maps = normalizeMaps(raw.maps);
+  upgradePreparedMaps(s, pack);
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.session.aiMute = s.session.aiMute === true;
   s.session.hold = s.session.hold === true;

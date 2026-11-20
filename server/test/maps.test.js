@@ -99,7 +99,7 @@ test('tokens: GM adds party and mobs; players move only their own, only with tok
   assert.equal(viewFor(s, pack, 'player', { now: 0, playerId: carl.id }).maps[0].tokens.length, 3);
 });
 
-test('normalize: junk dropped, fog reset when the grid changes, missing image kept empty', () => {
+test('normalize: junk dropped, invalid fog dimensions reset and missing image kept empty', () => {
   const raw = { list: [{ id: 'm1', name: 'A', image: 'javascript:x', aspect: 9, rows: 3, cols: 48, fog: '!!', zones: [{ id: 'z', shape: { x: 0, y: 0, w: 0.5, h: 0.5 }, revealed: true }, { id: 'bad' }], tokens: [{ id: 't', kind: 'nope' }] }, { nope: true }] };
   const out = normalizeMaps(raw);
   assert.equal(out.list.length, 1);
@@ -109,4 +109,39 @@ test('normalize: junk dropped, fog reset when the grid changes, missing image ke
   assert.equal(out.list[0].tokens.length, 0);
   const st = normalizeState({ ...createState(pack, 0), maps: raw }, pack, 0);
   assert.equal(st.maps.list.length, 1);
+});
+
+test('replacing a map picture keeps brush fog, normalized geometry and tokens while dropping stale art', () => {
+  const added = gm(withPlayers(), {
+    t: 'map.add', name: 'Raster', image: '/pack/maps/new.webp', fallbackImage: '/pack/maps/old.svg', aspect: 16 / 9,
+    mobStarts: [[0.22, 0.33]],
+  });
+  const { id } = added.result;
+  let s = run(added.state,
+    { t: 'map.zone.add', id, name: 'Room', shape: { points: [[0.1, 0.1], [0.5, 0.1], [0.3, 0.6]] } },
+    { t: 'map.token.party', id },
+    { t: 'map.stroke.add', id, pts: [[0.16, 0.19], [0.22, 0.27]], gm: true },
+    { t: 'map.fog', id, rect: { x: 0.15, y: 0.2, w: 0.2, h: 0.2 } },
+    { t: 'map.zone.reveal', id, zoneId: '0', on: false },
+    { t: 'scene.set', kind: 'map', data: { mapId: id } });
+  const before = s.maps.list[0];
+  for (const role of ['player', 'stage']) {
+    const m = viewFor(s, pack, role).maps[0];
+    assert.equal(m.fallbackImage, '/pack/maps/old.svg');
+    assert.equal(m.mobStarts, undefined);
+  }
+  s = gm(s, { t: 'map.update', id, image: '/art/upload.webp', aspect: 0.8 }).state;
+  const after = s.maps.list[0];
+  assert.equal(after.fallbackImage, undefined);
+  assert.equal(after.aspect, 0.8);
+  assert.equal(after.rows, fogRows(0.8));
+  assert.equal(after.zoneZero, false);
+  assert.deepEqual(after.tokens, before.tokens);
+  assert.deepEqual(after.zones, before.zones);
+  assert.deepEqual(after.strokes, before.strokes);
+  const bits = decodeFog(after.fog, after.cols, after.rows);
+  assert.equal(cellOn(bits, after.cols, Math.floor(0.25 * after.cols), Math.floor(0.3 * after.rows)), true);
+  assert.equal(cellOn(bits, after.cols, 0, after.rows - 1), false);
+  assert.equal(viewFor(s, pack, 'stage').maps[0].fallbackImage, undefined);
+  assert.deepEqual(normalizeState(JSON.parse(JSON.stringify(s)), pack, 0).maps, s.maps);
 });
