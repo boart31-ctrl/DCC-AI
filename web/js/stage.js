@@ -342,9 +342,9 @@ function onEvent(e) {
     return;
   }
   if (e.kind === 'loot' || e.kind === 'sponsor') director.event(e);
-  if (String(e.kind).startsWith('combat.')) {
+  if (String(e.kind).startsWith('combat.') || e.kind === 'rx.hit' || e.kind === 'rx.undo') {
     director.event(e);
-    if (e.kind === 'combat.hit' && e.playerId) flashPlayer(e.playerId);
+    if (e.kind === 'combat.hit' && e.playerId && e.animation !== 'reaction') flashPlayer(e.playerId);
     if (e.kind === 'combat.turn') turnBanner(e);
     return;
   }

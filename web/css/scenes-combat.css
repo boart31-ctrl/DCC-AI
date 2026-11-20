@@ -213,13 +213,15 @@ body.stage[data-scene="combat"] #subtitle.subtitle { left: auto; right: 2.2rem; 
 .ar-fx { position: absolute; top: 0; left: 0; right: 0; bottom: 0; z-index: 8; pointer-events: none; }
 .ar-callout {
   position: absolute; left: 50%; top: 13.2rem; transform: translateX(-50%);
-  padding: 0.5rem 2.2rem 0.6rem; white-space: nowrap;
+  padding: 0.5rem 2.2rem 0.6rem; max-width: 74vw; width: max-content; text-align: center;
   font-family: var(--f-show); font-style: italic; font-weight: 900; font-size: 2.6rem; text-transform: uppercase; line-height: 1;
   color: #fff; background: var(--alarm); clip-path: polygon(1.2rem 0, 100% 0, calc(100% - 1.2rem) 100%, 0 100%);
   animation: arcall 0.35s var(--ease-slam) both;
 }
 .ar-callout span { color: rgba(10, 6, 20, 0.75); font-size: 2rem; }
 .ar-callout .ar-atk { color: var(--acid); }
+.ar-callout .ar-result { display: block; color: #fff; font-family: var(--f-mono); font-size: 1.45rem; font-style: normal; margin-top: 0.25rem; }
+.ar-callout .ar-result:empty { display: none; }
 .ar-callout.boss { background: var(--magenta); }
 .ar-callout.out, .ar-d20.out, .ar-crit.out { opacity: 0; transition: opacity 0.25s; }
 @keyframes arcall { from { opacity: 0; transform: translateX(-50%) scaleX(0.2); } }

@@ -92,6 +92,11 @@ test('declared floor damage and cleanup ticks use rolled HP even when armor is s
     state = r.state;
     return r.result;
   };
+  const resolve = () => {
+    act({ t: 'rx.step', to: 'resolve' });
+    const { token } = act({ t: 'rx.resolveNext', op: 'preview', all: true });
+    act({ t: 'rx.resolveNext', op: 'apply', all: true, token, confirm: true });
+  };
   act({ t: 'player.add', name: 'Runner' });
   act({ t: 'crawlers.set', floor: 2 });
   const { uids: [mobUid] } = act({ t: 'combat.addMob', sourceId: 'sentry', hidden: false });
@@ -105,7 +110,7 @@ test('declared floor damage and cleanup ticks use rolled HP even when armor is s
   assert.equal(viewFor(state, pack, 'gm').combat.rx.decls[0].effects, 'Check cover.');
   act({ t: 'rx.step', to: 'react' });
   assert.equal(viewFor(state, pack, 'stage').combat.rx.decls[0].effects, undefined);
-  act({ t: 'rx.step', to: 'resolve' });
+  resolve();
   assert.deepEqual([state.combat.rx.decls[0].damage, state.combat.rx.decls[0].slots], [8, 1]);
   assert.equal(runner().hp, 9);
   assert.deepEqual(runner().conditions, [], 'an unopposed hit does not cause a Major Fail effect');
@@ -120,7 +125,7 @@ test('declared floor damage and cleanup ticks use rolled HP even when armor is s
   const pid = state.players[0].id;
   state = reduce(state, { role: 'player', actorId: pid, t: 'rx.interrupt', kind: 'evade' }, { pack }).state;
   act({ t: 'rx.evade', declId, die: 2 });
-  act({ t: 'rx.step', to: 'resolve' });
+  resolve();
   assert.equal(runner().conditions[0].id, 'scorch', 'the declared Major Fail effect is applied on the qualifying Evade');
   act({ t: 'combat.condition', uid: targetUid, buffId: 'scorch', on: false });
   const rawFire = () => act({ t: 'combat.damage', uid: targetUid, amount: 8, dr: true, dtype: 'fire' });
@@ -137,7 +142,7 @@ test('declared floor damage and cleanup ticks use rolled HP even when armor is s
   act({ t: 'rx.step', to: 'react' });
   state = reduce(state, { role: 'player', actorId: pid, t: 'rx.interrupt', kind: 'evade' }, { pack }).state;
   act({ t: 'rx.evade', declId: followup.declId, die: 1 });
-  act({ t: 'rx.step', to: 'resolve' });
+  resolve();
   assert.equal(state.combat.rx.decls[0].slots, 0);
   assert.ok(!runner().conditions.some((c) => c.id === 'scorch'), 'typed immunity also blocks the attack condition');
 });
@@ -214,6 +219,9 @@ test('structured conditions block the appropriate actions and expire on cleanup 
   condition('stuck');
   act({ t: 'rx.step', to: 'react' });
   assert.throws(() => call({ t: 'rx.interrupt', kind: 'evade' }, 'player'), /Blocked by Stuck/);
+  act({ t: 'rx.step', to: 'resolve' });
+  const preview = act({ t: 'rx.resolveNext', op: 'preview' });
+  act({ t: 'rx.resolveNext', op: 'apply', token: preview.token });
   act({ t: 'rx.step', to: 'act' });
   act({ t: 'rx.spend' }, 'player');
   condition('silenced');

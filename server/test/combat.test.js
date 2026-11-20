@@ -443,7 +443,10 @@ test('loot from the dead: a downed mob drops its lootItems, the GM hands them ou
   // GM's own pick for a mob with no list
   // a dead crawler: Carl (has the duck) goes down, Donut takes the duck from the body
   const carl = s.combat.combatants.find((x) => x.type === 'crawler' && x.playerId === pid);
-  s = gm(s, { t: 'combat.damage', uid: carl.uid, amount: 99 }).state;
+  const damage = { t: 'combat.damage', uid: carl.uid, amount: 99 };
+  const { confirmHit } = gm(s, damage).result;
+  assert.ok(confirmHit);
+  s = gm(s, { ...damage, confirmHit }).state;
   r = gm(s, { t: 'loot.corpse', uid: carl.uid });
   s = r.state;
   const body = s.drops[1];
@@ -596,4 +599,35 @@ test('session.hold: panic holds the TV, pauses a running countdown, AUTO off; of
   assert.equal(viewFor(s, pack, 'stage').session.hold, false);
   assert.equal(s.scene.kind, 'countdown');
   assert.throws(() => gm(s, { t: 'session.hold', on: 'yes' }), /boolean/);
+});
+
+test('manual lethal hits preview without broadcasts, reject stale confirmation and undo each consequence', () => {
+  const rules = { ...pack.ruleset, combat: { ...pack.ruleset.combat, dyingRounds: '1' } };
+  const guarded = { ...pack, ruleset: rules };
+  const run = (state, action) => gm(state, action, { pack: guarded });
+  let s = run(createState(guarded), { t: 'player.add', name: 'Lee' }).state;
+  s = run(s, { t: 'combat.start' }).state;
+  const hero = s.combat.combatants.find((x) => x.type === 'crawler');
+  const action = { t: 'combat.damage', uid: hero.uid, amount: 99 };
+  const preview = run(s, action);
+  assert.equal(preview.state, s);
+  assert.deepEqual([preview.events, preview.lines, preview.effects], [[], [], []]);
+  assert.equal(preview.result.outcome, 'Dying');
+  const approved = { ...action, confirmHit: preview.result.confirmHit };
+  s = run(s, approved).state;
+  const replay = run(s, approved);
+  assert.equal(replay.state, s);
+  assert.equal(replay.result.outcome, 'Dead');
+  assert.notEqual(replay.result.confirmHit, approved.confirmHit);
+  s = run(s, { ...action, confirmHit: replay.result.confirmHit }).state;
+  const crawler = () => s.combat.combatants.find((x) => x.uid === hero.uid);
+  assert.equal(crawler().dead, true);
+  s = run(s, { t: 'combat.undo' }).state;
+  assert.equal(crawler().dead, undefined);
+  assert.equal(crawler().dying, 1);
+  s = run(s, { t: 'combat.undo' }).state;
+  assert.equal(crawler().dying, undefined);
+  assert.deepEqual(s.combat.stats.downs, {});
+  assert.deepEqual(s.combat.stats.taken, {});
+  assert.equal(viewFor(s, guarded, 'gm').combat.combatants.find((x) => x.uid === hero.uid).hp, preview.result.amount);
 });

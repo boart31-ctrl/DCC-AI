@@ -3,9 +3,9 @@
 //
 // Phone first (360–430 px): one compact card per combatant (name, HP slots, quick −/+), secondary
 // stats and tools in a line that opens. Desktop: the same cards spread into one row each.
-// Auto mode: "Mobs act" resolves the mob phase (targets, d20 vs Evade, damage − DR on the sheets),
-// "Step" does one mob, "Undo" puts it back; the TV plays it as a cinematic and this desk plays the
-// sounds in step. Endings: "End ▾" picks the outcome (TV finale); victory / defeat are offered by
+// Auto mode: "Next mob attack" resolves one attack, pausing before a crawler is in danger.
+// The TV plays committed attacks as a cinematic and this desk plays their sounds in step.
+// "End ▾" picks the outcome (TV finale); victory / defeat are offered by
 // themselves (3 s toast with Cancel) when every revealed mob / every crawler is down.
 import { h, toast, ask, portraitSrc, onPortraits, itemArt } from './client.js';
 import { rxPanel } from './gm-reaction.js';
@@ -41,7 +41,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
   const ui = {
     counts: {}, damageBy: {}, open: new Set(), editPhases: false, lastRoll: null, adhoc: { name: '', hp: 5, evade: 0, dr: 0, count: 1 },
-    endMenu: false, special: null, rules: false, soundPop: false, loot: null, log: true,
+    endMenu: false, special: null, rules: false, soundPop: false, loot: null, log: true, autoBusy: false,
     offered: null, // outcome the auto-end toast already offered (until the suggestion clears)
   };
   const setPref = (k, v) => { pref[k] = v; savePref(pref); };
@@ -166,16 +166,16 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         c.init?.on || c.phasesVerified ? null : h('span.verify', unverifiedBadge('Phase names and order are not checked against the rulebook')),
         c.init?.on ? null : h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(ui.editPhases), onclick: () => { ui.editPhases = !ui.editPhases; redraw(); } }, 'Phases')),
       c.active ? h('div.cbt-auto-bar',
-        rx ? null : h('button.btn.cbt-act', { type: 'button', disabled: !canAct, onclick: () => runAuto(), title: q ? 'Resolve the remaining mobs' : `Every living revealed mob attacks: targets, d20 vs ${DEF()}${hasDr() ? ', damage − DR' : ', damage'} onto the sheets` },
-          icon('bolt', { size: 16 }), q ? `Mobs act (${q.uids.length - q.done} left)` : 'Mobs act'),
-        rx ? null : h('button.btn.cbt-step', { type: 'button', disabled: !canAct, onclick: () => runStep(), title: 'One mob at a time' }, icon('play', { size: 14 }), 'Step'),
+        rx || c.autoPreview ? null : h('button.btn.btn-primary.cbt-step', { type: 'button', disabled: !canAct || ui.autoBusy, onclick: () => runAuto({ t: 'combat.autoStep' }), title: 'Resolve one mob attack' },
+          icon('play', { size: 14 }), q ? `Next mob attack (${q.uids.length - q.done} left)` : 'Next mob attack'),
+        rx || c.autoPreview ? null : h('button.btn.btn-quiet.cbt-act', { type: 'button', disabled: !canAct || ui.autoBusy, onclick: runAllAuto, title: 'Confirm before resolving all remaining mob attacks' }, icon('bolt', { size: 14 }), 'Resolve all…'),
         left > 0 ? h('button.btn.cbt-skip', { type: 'button', onclick: () => act({ t: 'combat.autoSkip' }), title: 'Jump the TV to the end of the cinematic' }, icon('skip', { size: 14 }), 'Skip') : null,
-        c.lastAuto?.canUndo ? h('button.btn.btn-quiet.cbt-undo', { type: 'button', onclick: undo, title: 'Put back the HP and conditions the last auto run changed' }, icon('undo', { size: 14 }), 'Undo') : null,
+        c.lastAutoUndo ? h('button.btn.btn-quiet.cbt-undo', { type: 'button', onclick: undo, title: 'Undo the last automatic attack' }, icon('undo', { size: 14 }), 'Undo attack') : null,
         c.manualUndo ? h('button.btn.btn-sm.btn-quiet.cbt-undo-hand', { type: 'button', onclick: () => act({ t: 'combat.undo' }).then((r) => r?.result?.undone && toast(`Undone: ${r.result.undone}`)), title: `Take back: ${c.manualUndo.label} (Ctrl+Z)` }, icon('undo', { size: 14 }), `Undo: ${c.manualUndo.label}`) : null,
         h('span.grow'),
         hidden ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, `${hidden} revealed.`), title: 'Show every hidden mob on the TV and phones' }, icon('eye', { size: 14 }), `Reveal all (${hidden})`) : null,
         endButton()) : (c.combatants.length ? h('div.cbt-auto-bar', h('span.grow'), endButton()) : null),
-      ui.endMenu ? endMenu() : null,
+      c.autoPreview ? autoPreview(c.autoPreview) : null, ui.endMenu ? endMenu() : null,
     );
   }
 
@@ -274,18 +274,37 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const downs = seq.filter((x) => x.down).map((x) => x.target);
     return `${hits} hit${hits === 1 ? '' : 's'}, ${seq.length - hits} miss${seq.length - hits === 1 ? '' : 'es'}${downs.length ? `. Down: ${downs.join(', ')}` : ''}`;
   }
-  async function runAuto() {
+  async function runAuto(action) {
+    if (ui.autoBusy) return;
+    ui.autoBusy = true;
+    redraw();
     try {
-      const r = await send({ t: 'combat.auto' });
-      toast(`Mobs act: ${sumUp(r.result.sequence.filter((x) => !x.skipped))}`, { ms: 4000 });
+      const { result } = await send(action);
+      const seq = result.sequence || [];
+      if (seq.length > 1) toast(`Mobs act: ${sumUp(seq.filter((x) => !x.skipped))}`, { ms: 4000 });
+      else if (seq.length) {
+        const [st] = seq;
+        toast(st.skipped ? `${st.mob}: ${st.skipped}` : `${st.mob} → ${st.target}: ${st.hit ? `hit, ${st.damage} damage` : 'miss'}${result.left ? ` · ${result.left} left` : ''}`, { ms: 3500 });
+      }
     } catch (err) { toast(err.message, { error: true }); }
+    finally { ui.autoBusy = false; redraw(); }
   }
-  async function runStep() {
-    try {
-      const r = await send({ t: 'combat.autoStep' });
-      const st = r.result.sequence[0];
-      toast(st.skipped ? `${st.mob}: ${st.skipped}` : `${st.mob} → ${st.target}: ${st.hit ? `hit, ${st.damage} damage` : 'miss'}${r.result.left ? ` · ${r.result.left} left` : ''}`, { ms: 3500 });
-    } catch (err) { toast(err.message, { error: true }); }
+
+  async function runAllAuto() {
+    if (await ask('Resolve all remaining mob attacks? The fight will pause before any dangerous hit.', { ok: 'Resolve all' })) {
+      await runAuto({ t: 'combat.auto', confirmAll: true });
+    }
+  }
+
+  function autoPreview({ id, danger, step }) {
+    const risk = danger === 'death' ? 'would die' : danger === 'dying' ? 'would lose a Dying round' : 'would drop to zero health';
+    const unit = step.slotValue ? 'slots' : 'HP';
+    return h('section.panel.cbt-auto-preview', { 'aria-label': 'Automatic attack preview' },
+      h('div.sec-head', h('h2', `${step.mob} · ${step.attack} → ${step.target}`), h('span.pill', `${step.target} ${risk}`)),
+      h('p', `${step.crit ? 'Critical hit' : 'Hit'} · ${step.hpBefore} → ${step.hpAfter} ${unit} · ${step.damage} damage${step.slotValue ? ` (${step.damageAfterDr} HP after DR)` : ''}`),
+      h('div.row-start',
+        h('button.btn.btn-danger', { type: 'button', disabled: ui.autoBusy, onclick: () => runAuto({ t: 'combat.autoConfirm', previewId: id }) }, danger === 'death' ? 'Confirm fatal hit' : 'Confirm hit'),
+        h('button.btn.btn-quiet', { type: 'button', disabled: ui.autoBusy, onclick: () => runAuto({ t: 'combat.autoCancel', previewId: id }) }, 'Dismiss attack')));
   }
   async function undo() {
     try {
@@ -303,7 +322,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('span.cbt-log-who', h('b', st.mob), h('span.dim', ' → '), h('b', st.target)),
       h('span.cbt-log-math', { title: `${st.attack}: d20 ${st.d20}${st.toHit ? ` ${signed(st.toHit)}` : ''} = ${st.total} vs ${st.defenseLabel || DEF()} ${st.evade} (${st.rule})${st.hit && st.damageRoll != null ? `; damage ${st.damageRoll}${st.crit && st.damageRaw !== st.damageRoll ? ` ×2 = ${st.damageRaw}` : ''} − DR ${st.drValue}` : ''}` },
         `${st.d20}${st.toHit ? signed(st.toHit) : ''}=${st.total} vs ${st.evade}`),
-      res,
+      st.undone ? h('span.dim', 'Undone') : res,
       st.buffs?.length ? h('span.cbt-log-cond', st.buffs.join(', ')) : null);
   }
 
@@ -347,7 +366,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       la ? h('div.cbt-log',
         h('p.cbt-log-head', la.undone ? h('span.pill', 'Undone') : null, `Last run: ${la.steps.length} mob${la.steps.length === 1 ? '' : 's'}`),
         h('ol.cbt-log-list', la.steps.map(stepLine)))
-        : h('p.hint', `Mobs act: every living revealed mob picks a target (its mode and the crawlers' aggro), rolls d20 + to hit against ${DEF()} and hits the sheet. Step does one mob at a time.`));
+        : h('p.hint', `Next mob attack picks a target, rolls d20 + to hit against ${DEF()} and applies a safe hit to the sheet.`));
   }
 
   /* ---------- shared bits ---------- */

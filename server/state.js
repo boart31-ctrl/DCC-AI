@@ -963,8 +963,34 @@ function giveStarterAttack(st, p, ctx) {
   GM['combat.damage'] = (st, a, ctx, out) => {
     const x = st.combat?.combatants?.find((c) => c.uid === a.uid);
     const wasDying = x?.type === 'crawler' && x.dying != null;
+    const beforeDying = x?.dying ?? null;
+    const beforeDead = !!x?.dead;
+    const downs = st.combat?.stats?.downs?.[x?.playerId] ?? 0;
     dmg(st, a, ctx, out);
     if (!out.result?.blocked) onCrawlerDamage(st, ctx, out, x, wasDying);
+    if (x?.type !== 'crawler') return;
+    const hit = out.result;
+    const outcome = !beforeDead && x.dead ? 'Dead'
+      : hit?.hp === 0 && hit.actualAmount > 0 ? (x.dying != null ? 'Dying' : 'Down') : null;
+    if (outcome) {
+      const token = JSON.stringify([st.combat.id, x.uid, hit.actualAmount, hit.amount, beforeDying, x.dying, outcome]);
+      if (a.confirmHit !== token) {
+        // reduce() works on a draft. Discard the trial hit and all its broadcasts together.
+        out.changed = false;
+        out.events.length = out.lines.length = out.effects.length = 0;
+        out.result = { confirmHit: token, outcome, name: st.players.find((p) => p.id === x.playerId)?.name, amount: hit.actualAmount };
+        return;
+      }
+    } else if (a.confirmHit != null) {
+      throw bad('the target changed; review the hit again');
+    }
+    const entry = st.combat.manualUndo?.at(-1);
+    if (out.changed && entry?.snap.crawler) {
+      entry.snap.crawler.life = {
+        beforeDying, beforeDead, afterDying: x.dying ?? null, afterDead: !!x.dead,
+        taken: hit.actualAmount, downs: (st.combat.stats.downs[x.playerId] ?? 0) - downs,
+      };
+    }
   };
   const heal = GM['combat.heal'];
   if (heal) GM['combat.heal'] = (st, a, ctx, out) => { heal(st, a, ctx, out); const x = st.combat?.combatants?.find((c) => c.uid === a.uid); if (x?.type === 'crawler') dyingTick(st, ctx, out, 'heal', x.uid); };

@@ -14,6 +14,11 @@ const DCC_PACK = process.env.DCC_PACK || path.resolve(import.meta.dirname, '../.
 const ctx = (extra = {}) => ({ now: 1000, rng: seq(0.1, 0.6, 0.3), genId: (p) => `${p}_${++n}`, pack, ...extra });
 const gm = (s, a, extra) => reduce(s, { role: 'gm', ...a }, ctx(extra));
 const pl = (s, pid, a) => reducePlayerAction(s, a, { ...ctx(), playerId: pid });
+const resolveAll = (s, { force = false } = {}, extra) => {
+  const entered = gm(s, { t: 'rx.step', to: 'resolve', force }).state;
+  const quoted = gm(entered, { t: 'rx.resolveNext', all: true }, extra);
+  return gm(quoted.state, { t: 'rx.resolveNext', op: 'apply', all: true, token: quoted.result.token, confirm: true }, extra);
+};
 
 function fight({ boss = false } = {}) {
   let s = createState(pack, 0);
@@ -30,6 +35,121 @@ function fight({ boss = false } = {}) {
 }
 const crawlerUid = (s, name) => s.combat.combatants.find((x) => x.type === 'crawler' && s.players.find((p) => p.id === x.playerId)?.name === name).uid;
 const playerId = (s, name) => s.players.find((p) => p.name === name).id;
+
+function resolutionFight() {
+  const { pack } = loadPack(writePack(tmpDir(), {
+    'ruleset.json': {
+      id: 'resolution', tracks: [{ id: 'hp', label: 'Health', kind: 'slots', default: 4, slotValue: 1 }],
+      combat: { flow: 'reaction', dyingRounds: '1', injuries: { minor: 'minor', major: 'major', majorDescriptions: ['Broken arm.'] } },
+    },
+    'buffs.json': [{ id: 'marked', name: 'Marked' }],
+  }));
+  const act = (s, action, extra) => gm(s, action, { pack, ...extra });
+  let s = createState(pack, 0);
+  for (const name of ['Hero', 'Ally']) s = act(s, { t: 'player.add', name }).state;
+  s = act(s, { t: 'combat.start' }).state;
+  const hero = crawlerUid(s, 'Hero'), ally = crawlerUid(s, 'Ally');
+  const mob = act(s, { t: 'combat.addAdhoc', name: 'Foe', hp: 10, hidden: false, attacks: [{ name: 'Strike', damage: '1d2', buffs: ['marked'] }] });
+  const [mobUid] = mob.result.uids;
+  s = mob.state;
+  for (let i = 0; i < 4; i++) s = act(s, { t: 'rx.declare', targetUid: hero, mobUid }).state;
+  s = act(s, { t: 'rx.step', to: 'react' }).state;
+  const pid = playerId(s, 'Hero');
+  s = reducePlayerAction(s, { t: 'rx.interrupt', kind: 'evade' }, { ...ctx({ pack }), playerId: pid }).state;
+  for (const [i, d] of s.combat.rx.decls.entries()) s = act(s, { t: 'rx.evade', declId: d.id, die: i === 2 ? 1 : 3 }).state;
+  return { s, pack, act, hero, ally, pid, mobUid };
+}
+
+test('four attacks preview one at a time and require confirmation before Dying and death', () => {
+  const { s, pack, act, hero, pid } = resolutionFight();
+  const rollInt = (sides) => { assert.equal(sides, 2); return 0; };
+  const noDice = () => assert.fail('damage already rolled during preview');
+  const acting = act(s, { t: 'rx.step', to: 'resolve' }, { rollInt: noDice });
+  let state = acting.state;
+  const hp = () => state.players.find((p) => p.id === pid).sheet.tracks.hp.cur;
+  const crawler = () => state.combat.combatants.find((x) => x.uid === hero);
+  assert.equal(hp(), 4);
+  assert.equal(state.combat.rx.decls.filter((d) => d.result).length, 0);
+  assert.throws(() => act(state, { t: 'rx.step', to: 'act' }), /remaining attacks/);
+  assert.throws(() => act(state, { t: 'rx.start' }), /already in progress/);
+  assert.throws(() => act(state, { t: 'rx.round' }), /remaining attacks/);
+  const undoBaseline = state.combat.manualUndo?.length ?? 0;
+  for (const [i, danger] of [null, null, 'dying', 'dead'].entries()) {
+    const before = hp();
+    const quote = act(state, { t: 'rx.resolveNext' }, { rollInt });
+    state = quote.state;
+    assert.equal(hp(), before);
+    assert.equal(quote.result.raw, 1);
+    assert.equal(quote.result.danger, danger);
+    assert.equal(quote.result.declId, state.combat.rx.decls[i].id);
+    assert.equal(viewFor(state, pack, 'gm').combat.rx.pending.token, quote.result.token);
+    assert.equal(viewFor(state, pack, 'stage').combat.rx.pending, undefined);
+    assert.equal(quote.events.length, 0);
+    const apply = { t: 'rx.resolveNext', op: 'apply', token: quote.result.token };
+    if (danger) assert.throws(() => act(state, apply), /confirm the preview/);
+    if (danger === 'dying') assert.deepEqual(quote.result.injury, { severity: 'major', desc: 'Broken arm.' });
+    const committed = act(state, { ...apply, confirm: !!danger }, { rollInt: noDice });
+    state = committed.state;
+    const publicHit = committed.events.filter((x) => x.event.kind === 'rx.hit');
+    assert.equal(publicHit.length, 1);
+    assert.equal(publicHit[0].event.danger, danger);
+    assert.equal(committed.events.find((x) => x.event.kind === 'combat.hit').event.animation, 'reaction');
+    assert.equal(state.combat.rx.decls.filter((d) => d.result).length, i + 1);
+  }
+  assert.equal(crawler().dead, true);
+  assert.equal(crawler().injuries[0].desc, 'Broken arm.');
+  assert.equal(state.combat.stats.downs[pid], 1);
+  assert.equal(state.combat.manualUndo?.length ?? 0, undoBaseline, 'only the dedicated undo records hits');
+  state = act(state, { t: 'rx.step', to: 'act' }).state;
+  assert.equal(viewFor(state, pack, 'gm').combat.rx.canUndo, true);
+  state = act(state, { t: 'rx.resolveNext', op: 'undo' }).state;
+  assert.equal(state.combat.rx.step, 'resolve');
+  assert.equal(crawler().dead, undefined);
+  assert.equal(crawler().dying, 1);
+  state = act(state, { t: 'rx.resolveNext', op: 'undo' }).state;
+  assert.equal(crawler().dying, undefined);
+  assert.equal(crawler().injuries, undefined);
+  assert.equal(hp(), 2);
+  assert.equal(state.combat.stats.downs[pid], undefined);
+  assert.equal(state.combat.stats.taken[pid], 2);
+});
+
+test('batch quote names the exact victim, invalidates on health changes and applies only the reviewed queue', () => {
+  const { s, act, hero, ally, pid, mobUid } = resolutionFight();
+  let state = act(s, { t: 'rx.step', to: 'resolve' }).state;
+  const quote = (all = true) => {
+    const r = act(state, { t: 'rx.resolveNext', all }, { rollInt: () => 0 });
+    state = r.state;
+    return r.result;
+  };
+  const batch = quote();
+  assert.deepEqual(batch.hits.map((h) => h.danger), [null, null, 'dying', 'dead']);
+  assert.deepEqual(batch.victims, [{ uid: hero, name: 'Hero', danger: 'dead' }]);
+  const apply = { t: 'rx.resolveNext', op: 'apply', all: true, token: batch.token };
+  assert.throws(() => act(state, apply), /confirm the preview/);
+  state = act(state, { t: 'track.set', playerId: pid, track: 'hp', cur: 3 }).state;
+  assert.throws(() => act(state, { ...apply, confirm: true }), /fight changed/);
+  const first = quote(false);
+  assert.throws(() => act(state, { ...apply, confirm: true }), /preview/);
+  const redirected = act(state, { t: 'rx.resolveNext', op: 'redirect', targetUid: ally, token: first.token });
+  state = redirected.state;
+  assert.deepEqual([redirected.result.targetUid, redirected.result.evade], [ally, null]);
+  assert.equal(state.combat.rx.decls[0].targetUid, hero, 'redirect stays in the quote until committed');
+  const changed = act(state, { t: 'rx.resolveNext', op: 'change', amount: 2, token: redirected.result.token });
+  state = changed.state;
+  assert.equal(changed.result.slots, 2);
+  state = act(state, { t: 'rx.resolveNext', op: 'skip', token: changed.result.token }).state;
+  assert.equal(state.combat.rx.decls[0].result, 'skipped');
+  const next = quote();
+  state = act(state, { t: 'combat.reveal', uid: mobUid, on: false }).state;
+  const committed = act(state, { ...apply, token: next.token, confirm: true });
+  state = committed.state;
+  const impacts = committed.events.filter((x) => x.event.kind === 'rx.hit').map((x) => x.event);
+  assert.deepEqual(impacts.map((x) => x.declId), state.combat.rx.decls.slice(1).map((x) => x.id));
+  assert.ok(impacts.every((x) => x.mobUid === null && x.mob === 'Unseen attacker' && x.attack === 'Attack'));
+  state = act(state, { t: 'track.set', playerId: pid, track: 'hp', cur: 2 }).state;
+  assert.throws(() => act(state, { t: 'rx.resolveNext', op: 'undo' }), /target changed/);
+});
 
 test('a disadvantaged attack gives its target a free Evade and one paid retry on failure', () => {
   let s = fight();
@@ -60,7 +180,7 @@ test('a disadvantaged attack gives its target a free Evade and one paid retry on
   assert.throws(() => pl(retry.state, pid, { t: 'rx.evade', declId, die: 1 }), /already evaded/);
   s = pl(retry.state, pid, { t: 'rx.evade', declId: normalId, die: 20 }).state;
   assert.equal(s.combat.rx.acts[targetUid], 1);
-  s = gm(s, { t: 'rx.step', to: 'resolve' }).state;
+  s = resolveAll(s).state;
   assert.deepEqual(s.combat.rx.decls.map((d) => d.result), ['evaded', 'evaded']);
 });
 
@@ -265,7 +385,7 @@ test('announce publishes the selected attack and target before any damage roll',
   assert.equal(decl.dc, undefined);
   assert.throws(() => gm(announced.state, { t: 'rx.retarget', declId: decl.id, attackIndex: 0 }), /declare step/);
   const dice = [];
-  const resolved = gm(announced.state, { t: 'rx.step', to: 'resolve' }, { rollInt: (sides) => { dice.push(sides); return 4; } });
+  const resolved = resolveAll(announced.state, {}, { rollInt: (sides) => { dice.push(sides); return 4; } });
   assert.deepEqual(dice, [6]);
   assert.equal(resolved.state.combat.rx.decls[0].damage, 5);
 });
@@ -311,10 +431,10 @@ test('a full round: suggest, evade (spends an action), rolls, intervene on a nea
     t = gm(t, { t: 'rx.area', declId: d2.id, area: 'full' }).state;
     t = gm(t, { t: 'rx.area', declId: d3.id, area: 'splash' }).state;
     assert.throws(() => gm(t, { t: 'rx.area', declId: d3.id, area: 'cone' }), /area must be/);
-    t = gm(t, { t: 'rx.step', to: 'resolve', force: true }, { randInt: (k) => k - 1 }).state;
+    t = resolveAll(t, { force: true }, { randInt: (k) => k - 1 }).state;
     assert.deepEqual(t.combat.rx.decls.map((d) => [d.result, d.damage]), [['half', 1], ['half', 2], ['half', 2]]);
   }
-  s = gm(s, { t: 'rx.step', to: 'resolve', force: true }, { randInt: (k) => k - 1 }).state;
+  s = resolveAll(s, { force: true }, { randInt: (k) => k - 1 }).state;
   const res = s.combat.rx.decls.map((d) => d.result);
   assert.deepEqual(res, ['evaded', 'evaded', 'hit']);
   assert.equal(s.combat.rx.decls[2].damage, 4, 'max roll on 1d4 with the test randInt');
@@ -348,7 +468,7 @@ test('catcher takes the hit (no evade), major / critical fails hurt more, views 
   const pv = viewFor(s, pack, 'player', { now: 0, playerId: playerId(s, 'Carl') }).combat.rx;
   assert.equal(pv.decls[0].dc, undefined, 'players never see the difficulty');
   assert.equal(viewFor(s, pack, 'gm', { now: 0 }).combat.rx.decls[0].dc, 12);
-  s = gm(s, { t: 'rx.step', to: 'resolve' }, { randInt: (k) => k - 1 }).state;
+  s = resolveAll(s, {}, { randInt: (k) => k - 1 }).state;
   const [a, b] = s.combat.rx.decls;
   assert.equal(a.result, 'hit');
   assert.equal(a.damage, 4);

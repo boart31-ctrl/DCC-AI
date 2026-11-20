@@ -1,13 +1,10 @@
 // Auto mode ("Mobs act") and combat endings. Pure + browser-safe, merged into the GM table by state.js
 // after COMBAT_GM (so `combat.end` here replaces the plain one).
 //
-// combat.auto {includeHidden?, dryRun?}   every living mob that may act (revealed; hidden too with
-//   includeHidden / settings.includeHidden) picks a target (targetMode + crawler aggro weights), picks an
-//   attack (first / random), rolls d20 + toHit against the target's computed Evade (settings.hitRule),
-//   on a hit rolls damage, subtracts the target's DR (at least settings.drMin), applies it with track.set
-//   on the sheet (single source of truth) and the attack's `buffs` as conditions. Returns `sequence`.
-// combat.autoStep   the same, one mob at a time (a queue for this mob phase; combat.auto finishes it).
-// combat.autoUndo   puts back the HP, conditions and spread pointer the last auto run changed.
+// combat.autoStep resolves one mob attack. combat.auto is also single-step unless confirmAll is true.
+// A hit that would drop a crawler to 0 or damage a Dying crawler pauses at the exact dice preview.
+// combat.autoConfirm / combat.autoCancel apply / dismiss that pending attack by its preview ID.
+// combat.autoUndo restores one committed attack, including HP, conditions and the queue position.
 // combat.autoSkip   tells the TV / GM desk to jump to the end of the cinematic (no state change).
 // combat.end {outcome?, title?, text?, line?, scene?}   ends the fight with a televised finale.
 //
@@ -16,10 +13,12 @@
 // the same timeline. Unverified rules (hitRule, drMin, crit) are flagged in the GM view.
 import { bad, notFound } from './errors.js';
 import { damageToSlots } from './outcome.js';
+import { FormulaError, rollDice } from './formula.js';
+import { onCrawlerDamage } from './reaction.js';
 import { FINALE_OUTCOMES } from './scenes.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack } from './character.js';
 import {
-  C, combatantOf, crawlerHp, hpTrackOf, defenseOf, combatRules, attackOutcome, critFormula, critMultiplier, comboLine, chatCue, initCombat, initStats, endSuggestion,
+  C, combatantOf, crawlerHp, hpTrackOf, defenseOf, combatRules, attackOutcome, critFormula, critMultiplier, comboLine, chatCue, initCombat, initStats, endSuggestion, autoScope,
 } from './combat.js';
 
 export const OUTCOMES = FINALE_OUTCOMES;
@@ -31,6 +30,7 @@ export const AUTO_LEAD_MS = 600; // TV + desk get the event before the first ste
 // Beats inside one step, as a fraction of stepMs (TV animation + GM desk SFX use the same numbers).
 export const BEATS = Object.freeze({ lunge: 0, swing: 0.12, roll: 0.2, result: 0.52, down: 0.72 });
 export const MAX_COMBAT_LOG = 30;
+const MAX_AUTO_UNDO = 40;
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const flag = (v, f) => { if (typeof v !== 'boolean') throw bad(`${f} must be a boolean`); return v; };
@@ -62,7 +62,7 @@ export function validTargets(st, ctx, c) {
   return c.combatants
     .filter((x) => x.type === 'crawler' && !x.noTarget)
     .map((x) => crawlerState(st, ctx, x))
-    .filter((s) => s && s.max > 0 && (s.hp > 0 || c.settings.finishDowned));
+    .filter((s) => s && s.max > 0 && (!s.x.dead && (s.hp > 0 || c.settings.finishDowned)));
 }
 
 /** Weighted random pick (aggro weights) with the engine rng. */
@@ -86,7 +86,6 @@ function pickTarget(st, ctx, c, m) {
   }
   if (m.targetMode === 'spread') {
     const s = valid[c.spreadNext % valid.length];
-    c.spreadNext = (c.spreadNext + 1) % 1000;
     return { target: s, mode: 'spread' };
   }
   return { target: weightedPick(valid, ctx.rng), mode: m.targetMode === 'focus' ? 'auto (focus unavailable)' : 'auto' };
@@ -109,81 +108,116 @@ function quietRoll(st, ctx, out, formula, label, secret) {
   return rec;
 }
 
-/** Records what an auto run may change, once per crawler / per run (for combat.autoUndo). */
-function remember(undo, st, ctx, s) {
-  if (undo.crawlers[s.p.id]) return;
-  const t = hpTrackOf(ctx.pack);
-  undo.crawlers[s.p.id] = { cur: s.hp, track: t?.id ?? null, buffs: [], taken: 0 };
+function autoRoll(formula, ctx) {
+  try {
+    const rolled = rollDice(formula, { randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt });
+    return { formula, ...rolled };
+  } catch (error) {
+    if (error instanceof FormulaError) throw bad(`bad roll formula: ${error.message}`);
+    throw error;
+  }
 }
 
-/** One mob's turn. Mutates the state; returns the step record. */
-function resolveMob(st, ctx, out, c, m, run, force = {}) {
-  const step = { i: run.steps.length, mobUid: m.uid, mob: m.name, image: m.image ?? null, hidden: !!m.hidden, boss: m.sourceKind === 'boss' };
-  // force.attackIndex / force.targetUid: the GM picked the attack and / or the target (combat.mobAct)
-  const pick = force.attackIndex !== undefined ? (m.attacks[force.attackIndex] ? { atk: m.attacks[force.attackIndex], index: force.attackIndex } : null) : pickAttack(ctx, m);
-  if (!pick) return { ...step, skipped: 'no attacks' };
+/** Rolls once, without publishing dice, changing health or moving the spread pointer. */
+function planMob(st, ctx, c, m, force = {}) {
+  const step = { mobUid: m.uid, mob: m.name, image: m.image ?? null, hidden: !!m.hidden, boss: m.sourceKind === 'boss' };
+  const pick = force.attackIndex !== undefined ? { atk: m.attacks[force.attackIndex], index: force.attackIndex } : pickAttack(ctx, m);
+  if (!pick?.atk) return { step: { ...step, skipped: 'no attacks' } };
   let picked;
   if (force.targetUid) {
-    const x = c.combatants.find((y) => y.uid === force.targetUid && y.type === 'crawler');
-    const s0 = x ? crawlerState(st, ctx, x) : null;
-    picked = s0 && s0.max > 0 ? { target: s0, mode: 'gm' } : { target: null, reason: 'that crawler is not in the fight' };
+    const x = c.combatants.find((y) => y.uid === force.targetUid && y.type === 'crawler' && !y.dead);
+    const target = x ? crawlerState(st, ctx, x) : null;
+    picked = target?.max > 0 ? { target, mode: 'gm' } : { target: null, reason: 'that crawler is not in the fight or is already dead' };
   } else picked = pickTarget(st, ctx, c, m);
   const { target, reason, mode } = picked;
   step.attack = pick.atk.name;
   step.attackIndex = pick.index;
-  if (!target) return { ...step, skipped: reason };
-  remember(run.undo, st, ctx, target);
-  const s = c.settings;
-  Object.assign(step, { targetUid: target.x.uid, playerId: target.p.id, target: target.p.name, color: target.p.color, mode, evade: target.evade, drValue: target.dr, hpBefore: target.hp, max: target.max });
+  if (!target) return { step: { ...step, skipped: reason ?? 'no valid target' } };
+  Object.assign(step, { targetUid: target.x.uid, playerId: target.p.id, target: target.p.name, color: target.p.color,
+    mode, evade: target.evade, drValue: target.dr, hpBefore: target.hp, max: target.max });
   const toHit = pick.atk.toHit || 0;
-  const rec = quietRoll(st, ctx, out, toHit ? `d20${toHit > 0 ? '+' : ''}${toHit}` : 'd20', `${m.name}: ${pick.atk.name} → ${target.p.name}`, !run.public);
-  const d20 = rec.dice.find((d) => d.die === 'd20')?.value ?? rec.total - toHit;
-  const rules = combatRules(ctx.pack, s);
-  const res = attackOutcome(rules, { d20, total: rec.total, target: target.evade });
-  const hit = res.hit;
-  Object.assign(step, { d20, toHit, total: rec.total, rule: rules.degrees ? 'degrees' : rules.hitRule, hit, nat20: d20 === 20, nat1: d20 === 1, crit: res.crit, degree: res.degree, rollId: rec.id, defenseLabel: rules.defenseLabel });
-  step.margin = rec.total - target.evade;
-  step.damage = 0;
-  step.hpAfter = target.hp;
-  step.buffs = [];
-  if (!hit) return step;
-  const dmgFormula = (pick.atk.damage || '').trim();
-  if (dmgFormula && !/^0+$/.test(dmgFormula)) {
-    const dr = quietRoll(st, ctx, out, step.crit ? critFormula(dmgFormula, rules) : dmgFormula, `${m.name}: ${pick.atk.name} damage${step.crit ? ' (critical)' : ''}`, !run.public);
-    let raw = dr.total;
-    if (step.crit) raw *= critMultiplier(rules);
+  const strike = autoRoll(toHit ? `d20${toHit > 0 ? '+' : ''}${toHit}` : 'd20', ctx);
+  const d20 = strike.dice[0].rolls[0];
+  const rules = combatRules(ctx.pack, c.settings);
+  const res = attackOutcome(rules, { d20, total: strike.total, target: target.evade });
+  Object.assign(step, { d20, toHit, total: strike.total, rule: rules.degrees ? 'degrees' : rules.hitRule,
+    hit: res.hit, nat20: d20 === 20, nat1: d20 === 1, crit: res.crit, degree: res.degree,
+    defenseLabel: rules.defenseLabel, margin: strike.total - target.evade, damage: 0, hpAfter: target.hp, buffs: [] });
+  const plan = { step, strike };
+  if (!res.hit) return plan;
+  const formula = (pick.atk.damage || '').trim();
+  if (formula && !/^0+$/.test(formula)) {
+    const roll = autoRoll(res.crit ? critFormula(formula, rules) : formula, ctx);
+    const raw = res.crit ? roll.total * critMultiplier(rules) : roll.total;
     const damageAfterDr = Math.max(rules.drMin, raw - Math.max(0, target.dr));
-    const dmg = damageToSlots(damageAfterDr, target.slotValue);
-    Object.assign(step, { damageRoll: dr.total, damageRaw: raw, damageAfterDr, damage: dmg, damageRollId: dr.id,
+    const damage = damageToSlots(damageAfterDr, target.slotValue);
+    const hpAfter = Math.max(0, target.hp - damage);
+    Object.assign(step, { damageRoll: roll.total, damageRaw: raw, damageAfterDr, damage, hpAfter,
       ...(target.slotValue > 1 ? { slotValue: target.slotValue } : {}) });
-    const t = hpTrackOf(ctx.pack);
-    if (t && dmg > 0) {
-      setTrack(st, target.p, { track: t.id, delta: -dmg }, ctx, out);
-      const after = crawlerState(st, ctx, target.x);
+    plan.damage = roll;
+    if (damage > 0 && target.x.dying != null) plan.danger = target.x.dying <= 1 ? 'death' : 'dying';
+    else if (damage > 0 && hpAfter <= 0) plan.danger = 'down';
+  }
+  return plan;
+}
+
+function publishRoll(st, ctx, out, roll, label, secret) {
+  const faces = roll.dice.flatMap((d) => d.rolls);
+  let index = 0;
+  return quietRoll(st, { ...ctx, dieInt: () => faces[index++] - 1 }, out, roll.formula, label, secret);
+}
+
+/** Commits the exact rolled result and remembers only this hit's changes. */
+function applyMob(st, ctx, out, c, plan, run, i) {
+  const step = { ...plan.step, i };
+  if (step.skipped) return { step };
+  const target = combatantOf(st, step.targetUid);
+  const p = st.players.find((y) => y.id === target.playerId);
+  const t = hpTrackOf(ctx.pack);
+  const undo = { track: t?.id ?? null, taken: 0, downs: 0, buffs: [], dying: target.dying, dead: !!target.dead };
+  if (step.mode === 'spread') c.spreadNext = (c.spreadNext + 1) % 1000;
+  step.rollId = publishRoll(st, ctx, out, plan.strike, `${step.mob}: ${step.attack} → ${p.name}`, !run.public).id;
+  if (plan.damage) {
+    step.damageRollId = publishRoll(st, ctx, out, plan.damage, `${step.mob}: ${step.attack} damage${step.crit ? ' (critical)' : ''}`, !run.public).id;
+    if (t && step.damage > 0) {
+      setTrack(st, p, { track: t.id, delta: -step.damage }, ctx, out);
+      const after = crawlerState(st, ctx, target);
       step.hpAfter = after.hp;
-      const taken = target.hp - after.hp;
-      if (taken > 0) run.undo.crawlers[target.p.id].taken = (run.undo.crawlers[target.p.id].taken ?? 0) + taken;
-      if (taken > 0) c.stats.taken[target.p.id] = (c.stats.taken[target.p.id] ?? 0) + taken;
-      if (target.hp > 0 && after.hp <= 0) {
+      undo.taken = step.hpBefore - after.hp;
+      if (undo.taken > 0) c.stats.taken[p.id] = (c.stats.taken[p.id] ?? 0) + undo.taken;
+      if (step.hpBefore > 0 && after.hp <= 0) {
         step.down = true;
-        c.stats.downs[target.p.id] = (c.stats.downs[target.p.id] ?? 0) + 1;
+        undo.downs = 1;
+        c.stats.downs[p.id] = (c.stats.downs[p.id] ?? 0) + 1;
+      }
+      onCrawlerDamage(st, ctx, out, target, target.dying != null);
+      if (undo.dying != null || target.dying != null) {
+        step.dyingBefore = undo.dying ?? null;
+        step.dyingAfter = target.dying ?? null;
+        step.deadBefore = undo.dead;
+        step.deadAfter = !!target.dead;
       }
     }
   }
-  for (const id of pick.atk.buffs ?? []) {
-    try {
-      const sub = { ...out, result: undefined };
-      SHEET_GM['buff.add'](st, { playerId: target.p.id, buffId: id }, ctx, sub);
-      if (sub.result?.added) {
-        const b = target.p.sheet.buffs.find((y) => y.uid === sub.result.uid);
-        step.buffs.push(b?.name ?? id);
-        run.undo.crawlers[target.p.id].buffs.push(sub.result.uid);
+  if (step.hit) {
+    const attack = combatantOf(st, step.mobUid).attacks[step.attackIndex];
+    for (const id of attack.buffs ?? []) {
+      try {
+        const sub = { ...out, result: undefined };
+        SHEET_GM['buff.add'](st, { playerId: p.id, buffId: id }, ctx, sub);
+        if (sub.result?.added) {
+          const b = p.sheet.buffs.find((y) => y.uid === sub.result.uid);
+          step.buffs.push(b?.name ?? id);
+          undo.buffs.push(sub.result.uid);
+        }
+      } catch (e) {
+        step.buffErrors = [...(step.buffErrors ?? []), `${id}: ${e.message}`];
       }
-    } catch (e) {
-      step.buffErrors = [...(step.buffErrors ?? []), `${id}: ${e.message}`];
     }
   }
-  return step;
+  undo.afterDying = target.dying;
+  undo.afterDead = !!target.dead;
+  return { step, undo };
 }
 
 /** TV / phone copy of a step: a hidden attacker is shown as an unseen one, never by name or art. */
@@ -213,10 +247,73 @@ function cues(st, ctx, out, run) {
   }
 }
 
-function newRun(st, ctx, c, a) {
+function autoOptions(c, a) {
   const includeHidden = a.includeHidden === undefined ? c.settings.includeHidden : flag(a.includeHidden, 'includeHidden');
   const pub = a.public === undefined ? c.settings.public : flag(a.public, 'public');
-  return { id: ctx.genId('au'), at: ctx.now, includeHidden, public: pub, steps: [], undo: { crawlers: {}, spreadNext: c.spreadNext, stats: structuredClone(c.stats) } };
+  return { includeHidden, public: pub };
+}
+
+function newRun(ctx, options) {
+  return { ...options, id: ctx.genId('au'), at: ctx.now, steps: [] };
+}
+
+function queueOf(st, ctx, c, a) {
+  const scope = autoScope(c);
+  const saved = c.autoQueue;
+  if (saved && (saved.scope == null || saved.scope === scope)) return { ...saved, scope };
+  const options = autoOptions(c, a);
+  return { id: ctx.genId('aq'), scope, done: 0, uids: actors(st, c, options.includeHidden).map((m) => m.uid), ...options };
+}
+
+function autoFingerprint(st, ctx, c, step) {
+  const mob = c.combatants.find((x) => x.uid === step.mobUid && x.type === 'mob' && x.hp > 0);
+  const crawler = c.combatants.find((x) => x.uid === step.targetUid && x.type === 'crawler' && !x.dead);
+  const target = crawler ? crawlerState(st, ctx, crawler) : null;
+  if (!mob?.attacks[step.attackIndex] || !target) return null;
+  const { hp, max, slotValue, dr, evade, p } = target;
+  return JSON.stringify([autoScope(c), c.spreadNext, c.settings, mob, crawler, p.name, p.color, hp, max,
+    slotValue, dr, evade, p.sheet.buffs, c.autoQueue?.id, c.autoQueue?.done, ctx.pack.ruleset.combat]);
+}
+
+function previewOf(pending) {
+  return { id: pending.id, danger: pending.plan.danger, step: pending.plan.step };
+}
+
+function holdPreview(st, ctx, c, plan, options) {
+  const pending = { id: ctx.genId('ap'), plan, ...options, scope: autoScope(c),
+    fingerprint: autoFingerprint(st, ctx, c, plan.step) };
+  c.autoPending = pending;
+  return previewOf(pending);
+}
+
+function needActive(c, ctx) {
+  if (!c.active) throw bad('combat is not running (combat.start first)');
+  if (ctx.pack.ruleset.combat?.flow === 'reaction') throw bad('declare the mob attack and its target in Fight');
+}
+
+function reportPending(c, out) {
+  if (!c.autoPending || c.autoPending.scope !== autoScope(c)) return false;
+  out.changed = false;
+  out.result = { sequence: [], preview: previewOf(c.autoPending) };
+  return true;
+}
+
+function queueRemaining(c, q) {
+  return q.uids.slice(q.done).filter((uid) => c.combatants.some((x) => x.uid === uid && x.hp > 0 && (q.includeHidden || !x.hidden))).length;
+}
+
+function applyStep(st, ctx, out, c, plan, run, q, i) {
+  const queueBefore = q ? { ...q } : c.autoQueue;
+  const spreadBefore = c.spreadNext;
+  const { step, undo } = applyMob(st, ctx, out, c, plan, run, i);
+  if (q) q.done++;
+  c.autoQueue = q && queueRemaining(c, q) ? q : null;
+  run.steps.push(step);
+  if (undo) {
+    const entry = { id: run.id, at: ctx.now, step, undo, queueBefore, scope: autoScope(c),
+      queueAfterId: c.autoQueue?.id ?? null, queueAfterDone: c.autoQueue?.done ?? null, spreadBefore, spreadAfter: c.spreadNext };
+    c.autoUndo = [...(c.autoUndo ?? []), entry].slice(-MAX_AUTO_UNDO);
+  }
 }
 
 /** Emits the cinematic for `steps` (GM: everything; TV + phones: public copies). */
@@ -239,61 +336,101 @@ function emitRun(st, ctx, out, c, run, steps, kind = 'combat.auto', tv = true) {
   return { startAt, stepMs };
 }
 
-function storeRun(c, run, timing, append) {
-  if (append && c.lastAuto?.id === run.id) {
-    c.lastAuto.steps.push(...run.steps.slice(c.lastAuto.steps.length));
-    c.lastAuto.undo = run.undo;
-    Object.assign(c.lastAuto, timing);
-  } else c.lastAuto = { id: run.id, at: run.at, steps: run.steps, undo: run.undo, undone: false, ...timing };
+function publishRun(st, ctx, out, c, run, options = {}) {
+  const { tv = true, preview, left } = options;
+  if (!run.steps.length) {
+    out.result = { sequence: [], ...(preview ? { preview } : {}) };
+    return;
+  }
+  const timing = emitRun(st, ctx, out, c, run, run.steps, 'combat.auto', tv);
+  c.lastAuto = { id: run.id, at: run.at, steps: run.steps, undone: false, ...timing };
+  out.result = { autoId: run.id, sequence: run.steps, ...timing, suggestEnd: endSuggestion(st, ctx.pack),
+    ...(left !== undefined ? { left } : {}), ...(preview ? { preview } : {}) };
 }
 
-function needActive(c, ctx) {
-  if (!c.active) throw bad('combat is not running (combat.start first)');
-  if (ctx.pack.ruleset.combat?.flow === 'reaction') throw bad('declare the mob attack and its target in Fight');
+function autoQueueRun(st, a, ctx, out, { all = false, dry = false } = {}) {
+  const c = C(st);
+  needActive(c, ctx);
+  if (!dry && reportPending(c, out)) return;
+  delete c.autoPending;
+  const q = queueOf(st, ctx, c, a);
+  const run = newRun(ctx, q);
+  // A dry run may simulate sequential changes on the reducer's private clone. Never publish those events.
+  const output = dry ? { events: [], emit: (event) => ({ ...event, at: ctx.now }) } : out;
+  let preview;
+  while (q.done < q.uids.length) {
+    const m = c.combatants.find((x) => x.uid === q.uids[q.done] && x.hp > 0 && (q.includeHidden || !x.hidden));
+    if (!m) { q.done++; continue; }
+    const plan = planMob(st, ctx, c, m);
+    if (!dry && plan.danger) {
+      c.autoQueue = q;
+      preview = holdPreview(st, ctx, c, plan, { queued: true, tv: true, public: run.public, i: q.done });
+      break;
+    }
+    applyStep(st, ctx, output, c, plan, run, q, q.done);
+    if (!all) break;
+  }
+  if (dry) {
+    out.changed = false;
+    out.result = { dryRun: true, sequence: run.steps };
+    return;
+  }
+  if (!run.steps.length && !preview) throw bad('no living mob can act');
+  publishRun(st, ctx, out, c, run, { preview, left: queueRemaining(c, q) });
+}
+
+function restoreAuto(st, c, ctx, out) {
+  const entry = c.autoUndo?.pop();
+  if (!entry) return null;
+  const { id, step, undo } = entry;
+  const p = st.players.find((x) => x.id === step.playerId);
+  const x = c.combatants.find((y) => y.uid === step.targetUid);
+  if (p) {
+    const t = hpTrackOf(ctx.pack);
+    const before = x ? crawlerState(st, ctx, x) : null;
+    if (t && undo.track === t.id && undo.taken > 0) setTrack(st, p, { track: t.id, delta: undo.taken }, ctx, out);
+    if (x && before?.hp === step.hpAfter && x.dying === undo.afterDying && !!x.dead === undo.afterDead) {
+      if (undo.dying == null) delete x.dying; else x.dying = undo.dying;
+      if (!undo.dead) delete x.dead; else x.dead = true;
+    }
+    const added = new Set(undo.buffs);
+    p.sheet.buffs = p.sheet.buffs.filter((b) => !added.has(b.uid));
+    if (undo.taken) c.stats.taken[p.id] = Math.max(0, (c.stats.taken[p.id] ?? 0) - undo.taken);
+    if (undo.downs) c.stats.downs[p.id] = Math.max(0, (c.stats.downs[p.id] ?? 0) - undo.downs);
+  }
+  for (const roll of st.rolls) if (roll.id === step.rollId || roll.id === step.damageRollId) roll.void = true;
+  if (autoScope(c) === entry.scope) {
+    if (c.spreadNext === entry.spreadAfter) c.spreadNext = entry.spreadBefore;
+    if ((c.autoQueue?.id ?? null) === entry.queueAfterId && (c.autoQueue?.done ?? null) === entry.queueAfterDone) {
+      c.autoQueue = entry.queueBefore;
+    }
+  }
+  delete c.autoPending;
+  if (c.lastAuto?.id === id) {
+    const displayed = c.lastAuto.steps.find((x) => x.i === step.i);
+    if (displayed) displayed.undone = true;
+    c.lastAuto.undone = c.lastAuto.steps.every((x) => x.undone || x.skipped);
+  }
+  return { id, restored: p ? [p.name] : [] };
 }
 
 export const AUTO_GM = {
-  /** The whole mob phase in one go (or the rest of a stepped queue). */
+  /** Bulk resolution requires an explicit choice. A dangerous hit always pauses the queue. */
   'combat.auto'(st, a, ctx, out) {
-    const c = C(st);
-    needActive(c, ctx);
     const dry = a.dryRun === undefined ? false : flag(a.dryRun, 'dryRun');
-    let run;
-    let uids;
-    const q = c.autoQueue;
-    if (q && c.lastAuto?.id === q.id && c.lastAuto.undo) {
-      run = { ...c.lastAuto, steps: [...c.lastAuto.steps], undo: c.lastAuto.undo, public: q.public, includeHidden: q.includeHidden };
-      uids = q.uids.slice(q.done ?? 0);
-    } else {
-      run = newRun(st, ctx, c, a);
-      uids = actors(st, c, run.includeHidden).map((m) => m.uid);
-    }
-    const from = run.steps.length;
-    for (const uid of uids) {
-      const m = c.combatants.find((x) => x.uid === uid);
-      if (!m || m.hp <= 0) continue;
-      run.steps.push(resolveMob(st, ctx, out, c, m, run));
-    }
-    c.autoQueue = null;
-    const fresh = run.steps.slice(from);
-    if (dry) {
-      out.changed = false;
-      out.result = { dryRun: true, sequence: fresh };
-      return;
-    }
-    if (!fresh.length) throw bad(actors(st, c, true).length ? 'no revealed mob can act (reveal them or include hidden ones)' : 'no living mob with an attack');
-    const timing = emitRun(st, ctx, out, c, run, fresh);
-    storeRun(c, run, timing, from > 0);
-    out.result = { autoId: run.id, sequence: fresh, ...timing, suggestEnd: endSuggestion(st, ctx.pack) };
+    const bulk = a.confirmAll === undefined ? false : flag(a.confirmAll, 'confirmAll');
+    autoQueueRun(st, a, ctx, out, { all: dry || bulk, dry });
   },
 
-  /**
-   * One chosen mob (a boss too) attacks now: optional attackIndex (default: its attack mode) and targetUid
-   * (default: its targeting). Same resolution, cinematic, dice log and undo as auto mode.
-   */
+  'combat.autoStep'(st, a, ctx, out) {
+    autoQueueRun(st, a, ctx, out);
+  },
+
   'combat.mobAct'(st, a, ctx, out) {
     const c = C(st);
     needActive(c, ctx);
+    if (reportPending(c, out)) return;
+    delete c.autoPending;
     const m = c.combatants.find((x) => x.uid === a.uid && x.type === 'mob');
     if (!m) throw notFound(`no mob ${a.uid}`);
     if (m.hp <= 0) throw bad(`${m.name} is down`);
@@ -308,46 +445,52 @@ export const AUTO_GM = {
       force.targetUid = a.targetUid;
     }
     const tv = a.tv === undefined ? true : flag(a.tv, 'tv');
-    c.autoQueue = null;
-    const run = newRun(st, ctx, c, tv ? a : { ...a, public: false });
-    const step = resolveMob(st, ctx, out, c, m, run, force);
-    if (step.skipped) throw bad(`${m.name}: ${step.skipped}`);
-    run.steps.push(step);
-    const timing = emitRun(st, ctx, out, c, run, [step], 'combat.auto', tv);
-    storeRun(c, run, timing, false);
-    out.result = { autoId: run.id, sequence: [step], ...timing, suggestEnd: endSuggestion(st, ctx.pack) };
+    const run = newRun(ctx, autoOptions(c, tv ? a : { ...a, public: false }));
+    const plan = planMob(st, ctx, c, m, force);
+    if (plan.step.skipped) throw bad(`${m.name}: ${plan.step.skipped}`);
+    if (plan.danger) {
+      out.result = { sequence: [], preview: holdPreview(st, ctx, c, plan, { tv, public: run.public, i: 0 }) };
+      return;
+    }
+    applyStep(st, ctx, out, c, plan, run, null, 0);
+    publishRun(st, ctx, out, c, run, { tv });
   },
 
-  /** One mob at a time: builds the queue on the first call, resolves the next mob on each call. */
-  'combat.autoStep'(st, a, ctx, out) {
+  'combat.autoConfirm'(st, a, ctx, out) {
     const c = C(st);
     needActive(c, ctx);
-    let q = c.autoQueue;
-    let run;
-    if (!q || c.lastAuto?.id !== q.id || !c.lastAuto.undo) {
-      run = newRun(st, ctx, c, a);
-      q = { id: run.id, uids: actors(st, c, run.includeHidden).map((m) => m.uid), done: 0, public: run.public, includeHidden: run.includeHidden };
-      if (!q.uids.length) throw bad('no mob can act');
-      c.autoQueue = q;
-    } else run = { ...c.lastAuto, steps: [...c.lastAuto.steps], undo: c.lastAuto.undo, public: q.public, includeHidden: q.includeHidden };
-    let step = null;
-    while (q.done < q.uids.length && !step) {
-      const m = c.combatants.find((x) => x.uid === q.uids[q.done]);
-      q.done++;
-      if (m && m.hp > 0) step = resolveMob(st, ctx, out, c, m, run);
-    }
-    if (!step) { c.autoQueue = null; throw bad('every mob has acted'); }
-    run.steps.push(step);
-    const timing = emitRun(st, ctx, out, c, run, [step]);
-    storeRun(c, run, timing, run.steps.length > 1);
-    const left = q.uids.slice(q.done).filter((uid) => c.combatants.find((x) => x.uid === uid)?.hp > 0).length;
-    if (!left) c.autoQueue = null;
-    out.result = { autoId: run.id, sequence: [step], left, ...timing, suggestEnd: endSuggestion(st, ctx.pack) };
+    const pending = c.autoPending;
+    if (!pending || pending.id !== a.previewId) throw bad('no matching attack preview');
+    if (pending.fingerprint !== autoFingerprint(st, ctx, c, pending.plan.step)) throw bad('the attack preview is stale; dismiss it and roll again');
+    const run = newRun(ctx, { public: pending.public });
+    const q = pending.queued ? c.autoQueue : null;
+    delete c.autoPending;
+    applyStep(st, ctx, out, c, pending.plan, run, q, pending.i);
+    publishRun(st, ctx, out, c, run, { tv: pending.tv, ...(q ? { left: queueRemaining(c, q) } : {}) });
   },
 
-  /** Undo the last auto run: HP back to the stored values, the conditions it added removed. */
+  'combat.autoCancel'(st, a, ctx, out) {
+    const c = C(st);
+    needActive(c, ctx);
+    const pending = c.autoPending;
+    if (!pending || pending.id !== a.previewId) throw bad('no matching attack preview');
+    if (pending.queued && c.autoQueue && pending.fingerprint === autoFingerprint(st, ctx, c, pending.plan.step)) {
+      c.autoQueue.done++;
+      if (!queueRemaining(c, c.autoQueue)) c.autoQueue = null;
+    }
+    delete c.autoPending;
+    out.result = { previewId: pending.id };
+  },
+
+  /** Undo one attack, with a compatibility path for historical saves. */
   'combat.autoUndo'(st, a, ctx, out) {
     const c = C(st);
+    const entry = restoreAuto(st, c, ctx, out);
+    if (entry) {
+      out.emit({ kind: 'combat.autoUndo', autoId: entry.id }, 'all');
+      out.result = { autoId: entry.id, restored: entry.restored };
+      return;
+    }
     const la = c.lastAuto;
     if (!la?.undo || la.undone) throw bad('nothing to undo');
     const t = hpTrackOf(ctx.pack);
@@ -355,7 +498,6 @@ export const AUTO_GM = {
     for (const [pid, u] of Object.entries(la.undo.crawlers)) {
       const p = st.players.find((x) => x.id === pid);
       if (!p) continue;
-      // Relative: give back only what this run took, so heals made after it stay (old runs: absolute).
       if (t && u.track === t.id) setTrack(st, p, u.taken !== undefined ? { track: t.id, delta: u.taken } : { track: t.id, cur: u.cur }, ctx, out);
       const drop = new Set(u.buffs);
       p.sheet.buffs = p.sheet.buffs.filter((b) => !drop.has(b.uid));
@@ -365,6 +507,7 @@ export const AUTO_GM = {
     if (la.undo.stats) c.stats = la.undo.stats;
     la.undone = true;
     if (c.autoQueue?.id === la.id) c.autoQueue = null;
+    delete c.autoPending;
     out.emit({ kind: 'combat.autoUndo', autoId: la.id }, 'all');
     out.result = { autoId: la.id, restored };
   },

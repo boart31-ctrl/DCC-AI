@@ -1095,7 +1095,13 @@ test('private DCC pack: dying at 0 health — Con mod rounds, −1 per clean up 
   st = gm(st, { t: 'sheet.set', playerId: st.players[0].id, path: 'stats.con', value: { enhanced: 6, unenhanced: 6 } }).state; // Con mod +3
   st = gm(st, { t: 'combat.start' }).state;
   const x = () => st.combat.combatants.find((y) => y.type === 'crawler');
-  st = gm(st, { t: 'combat.damage', uid: x().uid, amount: 99 }).state;
+  const down = () => {
+    const damage = { t: 'combat.damage', uid: x().uid, amount: 99 };
+    const { confirmHit } = gm(st, damage).result;
+    assert.ok(confirmHit);
+    st = gm(st, { ...damage, confirmHit }).state;
+  };
+  down();
   assert.equal(x().dying, 3, 'Con mod 3 rounds');
   st = gm(st, { t: 'rx.round' }).state;
   assert.equal(x().dying, 2);
@@ -1103,7 +1109,7 @@ test('private DCC pack: dying at 0 health — Con mod rounds, −1 per clean up 
   assert.equal(x().dying, 1, 'a hit while dying takes a round');
   st = gm(st, { t: 'combat.heal', uid: x().uid, amount: 1 }).state;
   assert.equal(x().dying, undefined, 'healed: not dying');
-  st = gm(st, { t: 'combat.damage', uid: x().uid, amount: 99 }).state;
+  down();
   for (let i = 0; i < 3; i++) st = gm(st, { t: 'rx.round' }).state;
   assert.equal(x().dead, true);
 });

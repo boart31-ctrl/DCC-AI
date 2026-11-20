@@ -42,7 +42,12 @@ const shownPins = new Set();
 async function act(action, okMsg) {
   buzz(10);
   try {
-    const ack = await client.send(action);
+    let ack = await client.send(action);
+    while (action.t === 'combat.damage' && ack?.result?.confirmHit) {
+      const hit = ack.result;
+      if (!await ask(`Apply this hit to ${hit.name}? They will be ${hit.outcome}.`, { ok: 'Apply hit', danger: true })) return false;
+      ack = await client.send({ ...action, confirmHit: hit.confirmHit });
+    }
     if (okMsg) toast(okMsg);
     return ack && typeof ack === 'object' ? ack : true; // truthy; the ack carries `result`
   } catch (err) {
@@ -1160,11 +1165,18 @@ document.addEventListener('keydown', (e) => {
     stopAll();
     return;
   }
-  // Ctrl+Z / Cmd+Z: take back the newest hand edit in the fight (damage, heal, condition, reveal, remove).
+  // Ctrl+Z / Cmd+Z: undo the latest recoverable fight edit or hit.
   if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.code === 'KeyZ' && !e.target.closest?.('input, textarea, select, [contenteditable]')) {
-    if (!view?.combat?.manualUndo) { toast('Nothing to undo in the fight.'); return; }
+    if (sheet.open || drawerOpen() || document.querySelector('dialog[open]')) return;
     e.preventDefault();
-    act({ t: 'combat.undo' }).then((r) => r?.result?.undone && toast(`Undone: ${r.result.undone}`));
+    const c = view?.combat;
+    const newest = [
+      c?.rx?.canUndo && { at: c.rx.undoAt ?? 0, action: { t: 'rx.resolveNext', op: 'undo' }, notice: 'Last hit undone.' },
+      c?.lastAutoUndo && { at: c.lastAutoUndo.at ?? 0, action: { t: 'combat.autoUndo' }, notice: 'Last hit undone.' },
+      c?.manualUndo && { at: c.manualUndo.at ?? 0, action: { t: 'combat.undo' }, notice: `Undone: ${c.manualUndo.label}` },
+    ].filter(Boolean).sort((a, b) => b.at - a.at)[0];
+    if (newest) act(newest.action, newest.notice);
+    else toast('Nothing to undo in the fight.');
     return;
   }
   if (e.ctrlKey || e.metaKey || e.altKey) return;

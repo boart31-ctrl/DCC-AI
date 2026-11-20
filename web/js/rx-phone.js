@@ -10,10 +10,18 @@ const STEP_NAME = { declare: 'Mobs choose', react: 'React', resolve: 'Hits land'
 const STEP_HINT = {
   declare: 'The mobs are choosing who to hit. Wait a moment…',
   react: 'Mobs announced their attacks. Before they land you can spend actions: dodge, protect a friend, draw the attack to you. You have 2 actions this round in total.',
-  resolve: 'The attacks land now. Watch the TV.',
+  resolve: 'The GM is reviewing the attacks. Watch the TV as each one resolves.',
   act: 'Your turn: attack or do something with the actions you have left.',
   cleanup: 'End of the round.',
 };
+
+function resolvedHit(d) {
+  if (d.result === 'evaded') return 'Evaded';
+  if (d.result === 'skipped') return 'Skipped by the GM';
+  const label = d.result === 'half' ? 'Half damage' : 'Hit';
+  const damage = d.slots != null ? `${d.slots} slot${d.slots === 1 ? '' : 's'} lost` : `${d.damage ?? 0} HP before DR`;
+  return `${label} · ${damage}`;
+}
 
 export function createRxPhone({ send, toast, onAttack = null }) {
   const el = h('section.rxp', { hidden: true, 'aria-live': 'polite', 'aria-label': 'Combat round' });
@@ -77,7 +85,7 @@ export function createRxPhone({ send, toast, onAttack = null }) {
 
     const incoming = atMe.length ? h('ul.rxp-list', atMe.map((d) => h('li',
       h('span', h('b', d.mob), ` · ${d.attack}`, d.area ? ' (area)' : '', d.adv === 'dis' ? ' · Disadvantaged' : ''),
-      d.result ? h('span.rxp-deg', d.result === 'evaded' ? 'Evaded' : `${d.result === 'half' ? 'Half damage' : 'Hit'} · ${d.slots != null ? `${d.slots} slot${d.slots === 1 ? '' : 's'} lost` : `${d.damage ?? 0} HP before DR`}`)
+      d.result ? h('span.rxp-deg', resolvedHit(d))
         : d.evade ? h('span.rxp-deg', { class: `rxp-deg rx-deg-${d.evade.degree}` }, d.evade.label, d.evade.free ? ' · free' : '')
           : d.caught ? h('span.dim', 'You caught it') : null,
       react && d.canEvade ? h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => openPad('evade', d.id) }, d.freeEvade ? 'Free Evade' : d.canReroll ? 'Reroll Evade' : 'Roll Evade') : null))) : null;

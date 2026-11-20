@@ -22,7 +22,7 @@ import { rollDice } from './formula.js';
 import { computeFor, libraryOf, nextInjuryDescription, SHEET, requireStatusAllowed, statusBlocker } from './character.js';
 import { sheetResolver } from './ruleset.js';
 import { evaluate } from './formula.js';
-import { COMBAT_GM, defenseOf, hpTrackOf } from './combat.js';
+import { COMBAT_GM, defenseOf, hpTrackOf, MAX_MOB_HP } from './combat.js';
 import { combatRules, mobAttackDc, floorOfState, typedDamage } from './outcome.js';
 import { advanceGameTime } from './crawlers.js';
 
@@ -185,55 +185,74 @@ export function suggestDecls(st, ctx) {
   return out;
 }
 
-function resolveDecl(st, ctx, out, rx, d) {
+function attackResult(st, ctx, d) {
   const mob = C(st).combatants.find((x) => x.uid === d.mobUid);
   const target = C(st).combatants.find((x) => x.uid === d.targetUid);
-  if (!mob || !target || target.dead) { d.result = 'evaded'; return; }
+  if (!mob || mob.hp <= 0 || !target || target.dead) return { mob, target, result: 'evaded' };
   if (mob.conditions?.length) {
     const blocked = statusBlocker(mob, libraryOf(st, ctx.pack), 'action');
-    if (blocked) {
-      d.result = 'evaded';
-      d.damage = 0;
-      log(rx, `${mob.name} cannot attack due to ${blocked}.`);
-      return;
-    }
+    if (blocked) return { mob, target, result: 'evaded', message: `${mob.name} cannot attack due to ${blocked}.` };
   }
   const deg = d.evade?.degree ?? null;
-  const graveFail = deg === 'major' || deg === 'critfail';
-  const F = floorOfState(st);
   // Splash ring of an area attack: half damage, a successful Evade there leaves a quarter.
   let mult = d.splash ? 0.5 : 1;
-  let bonus = 0;
   if (deg && isSuccess(deg)) {
-    if (!d.attack.area) { d.result = 'evaded'; d.damage = 0; log(rx, `${nameOf(st, target)} evades ${mob.name}'s ${d.attack.name}.`); return; }
+    if (!d.attack.area) return { mob, target, result: 'evaded', message: `${nameOf(st, target)} evades ${mob.name}'s ${d.attack.name}.` };
     mult *= 0.5;
   }
-  if (deg === 'major') bonus = F;
   if (deg === 'critfail') mult *= 2;
-  let rolled = 0;
+  return {
+    mob, target, result: mult < 1 ? 'half' : 'hit', mult,
+    bonus: deg === 'major' ? floorOfState(st) : 0,
+    injury: deg === 'critfail' ? 'major' : deg === 'major' ? 'minor' : null,
+  };
+}
+
+function rollAttack(st, ctx, d) {
   try {
-    rolled = rollDice(d.attack.damage, { resolve: (name) => name === 'floor' ? F : undefined, randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt }).total;
+    const roll = rollDice(d.attack.damage, {
+      resolve: (name) => name === 'floor' ? floorOfState(st) : undefined, randInt: ctx.dieInt ?? ctx.rollInt ?? ctx.randInt,
+    });
+    return { raw: roll.total, die: roll.dice };
   } catch { /* Bad legacy damage formula. */ }
-  const amount = Math.max(0, Math.floor(rolled * mult) + bonus);
-  d.result = mult < 1 ? 'half' : 'hit';
+  return { raw: 0, die: [] };
+}
+
+function resolveDecl(st, ctx, out, rx, d, roll, project = false) {
+  ctx = { ...ctx, reactionHit: true };
+  const plan = attackResult(st, ctx, d);
+  const { mob, target, result, mult, bonus, injury, message } = plan;
+  d.result = result;
+  if (result === 'evaded') {
+    d.damage = 0;
+    if (message && !mob?.hidden) log(rx, message);
+    return;
+  }
+  const amount = Math.max(0, Math.min(MAX_MOB_HP, Math.floor((roll.raw ?? 0) * mult) + bonus));
   d.damage = amount;
-  let immune = typedDamage(0, d.attack.dtype, target).why === 'immune';
+  let immune = false;
   if (amount > 0) {
-    const sub = { ...out, result: undefined };
+    const sub = { ...out, result: undefined, emit: (event, audience) => out.emit(event.kind === 'combat.hit' ? { ...event, animation: 'reaction' } : event, audience) };
     const wasDying = target.type === 'crawler' && target.dying != null;
-    COMBAT_GM['combat.damage'](st, { uid: target.uid, amount, dr: true, dtype: d.attack.dtype }, ctx, sub);
+    COMBAT_GM['combat.damage'](st, { uid: target.uid, amount, dr: true, dtype: d.attack.dtype, ...(project ? { line: false } : {}) }, ctx, sub);
     if (sub.result?.slotValue) d.slots = sub.result.actualAmount ?? 0;
     d.damageAfterDr = sub.result?.rolled;
     immune = sub.result?.typed === 'immune';
     if (!sub.result?.blocked) onCrawlerDamage(st, ctx, out, target, wasDying);
+  } else if (d.attack.dtype) {
+    const p = playerOfCrawler(st, target);
+    const protections = p && computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.buffs;
+    immune = typedDamage(0, d.attack.dtype, target, protections).why === 'immune';
   }
-  log(rx, `${mob.name} hits ${nameOf(st, target)} with ${d.attack.name}: ${amount} HP${d.slots == null ? '' : ` → ${d.slots} slots`}.`);
+  const source = mob.hidden ? 'An unseen attacker' : mob.name;
+  const attack = mob.hidden ? '' : ` with ${d.attack.name}`;
+  log(rx, `${source} hits ${nameOf(st, target)}${attack}: ${amount} HP${d.slots == null ? '' : ` → ${d.slots} slots`}.`);
   if (immune) return;
   // Injuries after the fight (ruleset combat.injuries): Evade Major Fail → minor, natural 1 → major.
-  if (target.type === 'crawler' && graveFail && ctx.pack.ruleset.combat?.injuries) {
-    markInjury(st, ctx, target, deg === 'critfail' ? 'major' : 'minor');
+  if (target.type === 'crawler' && injury && ctx.pack.ruleset.combat?.injuries) {
+    markInjury(st, ctx, target, injury);
   }
-  const buffs = new Set([...(d.attack.buffs ?? []), ...(graveFail ? d.attack.majorFailBuffs ?? [] : [])]);
+  const buffs = new Set([...(d.attack.buffs ?? []), ...(injury ? d.attack.majorFailBuffs ?? [] : [])]);
   if (!buffs.size) return;
   const library = libraryOf(st, ctx.pack);
   for (const buffId of buffs) {
@@ -253,6 +272,168 @@ function markInjury(st, ctx, target, severity, description) {
   injuries.push({ id: ctx.genId('inj'), severity, desc: nextInjuryDescription(p, rules, severity, description) });
 }
 
+const unresolved = (rx) => rx.decls.filter((d) => !d.result);
+const sameResolution = (left, right) => JSON.stringify(left) === JSON.stringify(right);
+
+function resolvedTarget(st, ctx, d, library = libraryOf(st, ctx.pack)) {
+  const x = st.combat.combatants.find((y) => y.uid === d.targetUid);
+  const p = playerOfCrawler(st, x);
+  const track = hpTrackOf(ctx.pack)?.id;
+  if (!p || !track) return null;
+  return {
+    playerId: p.id, track, hp: computeFor(p, ctx.pack, library).computed.tracks[track].cur,
+    stored: structuredClone(p.sheet.tracks[track] ?? null), buffs: structuredClone(p.sheet.buffs),
+    dying: x.dying ?? null, dead: x.dead ?? null, injuries: structuredClone(x.injuries ?? null),
+    injuryTally: structuredClone(p.injuryTally ?? null), taken: st.combat.stats.taken[p.id] ?? null, downs: st.combat.stats.downs[p.id] ?? null,
+  };
+}
+
+function resolutionImpact(st, ctx, out, rx, d, roll, project, library) {
+  const mob = st.combat.combatants.find((x) => x.uid === d.mobUid);
+  const target = st.combat.combatants.find((x) => x.uid === d.targetUid);
+  const before = resolvedTarget(st, ctx, d, library);
+  resolveDecl(st, ctx, out, rx, d, roll, project);
+  const after = resolvedTarget(st, ctx, d, library);
+  const injury = after?.injuries?.length > (before?.injuries?.length ?? 0) ? after.injuries.at(-1) : null;
+  const down = before?.hp > 0 && after?.hp === 0;
+  const danger = after?.dead && !before?.dead ? 'dead' : after?.dying != null && before?.dying == null ? 'dying' : down ? 'down' : null;
+  const hit = {
+    declId: d.id, mobUid: d.mobUid, mob: mob?.name ?? '?', targetUid: d.targetUid, target: target ? nameOf(st, target) : '?',
+    attack: d.attack.name, evade: d.evade ? { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], die: d.evade.die } : null,
+    die: roll.die, formula: d.attack.damage, raw: roll.raw, damage: d.damage, afterDr: d.damageAfterDr ?? null,
+    slots: Math.max(0, (before?.hp ?? 0) - (after?.hp ?? 0)), before: before?.hp ?? null, after: after?.hp ?? null,
+    dyingBefore: before?.dying ?? null, dyingAfter: after?.dying ?? null, deadBefore: !!before?.dead, deadAfter: !!after?.dead,
+    down: after?.hp === 0, danger, injury: injury ? { severity: injury.severity, desc: injury.desc } : null, result: d.result,
+  };
+  return { hit, before, after };
+}
+
+function redirectResolution(rx, d) {
+  const targetUid = rx.resolutionTargets?.[d.id];
+  if (targetUid && targetUid !== d.targetUid) Object.assign(d, { targetUid, evade: null, caught: false, taunted: false });
+}
+
+/** Run the real resolution logic against copies of the party and combat state for an exact, side-effect-free quote. */
+function projectResolution(st, ctx, rx, ready, allowRoll) {
+  const combat = st.combat;
+  const simulated = { ...rx, decls: structuredClone(rx.decls), log: [...rx.log] };
+  const sim = { ...st, combat: { ...combat, combatants: structuredClone(combat.combatants), stats: structuredClone(combat.stats), rx: simulated }, players: st.players.map((p) => ({
+    ...p, sheet: structuredClone(p.sheet), injuryTally: structuredClone(p.injuryTally),
+  })) };
+  let counter = 0;
+  const shadow = { ...ctx, genId: () => `preview-${++counter}` };
+  const out = { emit() {}, lines: [] };
+  const library = libraryOf(st, ctx.pack);
+  return ready.map((original) => {
+    const d = declOf(simulated, original.id);
+    redirectResolution(rx, d);
+    let roll = rx.resolutionRolls?.[d.id];
+    if (!roll && attackResult(sim, ctx, d).result !== 'evaded') {
+      if (!allowRoll) throw bad('the fight changed, preview the damage again');
+      roll = (rx.resolutionRolls ??= {})[d.id] = rollAttack(sim, ctx, d);
+    }
+    return resolutionImpact(sim, shadow, out, simulated, d, roll ?? { raw: null, die: [] }, true, library).hit;
+  });
+}
+
+function quoteResolution(st, ctx, rx, ready, all) {
+  const hits = projectResolution(st, ctx, rx, ready, true);
+  const token = ctx.genId('rxp');
+  if (all) {
+    const victims = [...new Map(hits.filter((hit) => hit.danger).map((hit) => [hit.targetUid, { uid: hit.targetUid, name: hit.target, danger: hit.danger }])).values()];
+    delete rx.pending;
+    rx.batch = { token, hits, count: hits.length, victims };
+    return rx.batch;
+  }
+  delete rx.batch;
+  if (!hits.length) { delete rx.pending; return null; }
+  rx.pending = { token, ...hits[0] };
+  return rx.pending;
+}
+
+function quoteWithToken(a, quote) {
+  if (!quote || typeof a.token !== 'string' || a.token !== quote.token) throw bad('preview the damage again');
+}
+
+function restoreImpact(st, d, before) {
+  if (!before) return;
+  const x = st.combat.combatants.find((y) => y.uid === d.targetUid);
+  const p = st.players.find((y) => y.id === before.playerId);
+  const set = (obj, key, value) => { if (value === null) delete obj[key]; else obj[key] = value; };
+  set(p.sheet.tracks, before.track, before.stored);
+  p.sheet.buffs = before.buffs;
+  for (const key of ['dying', 'dead', 'injuries']) set(x, key, before[key]);
+  set(p, 'injuryTally', before.injuryTally);
+  for (const key of ['taken', 'downs']) set(st.combat.stats[key], p.id, before[key]);
+}
+
+function resolveNext(st, a, ctx, out) {
+  const rx = rxOf(st);
+  const op = a.op ?? 'preview';
+  if (rx.step !== 'resolve' && !(op === 'undo' && rx.step === 'act')) throw bad('enter the Resolve step first');
+  const all = a.all === true;
+  if (all && !['preview', 'apply'].includes(op)) throw bad('batch resolution supports preview and apply');
+  if (op === 'undo') {
+    const entry = rx.resolutionUndo?.at(-1);
+    if (!entry) throw bad('no applied hit to undo');
+    const d = declOf(rx, entry.decl.id);
+    if (!sameResolution(resolvedTarget(st, ctx, d), entry.after)) throw bad('the target changed after that hit');
+    restoreImpact(st, d, entry.before);
+    rx.decls[rx.decls.indexOf(d)] = entry.decl;
+    rx.resolutionUndo.pop();
+    rx.step = 'resolve';
+    log(rx, 'Undid a resolved attack.');
+    out.emit({ kind: 'rx.undo', combatId: rx.combatId, declId: d.id, targetUid: d.targetUid, round: rx.round }, 'all');
+    out.result = quoteResolution(st, ctx, rx, unresolved(rx).slice(0, 1), false);
+    return;
+  }
+  const ready = all ? unresolved(rx) : unresolved(rx).slice(0, 1);
+  if (!ready.length) throw bad('no unresolved attacks');
+  if (op === 'preview') { out.result = quoteResolution(st, ctx, rx, ready, all); return; }
+  const quote = all ? rx.batch : rx.pending;
+  quoteWithToken(a, quote);
+  if (op === 'change' || op === 'redirect') {
+    const d = ready[0];
+    if (op === 'change') {
+      if (!Number.isInteger(a.amount) || a.amount < 0 || a.amount > MAX_MOB_HP) throw bad(`damage must be 0..${MAX_MOB_HP}`);
+      (rx.resolutionRolls ??= {})[d.id] = { raw: a.amount, die: [] };
+    } else {
+      const target = crawlerOf(st, a.targetUid);
+      if (target.dead) throw bad('that crawler is already dead');
+      (rx.resolutionTargets ??= {})[d.id] = target.uid;
+    }
+    out.result = quoteResolution(st, ctx, rx, ready, false);
+    return;
+  }
+  if (op === 'skip') {
+    Object.assign(ready[0], { result: 'skipped', damage: 0 });
+    log(rx, 'Skipped a declared attack.');
+  } else if (op === 'apply') {
+    const { token, ...single } = quote;
+    const hits = all ? quote.hits : [single];
+    if (!sameResolution(projectResolution(st, ctx, rx, ready, false), hits)) throw bad('the fight changed, preview the damage again');
+    if ((all || hits[0].danger) && a.confirm !== true) throw bad('confirm the preview before applying damage');
+    const library = libraryOf(st, ctx.pack);
+    for (const d of ready) {
+      const decl = structuredClone(d);
+      redirectResolution(rx, d);
+      const roll = rx.resolutionRolls?.[d.id] ?? { raw: null, die: [] };
+      const { hit, before, after } = resolutionImpact(st, ctx, out, rx, d, roll, false, library);
+      (rx.resolutionUndo ??= []).push({ decl, before, after, at: ctx.now });
+      const { declId, mobUid, mob, targetUid, target, attack, result, damage, slots, danger, down, dyingBefore, dyingAfter, deadBefore, deadAfter } = hit;
+      const hidden = st.combat.combatants.find((x) => x.uid === mobUid)?.hidden;
+      const attacker = hidden ? { mobUid: null, mob: 'Unseen attacker', attack: 'Attack' } : { mobUid, mob, attack };
+      out.emit({ kind: 'rx.hit', combatId: rx.combatId, round: rx.round, declId, ...attacker, targetUid, target, result, damage, slots, danger, down,
+        hpBefore: hit.before, hpAfter: hit.after, dyingBefore, dyingAfter, deadBefore, deadAfter }, 'all');
+    }
+  } else throw bad('unknown resolution operation');
+  delete rx.pending;
+  delete rx.batch;
+  const remaining = unresolved(rx).length;
+  if (!remaining) out.emit({ kind: 'rx.resolved', round: rx.round }, 'all');
+  out.result = { remaining };
+}
+
 export const REACTION_GM = {
   'combat.injury'(st, a, ctx) {
     if (!C(st).active) throw bad('start combat to record an injury');
@@ -268,6 +449,7 @@ export const REACTION_GM = {
   /** Start (or re-sync) reaction rounds for the running fight. */
   'rx.start'(st) {
     const rx = rxOf(st);
+    if (rx.step !== 'declare') throw bad('reaction rounds are already in progress');
     rx.step = 'declare';
   },
 
@@ -343,7 +525,7 @@ export const REACTION_GM = {
     out.result = { count: rx.decls.length };
   },
 
-  /** `{ to }` one of STEPS. Moving to resolve resolves every declared attack (missing Evade rolls: `force`). */
+  /** `{ to }` one of STEPS. Resolve opens the queue without inflicting damage (missing Evades: `force`). */
   'rx.step'(st, a, ctx, out) {
     const rx = rxOf(st);
     if (!STEPS.includes(a.to)) throw bad(`to must be one of ${STEPS.join(', ')}`);
@@ -360,9 +542,16 @@ export const REACTION_GM = {
         throw bad(`${missing.length} Evade roll${missing.length === 1 ? '' : 's'} missing`);
       }
       rx.step = 'resolve';
-      for (const d of rx.decls) if (!d.result) resolveDecl(st, ctx, out, rx, d);
-      out.emit({ kind: 'rx.resolved', round: rx.round }, 'all');
+      if (a.all === true && unresolved(rx).length) resolveNext(st, { ...a, op: a.token ? 'apply' : 'preview' }, ctx, out);
+      else if (!unresolved(rx).length) out.emit({ kind: 'rx.resolved', round: rx.round }, 'all');
       return;
+    }
+    if (a.to === 'resolve' && a.all === true) {
+      resolveNext(st, { ...a, op: a.token ? 'apply' : 'preview' }, ctx, out);
+      return;
+    }
+    if (unresolved(rx).length && ((rx.step === 'resolve' && a.to !== 'resolve') || (rx.step === 'react' && ['act', 'cleanup'].includes(a.to)))) {
+      throw bad('resolve or skip the remaining attacks first');
     }
     if (a.to === 'react' && rx.step === 'declare') {
       for (const uid of new Set(rx.decls.map((d) => d.mobUid))) {
@@ -373,6 +562,8 @@ export const REACTION_GM = {
     }
     rx.step = a.to;
   },
+
+  'rx.resolveNext': resolveNext,
 
   /**
    * The crawlers surprised the mobs (Stealth / Ambush beat their Surprise): before round 1 every crawler gets
@@ -393,6 +584,7 @@ export const REACTION_GM = {
   /** Clean up and start the next round at declare. */
   'rx.round'(st, a, ctx, out) {
     const rx = rxOf(st);
+    if (['react', 'resolve'].includes(rx.step) && unresolved(rx).length) throw bad('resolve or skip the remaining attacks first');
     debuffTicks(st, ctx, out, rx);
     dyingTick(st, ctx, out, 'cleanup');
     if (rx.round > 0) advanceGameTime(st, ctx.pack.ruleset.combat.roundSeconds, out);
@@ -400,6 +592,7 @@ export const REACTION_GM = {
     C(st).round = rx.round;
     rx.step = 'declare';
     rx.decls = [];
+    for (const key of ['pending', 'batch', 'resolutionRolls', 'resolutionTargets', 'resolutionUndo']) delete rx[key];
     resetActs(st);
     // Timed mob conditions count down (crawler buffs count down through the sheet's own round tick).
     const library = libraryOf(st, ctx.pack);
@@ -666,5 +859,7 @@ export function reactionView(state, role, pack) {
     return gm ? { ...base, attackIndex: d.attackIndex, dc: d.attack.dc, damageDice: d.attack.damage, dtype: d.attack.dtype, effects: d.attack.effects, damageAfterDr: d.damageAfterDr, evadeTotal: d.evade?.total ?? null } : base;
   });
   const advantage = (rx.advantage ?? []).filter((v) => gm || !mobs.get(v.mobUid)?.hidden).map((v) => ({ uid: v.uid, mobUid: v.mobUid, mob: mobs.get(v.mobUid)?.name ?? '?' }));
-  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, nonAttackActions: rx.nonAttackActions ?? {}, favor: rx.favor ?? [], evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5) };
+  const lastUndo = ['resolve', 'act'].includes(rx.step) ? rx.resolutionUndo?.at(-1) : null;
+  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, nonAttackActions: rx.nonAttackActions ?? {}, favor: rx.favor ?? [], evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5),
+    ...(gm ? { pending: rx.pending ?? null, batch: rx.batch ?? null, canUndo: !!lastUndo, undoAt: lastUndo?.at ?? null } : {}) };
 }

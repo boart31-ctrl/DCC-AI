@@ -52,6 +52,93 @@ export function timers() {
   };
 }
 
+/** Play committed attacks in event order, even when several commits precede one state view. */
+export function attackPlayback({ T, clock, reduced }, { start, roll, result, down, finish, refresh }) {
+  const queued = [];
+  const health = new Map();
+  let playing = null;
+  let timerIds = [];
+  const track = (id) => { timerIds.push(id); return id; };
+  const clearTimers = () => {
+    for (const id of timerIds) T.stop(id);
+    timerIds = [];
+  };
+  function pace() {
+    playing = queued.shift() ?? null;
+    if (!playing) { health.clear(); refresh(); return; }
+    const { st, at, ms, beats } = playing;
+    const delay = Math.max(0, at - clock.now());
+    const after = (beat, f) => track(T.after(delay + beat * ms, f));
+    after(beats.lunge ?? 0, () => {
+      if (Number.isFinite(st.hpBefore)) {
+        const before = attackHealth(st, 'before');
+        const shown = health.get(st.targetUid);
+        if (!shown || before.hp !== shown.hp || before.dying !== shown.dying || before.dead !== shown.dead) {
+          health.set(st.targetUid, before);
+          refresh();
+        }
+      }
+      start(st);
+    });
+    if (!reduced && roll && Number.isFinite(st.d20)) {
+      const b = beats.roll ?? 0.2;
+      after(b, () => roll(st, ms * (beats.result - b), track));
+    }
+    after(beats.result, () => {
+      if (Number.isFinite(st.hpAfter)) health.set(st.targetUid, attackHealth(st, 'after'));
+      result(st);
+    });
+    if (down && st.down && !st.reaction) after(beats.down ?? 0.72, () => down(st));
+    after(0.93, () => finish(st));
+    after(1, () => { clearTimers(); pace(); });
+  }
+  function attackHealth(st, when) {
+    return when === 'before'
+      ? { hp: st.hpBefore, down: st.hpBefore <= 0, dying: st.dyingBefore ?? null, dead: !!st.deadBefore }
+      : { hp: st.hpAfter, down: st.hpAfter <= 0, dying: st.dyingAfter ?? null, dead: !!st.deadAfter };
+  }
+  function enqueue(e) {
+    const reaction = e.kind === 'rx.hit';
+    const steps = reaction ? [{ ...e, reaction, hit: !['evaded', 'skipped'].includes(e.result), damage: e.slots }]
+      : (e.steps ?? []).filter((st) => !st.skipped);
+    if (!steps.length) return;
+    const ms = reaction ? 1500 : (e.stepMs || 2800);
+    const at = e.startAt ?? clock.now();
+    const beats = reaction ? { result: 0.37 } : (e.beats || { lunge: 0, roll: 0.2, result: 0.52, down: 0.72 });
+    for (const [i, st] of steps.entries()) {
+      if (Number.isFinite(st.hpBefore) && !health.has(st.targetUid)) health.set(st.targetUid, attackHealth(st, 'before'));
+      const slot = Number.isInteger(st.slot) ? st.slot : i;
+      queued.push({ st, at: at + slot * ms, ms, beats });
+    }
+    if (!playing) pace();
+    refresh();
+  }
+  function stop(redraw = true) {
+    const st = playing?.st;
+    clearTimers();
+    queued.length = 0;
+    playing = null;
+    health.clear();
+    if (st) finish(st);
+    if (redraw) refresh();
+  }
+  return { get active() { return !!playing; }, health, enqueue, stop };
+}
+
+export function attackResultText(st) {
+  const fell = st.deadAfter && !st.deadBefore ? 'Dead'
+    : st.dyingAfter != null && st.dyingAfter !== st.dyingBefore ? `Dying · ${st.dyingAfter}` : null;
+  if (!st.reaction) return `${st.total} vs ${st.evade}  ${st.hit ? (st.crit ? 'CRIT' : 'HIT') : 'MISS'}${st.hit && st.damage ? `  −${st.damage}` : ''}${fell ? ` · ${fell}` : ''}`;
+  if (st.result === 'evaded') return 'Evaded';
+  if (st.result === 'skipped') return 'Attack stopped';
+  if (st.danger === 'dead') return 'Dead';
+  const slots = st.damage ? `−${st.damage} slot${st.damage === 1 ? '' : 's'}` : null;
+  if (st.danger === 'dying') return slots ? `Dying · ${slots}` : 'Dying';
+  if (st.danger === 'down') return 'Down';
+  if (fell) return fell;
+  return slots ? `Hit · ${slots}` : 'Hit · No slots lost';
+}
+
 /** Restart a CSS animation class on an element. */
 export function replay(el, cls) {
   if (!el) return;

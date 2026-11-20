@@ -1,7 +1,7 @@
 // Boss battle — the big one. States: pre-reveal (silhouette, "threat detected"), intro cinematic,
 // fight (segmented HP bar, art, phase), phase change, defeat (shatter → BOSS DEFEATED → loot hint).
 // Everything animates with transform/opacity; the only per-frame work is CSS.
-import { h, bossArt, partyStrip, threatColor, rgb, replay, typeText } from './common.js';
+import { h, bossArt, partyStrip, threatColor, rgb, replay, typeText, attackPlayback, attackResultText } from './common.js';
 import { floorLayer } from '../ui-art.js';
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
@@ -31,7 +31,7 @@ export function minionGroups(combat) {
 }
 
 export default function boss(root, sc, env) {
-  const { T, clock } = env;
+  const { T } = env;
   let d = sc.data;
   let b = d.boss || { name: 'Unknown', hpSlots: 10, phases: [] };
   let artUrl = '';
@@ -376,41 +376,38 @@ export default function boss(root, sc, env) {
     drawStatic();
   }
 
-  /** Auto-mode / GM-picked attacks while the boss screen is up: a callout per step, the target's card flashes. */
+  /** Show the intermediate health for the target while an attack is being presented. */
   let lastView = env.view;
-  let partyHold = 0; // Date.now() until which view updates leave the party strip alone (an attack is playing)
-  function onAttacks(e) {
-    const stepMs = e.stepMs || 2800;
-    const beats = e.beats || { result: 0.52 };
-    const now = clock?.now ? clock.now() : Date.now();
-    const start = (e.startAt ?? now) - now;
-    const lastIdx = (e.steps || []).length - 1;
-    partyHold = Date.now() + Math.max(0, start) + (lastIdx + 1) * stepMs + 500;
-    (e.steps || []).forEach((st, k) => {
-      if (st.skipped) return;
-      const t0 = start + (Number.isInteger(st.slot) ? st.slot : k) * stepMs;
-      T.after(Math.max(0, t0), () => {
-        atkBox.className = 'bs-atk';
-        atkBox.replaceChildren(
-          h('div.bs-atk-who', st.boss ? st.attack : `${st.mob}: ${st.attack}`),
-          h('div.bs-atk-tgt', `→ ${st.target || '?'}`),
-          h('div.bs-atk-roll', '…'));
-        replay(atkBox, 'show');
-        if (st.boss && !env.reduced) replay(frame, 'lunge');
-      });
-      T.after(Math.max(0, t0 + (beats.result ?? 0.52) * stepMs), () => {
-        const r = atkBox.querySelector('.bs-atk-roll');
-        if (r) r.textContent = `${st.total} vs ${st.evade}  ${st.hit ? (st.crit ? 'CRIT' : 'HIT') : 'MISS'}${st.hit && st.damage ? `  −${st.damage}` : ''}`;
-        atkBox.classList.add(st.hit ? 'hit' : 'miss');
-        if (k === lastIdx) partyHold = 0;
-        party.update(lastView); // the HP drop (and its flash) lands with the result, not before
-      });
-      T.after(Math.max(0, t0 + stepMs * 0.95), () => atkBox.classList.remove('show'));
-    });
+  function drawParty() {
+    if (!playback.active || !lastView?.scene?.party) { party.update(lastView); return; }
+    const hp = new Map((lastView.combat?.combatants || []).filter((x) => x.playerId && playback.health.has(x.uid))
+      .map((x) => [x.playerId, playback.health.get(x.uid).hp]));
+    const partyView = lastView.scene.party.map((p) => hp.has(p.id) && p.tracks?.length
+      ? { ...p, tracks: [{ ...p.tracks[0], cur: hp.get(p.id) }, ...p.tracks.slice(1)] }
+      : p);
+    party.update({ ...lastView, scene: { ...lastView.scene, party: partyView } });
   }
+  const playback = attackPlayback(env, {
+    start(st) {
+      const isBoss = st.boss ?? lastView?.combat?.combatants?.find((x) => x.uid === st.mobUid)?.boss;
+      atkBox.className = 'bs-atk';
+      atkBox.replaceChildren(h('div.bs-atk-who', `${st.mob}: ${st.attack}`),
+        h('div.bs-atk-tgt', `→ ${st.target || '?'}`), h('div.bs-atk-roll', '…'));
+      replay(atkBox, 'show');
+      if (isBoss && !env.reduced) replay(frame, 'lunge');
+    },
+    result(st) {
+      atkBox.querySelector('.bs-atk-roll').textContent = attackResultText(st);
+      atkBox.classList.add(st.hit ? 'hit' : 'miss');
+      drawParty();
+    },
+    finish() { atkBox.classList.remove('show'); },
+    refresh: drawParty,
+  });
 
   function event(e) {
-    if (e.kind === 'combat.auto') { onAttacks(e); return; }
+    if (e.kind === 'combat.auto' || e.kind === 'rx.hit') { playback.enqueue(e); return; }
+    if (['combat.start', 'combat.autoSkip', 'combat.autoUndo', 'rx.undo'].includes(e.kind)) { playback.stop(); return; }
     if (e.kind === 'boss.intro') { if (!env.reduced) intro(); else { root.classList.remove('pre'); } }
     else if (e.kind === 'boss.hit') onHit(e);
     else if (e.kind === 'boss.heal') onHeal(e);
@@ -423,9 +420,9 @@ export default function boss(root, sc, env) {
   party.update(env.view);
   const baseUpdate = update;
   return {
-    update(s, view) { lastView = view; baseUpdate(s, view); drawMinions(view); if (Date.now() >= partyHold) party.update(view); },
+    update(s, view) { lastView = view; baseUpdate(s, view); drawMinions(view); drawParty(); },
     event,
-    destroy() { document.body.classList.remove('cine'); },
+    destroy() { playback.stop(false); document.body.classList.remove('cine'); },
     get hp() { return hpShown; },
   };
 }

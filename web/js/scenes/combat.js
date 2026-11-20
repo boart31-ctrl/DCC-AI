@@ -9,7 +9,7 @@
 // get their own treatment; a crawler reaching 0 gets the big DOWN stamp. While it plays, crawler HP
 // shows the value *before* each step (the view already carries the result). TV budget: transform +
 // opacity animations only.
-import { h, hash, threatColor, rgb, replay, bossSvg, portraitTile } from './common.js';
+import { h, hash, threatColor, rgb, replay, bossSvg, portraitTile, attackPlayback, attackResultText } from './common.js';
 import { portraitSrc } from '../client.js';
 import { uiOf, uiAsset, artEl, floorLayer } from '../ui-art.js';
 
@@ -26,7 +26,7 @@ const RX_HINT = {
 };
 
 export default function combat(root, sc, env) {
-  const { T, clock } = env;
+  const { T } = env;
   const title = h('p.ar-title');
   const round = h('div.ar-round', h('small', 'Round'), h('b', '1'));
   const phases = h('ol.ar-phases');
@@ -53,11 +53,10 @@ export default function combat(root, sc, env) {
   const cards = new Map(); // uid → { el, sig, host, fxAt }
   const shownHp = new Map(); // crawler uid → HP drawn last (pip break animation)
   const dying = new Map(); // mob uid → until (ms): stays on the board for the shatter
-  const override = new Map(); // crawler uid → HP to show during the auto cinematic
-  let play = null; // { id, timers: [], endAt }
   let lastRound = null;
   let lastPhase = null;
   let view = env.view;
+  let scene = sc;
 
   function pips(cur, max, cls, prev) {
     const n = Math.max(0, Math.min(MAX_PIPS, max));
@@ -92,7 +91,8 @@ export default function combat(root, sc, env) {
   const playerOf = (id) => (view?.players || []).find((y) => y.id === id);
 
   function crawlerCard(x0) {
-    const x = override.has(x0.uid) ? { ...x0, hp: override.get(x0.uid), down: x0.hpMax > 0 && override.get(x0.uid) <= 0 } : x0;
+    const hp = playback.health.get(x0.uid);
+    const x = hp ? { ...x0, ...hp } : x0;
     const p = playerOf(x.playerId);
     const low = x.hpMax > 0 && x.hp / x.hpMax <= 0.3;
     const prev = shownHp.get(x.uid);
@@ -143,7 +143,7 @@ export default function combat(root, sc, env) {
     const want = list.map((x) => x.uid);
     for (const [uid, c] of cards) if (c.host === host && !want.includes(uid)) { c.el.remove(); cards.delete(uid); }
     list.forEach((x, i) => {
-      const s = JSON.stringify([x, override.get(x.uid), x.type === 'crawler' ? [...['level', 'portrait', 'name'].map((k) => playerOf(x.playerId)?.[k]), !!portraitSrc(playerOf(x.playerId)?.portrait)] : null]);
+      const s = JSON.stringify([x, playback.health.get(x.uid), x.type === 'crawler' ? [...['level', 'portrait', 'name'].map((k) => playerOf(x.playerId)?.[k]), !!portraitSrc(playerOf(x.playerId)?.portrait)] : null]);
       let c = cards.get(x.uid);
       if (!c || c.sig !== s) {
         const el = make(x);
@@ -193,6 +193,7 @@ export default function combat(root, sc, env) {
 
   function update(s, v) {
     view = v;
+    scene = s;
     floorBg.update(v);
     const c = v?.combat || { active: false, round: 1, phases: [], combatants: [] };
     title.textContent = s.data?.title || '';
@@ -206,7 +207,8 @@ export default function combat(root, sc, env) {
       const at = steps.indexOf(rx.step);
       phases.replaceChildren(...steps.map((p, i) => h('li', { class: i === at ? 'on' : i < at ? 'done' : '' }, RX_STEP[p] || p)));
       status.textContent = RX_HINT[rx.step] || '';
-      drawRx(rx, c, v);
+      if (playback.active) rxBoard.hidden = true;
+      else drawRx(rx, c, v);
     } else {
       phases.replaceChildren(...ph.map((p, i) => h('li', { class: c.active && i === c.phaseIndex ? 'on' : i < c.phaseIndex ? 'done' : '' }, p)));
       status.textContent = c.active ? `${c.phase || ''} phase` : 'Combat incoming';
@@ -238,7 +240,7 @@ export default function combat(root, sc, env) {
     foesEmpty.hidden = n > 0 || dead.length > 0;
     root.classList.toggle('cleared', c.active && mobs.length > 0 && !living.length);
   }
-  const redraw = () => update(sc, view);
+  const redraw = () => update(scene, view);
 
   // Hostile cards are portrait "trading cards" (art fills the card). Pick the column count that gives the
   // biggest cards while keeping them close to the 3:4 portrait art (width/height 0.62-0.82), so the art is
@@ -299,50 +301,19 @@ export default function combat(root, sc, env) {
     replay(c.el, cls);
   }
 
-  function stopPlay(final = true) {
-    if (!play) return;
-    for (const id of play.timers) T.stop(id);
-    play = null;
-    fx.replaceChildren();
-    root.classList.remove('auto-on');
-    for (const c of cards.values()) { c.el.classList.remove('lunge', 'aim'); c.el.style.removeProperty('--lx'); c.el.style.removeProperty('--ly'); }
-    if (final) { override.clear(); redraw(); }
-  }
-
-  function playAuto(e) {
-    stopPlay(false);
-    override.clear();
-    const steps = (e.steps || []).filter((x) => !x.skipped);
-    if (!steps.length) { redraw(); return; }
-    // Crawlers show their HP from before the run until their own step resolves.
-    for (const st of steps) if (st.targetUid && !override.has(st.targetUid)) override.set(st.targetUid, st.hpBefore);
-    redraw();
-    const stepMs = e.stepMs || 2800;
-    const beats = e.beats || { lunge: 0, swing: 0.12, roll: 0.2, result: 0.52, down: 0.72 };
-    const start = (e.startAt ?? clock.now()) - clock.now(); // ms from now (server clock)
-    play = { id: e.autoId, timers: [] };
-    root.classList.add('auto-on');
-    const at = (ms, fn) => play.timers.push(T.after(Math.max(0, ms), fn));
-    const slotOf = (st, k) => (Number.isInteger(st.slot) ? st.slot : k);
-    steps.forEach((st, k) => {
-      const t0 = start + slotOf(st, k) * stepMs;
-      at(t0 + beats.lunge * stepMs, () => stepLunge(st));
-      at(t0 + beats.roll * stepMs, () => stepRoll(st, stepMs * (beats.result - beats.roll)));
-      at(t0 + beats.result * stepMs, () => stepResult(st));
-      if (st.down) at(t0 + beats.down * stepMs, () => stepDown(st));
-      at(t0 + 0.9 * stepMs, () => stepEnd(st));
-    });
-    const last = Math.max(...steps.map((st, k) => slotOf(st, k)));
-    at(start + (last + 1) * stepMs + 250, () => stopPlay(true));
-  }
+  const playback = attackPlayback(env, {
+    start: stepLunge, roll: stepRoll, result: stepResult, down: stepDown, finish: stepEnd, refresh: redraw,
+  });
 
   function stepLunge(st) {
     const m = st.mobUid ? cardOf(st.mobUid) : null;
     const tgt = cardOf(st.targetUid);
-    fx.replaceChildren(h('div.ar-callout', { class: `ar-callout${st.boss ? ' boss' : ''}` },
-      h('b', st.mob), h('span', ' uses '), h('b.ar-atk', st.attack || 'an attack'), h('span', '!')));
+    const boss = st.boss ?? view?.combat?.combatants?.find((x) => x.uid === st.mobUid)?.boss;
+    fx.replaceChildren(h('div.ar-callout', { class: `ar-callout${boss ? ' boss' : ''}`, 'aria-live': 'polite' },
+      h('div', h('b', st.mob), h('span', ' → '), h('b', st.target)),
+      h('b.ar-atk', st.attack || 'Attack'), h('span.ar-result')));
     if (tgt) tgt.classList.add('aim');
-    if (m && tgt) {
+    if (m && tgt && !env.reduced) {
       const a = center(m);
       const b = center(tgt);
       m.style.setProperty('--lx', `${Math.round((b.x - a.x) * 0.42)}px`);
@@ -351,7 +322,7 @@ export default function combat(root, sc, env) {
     }
   }
 
-  function stepRoll(st, dur) {
+  function stepRoll(st, dur, track) {
     const m = st.mobUid ? cardOf(st.mobUid) : null;
     const tgt = cardOf(st.targetUid);
     const p = tgt && m ? { x: (center(m).x + center(tgt).x) / 2, y: (center(m).y + center(tgt).y) / 2 } : { x: innerWidth / 2, y: innerHeight / 2 };
@@ -367,8 +338,8 @@ export default function combat(root, sc, env) {
     // Numbers flicker while it tumbles (text only), then land on the real face.
     let n = 0;
     const flick = T.every(70, () => { face.textContent = String(1 + ((hash(`${st.i}${n++}`) >> 3) % 20)); });
-    play?.timers.push(flick);
-    play?.timers.push(T.after(Math.max(200, dur - 120), () => {
+    track(flick);
+    track(T.after(Math.max(200, dur - 120), () => {
       T.stop(flick);
       face.textContent = String(st.d20);
       die.classList.add('land', st.nat20 ? 'n20' : st.nat1 ? 'n1' : st.hit ? 'ok' : 'no');
@@ -379,28 +350,30 @@ export default function combat(root, sc, env) {
   }
 
   function stepResult(st) {
+    redraw();
     const tgt = cardOf(st.targetUid);
     const m = st.mobUid ? cardOf(st.mobUid) : null;
+    const callout = fx.querySelector('.ar-result');
+    if (callout) callout.textContent = attackResultText(st);
+    if (st.reaction && st.result === 'skipped') return;
     if (st.hit) {
-      override.set(st.targetUid, st.hpAfter);
-      redraw();
       const el = cardOf(st.targetUid);
       if (el) {
         fxMark(st.targetUid, st.crit ? 'crit' : 'hit');
         decal(cardOf(st.targetUid) || el, st.crit ? ['crit', 'impact'] : ['impact']);
-        pop(el, st.damage ? `−${st.damage}` : 'HIT', st.crit ? 'dmg crit' : 'dmg');
+        if (st.damage || !st.reaction) pop(el, st.damage ? `−${st.damage}` : 'HIT', st.crit ? 'dmg crit' : 'dmg');
         if (st.buffs?.length) T.after(350, () => pop(el, st.buffs[0], 'cond'));
       }
       if (st.crit && !st.down) fx.append(h('div.ar-crit', 'Critical!')); // a KO's stamp is the bigger moment
     } else {
-      if (tgt) { fxMark(st.targetUid, 'dodge'); pop(tgt, st.nat1 ? 'FUMBLE' : 'MISS', 'miss'); }
+      if (tgt) { fxMark(st.targetUid, 'dodge'); pop(tgt, st.reaction ? 'EVADED' : st.nat1 ? 'FUMBLE' : 'MISS', 'miss'); }
       if (m && st.nat1) fxMark(st.mobUid, 'fumble');
     }
   }
 
   function stepDown(st) {
     fxMark(st.targetUid, 'ko');
-    fx.append(h('div.ar-stamp', h('b', st.target), h('span', 'is down')));
+    fx.append(h('div.ar-stamp', h('b', st.target), h('span', st.deadAfter ? 'is dead' : st.dyingAfter != null ? 'is dying' : 'is down')));
   }
 
   function stepEnd(st) {
@@ -408,15 +381,17 @@ export default function combat(root, sc, env) {
     if (tgt) tgt.classList.remove('aim');
     const m = st.mobUid ? cards.get(st.mobUid) : null;
     if (m) { m.el.classList.remove('lunge'); m.el.style.removeProperty('--lx'); m.el.style.removeProperty('--ly'); }
+    tgt?.querySelectorAll('.ar-pop').forEach((el) => el.remove());
     for (const x of fx.querySelectorAll('.ar-d20, .ar-callout, .ar-crit')) x.classList.add('out');
   }
 
   /* ---------- events ---------- */
 
   function event(e) {
-    if (e.kind === 'combat.auto') { playAuto(e); return; }
-    if (e.kind === 'combat.autoSkip' || e.kind === 'combat.autoUndo') { stopPlay(true); return; }
+    if (e.kind === 'combat.auto' || e.kind === 'rx.hit') { playback.enqueue(e); return; }
+    if (e.kind === 'combat.autoSkip' || e.kind === 'combat.autoUndo' || e.kind === 'rx.undo') { playback.stop(); fx.replaceChildren(); return; }
     if (e.kind === 'combat.hit' || e.kind === 'combat.heal') {
+      if (e.animation === 'reaction') return;
       const entry = cards.get(e.uid);
       const card = entry?.el;
       if (!card) return;
@@ -436,7 +411,7 @@ export default function combat(root, sc, env) {
         fx.append(h('div.ar-stamp', h('b', e.name), h('span', 'is down')));
         T.after(2600, () => fx.querySelector('.ar-stamp')?.remove());
       }
-    } else if (e.kind === 'combat.start') bigText('Fight!');
+    } else if (e.kind === 'combat.start') { playback.stop(false); fx.replaceChildren(); bigText('Fight!'); }
     else if (e.kind === 'combat.reveal') {
       for (const uid of e.uids || []) { const card = cards.get(uid)?.el; if (card) replay(card, 'enter'); }
     }
@@ -456,5 +431,5 @@ export default function combat(root, sc, env) {
   }
 
   update(sc, env.view);
-  return { update, event, destroy() { stopPlay(false); } };
+  return { update, event, destroy() { window.removeEventListener('resize', relayout); playback.stop(false); } };
 }

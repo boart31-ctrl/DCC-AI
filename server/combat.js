@@ -119,6 +119,11 @@ export function initCombat() {
   };
 }
 
+/** AUTO previews and queues are valid only within the same fight and turn or phase. */
+export function autoScope(c) {
+  return JSON.stringify([c.id, c.round, c.phaseIndex, c.init?.on ? c.init.order[c.init.turn] : null]);
+}
+
 /** Turn order: on, order (uids, first acts first), turn (index), totals (uid -> number), manual (GM dragged it). */
 export function initInit() {
   return { on: false, order: [], turn: 0, totals: {}, manual: false, started: false };
@@ -153,6 +158,8 @@ export function normalizeCombat(raw) {
     spreadNext: Number.isInteger(raw.spreadNext) && raw.spreadNext >= 0 ? raw.spreadNext : 0,
     lastAuto: isObj(raw.lastAuto) ? raw.lastAuto : null,
     autoQueue: isObj(raw.autoQueue) && Array.isArray(raw.autoQueue.uids) ? raw.autoQueue : null,
+    ...(Array.isArray(raw.autoUndo) && raw.autoUndo.length ? { autoUndo: raw.autoUndo.filter((x) => isObj(x?.step) && isObj(x?.undo)).slice(-MAX_COMBATANTS) } : {}),
+    ...(isObj(raw.autoPending?.plan?.step) && typeof raw.autoPending.fingerprint === 'string' ? { autoPending: raw.autoPending } : {}),
     id: typeof raw.id === 'string' ? raw.id : null,
     mapId: typeof raw.mapId === 'string' ? raw.mapId : null,
     lastKill: isObj(raw.lastKill) && typeof raw.lastKill.uid === 'string' ? raw.lastKill : null,
@@ -713,6 +720,8 @@ export const COMBAT_GM = {
       c.spreadNext = 0;
       c.lastAuto = null;
       c.autoQueue = null;
+      delete c.autoPending;
+      delete c.autoUndo;
     }
     c.active = true;
     c.round = 1;
@@ -1112,12 +1121,17 @@ export function combatView(state, pack, role) {
   } else head.init = { on: false };
   if (gm) {
     const la = c.lastAuto;
+    const lastAutoUndo = c.autoUndo?.at(-1) ?? (la?.undo && !la.undone ? la : null);
+    const scope = autoScope(c);
+    const pending = c.autoPending?.scope === scope ? c.autoPending : null;
     Object.assign(head, {
       id: c.id, mapId: c.mapId, victoryItems: c.victoryItems, lastKill: c.lastKill, startedAt: c.startedAt, settings: c.settings,
       unverified: UNVERIFIED_RULES.filter((key) => key !== 'drMin' || pack.ruleset.combat?.drMin == null), stats: c.stats,
-      manualUndo: (state.combat?.manualUndo ?? []).length ? { label: state.combat.manualUndo.at(-1).label, count: state.combat.manualUndo.length } : null,
-      lastAuto: la ? { id: la.id, at: la.at, steps: la.steps, canUndo: !!la.undo && !la.undone, undone: !!la.undone, startAt: la.startAt, stepMs: la.stepMs } : null,
-      autoQueue: c.autoQueue ? { id: c.autoQueue.id, uids: c.autoQueue.uids, done: c.autoQueue.done ?? 0 } : null,
+      manualUndo: (state.combat?.manualUndo ?? []).length ? { label: state.combat.manualUndo.at(-1).label, at: state.combat.manualUndo.at(-1).at, count: state.combat.manualUndo.length } : null,
+      lastAuto: la ? { id: la.id, at: la.at, steps: la.steps, canUndo: !!lastAutoUndo, undone: !!la.undone, startAt: la.startAt, stepMs: la.stepMs } : null,
+      lastAutoUndo: lastAutoUndo ? { at: lastAutoUndo.at } : null,
+      autoPreview: pending ? { id: pending.id, danger: pending.plan.danger, step: pending.plan.step } : null,
+      autoQueue: c.autoQueue && (c.autoQueue.scope == null || c.autoQueue.scope === scope) ? { id: c.autoQueue.id, uids: c.autoQueue.uids, done: c.autoQueue.done ?? 0 } : null,
       suggestEnd: endSuggestion(state, pack),
       defense: (({ evade, dr }) => ({ evade: evade?.label ?? null, dr: dr?.label ?? null }))(defenseDefs(pack)),
       rules: (({ family, degrees, crit, hitRule, advantage }) => ({ family, degrees, crit, hitRule, advantage }))(combatRules(pack, c.settings)),
@@ -1186,6 +1200,7 @@ function undoSnapshot(st, ctx, type, a) {
 for (const type of Object.keys(UNDO_LABEL)) {
   const run = COMBAT_GM[type];
   COMBAT_GM[type] = function undoable(st, a, ctx, out) {
+    if (ctx.reactionHit) return run(st, a, ctx, out);
     let snap = null;
     try { snap = isObj(a) ? undoSnapshot(st, ctx, type, a) : null; } catch { snap = null; }
     const r = run(st, a, ctx, out);
@@ -1222,6 +1237,16 @@ COMBAT_GM['combat.undo'] = function combatUndo(st, a, ctx, out) {
       const back = crawler.hp - (crawler.after ?? crawler.hp); // relative: later heals / hits stay
       if (back) setTrack(st, p, { track: crawler.track, delta: back }, ctx, out);
       p.sheet.buffs = crawler.buffs;
+      const x = c.combatants.find((row) => row.type === 'crawler' && row.playerId === p.id);
+      const life = crawler.life;
+      if (life) for (const key of ['downs', 'taken']) {
+        const remaining = (c.stats[key][p.id] ?? 0) - (life[key] ?? 0);
+        if (remaining > 0) c.stats[key][p.id] = remaining; else delete c.stats[key][p.id];
+      }
+      if (x && life && (x.dying ?? null) === life.afterDying && !!x.dead === life.afterDead) {
+        if (life.beforeDying == null) delete x.dying; else x.dying = life.beforeDying;
+        if (life.beforeDead) x.dead = true; else delete x.dead;
+      }
     }
   }
   out.emit({ kind: 'combat.undo', label: e.label }, { roles: ['gm'] });

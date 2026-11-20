@@ -617,6 +617,10 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
   }
 
   function attackToast(name, r) {
+    if (r?.result?.preview) {
+      pick('fight');
+      return;
+    }
     const st = r?.result?.sequence?.[0] ?? r?.sequence?.[0];
     if (st) toast(`${name} → ${st.target}: ${st.total} vs ${st.evade} ${st.hit ? `HIT${st.damage ? `, −${st.damage} HP` : ''}${st.crit ? ' (crit)' : ''}${st.down ? `, ${st.target} is down` : ''}` : 'miss'}`, { ms: 5000 });
   }

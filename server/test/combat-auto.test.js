@@ -123,7 +123,7 @@ test("Don't target and downed crawlers are never picked; finishDowned allows the
   let { s, ids } = setup();
   const [carl, donut, katia] = crawlers(s);
   s = gm(s, { t: 'combat.target', uid: carl.uid, noTarget: true }).state;
-  s = gm(s, { t: 'combat.damage', uid: donut.uid, amount: 10 }).state; // Donut down
+  s = gm(s, { t: 'track.set', playerId: donut.playerId, track: 'hp', cur: 0 }).state;
   for (const r of [0.01, 0.5, 0.99]) assert.equal(gm(s, { t: 'combat.auto' }, { rng: [r], rolls: [1] }).result.sequence[0].target, 'Katia');
   s = gm(s, { t: 'combat.target', uid: katia.uid, noTarget: true }).state;
   const none = gm(s, { t: 'combat.auto' }, { rolls: [1] }).result.sequence[0];
@@ -140,10 +140,10 @@ test('focus and spread target modes; random attack pick', () => {
   s = gm(s, { t: 'combat.target', uid: r1.uid, focus: katia.uid }).state;
   assert.equal(mobsOf(s)[0].targetMode, 'focus');
   s = gm(s, { t: 'combat.target', uid: r2.uid, targetMode: 'spread' }).state;
-  let seqs = gm(s, { t: 'combat.auto' }, { rolls: [1] }).result.sequence;
+  let seqs = gm(s, { t: 'combat.auto', confirmAll: true }, { rolls: [1] }).result.sequence;
   assert.deepEqual(seqs.map((x) => x.target), ['Katia', 'Carl']);
-  s = gm(s, { t: 'combat.auto' }, { rolls: [1] }).state;
-  seqs = gm(s, { t: 'combat.auto' }, { rolls: [1] }).result.sequence;
+  s = gm(s, { t: 'combat.auto', confirmAll: true }, { rolls: [1] }).state;
+  seqs = gm(s, { t: 'combat.auto', confirmAll: true }, { rolls: [1] }).result.sequence;
   assert.equal(seqs[1].target, 'Donut', 'round robin moves on');
   assert.throws(() => gm(s, { t: 'combat.target', uid: carl.uid, targetMode: 'focus' }), /for mobs/);
   assert.throws(() => gm(s, { t: 'combat.target', uid: r1.uid, focus: r2.uid }), /must be a crawler/);
@@ -162,7 +162,7 @@ test('hidden mobs: skipped unless includeHidden; the TV copy hides who attacked'
   s = gm(s, { t: 'combat.addMob', sourceId: 'imp', hidden: true }).state;
   let r = gm(s, { t: 'combat.auto' }, { rolls: [1] });
   assert.deepEqual(r.result.sequence.map((x) => x.mob), ['Rat']);
-  r = gm(s, { t: 'combat.auto', includeHidden: true }, { rolls: [1] });
+  r = gm(s, { t: 'combat.auto', confirmAll: true, includeHidden: true }, { rolls: [1] });
   assert.deepEqual(r.result.sequence.map((x) => x.mob), ['Rat', 'Imp']);
   const tv = r.events.find((e) => e.event.kind === 'combat.auto' && e.to.roles?.includes('stage')).event;
   assert.equal(tv.steps[1].mob, 'Something unseen');
@@ -170,10 +170,11 @@ test('hidden mobs: skipped unless includeHidden; the TV copy hides who attacked'
   assert.ok(!JSON.stringify(tv).includes('Imp'));
 });
 
-test('undo puts HP and conditions back; autoStep goes one mob at a time and combat.auto finishes the queue', () => {
+test('undo puts HP and conditions back; AUTO defaults to one attack and its confirmed bulk resumes the queue', () => {
   let { s, ids } = setup([['rat', 3]]);
   const before = ids.map((id) => hpOf(s, id));
   const r = gm(s, { t: 'combat.auto' }, { rolls: [18, 4], rng: [0.4] });
+  assert.equal(r.result.sequence.length, 1);
   assert.ok(r.result.sequence.every((x) => x.hit));
   s = r.state;
   assert.notDeepEqual(ids.map((id) => hpOf(s, id)), before);
@@ -191,13 +192,17 @@ test('undo puts HP and conditions back; autoStep goes one mob at a time and comb
   st = gm(s, { t: 'combat.autoStep' }, { rolls: [1] });
   assert.equal(st.result.sequence[0].i, 1);
   s = st.state;
-  const rest = gm(s, { t: 'combat.auto' }, { rolls: [18, 2] });
+  const rest = gm(s, { t: 'combat.auto', confirmAll: true }, { rolls: [18, 2] });
   assert.equal(rest.result.sequence.length, 1, 'only the third rat is left');
   s = rest.state;
-  assert.equal(s.combat.lastAuto.steps.length, 3);
+  assert.equal(s.combat.lastAuto.steps.length, 1);
   assert.equal(s.combat.autoQueue, null);
-  // undo covers the whole stepped run
+  // Only the latest attack was undone. Earlier dice and position in the queue remain.
+  const [, , lastRoll, lastDamage] = s.rolls.filter((roll) => !roll.void);
   s = gm(s, { t: 'combat.autoUndo' }).state;
+  assert.equal(s.combat.autoQueue.done, 2);
+  assert.equal(s.rolls.find((roll) => roll.id === lastRoll.id).void, true);
+  assert.equal(s.rolls.find((roll) => roll.id === lastDamage.id).void, true);
   assert.deepEqual(ids.map((id) => hpOf(s, id)), before);
 });
 
@@ -207,12 +212,93 @@ test('dryRun returns the sequence and changes nothing', () => {
   assert.equal(r.changed, false);
   assert.equal(r.state, s);
   assert.equal(r.result.sequence[0].hit, true);
+  assert.deepEqual(r.events, [], 'dry dice do not reach the TV or dice log');
+});
+
+test('confirmed bulk stops before a dangerous attack and confirmation applies those exact dice once', () => {
+  let { s, ids } = setup([['rat', 3]]);
+  const target = crawlers(s)[0];
+  for (const mob of mobsOf(s)) s = gm(s, { t: 'combat.target', uid: mob.uid, focus: target.uid }).state;
+  s = gm(s, { t: 'track.set', playerId: target.playerId, track: 'hp', cur: 6 }).state;
+
+  const partial = gm(s, { t: 'combat.auto', confirmAll: true }, { rolls: [16, 2, 15, 4] });
+  const { preview, sequence } = partial.result;
+  assert.equal(sequence.length, 1, 'only the safe prefix committed');
+  assert.equal(preview.danger, 'down');
+  assert.deepEqual([preview.step.d20, preview.step.hpBefore, preview.step.hpAfter], [15, 4, 0]);
+  assert.equal(hpOf(partial.state, target.playerId), 4);
+  assert.equal(partial.state.rolls.length, 2);
+  assert.equal(partial.events.find((e) => e.event.kind === 'combat.auto' && e.to.roles.includes('stage')).event.steps.length, 1);
+  assert.equal(viewFor(partial.state, pack, 'player', { playerId: ids[0] }).combat.autoPreview, undefined);
+  assert.equal(viewFor(partial.state, pack, 'gm').combat.autoPreview.id, preview.id);
+  const repeated = gm(partial.state, { t: 'combat.autoStep' }, { rolls: [1] });
+  assert.equal(repeated.changed, false);
+  assert.equal(repeated.result.preview.id, preview.id);
+  assert.throws(() => gm(partial.state, { t: 'combat.autoConfirm', previewId: 'different' }), /no matching attack preview/);
+
+  const applied = gm(partial.state, { t: 'combat.autoConfirm', previewId: preview.id }, { rolls: [1] });
+  assert.deepEqual(applied.state.rolls.slice(-2).map((r) => r.dice[0].value), [15, 4]);
+  assert.equal(hpOf(applied.state, target.playerId), 0);
+  assert.equal(applied.result.left, 1);
+  assert.throws(() => gm(applied.state, { t: 'combat.autoConfirm', previewId: preview.id }), /no matching attack preview/);
+
+  const undone = gm(applied.state, { t: 'combat.autoUndo' }).state;
+  assert.equal(hpOf(undone, target.playerId), 4);
+  assert.equal(undone.combat.stats.taken[target.playerId], 2);
+  assert.equal(undone.combat.stats.downs[target.playerId], 0);
+  assert.equal(undone.combat.autoQueue.done, 1);
+  assert.ok(undone.players[0].sheet.buffs.some((b) => b.buffId === 'bleeding'), 'the first hit still applies');
+});
+
+test('a stored AUTO preview expires when the target changes and can be dismissed safely', () => {
+  let { s, ids } = setup();
+  s = gm(s, { t: 'track.set', playerId: ids[0], track: 'hp', cur: 1 }).state;
+  const hit = gm(s, { t: 'combat.mobAct', uid: mobsOf(s)[0].uid, targetUid: crawlers(s)[0].uid, tv: false }, { rolls: [15, 4] });
+  assert.equal(hit.result.preview.danger, 'down');
+  assert.equal(hpOf(hit.state, ids[0]), 1);
+  assert.deepEqual(hit.events, []);
+  const healed = gm(hit.state, { t: 'track.set', playerId: ids[0], track: 'hp', cur: 5 }).state;
+  const previewId = hit.result.preview.id;
+  assert.throws(() => gm(healed, { t: 'combat.autoConfirm', previewId }), /preview is stale/);
+  const canceled = gm(healed, { t: 'combat.autoCancel', previewId });
+  assert.equal(hpOf(canceled.state, ids[0]), 5);
+  assert.equal(canceled.state.combat.autoPending, undefined);
+  assert.deepEqual(canceled.events, []);
+});
+
+test('a phased ruleset with a Dying countdown requires a separate confirmation to kill and can undo it', () => {
+  const { pack: dyingPack } = loadPack(writePack(tmpDir(), {
+    'ruleset.json': { ...RULESET, combat: { dyingRounds: '1' } }, 'monsters.json': MONSTERS, 'buffs.json': BUFFS,
+  }));
+  const play = (state, a, o) => reduce(state, { role: 'gm', ...a }, { ...ctx(o), pack: dyingPack });
+  let { s, ids } = setup([['rat', 2]]);
+  s = play(s, { t: 'combat.set', settings: { finishDowned: true } }).state;
+  s = play(s, { t: 'track.set', playerId: ids[0], track: 'hp', cur: 1 }).state;
+  const down = play(s, { t: 'combat.autoStep' }, { rolls: [15, 4] });
+  assert.equal(down.result.preview.danger, 'down');
+  const first = play(down.state, { t: 'combat.autoConfirm', previewId: down.result.preview.id });
+  assert.equal(crawlers(first.state)[0].dying, 1);
+
+  const fatal = play(first.state, { t: 'combat.auto', confirmAll: true }, { rolls: [15, 4] });
+  assert.equal(fatal.result.preview.danger, 'death');
+  assert.equal(crawlers(fatal.state)[0].dead, undefined);
+  const killed = play(fatal.state, { t: 'combat.autoConfirm', previewId: fatal.result.preview.id });
+  assert.equal(crawlers(killed.state)[0].dead, true);
+  assert.equal(crawlers(killed.state)[0].dying, 0);
+  const revived = play(killed.state, { t: 'combat.autoUndo' }).state;
+  assert.equal(crawlers(revived)[0].dead, undefined);
+  assert.equal(crawlers(revived)[0].dying, 1);
+  assert.equal(hpOf(revived, ids[0]), 0);
+  const standing = play(revived, { t: 'combat.autoUndo' }).state;
+  assert.equal(crawlers(standing)[0].dying, undefined);
+  assert.equal(hpOf(standing, ids[0]), 1);
 });
 
 test('a crawler going down: voice line crawler_down timed to its step, chat cue, downs counted', () => {
   let { s, ids } = setup();
   for (const pid of ids) s = gm(s, { t: 'track.set', playerId: pid, track: 'hp', cur: 2 }).state;
-  const r = gm(s, { t: 'combat.auto' }, { rolls: [15, 4] });
+  const proposed = gm(s, { t: 'combat.auto' }, { rolls: [15, 4] });
+  const r = gm(proposed.state, { t: 'combat.autoConfirm', previewId: proposed.result.preview.id });
   const step = r.result.sequence[0];
   assert.equal(step.down, true);
   const line = r.lines.find((l) => l.category === 'crawler_down');

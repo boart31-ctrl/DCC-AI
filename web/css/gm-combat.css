@@ -362,7 +362,8 @@
 
 /* Reaction rounds (gm-reaction.js) */
 .rx { display: grid; gap: 10px; margin-bottom: 12px; }
-.rx-steps { display: inline-flex; gap: 4px; list-style: none; margin: 0 0 0 10px; padding: 0; }
+.rx > .sec-head { flex-wrap: wrap; gap: 4px 8px; }
+.rx-steps { display: inline-flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
 .rx-steps li { font-size: 12px; padding: 2px 8px; border-radius: 999px; border: 1px solid var(--c-line); color: var(--c-dim, #999); }
 .rx-steps li.on { background: var(--c-accent); color: #000; border-color: var(--c-accent); font-weight: 700; }
 .rx-pips { display: flex; flex-wrap: wrap; gap: 8px 14px; }
@@ -380,6 +381,19 @@
 .rx-deg-near { color: #ffb020; border-color: #ffb020; }
 .rx-deg-fail, .rx-deg-major, .rx-deg-critfail { color: #ff2448; border-color: #ff2448; }
 .rx-log ul { margin: 6px 0 0; padding-left: 18px; font-size: 13px; }
+.rx-preview { min-width: 0; display: grid; gap: 6px; padding: 8px; background: var(--c-sunk); border: 1px solid var(--c-line-2); border-inline-start: 3px solid var(--c-accent); border-radius: var(--r-2); }
+.rx-preview[data-danger] { border-inline-start-color: var(--c-bad); }
+.rx-preview-head, .rx-preview-numbers, .rx-preview-fallout, .rx-preview-actions, .rx-preview-edit { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.rx-preview-head { justify-content: space-between; }
+.rx-preview-head h3 { overflow-wrap: anywhere; }
+.rx-preview-fallout { padding-bottom: 4px; }
+.rx-preview-actions { padding-top: 6px; border-top: 1px solid var(--c-line); }
+.rx-preview-edit, .rx-physical { min-width: 0; gap: 4px; }
+.rx-physical { display: flex; align-items: center; }
+.rx-physical .mini-l { white-space: nowrap; }
+.rx-preview-edit select { width: auto; max-width: min(100%, 180px); }
+.rx-physical .rx-damage-in { width: 66px; }
+.rx-batch-victims { margin: 0; padding-left: 20px; }
 
 /* At the table, round controls stay above the scrollable rosters and attack log. */
 .cbt-command { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; margin-bottom: 7px; }

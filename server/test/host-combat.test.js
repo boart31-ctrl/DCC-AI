@@ -34,6 +34,7 @@ function clock(start = 1_800_000_000_000) {
 
 function setup() {
   const dir = writePack(tmpDir(), {
+    'ruleset.json': { id: 'combat-host', combat: { nat1: 'none' } },
     'monsters.json': [{ id: 'brute', name: 'Brute', hpSlots: 3, attacks: [{ name: 'Smash', toHit: 50, damage: '1d4' }] }],
     'quips.json': [
       { id: 'cd_1', category: 'crawler_down', text: 'Crawler down line.' },
@@ -90,12 +91,18 @@ async function fight({ act, c }) {
   return pid;
 }
 
+async function confirmDownedAttack({ act }) {
+  const { preview } = await act({ t: 'combat.autoStep' });
+  assert.equal(preview.danger, 'down');
+  return act({ t: 'combat.autoConfirm', previewId: preview.id });
+}
+
 test('auto mode: the crawler_down line and its chat burst wait for their TV step', async () => {
   const s = setup();
   await fight(s);
   const playsBefore = s.gm.all('play').length;
   const chatBefore = s.tv.all('event').filter((m) => m.event.kind === 'chat' && m.event.tag === 'crawler_down').length;
-  const r = await s.act({ t: 'combat.auto' });
+  const r = await confirmDownedAttack(s);
   const down = r.sequence.find((x) => x.down);
   assert.ok(down, 'the 1 HP crawler goes down');
   const tvAuto = s.tv.all('event').find((m) => m.event.kind === 'combat.auto');
@@ -112,7 +119,7 @@ test('auto mode: the crawler_down line and its chat burst wait for their TV step
 test('Skip plays what was waiting right away', async () => {
   const s = setup();
   await fight(s);
-  await s.act({ t: 'combat.auto' });
+  await confirmDownedAttack(s);
   assert.equal(s.gm.all('play').filter((m) => /Crawler down line/.test(m.text)).length, 0);
   await s.act({ t: 'combat.autoSkip' });
   assert.ok(s.gm.all('play').some((m) => /Crawler down line/.test(m.text)));
@@ -163,7 +170,7 @@ test('Mute AI: System lines go out silent (text only), no audience chat at all',
   await s.act({ t: 'session.aiMute', on: true });
   await fight(s);
   const chatBefore = s.tv.all('event').filter((m) => m.event.kind === 'chat').length;
-  await s.act({ t: 'combat.auto' });
+  await confirmDownedAttack(s);
   s.c.advance(8000);
   const lines = s.gm.all('play').filter((m) => /Crawler down line/.test(m.text));
   assert.ok(lines.length, 'the line still goes out (subtitle)');
