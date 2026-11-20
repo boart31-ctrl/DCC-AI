@@ -36,3 +36,4 @@ export { normalizeRuleset, computeSheet, makeLibrary, normalizeLibEntry, normali
 export { PLAYER_EDIT, MAX_ROLLS, VIEW_ROLLS, rollsFor } from './character.js';
 export { genId, makeToken, makeRoomCode, makePin, randInt } from './random.js';
 export { crawlersAt, crawlersLive, crawlersView, decay, floorRule, fmtCount, normalizeCrawlersConfig, TICK_MS as CRAWLERS_TICK_MS } from './crawlers.js';
+export { danger } from '../web/js/danger.js';

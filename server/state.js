@@ -11,7 +11,8 @@ import { packForRuleset, rulesetChoices } from './systems.js';
 import { normalizeContentMedia } from './content-media.js';
 import { ActionError, bad, notFound } from './errors.js';
 import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView, syncBossHealth } from './scenes.js';
-import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, fillMissingMobArt, combatView, onSheetRoll, applyMobDamage } from './combat.js';
+import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, fillMissingMobArt, combatView, onSheetRoll, applyMobDamage,
+  combatDangerAffected, refreshCombatDanger } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
 import { LOOT_GM, normalizeDrops, prepareEndLoot } from './loot.js';
 import { CRAWLERS_GM, CRAWLERS_SYSTEM, initCrawlers, normalizeCrawlers, crawlersView } from './crawlers.js';
@@ -192,6 +193,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.messages.sort((a, b) => a.at - b.at);
   s.messages = s.messages.slice(-MAX_MESSAGES);
   s.session.chatPlayers = s.session.chatPlayers !== false;
+  refreshCombatDanger(s, pack);
   return s;
 }
 
@@ -1125,6 +1127,7 @@ export function reduce(state, action, ctx) {
   if (out.changed && st.combat?.mapId && ['map.bindCombat', 'enc.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
     syncCombatTokens(st, full);
   }
+  if (out.changed && full.pack && combatDangerAffected(action)) refreshCombatDanger(st, full.pack);
   // Play clock: time between actions counts as play when the gap is under 15 minutes (breaks don't count).
   // Drives the level-up reminder (DCC: a level every 2 hours of play; nothing happens automatically).
   if (out.changed && action.role !== 'system' && st.session) {

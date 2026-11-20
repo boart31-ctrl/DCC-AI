@@ -39,7 +39,29 @@
 }
 .ar-phases li.done { color: rgba(163, 151, 204, 0.55); }
 .ar-phases li.on { color: var(--void); background: var(--acid); border-color: var(--acid); box-shadow: 0 0 1rem rgba(228, 255, 46, 0.55); }
+.ar-status-row { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.15rem 1rem; }
 .ar-status { margin: 0; font-family: var(--f-show); font-style: italic; font-weight: 800; font-size: 1.6rem; text-transform: uppercase; color: var(--cyan); }
+
+/* Optional TV fight readout, shared by Arena and Boss. */
+.tv-threat {
+  --meter-accent: var(--cyan);
+  align-self: flex-start; display: inline-flex; align-items: center; gap: 0.6rem;
+  padding: 0.22rem 0.7rem; background: rgba(10, 6, 20, 0.9); border: 1px solid var(--line);
+  border-inline-start: 0.18rem solid var(--meter-accent);
+  color: var(--meter-accent); font-family: var(--f-mono); font-size: 1rem; line-height: 1.2;
+  font-weight: 700; text-transform: uppercase; white-space: nowrap;
+}
+.tv-threat[hidden] { display: none; }
+.tv-threat[data-level="0"] { --meter-accent: #8cffbe; }
+.tv-threat[data-level="2"] { --meter-accent: #ffd076; }
+.tv-threat[data-level="3"] { --meter-accent: #ff7f9a; }
+.tv-threat-k { color: #c2b8df; letter-spacing: 0.13em; }
+.tv-threat-bars { display: inline-flex; gap: 0.16rem; align-items: center; }
+.tv-threat-bars i { width: 0.52rem; height: 0.75rem; background: var(--line); transform: skewX(-13deg); }
+.tv-threat-bars i.on { background: currentColor; }
+.tv-threat-trend { font-size: 1.25rem; line-height: 0.8; }
+.bs-mid .tv-threat { font-size: 1.14rem; }
+
 .pulse { animation: arpulse 0.9s var(--ease-out); }
 @keyframes arpulse { 0% { transform: scale(1.35); opacity: 0.4; } 100% { transform: none; opacity: 1; } }
 

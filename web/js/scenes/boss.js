@@ -1,7 +1,7 @@
 // Boss battle — the big one. States: pre-reveal (silhouette, "threat detected"), intro cinematic,
 // fight (segmented HP bar, art, phase), phase change, defeat (shatter → BOSS DEFEATED → loot hint).
 // Everything animates with transform/opacity; the only per-frame work is CSS.
-import { h, bossArt, partyStrip, threatColor, rgb, replay, typeText, attackPlayback, attackResultText } from './common.js';
+import { h, bossArt, partyStrip, threatColor, rgb, replay, typeText, attackPlayback, attackResultText, threatMeter } from './common.js';
 import { floorLayer } from '../ui-art.js';
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
@@ -67,10 +67,11 @@ export default function boss(root, sc, env) {
   // on the right, the party under the report.
   const atkBox = h('div.bs-atk', { 'aria-live': 'polite' }); // the boss's attack (combat.mobAct / Mobs act)
   const minions = h('div.bs-minions', { 'aria-label': 'Minions' });
+  const threat = threatMeter();
   const fight = h('div.bs-fight',
     h('div.bs-head', h('div.bs-namebox', name, title), phase),
     hp,
-    h('div.bs-mid', minions, info, loot),
+    h('div.bs-mid', threat.el, minions, info, loot),
     h('div.bs-party', party.el),
     h('div.bs-framewrap', frame, dmg),
     atkBox,
@@ -418,9 +419,10 @@ export default function boss(root, sc, env) {
   drawStatic();
   drawMinions(env.view);
   party.update(env.view);
+  threat.update(env.view?.combat?.threatMeter);
   const baseUpdate = update;
   return {
-    update(s, view) { lastView = view; baseUpdate(s, view); drawMinions(view); drawParty(); },
+    update(s, view) { lastView = view; baseUpdate(s, view); drawMinions(view); drawParty(); threat.update(view?.combat?.threatMeter); },
     event,
     destroy() { playback.stop(false); document.body.classList.remove('cine'); },
     get hp() { return hpShown; },

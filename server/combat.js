@@ -22,10 +22,11 @@
 // Views: the GM sees everything. Players and the TV see crawlers + revealed mobs only, mob HP as a
 // rounded fraction (exact numbers only with `showMobHp`), never notes / attacks / library GM fields.
 import { bad, notFound } from './errors.js';
-import { combatRules, mobHealthSlot, rolledDamage, recordKillCredit } from './outcome.js';
+import { combatRules, floorOfState, mobHealthSlot, rolledDamage, recordKillCredit } from './outcome.js';
 import { SHEET, SHEET_GM, libraryOf, computeFor, setTrack, requireStatusAllowed } from './character.js';
 import { introLine, syncBossHealth } from './scenes.js';
 import { advanceGameTime } from './crawlers.js';
+import { danger } from '../web/js/danger.js';
 
 export const DEFAULT_PHASES = ['Crawlers', 'Mobs'];
 export const MAX_COMBATANTS = 40;
@@ -55,6 +56,7 @@ export const DEFAULT_SETTINGS = Object.freeze({
   hitRule: '>=', drMin: 1, crit: 'double', evadeBase: 0, public: true, includeHidden: false, finishDowned: false, stepMs: 2800, autoEnd: true, paceV: 2,
   initiative: null, // null = the ruleset decides (5e / PF2e: turn order; crawler packs: phases)
   groupInit: true, // identical monsters (same library entry) share one initiative roll and sit together
+  showThreat: false,
 });
 export const UNVERIFIED_RULES = ['hitRule', 'drMin', 'crit', 'evadeBase'];
 
@@ -75,6 +77,7 @@ function normalizeSettings(raw) {
     paceV: 2,
     initiative: typeof r.initiative === 'boolean' ? r.initiative : null,
     groupInit: typeof r.groupInit === 'boolean' ? r.groupInit : d.groupInit,
+    showThreat: r.showThreat === true,
   };
 }
 
@@ -158,6 +161,7 @@ export function normalizeCombat(raw) {
     spreadNext: Number.isInteger(raw.spreadNext) && raw.spreadNext >= 0 ? raw.spreadNext : 0,
     lastAuto: isObj(raw.lastAuto) ? raw.lastAuto : null,
     autoQueue: isObj(raw.autoQueue) && Array.isArray(raw.autoQueue.uids) ? raw.autoQueue : null,
+    ...(isObj(raw.dangerState) ? { dangerState: raw.dangerState } : {}),
     ...(Array.isArray(raw.autoUndo) && raw.autoUndo.length ? { autoUndo: raw.autoUndo.filter((x) => isObj(x?.step) && isObj(x?.undo)).slice(-MAX_COMBATANTS) } : {}),
     ...(isObj(raw.autoPending?.plan?.step) && typeof raw.autoPending.fingerprint === 'string' ? { autoPending: raw.autoPending } : {}),
     id: typeof raw.id === 'string' ? raw.id : null,
@@ -252,6 +256,7 @@ function cleanAttacks(list) {
   return (Array.isArray(list) ? list : []).slice(0, 12).map((a) => ({
     name: String(a.name ?? 'Attack').slice(0, 60),
     toHit: Number.isInteger(a.toHit) ? a.toHit : 0,
+    ...(Number.isInteger(a.dc) ? { dc: a.dc, dcPlusFloor: a.dcPlusFloor === true } : {}),
     damage: typeof a.damage === 'string' ? a.damage.slice(0, 60) : '',
     effects: typeof a.effects === 'string' ? a.effects.slice(0, 400) : '',
     buffs: Array.isArray(a.buffs) ? a.buffs.filter((b) => typeof b === 'string' && ID_RE.test(b)).slice(0, 10) : [],
@@ -770,6 +775,7 @@ export const COMBAT_GM = {
     if (a.round !== undefined) c.round = intIn(a.round, 'round', 1, 9999);
     if (a.phaseIndex !== undefined) c.phaseIndex = intIn(a.phaseIndex, 'phaseIndex', 0, c.phases.length - 1);
     if (a.showMobHp !== undefined) c.showMobHp = flag(a.showMobHp, 'showMobHp');
+    if (a.showThreat !== undefined) c.settings = { ...c.settings, showThreat: flag(a.showThreat, 'showThreat') };
     if (a.settings !== undefined) {
       if (!isObj(a.settings)) throw bad('settings must be an object');
       const n = { ...c.settings };
@@ -780,7 +786,7 @@ export const COMBAT_GM = {
         else if (k === 'stepMs') n.stepMs = intIn(v, 'settings.stepMs', 1200, 4000);
         else if (k === 'evadeBase') n.evadeBase = intIn(v, 'settings.evadeBase', 0, 30);
         else if (k === 'initiative') { if (v !== null && typeof v !== 'boolean') throw bad('settings.initiative must be true, false or null'); n.initiative = v; }
-        else if (['public', 'includeHidden', 'finishDowned', 'autoEnd', 'groupInit'].includes(k)) n[k] = flag(v, `settings.${k}`);
+        else if (['public', 'includeHidden', 'finishDowned', 'autoEnd', 'groupInit', 'showThreat'].includes(k)) n[k] = flag(v, `settings.${k}`);
         else throw bad(`unknown setting ${k}`);
       }
       c.settings = n;
@@ -834,6 +840,8 @@ export const COMBAT_GM = {
         image: pickImage(), hp: e.hpSlots ?? 5, hpMax: e.hpSlots ?? 5,
         evade: Number.isInteger(e.evade) ? e.evade : 0, dr: Number.isInteger(e.dr) ? e.dr : 0,
         ...(Number.isInteger(e.slotValue) && e.slotValue >= 1 ? { slotValue: e.slotValue } : {}),
+        ...(Number.isFinite(e.level) ? { level: e.level } : {}),
+        ...(Number.isFinite(e.cr) ? { cr: e.cr } : {}),
         ...(e.role && e.role !== 'standard' ? { role: e.role } : {}),
         ...(e.flat ? { flat: true } : {}),
         ...(Number.isInteger(e.surprise) ? { surprise: e.surprise } : {}),
@@ -1075,6 +1083,72 @@ function crawlerRow(state, pack, library, x, gm) {
   return row;
 }
 
+function forecastCrawler(p, x, pack, library) {
+  const track = hpTrackOf(pack);
+  let computed;
+  try { computed = computeFor(p, pack, library).computed; } catch { /* broken sheet: no usable health or defense */ }
+  const hp = computed?.tracks[track?.id];
+  const { evade, dr } = defenseOf(pack, computed);
+  const protections = Object.fromEntries(Object.entries(computed?.buffs ?? {})
+    .filter(([key]) => /^(immune|resist|vulnerable)\./.test(key)).map(([key, buff]) => [key, { value: buff.value }]));
+  return { uid: p.id, level: p.level ?? 1, hp: hp?.cur ?? 0, hpMax: hp?.max ?? 0,
+    slotValue: hp?.slotValue ?? 1, evade, dr, dying: x?.dying ?? null, dead: !!x?.dead, protections };
+}
+
+function forecastMob(m, pack, library) {
+  const source = m.sourceKind && m.sourceId ? library.get(m.sourceKind, m.sourceId) : null;
+  return { role: m.sourceKind === 'boss' ? 'boss' : (m.role ?? source?.role ?? 'standard'), count: 1,
+    hp: m.hp, hpMax: m.hpMax, slotValue: mobHealthSlot(pack, m) || 1, hidden: !!m.hidden,
+    level: m.level ?? source?.level ?? null, cr: m.cr ?? source?.cr ?? null, flat: !!m.flat,
+    attackMode: m.attackMode ?? 'first', attacks: (m.attacks ?? []).map(({ toHit, dc, dcPlusFloor, damage, area, dtype }) => ({ toHit, dc, dcPlusFloor, damage, area, dtype })) };
+}
+
+function combatDangerSnapshot(st, pack, c, library) {
+  const roster = new Map(c.combatants.filter((x) => x.type === 'crawler').map((x) => [x.playerId, x]));
+  const party = st.players.map((p) => forecastCrawler(p, roster.get(p.id), pack, library));
+  const mobs = c.combatants.filter((x) => x.type === 'mob' && x.hp > 0).map((x) => forecastMob(x, pack, library));
+  const config = pack.ruleset.combat;
+  const rules = { ...combatRules(pack, c.settings), flow: config?.flow ?? 'phases', hpModel: config?.hpModel ?? null,
+    mobSlotValue: config?.mobSlotValue ?? 0 };
+  const floor = floorOfState(st);
+  const inFight = c.active ? party.filter((x) => roster.has(x.uid)) : party;
+  const scope = c.id ?? null;
+  const round = c.active ? c.round : 0;
+  const previous = c.dangerState?.scope === scope ? c.dangerState : null;
+  function measure(foes, old) {
+    const key = JSON.stringify([round, floor, rules, inFight, foes]);
+    if (old?.key === key && Number.isFinite(old.value?.score)) return old;
+    return { key, value: danger({ family: rules.family, rules, floor, party: inFight, mobs: foes, previousScore: old?.value?.score }) };
+  }
+  const estimate = measure(mobs, previous?.estimate);
+  // A hidden wave must not change the public meter, including its trend arrow.
+  const visible = measure(mobs.filter((m) => !m.hidden), previous?.visible);
+  return { scope, party, rules, floor, estimate, visible };
+}
+
+/** Update after actions that can move health, defenses, levels, enemies or the round. */
+export function refreshCombatDanger(st, pack) {
+  st.combat.dangerState = combatDangerSnapshot(st, pack, st.combat, libraryOf(st, pack));
+}
+
+export function combatDangerAffected(action) {
+  const t = action.t;
+  if (t === 'roll') return typeof action.target === 'string';
+  if (t === 'rx.interrupt') return action.kind === 'heal';
+  if (t === 'player.update') return action.level !== undefined;
+  return DANGER_ACTIONS.has(t) || /^(sheet|buff|skill|skills|spell|track|item|origins|creation)\./.test(t);
+}
+
+const DANGER_ACTIONS = new Set([
+  'combat.start', 'combat.end', 'combat.next', 'combat.set', 'combat.addMob', 'combat.addAdhoc', 'combat.addCrawler',
+  'combat.addEncounter', 'combat.remove', 'combat.reveal', 'combat.update', 'combat.damage', 'combat.heal',
+  'combat.condition', 'combat.target', 'combat.undo', 'combat.auto', 'combat.autoStep', 'combat.autoConfirm', 'combat.autoUndo', 'combat.mobAct',
+  'rx.start', 'rx.step', 'rx.resolveNext', 'rx.undo', 'rx.round', 'rx.surprise', 'rx.favor', 'enc.run',
+  'boss.damage', 'boss.heal', 'boss.defeat', 'scene.update', 'player.add', 'player.remove', 'player.stat', 'player.resource',
+  'crawlers.set', 'crawlers.collapse', 'level.party', 'rest.party', 'prep.card.fire', 'lib.upsert', 'lib.remove', 'lib.give',
+  'roll.undo', 'roll.void', 'roll.restore', 'roll.undoLast', 'roll.redoLast', 'roll.favor', 'roll.intervene',
+]);
+
 /** Victory when every revealed mob is down, defeat when every crawler in the fight is (auto-end offer). */
 export function endSuggestion(state, pack) {
   const c = normalizeCombat(state.combat);
@@ -1104,11 +1178,17 @@ export function combatView(state, pack, role) {
   const c = normalizeCombat(state.combat);
   const gm = role === 'gm';
   const library = libraryOf(state, pack);
+  const showThreat = c.active && role === 'stage' && c.settings.showThreat;
+  const forecast = gm || showThreat ? (c.dangerState ?? combatDangerSnapshot(state, pack, c, library)) : null;
   const head = {
     active: c.active, round: c.round, phaseIndex: c.phaseIndex, phase: c.phases[c.phaseIndex] ?? '',
     phases: c.phases, phasesVerified: c.phasesVerified, showMobHp: c.showMobHp,
     defenseLabel: pack.ruleset.combat?.defenseLabel || 'Evade',
   };
+  if (showThreat) {
+    const { level, label, trend } = forecast.visible.value;
+    head.threatMeter = { level, label, trend };
+  }
   const I = c.init;
   if (I?.on) {
     const byUid = new Map(c.combatants.map((x) => [x.uid, x]));
@@ -1126,6 +1206,8 @@ export function combatView(state, pack, role) {
     const pending = c.autoPending?.scope === scope ? c.autoPending : null;
     Object.assign(head, {
       id: c.id, mapId: c.mapId, victoryItems: c.victoryItems, lastKill: c.lastKill, startedAt: c.startedAt, settings: c.settings,
+      showThreat: c.settings.showThreat, danger: forecast.estimate.value,
+      dangerParty: forecast.party, dangerRules: forecast.rules, dangerFloor: forecast.floor,
       unverified: UNVERIFIED_RULES.filter((key) => key !== 'drMin' || pack.ruleset.combat?.drMin == null), stats: c.stats,
       manualUndo: (state.combat?.manualUndo ?? []).length ? { label: state.combat.manualUndo.at(-1).label, at: state.combat.manualUndo.at(-1).at, count: state.combat.manualUndo.length } : null,
       lastAuto: la ? { id: la.id, at: la.at, steps: la.steps, canUndo: !!lastAutoUndo, undone: !!la.undone, startAt: la.startAt, stepMs: la.stepMs } : null,

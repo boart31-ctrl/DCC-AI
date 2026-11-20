@@ -5,6 +5,7 @@ import assert from 'node:assert/strict';
 import { loadPack } from '../pack.js';
 import { createState, reduce, viewFor } from '../state.js';
 import { tmpDir, writePack, seq } from './fixtures.js';
+import { prepDanger } from '../../web/js/prep-danger.js';
 
 const MONSTERS = [
   { id: 'goblin', name: 'Goblin', floor: 1, hpSlots: 3, attacks: [{ name: 'Stab', toHit: 2, damage: '1d4' }] },
@@ -53,6 +54,47 @@ test('enc.save builds an encounter without touching the fight; validation; updat
   s = gm(s, { t: 'enc.save', id, label: 'Alley ambush', mobs: [{ sourceId: 'goblin', count: 2 }] }).state;
   assert.equal(s.maps.list[0].tokens.filter((t) => t.enc === id).length, 0);
   assert.throws(() => gm(s, { t: 'enc.tokens', id }), /no map/);
+});
+
+test('a planned encounter forecasts the same danger as Fight with the party’s current health', () => {
+  const { pack: played } = loadPack(writePack(tmpDir(), {
+    'ruleset.json': {
+      id: 'encounter-danger',
+      stats: [{ id: 'con', label: 'Constitution', default: 3 }],
+      statMod: { formula: 'x' },
+      derived: [{ id: 'evade', label: 'Evade', formula: '2' }, { id: 'dr', label: 'Damage Resistance', formula: '1' }],
+      tracks: [{ id: 'hp', label: 'Health', kind: 'slots', default: 10, slotValue: 'mod.con' }],
+      combat: { flow: 'reaction', floorScaled: true, mobBase: 10, drMin: 0 },
+    },
+    'monsters.json': [{ id: 'guard', name: 'Guard', role: 'elite', hpSlots: 4, slotValue: 3,
+      flat: true, attacks: [{ name: 'Bash', toHit: 2, damage: '1d8+2' }] }],
+    'bosses.json': [{ id: 'keeper', name: 'Keeper', hpSlots: 10, slotValue: 4,
+      attacks: [{ name: 'Slam', toHit: 4, damage: '2d6+floor' }] }],
+  }));
+  let state = createState(played, 0);
+  const act = (action) => {
+    const r = reduce(state, { role: 'gm', ...action }, { ...ctx(), pack: played });
+    state = r.state;
+    return r.result;
+  };
+  const { playerId } = act({ t: 'player.add', name: 'Runner' });
+  act({ t: 'player.add', name: 'Scout' });
+  act({ t: 'crawlers.set', floor: 2 });
+  const { id } = act({ t: 'enc.save', label: 'Gate', mobs: [
+    { sourceId: 'guard', count: 2 }, { kind: 'boss', sourceId: 'keeper', hidden: false }, { sourceId: 'missing' },
+  ] });
+  const view = () => viewFor(state, played, 'gm', { now: 5000 });
+  const preview = () => prepDanger(view(), state.prepCards.find((card) => card.id === id).payload);
+  const healthy = preview();
+  act({ t: 'track.set', playerId, track: 'hp', cur: 4 });
+  const injured = preview();
+  assert.equal(injured.hidden, 2);
+  assert.equal(injured.visible, 1);
+  assert.ok(injured.rounds < healthy.rounds);
+  assert.deepEqual(act({ t: 'enc.run', id, start: true }).skipped, ['missing']);
+  const { trend: _prepTrend, ...predicted } = injured;
+  const { trend: _fightTrend, ...actual } = view().combat.danger;
+  assert.deepEqual(actual, predicted);
 });
 
 test('enc.run: mobs into the fight (hidden as prepared), tokens bound, reveal / death show on the map, start', () => {

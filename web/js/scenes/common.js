@@ -139,6 +139,35 @@ export function attackResultText(st) {
   return slots ? `Hit · ${slots}` : 'Hit · No slots lost';
 }
 
+const THREAT_TREND = { up: ['↑', 'Rising'], down: ['↓', 'Falling'], steady: ['→', 'Steady'] };
+
+/** Optional stage readout. Only the public band and trend belong here. */
+export function threatMeter() {
+  const bars = Array.from({ length: 4 }, () => h('i'));
+  const label = h('b.tv-threat-label');
+  const trend = h('span.tv-threat-trend', { role: 'img' });
+  const el = h('aside.tv-threat', { 'aria-label': 'Threat meter', 'aria-live': 'polite', hidden: true },
+    h('span.tv-threat-k', 'Threat'), h('span.tv-threat-bars', { 'aria-hidden': 'true' }, bars), label, trend);
+  let sig = '';
+  function update(value) {
+    const show = Number.isInteger(value?.level) && value.level >= 0 && value.level < bars.length && typeof value.label === 'string';
+    const next = show ? JSON.stringify([value.level, value.label, value.trend]) : '';
+    if (sig === next) return;
+    sig = next;
+    el.hidden = !show;
+    if (!show) return;
+    const direction = Object.hasOwn(THREAT_TREND, value.trend) ? value.trend : 'steady';
+    const [arrow, summary] = THREAT_TREND[direction];
+    el.dataset.level = String(value.level);
+    el.dataset.trend = direction;
+    bars.forEach((bar, i) => bar.classList.toggle('on', i <= value.level));
+    label.textContent = value.label;
+    trend.textContent = arrow;
+    trend.setAttribute('aria-label', summary);
+  }
+  return { el, update };
+}
+
 /** Restart a CSS animation class on an element. */
 export function replay(el, cls) {
   if (!el) return;

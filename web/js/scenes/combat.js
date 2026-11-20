@@ -9,7 +9,7 @@
 // get their own treatment; a crawler reaching 0 gets the big DOWN stamp. While it plays, crawler HP
 // shows the value *before* each step (the view already carries the result). TV budget: transform +
 // opacity animations only.
-import { h, hash, threatColor, rgb, replay, bossSvg, portraitTile, attackPlayback, attackResultText } from './common.js';
+import { h, hash, threatColor, rgb, replay, bossSvg, portraitTile, attackPlayback, attackResultText, threatMeter } from './common.js';
 import { portraitSrc } from '../client.js';
 import { uiOf, uiAsset, artEl, floorLayer } from '../ui-art.js';
 
@@ -31,6 +31,7 @@ export default function combat(root, sc, env) {
   const round = h('div.ar-round', h('small', 'Round'), h('b', '1'));
   const phases = h('ol.ar-phases');
   const status = h('p.ar-status');
+  const threat = threatMeter();
   const party = h('div.ar-party');
   const foes = h('div.ar-foes');
   const fallen = h('div.ar-fallen', { 'aria-label': 'Fallen' });
@@ -41,7 +42,7 @@ export default function combat(root, sc, env) {
   const floorBg = floorLayer('combat'); // ui.json floor art under the CSS grid; none → today's look
   root.append(
     h('div.ar-bg', floorBg.el, h('i.ar-grid'), h('i.ar-glow-l'), h('i.ar-glow-r')),
-    h('header.ar-head', h('div.ar-banner', title, round, h('div.ar-phasebox', phases, status))),
+    h('header.ar-head', h('div.ar-banner', title, round, h('div.ar-phasebox', phases, h('div.ar-status-row', status, threat.el)))),
     rxBoard,
     h('div.ar-board',
       h('section.ar-side.ar-side-l', h('h2.ar-label', h('span', 'Crawlers')), party),
@@ -196,6 +197,7 @@ export default function combat(root, sc, env) {
     scene = s;
     floorBg.update(v);
     const c = v?.combat || { active: false, round: 1, phases: [], combatants: [] };
+    threat.update(c.threatMeter);
     title.textContent = s.data?.title || '';
     title.hidden = !s.data?.title;
     round.querySelector('b').textContent = String(c.round || 1);

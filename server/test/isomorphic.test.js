@@ -13,7 +13,7 @@ test('engine.js import graph has no Node-only imports', () => {
   const { files, problems } = checkIsomorphic(path.join(here, '..', 'engine.js'));
   assert.deepEqual(problems, []);
   const names = files.map((f) => path.basename(f)).sort();
-  assert.deepEqual(names, ['character.js', 'chat.js', 'combat-auto.js', 'combat.js', 'constants.js', 'content-media.js', 'crawlers.js', 'creation.js', 'dnd-shared.js', 'dnd2024.js', 'dnd5e.js', 'encounters.js', 'engine.js', 'errors.js', 'formula.js', 'loot.js', 'maps.js', 'outcome.js', 'pack-core.js', 'pf2e.js', 'prep.js', 'quips.js', 'random.js', 'reaction.js', 'ruleset.js', 'scenes.js', 'state.js', 'systems.js']);
+  assert.deepEqual(names, ['character.js', 'chat.js', 'combat-auto.js', 'combat.js', 'constants.js', 'content-media.js', 'crawlers.js', 'creation.js', 'danger.js', 'dnd-shared.js', 'dnd2024.js', 'dnd5e.js', 'encounters.js', 'engine.js', 'errors.js', 'formula.js', 'loot.js', 'maps.js', 'outcome.js', 'pack-core.js', 'pf2e.js', 'prep-bench.js', 'prep.js', 'quips.js', 'random.js', 'reaction.js', 'rules.js', 'ruleset.js', 'scenes.js', 'state.js', 'systems.js']);
 });
 
 test('checker catches forbidden imports', () => {
@@ -29,7 +29,7 @@ test('checker catches forbidden imports', () => {
 test('engine exports the hosted-edition surface', () => {
   for (const name of [
     'createState', 'normalizeState', 'reduce', 'viewFor', 'viewForUser', 'genId', 'ActionError', 'VoiceQueue',
-    'voiceFor', 'quipAudio', 'STANDARD_CATEGORIES', 'normalizePack', 'serializePack', 'deserializePack',
+    'voiceFor', 'quipAudio', 'STANDARD_CATEGORIES', 'normalizePack', 'serializePack', 'deserializePack', 'danger',
   ]) {
     assert.ok(name in engine, `missing export ${name}`);
   }

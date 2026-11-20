@@ -4,6 +4,26 @@
 .cbt-head { display: grid; gap: 8px; margin-bottom: 12px; }
 .cbt-title { display: flex; align-items: center; gap: 10px; }
 .cbt-title h1 { font-size: 22px; font-weight: 700; margin: 0; }
+.cbt-danger { --danger-ink: var(--c-ink-2); display: inline-flex; align-items: center; flex-wrap: wrap; gap: 2px 6px; width: fit-content; min-width: 0; max-width: 100%; padding: 3px 6px; border: 1px solid var(--c-line-2); border-radius: var(--r-1); color: var(--c-ink-2); background: var(--c-sunk); font-size: 12px; line-height: 1.2; }
+.cbt-danger[data-level="0"] { --danger-ink: var(--c-good); }
+.cbt-danger[data-level="1"] { --danger-ink: var(--c-info); }
+.cbt-danger[data-level="2"] { --danger-ink: var(--c-accent); }
+.cbt-danger[data-level="3"] { --danger-ink: var(--c-bad); }
+.cbt-danger-meter { display: inline-flex; align-items: end; gap: 2px; flex: none; }
+.cbt-danger-meter i { display: block; width: 4px; height: 5px; border-radius: 1px; background: var(--c-line-2); }
+.cbt-danger-meter i:nth-child(2) { height: 7px; }
+.cbt-danger-meter i:nth-child(3) { height: 9px; }
+.cbt-danger-meter i:nth-child(4) { height: 11px; }
+.cbt-danger-meter .on { background: var(--danger-ink); }
+.cbt-danger-band { color: var(--danger-ink); }
+.cbt-danger-trend { color: var(--c-ink); font-weight: 700; }
+.cbt-danger-visible { padding-inline-start: 6px; border-inline-start: 1px solid var(--c-line-2); }
+.cbt-danger-hidden { color: var(--c-accent); }
+.cbt-display { position: relative; flex: none; }
+.cbt-display > summary { list-style: none; }
+.cbt-display > summary::-webkit-details-marker { display: none; }
+.cbt-display[open] > summary { color: var(--c-accent); }
+.cbt-display .cbt-pop { width: max-content; max-width: min(230px, 74vw); }
 .cbt-round { display: inline-flex; align-items: baseline; gap: 5px; padding: 2px 10px; border-radius: var(--r-1); background: var(--c-raised); border: 1px solid var(--c-line-2); font-family: var(--f-ui); }
 .cbt-round small { font-size: 12px; color: var(--c-ink-3); text-transform: uppercase; letter-spacing: 0.06em; }
 .cbt-round b { font-size: 20px; }
@@ -398,7 +418,7 @@
 /* At the table, round controls stay above the scrollable rosters and attack log. */
 .cbt-command { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; margin-bottom: 7px; }
 .cbt-command .cbt-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
-.cbt-command .cbt-title { flex: 1 0 auto; gap: 6px; }
+.cbt-command .cbt-title { flex: 1 1 auto; flex-wrap: wrap; min-width: 0; gap: 6px; }
 .cbt-command .cbt-title h1 { font-size: 18px; }
 .cbt-command .cbt-turn, .cbt-command .cbt-auto-bar { gap: 5px; }
 .cbt-command .cbt-turn button, .cbt-command .cbt-auto-bar button { min-height: 30px; }

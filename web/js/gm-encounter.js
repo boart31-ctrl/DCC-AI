@@ -12,17 +12,16 @@ import { libraryOf } from './rules.js';
 import { entryArt } from './portrait.js';
 import { benchmark, crawlerTable } from './prep-bench.js';
 import { pickFromLibrary } from './lib-picker.js';
+import { mobsOf, prepDanger } from './prep-danger.js';
+import { dangerBar } from './danger-bar.js';
 
-export function mobsOf(view, payload) {
-  const lib = libraryOf(view);
-  return (payload?.mobs || []).map((m) => {
-    const kind = m.kind || 'monster';
-    const e = (lib[kind] || []).find((x) => x.id === m.sourceId) || null;
-    return { ...m, kind, e };
-  });
-}
+export { mobsOf } from './prep-danger.js';
 
 export function strengthBadge(view, payload) {
+  const forecast = prepDanger(view, payload);
+  if (forecast) return forecast.reason !== 'no-party' && forecast.visible + forecast.hidden > 0
+    ? h('span.pp-bench', { class: `pp-bench pp-b${forecast.level}`, title: 'Encounter danger for the current party' }, forecast.label)
+    : null;
   const family = view?.pack?.ruleset?.system?.family || 'crawler';
   const party = (view?.players || []).map((p) => ({ level: p.level || 1 }));
   const mobs = mobsOf(view, payload).map(({ e, kind, count }) => ({ count: count || 1, level: e?.level, cr: e?.cr, role: kind === 'boss' ? 'boss' : (e?.role || 'standard') }));
@@ -169,8 +168,8 @@ export function encounterEditor({ view, act, card, mapEd, onDone, inTonight, add
       h('div.pp-head-row',
         icon('swords', { size: 18 }),
         field(card.label, { cls: 'pp-title', attrs: { 'aria-label': 'Encounter name' }, onCommit: (v) => v.trim() && save({ label: v.trim() }) }),
-        strengthBadge(view, p),
         card.used ? h('span.pill', { title: 'It ran already; it can run again.' }, 'Used') : null),
+      dangerBar(prepDanger(view, p), { label: 'Encounter danger' }),
       h('div.pp-head-row',
         tonight ? h('span.pill.pill-on', icon('star', { size: 12 }), 'In tonight’s plan, within reach') : h('button.btn.btn-sm.btn-primary', { type: 'button', title: 'Link it in tonight’s session plan and pin it: it waits on the Show tab, one tap to run', onclick: () => addToTonight(card.id) }, icon('star', { size: 14 }), 'Within reach tonight'),
         h('span.grow'),

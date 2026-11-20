@@ -1,6 +1,6 @@
 // Encounter strength per game family, from the live party (pure: no DOM, imported by the Node tests too).
 //
-// benchmark(family, party, mobs) → { level: 0..3, label, detail, units }
+// benchmark(family, party, mobs) → { level: 0..3, label, detail, units, ratio }
 //   party  [{ level }]          the characters in the campaign (any count: never assumes 4)
 //   mobs   [{ level?, cr?, role?, count? }]  role 'boss' | 'elite' | 'minion' | 'standard'
 //
@@ -27,7 +27,7 @@ function crawlerUnits(mobs, size) {
 export function benchmark(family, party, mobs) {
   const size = Math.max(1, (party || []).length);
   const list = (mobs || []).filter(Boolean);
-  if (!list.length) return { level: -1, label: 'Empty', detail: 'No monsters yet.', units: 0 };
+  if (!list.length) return { level: -1, label: 'Empty', detail: 'No monsters yet.', units: 0, ratio: 0 };
   if (family === 'dnd') {
     const sumCr = list.reduce((a, m) => a + num(m.cr ?? m.level, 0) * countOf(m), 0);
     const levels = (party || []).reduce((a, p) => a + Math.max(1, num(p.level, 1)), 0) || size;
@@ -35,7 +35,7 @@ export function benchmark(family, party, mobs) {
     const limit = levels / (avg > 4 ? 2 : 4);
     const r = limit ? sumCr / limit : 0;
     const level = r < 0.5 ? 0 : r < 1 ? 1 : r < 1.5 ? 2 : 3;
-    return { level, label: ['Easy', 'Fair', 'May be deadly', 'Deadly'][level], detail: `CR ${round(sumCr)} vs benchmark ${round(limit)} (${size} characters, avg level ${round(avg)})`, units: sumCr };
+    return { level, label: ['Easy', 'Fair', 'May be deadly', 'Deadly'][level], detail: `CR ${round(sumCr)} vs benchmark ${round(limit)} (${size} characters, avg level ${round(avg)})`, units: sumCr, ratio: r };
   }
   if (family === 'pf2e') {
     const partyLevel = Math.round((party || []).reduce((a, p) => a + Math.max(1, num(p.level, 1)), 0) / size) || 1;
@@ -49,7 +49,7 @@ export function benchmark(family, party, mobs) {
     let i = 0;
     while (i < budgets.length - 1 && xp > budgets[i]) i++;
     const level = [0, 0, 1, 2, 3][i];
-    return { level, label: names[i], detail: `${xp} XP vs ${names[i].toLowerCase()} budget ${budgets[i]} (${size} characters, party level ${partyLevel})`, units: xp };
+    return { level, label: names[i], detail: `${xp} XP vs ${names[i].toLowerCase()} budget ${budgets[i]} (${size} characters, party level ${partyLevel})`, units: xp, ratio: xp / budgets[2] };
   }
   const units = crawlerUnits(list, size);
   const pct = units / size;
@@ -58,7 +58,7 @@ export function benchmark(family, party, mobs) {
   const reference = crawlerTable(size).map(({ label, mobs }, i) => `${label} ${mobs}${i === 3 ? '+' : ''}`).join(' · ');
   const weighted = units === count ? '' : ` (${round(units)} standard mob equivalents)`;
   const detail = `${count} mob${count === 1 ? '' : 's'}${weighted} vs ${size} crawler${size === 1 ? '' : 's'}. Toolkit counts for standard mobs: ${reference}.`;
-  return { level, label: LEVELS[level], detail, units };
+  return { level, label: LEVELS[level], detail, units, ratio: pct };
 }
 
 /** How many mobs make each strength step for this party (crawler family): for the GM cheat sheet. */

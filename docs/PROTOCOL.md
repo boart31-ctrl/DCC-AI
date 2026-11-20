@@ -415,7 +415,7 @@ reach phones or the TV. Crawler HP is read from the sheet (track `hp`, else the 
 | `npc.say` | `text` (≤ 300), `npcId?` **or** `name?` (default: the NPC on the TV) | TV subtitle in the NPC's name (no voice). Event `npc.say {npcId, name, image, text}` to stage + GM; on that NPC's `npc` scene also sets `data.line` / `lineAt` |
 
 | `combat.target` | `uid`; crawler: `aggro?` (1..9, default 3), `noTarget?`; mob: `targetMode?` (`auto`/`focus`/`spread`), `focus?` (crawler uid or null; sets `focus` mode), `attackMode?` (`first`/`random`) | Auto-mode targeting. `auto` = weighted random by `aggro` among valid crawlers; `focus` = that crawler while valid, else auto; `spread` = round-robin (one pointer per fight). Valid = in the fight, not `noTarget`, HP > 0 (or `settings.finishDowned`) |
-| `combat.set` `settings` | `{ hitRule?: ">="\|">", drMin? (0..5), crit?: "double"\|"none", evadeBase? (0..30), public?, includeHidden?, finishDowned?, stepMs? (1200..4000), autoEnd? }` | Auto-mode rules; `hitRule`, `drMin`, `crit`, `evadeBase` are **unverified** (GM view `combat.unverified`) |
+| `combat.set` `settings` | `{ hitRule?: ">="\|">", drMin? (0..5), crit?: "double"\|"none", evadeBase? (0..30), public?, includeHidden?, finishDowned?, stepMs? (1200..4000), autoEnd?, showThreat?: bool }` | Auto-mode rules; `hitRule`, `drMin`, `crit`, `evadeBase` are **unverified** (GM view `combat.unverified`). `showThreat` defaults to `false` and enables the active fight's threat meter on the TV. `combat.set {showThreat: bool}` can also set it directly |
 | `combat.autoStep` | `includeHidden?`, `public?` | Resolves one mob attack (queue built on the first call). The mob picks its attack and target, rolls against the target's defense, and applies damage after DR and any hit effects to the sheet. Only committed dice enter the log as `roll.auto: true`. Ack `result: {autoId, sequence: [Step], left, startAt, stepMs, suggestEnd}` or `{sequence: [], preview: {id, danger, step}}` for an attack that would leave its target at 0 HP or damage a Dying target. `danger` is `down`, `dying` or `death`. The preview is GM-only and leaves sheet health and the dice log intact |
 | `combat.auto` | `includeHidden?`, `public?`, `confirmAll?` [false], `dryRun?` | Defaults to one attack. With `confirmAll: true`, commits the safe prefix of the remaining queue and stops at the first dangerous preview. The ack may contain both committed `sequence` entries and `preview`. `dryRun: true` simulates the queue without state changes or events |
 | `combat.autoConfirm` | `previewId` | Applies the exact one pending attack with its stored rolls. Rejects a stale preview when the attack, target, rules or combat turn have changed. Returns the same committed result as `combat.autoStep` |
@@ -447,6 +447,13 @@ unattributed}`, `lastAuto {id, at, steps, canUndo, undone, startAt, stepMs}`, `l
 `suggestEnd` (`"victory"` when every revealed mob is down, `"defeat"` when every crawler in the fight is; null with
 `settings.autoEnd` off) and `defense {evade, dr}` (the ruleset labels used); crawler rows add `aggro`, `noTarget`,
 `evade`, `dr`. The desk offers the suggested ending with a 3 s toast (Cancel) after the cinematic.
+
+GM `view.combat.danger` contains `{label, level, rounds, score, trend, hidden, visible, reason?}`. `rounds`
+estimates the time until the first crawler falls, or `null` when there is no estimate. `trend` is `up`, `down`
+or `steady` relative to the last material board change or round start. The shared Prep estimate uses
+`dangerParty` (all campaign characters with current health, slot value, defenses, level and status),
+`dangerRules` (effective combat rules) and `dangerFloor`. An active fight estimates the current combat roster.
+With `showThreat` on, the stage view gets only `threatMeter {label, level, trend}` from revealed foes.
 
 Scene kind `finale` — `outcome`, `title`, `text`, `summary {rounds, dealt, taken, mobsDefeated, mobsTotal, downs, standing,
 crawlers: [{playerId, name, color, dealt, taken, downs, kills, down}], mvp: {playerId, name, color, dealt, kills} | null,

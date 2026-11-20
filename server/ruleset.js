@@ -385,6 +385,7 @@ function normalizeStatAttacks(raw, ctx) {
     const majorFailBuffs = idList(a.majorFailBuffs, 10);
     out.push({
       name: text(a.name, 60), toHit, damage, effects: text(a.effects, 400), buffs: idList(a.buffs, 10),
+      ...(Number.isInteger(a.dc) && a.dc >= 0 && a.dc <= 99 ? { dc: a.dc, dcPlusFloor: a.dcPlusFloor === true } : {}),
       ...(majorFailBuffs.length ? { majorFailBuffs } : {}),
       // Book stat block extras: damage type, range, Area of Effect ("20ft Cone +10ft Splash").
       ...(typeof a.dtype === 'string' && /^[a-z][a-z -]{0,29}$/i.test(a.dtype.trim()) ? { dtype: a.dtype.trim().toLowerCase() } : {}),
@@ -399,6 +400,11 @@ function normalizeStatAttacks(raw, ctx) {
 function statBlockExtras(raw) {
   const out = {};
   if (Number.isInteger(raw.level) && raw.level >= 0 && raw.level <= 999) out.level = raw.level;
+  const rawCr = typeof raw.cr === 'string' ? raw.cr.trim() : raw.cr;
+  const fraction = typeof rawCr === 'string' ? /^(\d{1,3})\s*\/\s*([1-9]\d{0,2})$/.exec(rawCr) : null;
+  const cr = fraction ? Number(fraction[1]) / Number(fraction[2])
+    : typeof rawCr === 'string' && /^\d{1,3}(\.\d+)?$/.test(rawCr) ? Number(rawCr) : rawCr;
+  if (Number.isFinite(cr) && cr >= 0 && cr <= 999) out.cr = cr;
   // Surprise: Difficulty of crawler Stealth / Ambush checks against it (plus the floor unless flat).
   if (Number.isInteger(raw.surprise) && Math.abs(raw.surprise) <= 99) out.surprise = raw.surprise;
   if (isStr(raw.move)) out.move = text(raw.move, 30);

@@ -184,7 +184,7 @@ test('full flow: handshake, award, loot, quip → play, audio.done releases next
   // oversize message closes the socket instead of crashing the server
   pl.ws.send(JSON.stringify({ t: 'me.notes', text: 'x'.repeat(20_000) }));
   await pl.closed;
-  const gv2 = await gm.next((m) => m.t === 'view' && m.view.players[0].connected === false);
+  const gv2 = await gm.next((m) => m.t === 'view' && m.view.players.find((p) => p.id === playerId)?.connected === false);
   assert.equal(gv2.view.players[0].connected, false);
 
   // session.new archives the log

@@ -17,6 +17,7 @@ import { openArtGallery } from './art-gallery.js';
 import { statBlock, hasStatBlock } from './statblock.js';
 import { initStrip } from './initiative.js';
 import { ratingBadge } from './gm-encounter.js';
+import { dangerBar } from './danger-bar.js';
 
 const PREF = 'system.combat.ui'; // UI preferences only (builder tab, roll visibility); no game state
 const loadPref = () => { try { return JSON.parse(localStorage.getItem(PREF) || '{}') || {}; } catch { return {}; } };
@@ -41,7 +42,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
   const ui = {
     counts: {}, damageBy: {}, open: new Set(), editPhases: false, lastRoll: null, adhoc: { name: '', hp: 5, evade: 0, dr: 0, count: 1 },
-    endMenu: false, special: null, rules: false, soundPop: false, loot: null, log: true, autoBusy: false,
+    endMenu: false, special: null, rules: false, soundPop: false, displayOpen: false, loot: null, log: true, autoBusy: false,
     offered: null, // outcome the auto-end toast already offered (until the suggestion clears)
   };
   const setPref = (k, v) => { pref[k] = v; savePref(pref); };
@@ -143,7 +144,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
       h('div.cbt-title',
         h('h1', 'Combat'),
         c.rx ? null : c.active ? h('span.cbt-round', h('small', 'Round'), h('b', String(c.round))) : h('span.pill', 'Not started'),
+        dangerBar(c.danger),
         h('span.grow'),
+        displayControls(c),
         soundButton(),
         h('button.icon-btn.cbt-tvbtn', {
           type: 'button', class: onTv() ? 'icon-btn cbt-tvbtn is-live' : 'icon-btn cbt-tvbtn', 'aria-pressed': String(onTv()),
@@ -177,6 +180,17 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         endButton()) : (c.combatants.length ? h('div.cbt-auto-bar', h('span.grow'), endButton()) : null),
       c.autoPreview ? autoPreview(c.autoPreview) : null, ui.endMenu ? endMenu() : null,
     );
+  }
+
+  function displayControls(c) {
+    const showThreat = c.settings?.showThreat === true;
+    return h('details.cbt-display', { open: ui.displayOpen || null, ontoggle: (e) => { ui.displayOpen = e.currentTarget.open; } },
+      h('summary.btn.btn-sm.btn-quiet', 'Display'),
+      h('div.cbt-pop',
+        h('label.chk', h('input', { type: 'checkbox', checked: showThreat, onchange: async (e) => {
+          const input = e.currentTarget;
+          if (!(await act({ t: 'combat.set', settings: { showThreat: input.checked } }))) input.checked = showThreat;
+        } }), h('span', 'Show threat meter on TV'))));
   }
 
   /** Players who joined after the fight started (or were left out): one tap brings them in. */
@@ -910,7 +924,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const living = mobs.filter((m) => !m.down);
     const dead = mobs.filter((m) => m.down);
     const hiddenN = living.filter((m) => m.hidden).length;
-    const strength = !c.active && !fixedRules() ? ratingBadge('crawler', c.previewCrawlers ?? view.players ?? [],
+    const strength = !c.danger && !c.active && !fixedRules() ? ratingBadge('crawler', c.previewCrawlers ?? view.players ?? [],
       living.map((m) => ({ role: m.sourceKind === 'boss' ? 'boss' : m.role }))) : null;
     const list = h('section.panel.cbt-list-panel',
       h('section.cbt-party-col',

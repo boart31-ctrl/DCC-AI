@@ -451,7 +451,11 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     view = v;
     drawReach();
     mapEd.update(v);
-    const s = JSON.stringify([P(), (v.maps || []).map((m) => [m.id, m.name, m.zones.length, m.tokens.filter((t) => t.enc).map((t) => t.enc)]), cards().map((c) => [c.id, c.label, c.used, c.payload]), Object.values(lib()).map((x) => x.length), (v.players || []).map((p) => p.level)]);
+    const library = lib();
+    const { dangerParty, dangerRules, dangerFloor } = v.combat ?? {};
+    const dangerMobs = ['monster', 'boss'].map((kind) => library[kind].map((e) => [e.id, e.role, e.hpSlots,
+      e.slotValue, e.level, e.cr, e.flat, e.attacks?.map((a) => [a.damage, a.toHit, a.dc, a.dcPlusFloor, a.area, a.dtype])]));
+    const s = JSON.stringify([P(), (v.maps || []).map((m) => [m.id, m.name, m.zones.length, m.tokens.filter((t) => t.enc).map((t) => t.enc)]), cards().map((c) => [c.id, c.label, c.used, c.payload]), Object.values(library).map((x) => x.length), (v.players || []).map((p) => p.level), dangerParty, dangerRules, dangerFloor, dangerMobs]);
     if (s === sig) return;
     sig = s;
     draw();
