@@ -23,8 +23,10 @@ import {
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
+import { ADVANCEMENT_PLAYER, advancementClockView, changeAdvancementClock, consumeAdvancementMilestone, normalizeAdvancementClock,
+  normalizeLevelGrants, recordLevelGrant, snoozeAdvancementClock } from './advancement.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
-import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage, spendReactionAction } from './reaction.js';
+import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage, spendReactionAction, actionReceipt } from './reaction.js';
 import { combatHistoryFor, normalizeCombatHistory, recordCombatHistory } from './combat-history.js';
 import { makeEncounterGM } from './encounters.js';
 import { makeCreation } from './creation.js';
@@ -147,6 +149,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   if (!raw || typeof raw !== 'object') return base;
   const s = { ...base, ...raw, campaign };
   s.session = { ...base.session, ...(raw.session ?? {}) };
+  if (pack.ruleset.advancement) s.session.advancementClock = normalizeAdvancementClock(raw.session?.advancementClock);
   if (!MODES.includes(s.session.mode)) s.session.mode = 'roleplay';
   if (!pack.voicesById.has(s.session.voice) && s.session.voice !== 'host') s.session.voice = defaultVoiceId(pack);
   s.audience = { ...base.audience, ...(raw.audience ?? {}) };
@@ -188,12 +191,18 @@ export function normalizeState(raw, basePack, now = Date.now()) {
       if (s.messages.some((x) => x.id === m.id)) continue;
       s.messages.push({ id: m.id, at: m.at ?? 0, from: m.from ?? pack.systemName, text: m.text ?? '', to: [p.id], onStage: false, readBy: m.read ? [p.id] : [] });
     }
+    const sheet = migrateSheet(p.sheet, { stats, resources }, pack.ruleset);
+    // Older species creation stored race inside the sheet while public views use player.race.
+    const legacyRace = sheet.species && typeof sheet.identity.race === 'string' ? sheet.identity.race : '';
+    if (sheet.species) delete sheet.identity.race;
     return {
-      title: '', klass: '', race: '', gold: 0, notes: '', level: 1, userId: null,
+      title: '', klass: '', gold: 0, notes: '', level: 1, userId: null,
       color: PALETTE[i % PALETTE.length], achievements: [],
       ...rest,
+      race: p.race || legacyRace,
       inventory: migrateInventory(p.inventory, pack.ruleset),
-      sheet: migrateSheet(p.sheet, { stats, resources }, pack.ruleset),
+      sheet,
+      ...(p.levelGrants ? { levelGrants: normalizeLevelGrants(p.levelGrants) } : {}),
     };
   });
   s.messages = s.messages.filter((m) => m && typeof m === 'object' && typeof m.id === 'string').map(normalizeMessage);
@@ -639,11 +648,16 @@ const GM = {
   'level.party'(st, a, ctx, out) {
     const delta = a.delta === undefined ? 1 : a.delta;
     if (!Number.isInteger(delta) || delta < -5 || delta > 5 || delta === 0) throw bad('delta must be -5..5, not 0');
+    if (a.timed === true) {
+      if (delta !== 1 || !st.players.length) throw bad('a play milestone grants one level to the party');
+      consumeAdvancementMilestone(st.session, ctx.pack.ruleset, ctx.now, a.checkpoint);
+    }
     for (const p of st.players) {
       const cur = Number(p.sheet?.identity?.level ?? p.level ?? 1) || 1;
       const next = Math.max(0, cur + delta);
       if (p.sheet) p.sheet.identity = { ...(p.sheet.identity ?? {}), level: next };
       p.level = next;
+      if (next > cur) recordLevelGrant(st, p, cur, ctx, (a.timed === true || a.phone === true) && a.rankUp !== true);
     }
     st.session.levelAtMs = st.session.playMs ?? 0;
     if (delta > 0) out.emit({ kind: 'levelup', delta, names: st.players.map((p) => p.name) }, 'all');
@@ -657,10 +671,12 @@ const GM = {
     out.result = { players: st.players.length, rankUps };
   },
   /** `{ minutes }` Not yet: the reminder comes back after this much more play. */
-  'level.snooze'(st, a) {
+  'level.snooze'(st, a, ctx) {
     const m = Number.isInteger(a.minutes) && a.minutes >= 5 && a.minutes <= 240 ? a.minutes : 30;
+    if (snoozeAdvancementClock(st.session, ctx.pack.ruleset, ctx.now, m)) return;
     st.session.levelSnoozeMs = (st.session.playMs ?? 0) + m * 60_000;
   },
+  'level.clock': changeAdvancementClock,
 
   'rest.party'(st, a, ctx, out) {
     const rs = ctx.pack.ruleset;
@@ -867,6 +883,7 @@ for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 Object.assign(PLAYER, CREATION.player);
 Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER, REACTION_PLAYER);
 Object.assign(PLAYER, PREP_CHECKS_PLAYER);
+Object.assign(PLAYER, ADVANCEMENT_PLAYER);
 
 function requireCombatHotlist(st, ctx, uid) {
   const p = st.players.find((x) => x.id === ctx.actor.playerId);
@@ -894,19 +911,22 @@ PLAYER.roll = (st, a, ctx, out) => {
   requireStatusAllowed(st, ctx, st.players.find((p) => p.id === me.playerId), 'action');
   spendReactionAction(rx, me.uid, 1, { attack: true });
   SHEET.roll(st, a, { ...ctx, actionReceipt: { combatId: rx.combatId, round: rx.round, uid: me.uid } }, out);
+  out.result.receipt = actionReceipt(rx, me.uid, 1);
 };
 
 function castSpell(st, a, ctx, out) {
   const rx = st.combat?.active && st.combat.rx;
+  const action = { result: null };
   if (rx && ctx.actor.role === 'player' && ctx.pack.ruleset.spells.attackChecks) {
     const p = st.players.find((x) => x.id === ctx.actor.playerId);
     const spell = p?.sheet?.spells?.find((s) => s.uid === a.uid);
     const def = spell && libraryOf(st, ctx.pack).get('spell', spell.spellId);
     if (rx.step !== 'act' && (rx.step !== 'react' || (!def?.healing && !def?.tags?.includes('interrupt')))) throw bad('that spell cannot be cast in this phase');
     if (ctx.pack.ruleset.hotlist.combat) requireCombatHotlist(st, ctx, a.uid);
-    REACTION_PLAYER['rx.spend'](st, {}, ctx);
+    REACTION_PLAYER['rx.spend'](st, {}, ctx, action);
   }
   SHEET['spell.cast'](st, a, ctx, out);
+  if (action.result) out.result.receipt = action.result.receipt;
   const healed = out.result?.healed;
   const target = healed && st.combat?.combatants.find((x) => x.playerId === healed.playerId);
   if (target && healed.to > 0) dyingTick(st, ctx, out, 'heal', target.uid);
@@ -915,15 +935,18 @@ PLAYER['spell.cast'] = GM['spell.cast'] = castSpell;
 
 PLAYER['hotlist.set'] = (st, a, ctx, out) => {
   const rx = st.combat?.active && st.combat.rx;
+  const action = { result: null };
   if (rx && ctx.pack.ruleset.hotlist.combat && a.uid != null) {
     if (rx.step !== 'act') throw bad('you can prepare your Hotlist during crawler actions');
-    REACTION_PLAYER['rx.spend'](st, {}, ctx);
+    REACTION_PLAYER['rx.spend'](st, {}, ctx, action);
   }
   SHEET['hotlist.set'](st, a, ctx, out);
+  if (action.result) out.result = { ...out.result, receipt: action.result.receipt };
 };
 
 function useItem(st, a, ctx, out) {
   const rx = st.combat?.active && st.combat.rx;
+  const action = { result: null };
   const hotlist = ctx.pack.ruleset.hotlist;
   const playerId = ctx.actor.role === 'player' ? ctx.actor.playerId : a.playerId;
   const p = st.players.find((x) => x.id === playerId);
@@ -934,9 +957,10 @@ function useItem(st, a, ctx, out) {
   if (def && ctx.actor.role === 'player') {
     if (rx.step !== 'act' && (rx.step !== 'react' || !potion || def.use?.heal?.track !== hp)) throw bad('you cannot use this item in this phase');
     requireCombatHotlist(st, ctx, a.uid);
-    REACTION_PLAYER['rx.spend'](st, {}, ctx);
+    REACTION_PLAYER['rx.spend'](st, {}, ctx, action);
   }
   SHEET['item.use'](st, a, ctx, out);
+  if (action.result) out.result.receipt = action.result.receipt;
   const healed = out.result?.healed;
   const target = healed?.track === hp && st.combat?.combatants.find((x) => x.playerId === healed.playerId);
   if (target && healed.to > 0) dyingTick(st, ctx, out, 'heal', target.uid);
@@ -1188,6 +1212,7 @@ function fullPlayer(state, p, pack, library) {
     stats, resources, gold: p.gold, notes: p.notes,
     inventory: enrichInventory(p.inventory, library), achievements: p.achievements,
     sheet,
+    ...(p.levelGrants?.length ? { levelGrants: p.levelGrants } : {}),
     secrets: messages.filter((m) => !m.group).map(({ id, at, from, text, read }) => ({ id, at, from, text, read })), // legacy shape
     messages,
   };
@@ -1242,7 +1267,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   const q = opts.queue ?? { queue: [], pendingAuto: [], playing: null };
   const library = libraryOf(state, pack);
   v.rolls = rollsFor(state, role, opts.playerId);
-  v.combat = combatView(state, pack, role);
+  v.combat = combatView(state, pack, role, opts.playerId);
   if (v.combat) v.combat.rx = reactionView(state, role, pack);
   v.crawlers = crawlersView(state, pack, role, now, opts.stageOn !== false);
   v.maps = mapsView(state, role, library, v.combat);
@@ -1260,7 +1285,8 @@ export function viewFor(state, basePack, role, opts = {}) {
     const cats = [...new Set([...STANDARD_CATEGORIES, ...pack.quipsByCategory.keys()])];
     v.gm = {
       // Level-up reminder (gm.js): minutes of play, since the last party level-up, snoozed until.
-      playClock: { playMin: Math.round((state.session.playMs ?? 0) / 60_000), sinceLevelMin: Math.round(((state.session.playMs ?? 0) - (state.session.levelAtMs ?? 0)) / 60_000), snoozeMin: state.session.levelSnoozeMs != null ? Math.round(state.session.levelSnoozeMs / 60_000) : null },
+      playClock: { playMin: Math.floor((state.session.playMs ?? 0) / 60_000), sinceLevelMin: Math.floor(((state.session.playMs ?? 0) - (state.session.levelAtMs ?? 0)) / 60_000), snoozeMin: state.session.levelSnoozeMs != null ? Math.ceil(state.session.levelSnoozeMs / 60_000) : null },
+      advancementClock: advancementClockView(state.session, pack.ruleset, now),
       joinUrl: opts.urls?.join ?? '',
       stageUrl: opts.urls?.stage ?? '',
       gmUrl: opts.urls?.gm ?? '',

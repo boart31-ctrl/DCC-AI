@@ -40,7 +40,7 @@ function resolutionFight() {
   const { pack } = loadPack(writePack(tmpDir(), {
     'ruleset.json': {
       id: 'resolution', tracks: [{ id: 'hp', label: 'Health', kind: 'slots', default: 4, slotValue: 1 }],
-      combat: { flow: 'reaction', dyingRounds: '1', injuries: { minor: 'minor', major: 'major', majorDescriptions: ['Broken arm.'] } },
+      combat: { flow: 'reaction', dyingRounds: '1', injuries: { minor: 'minor', major: 'major', minorDescriptions: ['Sore wrist.'], majorDescriptions: ['Broken arm.'] } },
     },
     'buffs.json': [{ id: 'marked', name: 'Marked' }],
   }));
@@ -112,6 +112,51 @@ test('four attacks preview one at a time and require confirmation before Dying a
   assert.equal(hp(), 2);
   assert.equal(state.combat.stats.downs[pid], undefined);
   assert.equal(state.combat.stats.taken[pid], 2);
+});
+
+test('damage preview rolls each die once, then retains the sampled faces on refresh, redirect and Apply', () => {
+  let s = fight();
+  const carl = crawlerUid(s, 'Carl'), donut = crawlerUid(s, 'Donut');
+  const armed = gm(s, { t: 'combat.addAdhoc', name: 'Guard', hp: 9, hidden: false, attacks: [
+    { name: 'Slash', damage: '2d6+1d4+floor' },
+  ] });
+  const [mobUid] = armed.result.uids;
+  s = gm(armed.state, { t: 'rx.declare', mobUid, targetUid: carl }).state;
+  s = gm(s, { t: 'rx.step', to: 'react' }).state;
+  s = gm(s, { t: 'rx.step', to: 'resolve' }).state;
+  const bounds = [], values = [0, 3, 1];
+  const ctx = { rollInt(sides) { bounds.push(sides); return values[bounds.length - 1] ?? 0; } };
+  const first = gm(s, { t: 'rx.resolveNext' }, ctx);
+  s = first.state;
+  assert.deepEqual(bounds, [6, 6, 4]);
+  assert.equal(first.result.raw, 8);
+  assert.deepEqual(first.result.die.map(({ term, rolls }) => [term, rolls]), [['2d6', [1, 4]], ['1d4', [2]]]);
+  const refreshed = gm(s, { t: 'rx.resolveNext' }, ctx);
+  s = refreshed.state;
+  const redirected = gm(s, { t: 'rx.resolveNext', op: 'redirect', token: refreshed.result.token, targetUid: donut }, ctx);
+  assert.deepEqual([redirected.result.targetUid, redirected.result.raw, redirected.result.die], [donut, 8, first.result.die]);
+  s = gm(redirected.state, { t: 'rx.resolveNext', op: 'apply', token: redirected.result.token }, ctx).state;
+  assert.deepEqual(bounds, [6, 6, 4], 'refresh, redirect and apply reuse the existing roll');
+  assert.equal(s.combat.rx.decls[0].targetUid, donut);
+  assert.equal(s.combat.rx.decls[0].damage, 8);
+});
+
+test('pending injuries show to the GM and injured player with specific text, and either can be removed by GM', () => {
+  const { s, pack, act, pid, hero, ally } = resolutionFight();
+  let state = act(s, { t: 'combat.injury', uid: hero, severity: 'minor' }).state;
+  state = act(state, { t: 'combat.injury', uid: hero, severity: 'major' }).state;
+  const prow = (role, playerId) => viewFor(state, pack, role, { playerId }).combat.combatants.find((x) => x.uid === hero);
+  const [minor, major] = prow('gm').pendingInjuries;
+  assert.deepEqual([minor.desc, major.desc], ['Sore wrist.', 'Broken arm.']);
+  assert.deepEqual(prow('player', pid).pendingInjuries, [minor, major]);
+  const allyId = state.combat.combatants.find((x) => x.uid === ally).playerId;
+  assert.equal(prow('player', allyId).pendingInjuries, undefined);
+  assert.equal(prow('stage').pendingInjuries, undefined);
+  assert.throws(() => reducePlayerAction(state, { t: 'combat.injury.remove', uid: hero, injuryId: minor.id }, { pack, playerId: pid }), /unknown action/);
+  state = act(state, { t: 'combat.injury.remove', uid: hero, injuryId: minor.id }).state;
+  assert.deepEqual(prow('player', pid).pendingInjuries, [major]);
+  state = act(state, { t: 'combat.injury.remove', uid: hero, injuryId: major.id }).state;
+  assert.deepEqual(prow('player', pid).pendingInjuries, []);
 });
 
 test('batch quote names the exact victim, invalidates on health changes and applies only the reviewed queue', () => {
@@ -258,12 +303,17 @@ test('a phone attack spends an action only on submission and undo refunds it wit
   assert.equal(s.combat.rx.acts[crawler], initial - 1);
   assert.equal(rolled.result.roll.natural, 17);
   assert.equal(rolled.result.roll.actionReceipt, undefined);
-  s = pl(s, pid, { t: 'roll.undo' }).state;
+  assert.deepEqual(rolled.result.receipt, { spent: 1, actionsLeft: initial - 1, utilityLeft: 0 });
+  const undone = pl(s, pid, { t: 'roll.undo' });
+  assert.deepEqual(undone.result.receipt, { spent: 0, refunded: 1, actionsLeft: initial, utilityLeft: 0 });
+  s = undone.state;
   assert.equal(s.combat.rx.acts[crawler], initial);
   s = gm(s, { t: 'roll.restore', id: rolled.result.rollId }).state;
   assert.equal(s.combat.rx.acts[crawler], initial - 1);
   s = gm(s, { t: 'rx.round' }).state;
-  s = pl(s, pid, { t: 'roll.undo' }).state;
+  const later = pl(s, pid, { t: 'roll.undo' });
+  assert.equal(later.result.receipt, undefined);
+  s = later.state;
   assert.equal(s.combat.rx.acts[crawler], initial, 'undo does not add actions to a later round');
 });
 
@@ -563,6 +613,45 @@ test('a full round: suggest, evade (spends an action), rolls, intervene on a nea
   assert.deepEqual(s.combat.rx.decls, []);
   assert.equal(s.combat.rx.acts[carl], 2);
   assert.equal(s.combat.rx.acts[donut], 2);
+});
+
+test('manual and digital Evades share one action, and phone assistance spends its own action once', () => {
+  let s = fight();
+  const carl = crawlerUid(s, 'Carl');
+  const carlPid = playerId(s, 'Carl');
+  const donutPid = playerId(s, 'Donut');
+  const mobUid = s.combat.combatants.find((row) => row.type === 'mob').uid;
+  for (let i = 0; i < 3; i++) s = gm(s, { t: 'rx.declare', targetUid: carl, mobUid }).state;
+  s = gm(s, { t: 'rx.step', to: 'react' }).state;
+  const [first, second, third] = s.combat.rx.decls.map((d) => d.id);
+  const prepare = pl(s, carlPid, { t: 'rx.interrupt', kind: 'evade' });
+  s = prepare.state;
+  assert.deepEqual(prepare.result.receipt, { spent: 1, actionsLeft: 1, utilityLeft: 0 });
+  assert.throws(() => pl(s, carlPid, { t: 'rx.evade', declId: first, die: 10, digital: true }), /choose a phone roll/);
+  const phoneEvade = reducePlayerAction(s, { t: 'rx.evade', declId: first, digital: true }, {
+    ...ctx(), playerId: carlPid, dieInt: (sides) => { assert.equal(sides, 20); return 19; },
+  });
+  s = phoneEvade.state;
+  assert.equal(phoneEvade.result.die, 20);
+  assert.deepEqual(phoneEvade.result.receipt, { spent: 0, actionsLeft: 1, utilityLeft: 0 });
+  s = pl(s, carlPid, { t: 'rx.evade', declId: second, die: 11 }).state;
+  assert.throws(() => pl(s, carlPid, { t: 'rx.intervene', declId: second, d6: 2 }), /someone else/);
+  assert.throws(() => pl(s, donutPid, { t: 'rx.intervene', declId: second, d6: 7 }), /d6 must be 1\.\.6/);
+  const phoneHelp = reducePlayerAction(s, { t: 'rx.intervene', declId: second, digital: true }, {
+    ...ctx(), playerId: donutPid, dieInt: (sides) => { assert.equal(sides, 6); return 2; },
+  });
+  s = phoneHelp.state;
+  assert.equal(phoneHelp.result.d6, 3);
+  assert.equal(phoneHelp.result.degree, 'success');
+  assert.deepEqual(phoneHelp.result.receipt, { spent: 1, actionsLeft: 1, utilityLeft: 0 });
+  assert.equal(viewFor(s, pack, 'player', { playerId: donutPid }).combat.history[0].label, 'Helped an ally');
+  assert.ok(viewFor(s, pack, 'player', { playerId: carlPid }).combat.history.every((row) => row.label !== 'Helped an ally'));
+  s = pl(s, carlPid, { t: 'rx.evade', declId: third, die: 11 }).state;
+  s = pl(s, donutPid, { t: 'rx.interrupt', kind: 'intervene' }).state;
+  assert.throws(() => pl(s, donutPid, { t: 'rx.interrupt', kind: 'intervene' }), /already prepared/);
+  const preparedHelp = pl(s, donutPid, { t: 'rx.intervene', declId: third, d6: 2 });
+  assert.deepEqual(preparedHelp.result.receipt, { spent: 0, actionsLeft: 0, utilityLeft: 0 });
+  assert.throws(() => pl(preparedHelp.state, donutPid, { t: 'rx.intervene', declId: third, d6: 2 }), /no actions left/);
 });
 
 test('catcher takes the hit (no evade), major / critical fails hurt more, views hide difficulties from players', () => {

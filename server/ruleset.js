@@ -618,7 +618,10 @@ function normalizeCombatRules(raw, derived, unv) {
     // Injuries after combat: buff ids for { minor, major, minorLong, majorLong }; a second one of the same
     // kind becomes the long-term one (reaction.js marks them, state.js gives them on combat.end).
     // The heal every crawler has as an interrupt (rx.interrupt heal): { mana, slots, track? (mana track id) }.
-    healSpell: isObj(r.healSpell) && Number.isInteger(r.healSpell.mana) && Number.isInteger(r.healSpell.slots) ? { mana: Math.max(0, r.healSpell.mana), slots: Math.max(1, r.healSpell.slots), track: isStr(r.healSpell.track) ? r.healSpell.track : 'mana' } : null,
+    healSpell: isObj(r.healSpell) && Number.isInteger(r.healSpell.mana) && Number.isInteger(r.healSpell.slots) ? {
+      mana: Math.max(0, r.healSpell.mana), slots: Math.max(1, r.healSpell.slots), track: isStr(r.healSpell.track) ? r.healSpell.track : 'mana',
+      spellId: isStr(r.healSpell.spellId) ? r.healSpell.spellId : 'heal',
+    } : null,
     injuries: isObj(r.injuries) && ['minor', 'major'].every((k) => isStr(r.injuries[k])) ? { minor: r.injuries.minor, major: r.injuries.major, minorLong: isStr(r.injuries.minorLong) ? r.injuries.minorLong : null, majorLong: isStr(r.injuries.majorLong) ? r.injuries.majorLong : null,
       minorDescriptions: textList(r.injuries.minorDescriptions, 30, 180), majorDescriptions: textList(r.injuries.majorDescriptions, 30, 180),
     } : null,
@@ -643,6 +646,7 @@ function normalizeCombatRules(raw, derived, unv) {
  *   noDouble     the same skill cannot come from two stages
  *   combat       { fixed: attack every character has, rank, weapons: [{ name, group, skill, stat, dice,
  *                damageStat, damageType, note }], custom }  the starting weapon skill + attack
+ *   spellChoice  { choices, stat, min, item, qty }  optional attack spell replacing the starting weapon
  *   stuff        [{ id, label, hint, auto?: 'weapon', catalog?, custom? }]  starting things (GM approves)
  *   derived      [{ label, text }]  read-only explanations shown after the stats
  *   basicActions [{ name, text }]   what anyone can do (also on the sheet)
@@ -661,6 +665,8 @@ function normalizeCreation(c, warnings) {
   const atk = (w) => (w && isStr(w.name) && isStr(w.skill) && /^\d*d\d+/.test(w.dice ?? '') ? { name: str(w.name, 60), group: str(w.group, 40), skill: w.skill, stat: str(w.stat, 20), dice: w.dice, damageStat: isStr(w.damageStat) ? w.damageStat : null, damageType: str(w.damageType, 40), note: str(w.note, 120), rank: Number.isInteger(w.rank) ? w.rank : null } : null);
   const normCombat = (cb) => (cb && typeof cb === 'object' ? { fixed: atk(cb.fixed), rank: Number.isInteger(cb.rank) ? cb.rank : 1, weapons: (Array.isArray(cb.weapons) ? cb.weapons : []).slice(0, 60).map(atk).filter(Boolean), custom: cb.custom !== false } : null);
   const sm = c.statMethods && typeof c.statMethods === 'object' ? c.statMethods : {};
+  const spell = c.spellChoice;
+  const spellChoices = idList(spell?.choices, 12);
   const out = {
     statMethods: {
       array: ints(sm.array, -10, 100),
@@ -673,6 +679,8 @@ function normalizeCreation(c, warnings) {
     noDouble: c.noDouble !== false,
     backgrounds: normBgs(c.backgrounds),
     combat: normCombat(c.combat),
+    ...(spellChoices.length && safeId(spell.stat) && Number.isInteger(spell.min) && safeId(spell.item) && Number.isInteger(spell.qty) && spell.qty > 0 && spell.qty <= 9999
+      ? { spellChoice: { choices: spellChoices, stat: spell.stat, min: spell.min, item: spell.item, qty: spell.qty } } : {}),
     // Other kinds of character (DCC: an animal crawler): own stages / combat, start AI Favor, sizes, race text.
     species: (Array.isArray(c.species) ? c.species : []).slice(0, 6).map((sp) => (sp && /^[a-z0-9_-]{1,30}$/.test(sp.id ?? '') && isStr(sp.label) ? {
       id: sp.id, label: str(sp.label, 40), desc: str(sp.desc, 400), race: str(sp.race, 40), help: str(sp.help, 600),
@@ -889,6 +897,8 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     ...(Object.keys(rests).length ? { rests } : {}),
     skills,
     attack,
+    ...(Number.isInteger(r.advancement?.intervalMinutes) && r.advancement.intervalMinutes >= 1 && r.advancement.intervalMinutes <= 1440
+      ? { advancement: { intervalMinutes: r.advancement.intervalMinutes } } : {}),
     spells: { costTrack,
       ...(r.spells?.attackChecks === true ? { attackChecks: true } : {}),
       ...(Array.isArray(r.spells?.starting) ? { starting: idList(r.spells.starting, 12) } : {}),

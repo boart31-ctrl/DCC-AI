@@ -235,13 +235,19 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 }
 
 /* Combat page and one-tap entry for physical dice. */
-.combat-prompt { position: fixed; right: 12px; bottom: max(52px, env(safe-area-inset-bottom)); z-index: 43; box-shadow: 0 4px 16px #000a; }
-body:has(.tp-combat) :is(.combat-prompt, .roll-fab, .ini-prompt), .combat-prompt[hidden] { display: none; }
+body:has(.tp-combat) :is(.roll-fab, .ini-prompt) { display: none; }
 .die-faces { display: grid; grid-template-columns: repeat(var(--faces-cols), minmax(0, 1fr)); gap: 6px; }
 .die-faces .btn { min-width: 0; min-height: 44px; font-size: 18px; font-weight: 700; padding-inline: 0; }
 .prep-prompts { display: grid; gap: 6px; margin: 8px 12px 0; }
 .prep-prompt { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; }
 .prep-prompt b { flex: 1; }
+.level-prompt { padding: 8px; justify-items: start; }
+.level-progress, .level-grant, .level-dice { display: grid; gap: 10px; }
+.level-grant { margin: 0; }
+.level-grant h3, .level-grant h4, .level-grant ul { margin: 0; }
+.level-grant ul { display: grid; gap: 6px; list-style: none; padding: 0; }
+.level-rank > .row-start, .level-grant .row-wrap { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.level-dice { margin-top: 8px; }
 .rp-note { margin: 8px 0 0; padding: 8px 10px; border-radius: 10px; background: rgba(58, 141, 255, 0.12); border: 1px solid rgba(58, 141, 255, 0.45); font-size: 14px; }
 .ivn { position: fixed; left: 10px; right: 10px; bottom: 84px; z-index: 60; display: grid; gap: 8px; padding: 12px; border-radius: 14px; background: var(--c-panel, #15121f); border: 2px solid #3a8dff; box-shadow: 0 8px 30px rgba(0, 0, 0, 0.6); }
 .ivn p { margin: 0; }

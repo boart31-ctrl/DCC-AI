@@ -3,19 +3,18 @@
 // `creation.apply` (player for their own crawler, or the GM with playerId) takes the wizard's choices,
 // checks them against the ruleset and writes them with the ordinary sheet actions:
 //   { background: { [stageId]: { option, skills: [skillId…] } },   life stages: one option, `pick` skills
-//     weapon: { index } | { name, like: index } | { none: true },   starting combat skill + attack
+//     weapon: { index } | { name, like: index } | { spellId } | { none: true }, starting combat choice
 //     stats: { [statId]: n }, method: 'array' | 'roll',            base stats (array = a permutation)
 //     stuff: { [stuffId]: { itemId } | { name, icon? } },          starting things → a request for the GM
 //     species?, size?, animal? }   another kind of character (ruleset creation.species): its stages / combat,
 //                                  start AI Favor, size, the race text (Animal: Cat)
 // Skills a character already has are raised to the stage rank, never duplicated; attacks are not doubled.
 //
-// Starting things never land in the inventory directly: they wait in sheet.gearRequest until the GM
-// approves (`gear.approve`, catalog items via lib.give, custom ones become homebrew items) or denies them.
+// The ruleset grants any gear required by the combat choice. Player-selected gear asks the GM for approval.
 //
 // makeCreation(GM) → { player: { 'creation.apply' }, gm: { 'gear.approve', 'gear.deny' } }
 import { bad, notFound } from './errors.js';
-import { libraryOf, targetOf, isStarterItem } from './character.js';
+import { giveItem, libraryOf, targetOf, isStarterItem } from './character.js';
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const ID_RE = /^[A-Za-z0-9_.-]{1,60}$/;
@@ -84,7 +83,14 @@ export function makeCreation(GM) {
       const attacks = [];
       const fixed = cr.combat?.fixed;
       if (fixed) attacks.push({ ...fixed, rank: fixed.rank ?? cr.combat.rank });
-      if (a.weapon !== undefined && a.weapon !== null && !a.weapon.none) {
+      const spellId = a.weapon?.spellId;
+      if (p.sheet.starterSpell && !gm && a.weapon && spellId !== p.sheet.starterSpell) throw bad('the starting spell is already chosen');
+      if (spellId !== undefined) {
+        if (!cr.combat || !cr.spellChoice?.choices.includes(spellId) || !rs.spells.attackChecks || !lib.get('spell', spellId)?.attackCheck) throw bad('unknown starting attack spell');
+        if (a.weapon.none || a.weapon.index !== undefined || a.weapon.like !== undefined || a.weapon.name !== undefined) throw bad('choose a weapon or a spell');
+        if (p.sheet.starterSpell && p.sheet.starterSpell !== spellId) throw bad('the starting spell is already chosen');
+        if (!p.sheet.starterSpell && p.sheet.created && !gm) throw bad('ask the GM to change your completed starting combat choice');
+      } else if (a.weapon !== undefined && a.weapon !== null && !a.weapon.none) {
         const list = cr.combat?.weapons ?? [];
         if (!isObj(a.weapon)) throw bad('weapon must be { index } or { name, like }');
         if (a.weapon.index !== undefined) {
@@ -109,6 +115,30 @@ export function makeCreation(GM) {
       }
       // 3. stats (validated before anything is written)
       const stats = a.stats !== undefined ? checkStats(cr, rs, a.stats, a.method, gm) : null;
+      if (spellId && !p.sheet.starterSpell) {
+        const { stat, min, item, qty } = cr.spellChoice;
+        if (!gm && (!isObj(a.background) || !cr.backgrounds.every((g) => Object.hasOwn(a.background, g.id)) || !rs.stats.every((s) => stats?.[s.id] != null))) throw bad('finish the backgrounds and stats to prepare the starting spell');
+        if (!gm && !((a.method === 'roll' && cr.statMethods.roll) || (a.method === 'array' && cr.statMethods.array.length))) throw bad('choose a starting stat method');
+        if ((stats?.[stat] ?? -Infinity) < min) throw bad(`the starting spell needs ${rs.stats.find((s) => s.id === stat)?.label ?? stat} ${min} or higher`);
+        const potion = lib.get('item', item);
+        if (!potion?.stackable || !rs.hotlist.combat) throw bad('the starting spell equipment is unavailable');
+        let known = p.sheet.spells.find((s) => s.spellId === spellId);
+        if (known && known.rank < cr.combat.rank) GM['spell.update'](st, { ...who, uid: known.uid, rank: cr.combat.rank }, ctx, sub());
+        if (!known) {
+          const o = sub();
+          GM['spell.learn'](st, { ...who, spellId, rank: cr.combat.rank }, ctx, o);
+          known = p.sheet.spells.find((s) => s.uid === o.result.uid);
+        }
+        const supply = giveItem(p, potion, ctx, qty);
+        for (const uid of [known.uid, supply.uid]) {
+          if (p.sheet.hotlist.includes(uid)) continue;
+          const index = p.sheet.hotlist.indexOf(null);
+          if (index < 0) throw bad('free two Hotlist slots for the starting spell and its supplies');
+          // Starting equipment is prepared at character creation, even when the party is already fighting.
+          GM['hotlist.set'](st, { ...who, uid, index }, ctx, sub());
+        }
+        p.sheet.starterSpell = spellId;
+      }
 
       // ---- write ----
       if (stats) {
@@ -147,7 +177,7 @@ export function makeCreation(GM) {
         // Species facts are part of creation, not later edits: written directly (AI Favor is GM-only otherwise).
         p.sheet.fields = { ...(p.sheet.fields ?? {}), ...(sp.aiFavor != null ? { aiFavor: sp.aiFavor } : {}), ...(a.size !== undefined ? { size: sp.sizes.find((z) => z.value === String(a.size))?.label ?? String(a.size) } : {}) };
         const what = text(a.animal, 40);
-        p.sheet.identity = { ...(p.sheet.identity ?? {}), race: [sp.race || sp.label, what].filter(Boolean).join(': ').slice(0, 60) };
+        p.race = [sp.race || sp.label, what].filter(Boolean).join(': ').slice(0, 60);
         p.sheet.species = sp.id;
       }
       // The background here is the life stages the rules ask for, not an origin needing approval: written directly.

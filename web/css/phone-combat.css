@@ -12,6 +12,7 @@
 .pl-health-fill i { display: block; height: 100%; background: var(--me, var(--c-accent)); border-radius: 99px; }
 .pl-combat-health[data-danger] .pl-health-fill i { background: var(--c-bad); }
 .pl-phase-row { justify-content: space-between; color: var(--c-dim); font-size: 0.79rem; }
+.pl-current-turn { color: var(--c-accent); font-weight: 700; }
 .pl-remaining, .pl-pips { display: inline-flex; align-items: center; gap: 5px; }
 .pl-pips i { width: 9px; height: 9px; border-radius: 50%; border: 1px solid var(--c-line-2); background: var(--c-sunk); }
 .pl-pips i.ready { background: var(--c-accent); border-color: var(--c-accent); }
@@ -20,6 +21,11 @@
 .pl-action-grid > .btn:last-child { grid-column: 1 / -1; }
 .pl-action-grid > .btn svg { flex: none; }
 .pl-combat-adv { color: var(--c-accent); font-size: 0.82rem; }
+.pl-action-receipt, .pl-combat-injuries { padding: 7px 9px; border: 1px solid var(--c-line-2); border-radius: var(--r-2); background: var(--c-panel); font-size: 0.81rem; }
+.pl-action-receipt { border-inline-start: 2px solid var(--c-accent); }
+.pl-combat-injuries ul { padding: 0; margin: 5px 0; list-style: none; }
+.pl-combat-injuries li + li { margin-top: 4px; }
+.pl-combat-injuries li span { display: block; overflow-wrap: anywhere; }
 .pl-combat-choices > .btn { display: grid; justify-content: start; justify-items: start; text-align: left; }
 .pl-combat-choices > .btn small { color: var(--c-dim); }
 .pl-quick-item { display: flex; align-items: stretch; gap: 4px; }
@@ -50,6 +56,7 @@
 .rxp-pad, .rxp-tools { display: grid; gap: 7px; min-width: 0; }
 .rxp-pad { scroll-margin-top: calc(var(--ph-top-h, 110px) + 50px); }
 .rxp-pad p { font-size: 0.83rem; }
+.rxp-pad .rxp-digital { min-height: 44px; }
 .rxp-tools .rxp-opt { display: grid; justify-content: start; justify-items: start; text-align: left; white-space: normal; }
 .rxp-mini { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
 .rxp-ally { padding: 6px; border: 1px solid var(--c-line); border-radius: var(--r-1); }

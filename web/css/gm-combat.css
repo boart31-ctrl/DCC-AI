@@ -429,6 +429,8 @@
 .rx-physical { display: flex; align-items: center; }
 .rx-physical .mini-l { white-space: nowrap; }
 .rx-preview-edit select { width: auto; max-width: min(100%, 180px); }
+.rx-change-target { min-width: 0; }
+.rx-change-target summary { cursor: pointer; color: var(--c-dim); padding: 3px 0; }
 .rx-physical .rx-damage-in { width: 66px; }
 .rx-batch-victims { margin: 0; padding-left: 20px; }
 
@@ -474,6 +476,7 @@
 .cbt-compact-tools > summary { cursor: pointer; color: var(--c-dim); }
 .cc-more > p, .cc-injury p { margin: 0; }
 .cc-injuries { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; }
+.cc > .cc-injuries { grid-column: 1 / -1; }
 .cc-injury, .cbt-preview-party li.cc-injury { display: flex; justify-content: space-between; gap: 8px; padding: 4px 6px; border-left: 2px solid var(--c-bad); background: var(--c-raised); }
 .cc-injury small { margin-left: 6px; }
 .cc-injury .cond-x { flex: none; }
@@ -491,4 +494,23 @@
 .cbt-list-panel .cbt-mobs-head .btn { gap: 4px; padding-inline: 6px; min-height: 27px; font-size: 12px; }
 @container (max-width: 470px) {
   .cbt-command .rx-add { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+/* Focus is a local desk preference. Leaving Fight restores the surrounding navigation. */
+body.fight-focus[data-desk="show"] .gm-shell { grid-template-columns: minmax(0, 1fr); }
+body.fight-focus[data-desk="show"] :is(.gm-nav, .gm-bnav, .gm-log, #log-toggle) { display: none !important; }
+body.fight-focus[data-desk="show"] .gm-main { padding: 5px 10px 12px; }
+.cbt-list-panel { align-items: start; }
+.cbt-list-panel .cbt-list { gap: 3px; align-content: start; }
+.cbt-list-panel .cc:not(:has(.cc-more)) { padding-block: 3px; row-gap: 1px; }
+body.fight-focus[data-desk="show"] .sh-compact .sh-grid { grid-template-columns: minmax(0, 1fr); }
+body.fight-focus[data-desk="show"] .sh-pv { display: none; }
+@media (min-width: 1000px) {
+  body.fight-focus[data-desk="show"] .cbt.is-running {
+    display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 6px 10px; align-items: start;
+  }
+  .fight-focus .cbt.is-running > * { grid-column: 1 / -1; }
+  .fight-focus .cbt.is-running > .cbt-command { grid-area: 1 / 1; }
+  .fight-focus .cbt.is-running > .cbt-list-panel { grid-area: 1 / 2; }
+  .fight-focus .cbt-round-work { grid-template-columns: minmax(0, 1fr); }
 }

@@ -1060,7 +1060,7 @@ export function defenseOf(pack, computed) {
   return { evade: val(evade), dr: val(dr), evadeLabel: evade?.label ?? 'Evade', drLabel: dr?.label ?? 'DR' };
 }
 
-function crawlerRow(state, pack, library, x, gm) {
+function crawlerRow(state, pack, library, x, gm, showPending = gm) {
   const p = state.players.find((y) => y.id === x.playerId);
   if (!p) return null;
   const t = hpTrackOf(pack);
@@ -1073,9 +1073,10 @@ function crawlerRow(state, pack, library, x, gm) {
     hp: hp.cur, hpMax: hp.max, ...(hp.slotValue != null ? { slotValue: hp.slotValue } : {}), down: hp.max > 0 && hp.cur <= 0,
     conditions: gm ? buffs.map((b) => ({ uid: b.uid, id: b.buffId ?? null, name: b.name, ...(b.desc ? { desc: b.desc } : {}), ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })) : buffs.map((b) => ({ id: b.buffId ?? null, name: b.name, ...(b.desc ? { desc: b.desc } : {}), ...(b.roundsLeft ? { rounds: b.roundsLeft } : {}) })),
   };
+  if (showPending) row.pendingInjuries = x.injuries ?? [];
   if (gm) {
     const d = defenseOf(pack, computed);
-    Object.assign(row, { pendingInjuries: x.injuries ?? [], aggro: x.aggro ?? AGGRO_DEFAULT, noTarget: !!x.noTarget, evade: d.evade, dr: d.dr });
+    Object.assign(row, { aggro: x.aggro ?? AGGRO_DEFAULT, noTarget: !!x.noTarget, evade: d.evade, dr: d.dr });
   }
   // Dying countdown (reaction.js dyingTick): rounds left, or dead.
   if (x.dying != null) row.dying = x.dying;
@@ -1174,7 +1175,7 @@ export function hpFraction(hp, max) {
 }
 
 /** view.combat for a role. GM: everything. Player / stage: crawlers + revealed mobs, filtered fields. */
-export function combatView(state, pack, role) {
+export function combatView(state, pack, role, playerId) {
   const c = normalizeCombat(state.combat);
   const gm = role === 'gm';
   const library = libraryOf(state, pack);
@@ -1227,7 +1228,7 @@ export function combatView(state, pack, role) {
   const combatants = [];
   for (const x of c.combatants) {
     if (x.type === 'crawler') {
-      const row = crawlerRow(state, pack, library, x, gm);
+      const row = crawlerRow(state, pack, library, x, gm, gm || (role === 'player' && x.playerId === playerId));
       if (row) combatants.push(row);
       continue;
     }

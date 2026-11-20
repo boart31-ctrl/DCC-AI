@@ -8,8 +8,19 @@ import { createState, normalizeState, reduce, reducePlayerAction, viewFor, Actio
 import { normalizeRuleset, computeSheet, makeLibrary } from '../ruleset.js';
 import { tmpDir, writePack, seq } from './fixtures.js';
 import { computeFor, libraryOf } from '../character.js';
+import { computeSheet as browserComputeSheet, normalizeRuleset as browserRuleset } from '../../web/js/rules.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
+
+test('the browser treats a checked rank-up note as help and warns only when requested', () => {
+  const rankUp = { note: 'Roll d20 against rank.' };
+  const computed = (rule) => browserComputeSheet(browserRuleset({ ruleset: { skills: { rankUp: rule } } }), {});
+  const rankWarnings = (result) => result.warnings.filter((w) => w.target === 'skills.rankUp');
+  assert.deepEqual(rankWarnings(computed(rankUp)), []);
+  assert.deepEqual(rankWarnings(computed({ ...rankUp, verify: true })), [
+    { kind: 'unverified', target: 'skills.rankUp', msg: rankUp.note },
+  ]);
+});
 
 const RULESET = {
   id: 'test-rules',
@@ -1036,6 +1047,46 @@ test('private DCC pack: guided creation (backgrounds, weapon, array stats, no do
   assert.deepEqual(st.players[0].sheet.gearRequest, []);
 });
 
+test('private DCC pack: guided creation prepares one Rank 3 attack spell and a stack of five Mana Potions once', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
+  const { pack: dcc } = loadPack(DCC);
+  const c = (x) => ctx({ pack: dcc, ...x });
+  let st = reduce(createState(dcc, 0), { role: 'gm', t: 'player.add', name: 'Fargo' }, c()).state;
+  const pid = st.players[0].id;
+  const me = (a) => reducePlayerAction(st, a, c({ playerId: pid }));
+  const cr = dcc.ruleset.creation;
+  const spellId = 'frost_scar';
+  const taken = new Set([cr.combat.fixed.skill]);
+  const background = {};
+  for (const g of cr.backgrounds) {
+    const option = g.options.find((o) => o.skills.filter((id) => !taken.has(id)).length >= g.pick);
+    const skills = option.skills.filter((id) => !taken.has(id)).slice(0, g.pick);
+    background[g.id] = { option: option.name, skills };
+    for (const id of skills) taken.add(id);
+  }
+  assert.deepEqual(viewFor(st, dcc, 'player', { playerId: pid }).library.spell.map((s) => s.id), [
+    'heal', 'dirt_clod', 'fire_fingers', 'frost_scar', 'shock_treatment', 'soul_collector',
+  ]);
+  const action = { t: 'creation.apply', background, weapon: { spellId }, stats: { str: 2, int: 4, con: 3, dex: 5, cha: 6 }, method: 'array' };
+  assert.throws(() => me({ ...action, stats: { ...action.stats, str: 4, int: 2 } }), /Intelligence 4 or higher/);
+  assert.throws(() => me({ ...action, weapon: { spellId, index: 0 } }), /weapon or a spell/);
+  assert.throws(() => me({ ...action, weapon: { spellId: 'heal' } }), /unknown starting attack spell/);
+  st = reduce(st, { role: 'gm', t: 'combat.start' }, c()).state;
+  st = me(action).state;
+  const player = st.players[0];
+  const spell = player.sheet.spells.find((s) => s.spellId === spellId);
+  const potions = player.inventory.find((i) => i.itemId === cr.spellChoice.item);
+  assert.equal(spell.rank, 3);
+  assert.deepEqual(player.sheet.attacks.map((a) => a.name), ['Unarmed Combat']);
+  assert.equal(potions.qty, 5);
+  for (const uid of [spell.uid, potions.uid]) assert.equal(player.sheet.hotlist.filter((x) => x === uid).length, 1);
+  st = reduce(st, { role: 'gm', t: 'combat.end' }, c()).state;
+  st = me({ t: 'item.use', uid: potions.uid }).state;
+  st = normalizeState(JSON.parse(JSON.stringify(st)), dcc);
+  st = me(action).state;
+  assert.equal(st.players[0].inventory.find((i) => i.itemId === cr.spellChoice.item).qty, 4);
+  assert.throws(() => me({ ...action, weapon: { spellId: 'fire_fingers' } }), /starting spell is already chosen/);
+});
+
 test('private DCC pack: seven degrees on attacks, Amazing adds the floor, AI Favor reroll, Intervene on a near miss', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
   const { pack: dcc } = loadPack(DCC);
   const c = (x) => ctx({ pack: dcc, ...x });
@@ -1150,12 +1201,24 @@ test('private DCC pack: heal interrupt (2 Mana → 2 slots), debuff damage at cl
   assert.throws(() => gm(st, { t: 'rx.surprise' }), /only before/);
   st = gm(st, { t: 'rx.round' }).state;
   assert.equal(st.combat.rx.round, 1);
+  const reactAtFullHealth = gm(st, { t: 'rx.step', to: 'react' }).state;
+  const innate = { t: 'rx.interrupt', kind: 'heal' };
+  const playerAction = (state, a) => reducePlayerAction(state, a, c({ playerId: pid }));
+  assert.throws(() => playerAction(reactAtFullHealth, innate), /health is already full/);
+  assert.equal(reactAtFullHealth.combat.rx.acts[me().uid], 2);
   // Heal interrupt: damage first, then heal in the react step.
   st = gm(st, { t: 'combat.damage', uid: me().uid, amount: 3 }).state;
   const hpBefore = st.players[0].sheet.tracks.hp.cur;
   const manaBefore = st.players[0].sheet.tracks.mana.cur;
   st = gm(st, { t: 'rx.step', to: 'react' }).state;
-  st = reducePlayerAction(st, { t: 'rx.interrupt', kind: 'heal' }, c({ playerId: pid })).state;
+  assert.throws(() => playerAction(st, { ...innate, target: 'someone' }), /targets only yourself/);
+  const lowMana = gm(st, { t: 'track.set', track: 'mana', cur: 1, playerId: pid }).state;
+  assert.throws(() => playerAction(lowMana, innate), /not enough Mana/);
+  assert.equal(lowMana.combat.rx.acts[me().uid], 2);
+  const healed = playerAction(st, innate);
+  assert.equal(healed.result.healed, 2);
+  assert.deepEqual(healed.result.receipt, { spent: 1, actionsLeft: 1, utilityLeft: 0 });
+  st = healed.state;
   assert.equal(st.players[0].sheet.tracks.mana.cur, manaBefore - 2);
   assert.equal(st.players[0].sheet.tracks.hp.cur, Math.min(st.players[0].sheet.tracks.hp.max ?? 10, hpBefore + 2));
   // Burned: 1d10 + floor at clean up.
@@ -1189,11 +1252,21 @@ test('private DCC pack: animal crawler — own stages, Slice Attack, no AI Favor
   const p = st.players[0];
   assert.equal(p.sheet.fields.aiFavor, 0);
   assert.equal(p.sheet.fields.size, 'Small');
-  assert.equal(p.sheet.identity.race, 'Animal: Cat');
+  assert.equal(p.race, 'Animal: Cat');
+  assert.equal(viewFor(st, dcc, 'player', { playerId: pid }).me.sheet.identity.race, p.race);
   assert.ok(p.sheet.attacks.some((k) => k.name === 'Slice Attack'));
   assert.ok(p.sheet.attacks.some((k) => k.name === 'Bite' && k.dtype === 'piercing'));
   assert.equal(p.sheet.species, 'animal');
   assert.ok(!p.sheet.attacks.some((k) => k.name === 'Unarmed Combat'), 'no human Unarmed Combat');
+
+  const saved = structuredClone(st);
+  saved.players[0].sheet.identity.race = p.race;
+  saved.players[0].race = '';
+  const migrated = normalizeState(saved, dcc);
+  assert.equal(migrated.players[0].race, 'Animal: Cat');
+  assert.equal(migrated.players[0].sheet.identity.race, undefined);
+  saved.players[0].race = 'House cat';
+  assert.equal(normalizeState(saved, dcc).players[0].race, 'House cat');
 });
 
 test('untrained checks: forced Disadvantage, Stat Mod only, learn one at Rank 1 (DCC pack)', { skip: !fs.existsSync(path.join(DCC, 'ruleset.json')) && 'private pack not present' }, () => {
@@ -1214,7 +1287,9 @@ test('untrained checks: forced Disadvantage, Stat Mod only, learn one at Rank 1 
   assert.equal(rec.natural, 5, 'lower of 15 and 5');
   assert.match(rec.label, /untrained/);
   assert.deepEqual(st.players[0].sheet.untried, [pick.id]);
-  st = reducePlayerAction(st, { t: 'untrained.learn', skillId: pick.id }, c({ playerId: pid })).state;
+  assert.throws(() => reducePlayerAction(st, { t: 'untrained.learn', skillId: pick.id }, c({ playerId: pid })), /Level up/);
+  st = reduce(st, { role: 'gm', t: 'level.party', phone: true }, c()).state;
+  st = reducePlayerAction(st, { t: 'level.learn', id: st.players[0].levelGrants.at(-1).id, skillId: pick.id }, c({ playerId: pid })).state;
   const sk = st.players[0].sheet.skills.find((x) => x.skillId === pick.id);
   assert.equal(sk.rank, 1);
   assert.deepEqual(st.players[0].sheet.untried, []);

@@ -15,6 +15,7 @@ import { playerEditLevel } from './rules.js';
 import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
 import { createMsgCenter, threadKey } from './msgcenter.js';
 import { createRollPad } from './rollpad.js';
+import { openLevelUp, pendingLevelActions } from './level-up.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -47,9 +48,9 @@ export const ext = { hosted: false, saveNotes: null };
 let view = null;
 let me = null;
 let everJoined = false;
-let resumePhoneFight = false;
-let phoneFight = null;
-let phoneTargets = new Set();
+let resumeFight = false;
+let routedFight = null;
+let routedTargets = new Set();
 
 function remember(campaignName) {
   store.set('localStorage', KEY, JSON.stringify({ room, pin, campaignName }));
@@ -251,7 +252,7 @@ client.on('status', (s) => {
 
 client.on('welcome', (m) => {
   everJoined = true;
-  resumePhoneFight = true;
+  resumeFight = true;
   if (!ext.hosted) remember(m.view?.campaign?.name);
   // Keep the personal link in the address bar so "Add to Home Screen" saves it.
   if (token && !location.pathname.startsWith('/p/')) {
@@ -286,7 +287,7 @@ client.on('event', (e) => {
   if (!me) return;
   if (e.kind === 'roll') {
     const r = e.roll || e;
-    if (r.playerId === me.id && !r.vs && !r.card) showRollCard(r, { meId: me.id });
+    if (r.playerId === me.id && !r.vs && !r.card && !(r.what === 'rankUp' && r.by === me.id)) showRollCard(r, { meId: me.id });
     // A friend's near miss (seven degrees): offer to Intervene with +1d6.
     if (!r.partyCheck && r.playerId && r.playerId !== me.id && r.vs?.deg7 === 'near' && r.vs.damage === undefined) intervenePrompt(r);
     return;
@@ -295,12 +296,11 @@ client.on('event', (e) => {
     const self = view?.combat?.combatants.find((x) => x.type === 'crawler' && x.playerId === me.id);
     if (self && e.targets?.includes(self.uid)) {
       buzz([50, 45, 100]);
-      if (!phoneMq.matches) toast('You are targeted. Open Combat to react before the attacks land.', { ms: 6000 });
     }
     return;
   }
   if (e.kind === 'dying' && e.playerId === me.id) { buzz([80, 60, 80, 60, 80]); toast(`You are dying: ${e.rounds} round${e.rounds === 1 ? '' : 's'} left. Someone has to heal you to 10 %.`, { error: true, ms: 7000 }); return; }
-  if (e.kind === 'levelup') { buzz([40, 30, 40, 30, 120]); toast(`Level up! The System approves of your continued survival.`, { ms: 5000 }); return; }
+  if (e.kind === 'levelup') { buzz([40, 30, 40, 30, 120]); toast(view?.pack?.ruleset?.advancement ? 'Level up! Your choices are under More → Level up.' : 'Level up!', { ms: 5000 }); return; }
   if (e.kind === 'injury' && e.playerId === me.id) { buzz([60, 40, 60]); toast(`${e.injury} after the fight. ${e.desc || 'See Buffs on your sheet.'}`, { error: true, ms: 6000 }); return; }
   if (e.kind === 'dying.saved' && e.playerId === me.id) { buzz(30); toast('Saved. You are back on your feet.', { ms: 4000 }); return; }
   if (e.kind === 'dying.dead' && e.playerId === me.id) { buzz([200, 100, 400]); toast('You died. The GM decides what happens next.', { error: true, ms: 9000 }); return; }
@@ -365,7 +365,7 @@ function replayMissed(v) {
 
 /* ---------- render ---------- */
 
-const rollPad = createRollPad({ send: (a) => client.send(a), getView: () => view, getMe: () => me });
+const rollPad = createRollPad({ send: sendWithActionReceipt, getView: () => view, getMe: () => me });
 document.body.append(rollPad.el);
 const diceOn = () => (me?.diceMode ?? 'enter') !== 'off';
 const DICE_LABEL = { off: 'Off: dice stay at the table', enter: 'Enter my real die', digital: 'The phone rolls' };
@@ -462,25 +462,33 @@ function openRules() {
 
 const rollFab = h('button.roll-fab', { type: 'button', hidden: true, 'aria-label': 'Roll', onclick: () => rollPad.openPicker() }, icon('dice', { size: 26 }), h('span', 'Roll'));
 document.body.append(rollFab);
+const levelActions = () => pendingLevelActions(me?.levelGrants);
+let refreshLevelUp;
+const showLevelUp = () => {
+  refreshLevelUp = openLevelUp({ getGrants: () => me?.levelGrants ?? [], send: (a) => client.send(a), roll: view?.pack?.ruleset?.skills?.rankUp?.roll });
+};
+const levelPrompt = h('div.panel.prep-prompts.level-prompt', { hidden: true }, h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: showLevelUp }, 'Level up'));
+$('#prep-prompts').after(levelPrompt);
 
 const sheet = createSheet({
   mode: 'player',
-  send: (a) => client.send(a),
+  send: sendWithActionReceipt,
   onRoll: (what, label) => rollPad.open(what, label),
   rollsOn: diceOn,
   extraTabs: () => (me ? [
-    { id: 'combat', label: 'Combat', phonePage: true, badge: combatAttention(), render: () => combatPanel },
+    { id: 'combat', label: 'Combat', primaryPage: true, badge: combatAttention(), render: () => combatPanel },
     { id: 'ach', label: 'Achievements', count: me.achievements?.length || '', sig: achSig(), render: renderAchievements },
-    { id: 'msg', label: 'Messages', phonePage: true, badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
+    { id: 'msg', label: 'Messages', primaryPage: true, badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
     ...((view?.maps || []).length ? [{ id: 'maps', label: 'Maps', count: view.maps.length, sig: JSON.stringify(view.maps), render: renderMaps }] : []),
   ] : []),
   onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act, allowOrigins: !!view?.session?.permissions?.allowOrigins }),
   // Phones: app layout (sticky crawler bar, section tabs); the app bar items move into the menu.
   phone: () => phoneMq.matches,
-  onPhonePage: () => { if (me) renderStart(); },
+  onPlayerPage: () => { if (me) renderStart(); },
   top: () => [h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
     h('span.ph-crawlers.js-crawlers', { 'data-fmt': 'compact', title: 'Crawlers still alive in the dungeon' })],
   moreItems: () => [
+    view?.pack?.ruleset?.advancement || me?.levelGrants?.length ? { icon: 'sparkle', label: 'Level up', badge: levelActions(), navigationDrawer: true, onClick: showLevelUp } : null,
     { icon: 'dice', label: 'Dice on this phone', sub: DICE_LABEL[me?.diceMode ?? 'enter'], onClick: () => setDiceMode({ off: 'enter', enter: 'digital', digital: 'off' }[me?.diceMode ?? 'enter']) },
     { icon: 'dice', label: 'Dice log', sub: 'Every roll at the table', onClick: () => setLogOpen(true) },
     { icon: 'book', label: 'Rules', sub: view?.pack?.ruleset?.system?.short || 'How this game is played', navigationDrawer: true, onClick: openRules },
@@ -490,25 +498,54 @@ const sheet = createSheet({
     ext.hosted ? null : { icon: 'x', label: 'Switch campaign', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
   ].filter(Boolean),
 });
-// Combat is a sheet tab on small and large screens. Keep the reaction panel mounted while it updates.
-const rxPhone = createRxPhone({ send: (a) => client.send(a), toast });
+// The Combat page shares this panel across viewport sizes.
+const rxPhone = createRxPhone({ send: (a) => client.send(a), toast, onReceipt: showCombatReceipt });
 const combatBar = h('div.pl-combat-bar');
 const combatActions = h('div.pl-combat-actions');
+const combatReceipt = h('p.pl-action-receipt', { role: 'status', hidden: true });
+const combatInjuries = h('section.pl-combat-injuries', { 'aria-label': 'Injuries', hidden: true });
 const combatHistory = h('section.pl-combat-recent');
 const combatRoster = h('div.pl-combat-roster');
-const combatPanel = h('section.pl-combat', { 'aria-label': 'Combat' }, combatBar, rxPhone.el, combatActions, combatHistory, combatRoster);
-const combatPrompt = h('button.btn.btn-primary.combat-prompt', { type: 'button', hidden: true, onclick: openCombat }, icon('swords', { size: 18 }), 'Under attack · Combat');
-document.body.append(combatPrompt);
+const combatPanel = h('section.pl-combat', { 'aria-label': 'Combat' }, combatBar, rxPhone.el, combatActions, combatReceipt, combatInjuries, combatHistory, combatRoster);
 let combatKey = '';
+let combatReceiptRound;
+let lastCombatReceipt;
 
-function closePhoneNavigationOverlays() {
-  if (document.querySelector('dialog[data-phone-navigation][open]')) closeDrawer();
-  if (document.body.classList.contains('log-open')) setLogOpen(false);
+const ACTION_LABELS = { roll: 'Attack rolled', 'roll.undo': 'Attack undone', 'spell.cast': 'Spell cast', 'item.use': 'Item used', 'hotlist.set': 'Hotlist updated' };
+
+async function sendWithActionReceipt(action) {
+  const label = ACTION_LABELS[action.t];
+  const round = combatReceiptRound;
+  const response = await client.send(action);
+  const result = response?.result;
+  if (label && result?.receipt && round != null && round === combatReceiptRound) {
+    const amount = result.healed ? result.healed.to - result.healed.from : 0;
+    const message = result.receipt.refunded ? `${label} · 1 action refunded`
+      : amount > 0 ? `${label} · ${amount} health slot${amount === 1 ? '' : 's'} restored` : label;
+    showCombatReceipt(message, result.receipt);
+  }
+  return response;
 }
 
-function openCombat({ automatic = false } = {}) {
-  if (automatic && phoneMq.matches) { closePhoneNavigationOverlays(); markStartSeen(); }
-  sheet.setTab('combat');
+function showCombatReceipt(label, receipt) {
+  lastCombatReceipt = { label, spent: receipt?.spent };
+  drawCombatReceipt(receipt);
+}
+
+function drawCombatReceipt(receipt) {
+  if (!lastCombatReceipt) return;
+  const { label, spent } = lastCombatReceipt;
+  const parts = [label];
+  if (spent) parts.push(`${spent} action${spent === 1 ? '' : 's'} spent`);
+  if (receipt?.actionsLeft != null) parts.push(`${receipt.actionsLeft} action${receipt.actionsLeft === 1 ? '' : 's'} left${receipt.utilityLeft ? ` + ${receipt.utilityLeft} utility` : ''}`);
+  const line = parts.join(' · ');
+  if (combatReceipt.textContent !== line) combatReceipt.textContent = line;
+  combatReceipt.hidden = false;
+}
+
+function closePlayerNavigationOverlays() {
+  if (document.querySelector('dialog[data-player-navigation][open]')) closeDrawer();
+  if (document.body.classList.contains('log-open')) setLogOpen(false);
 }
 
 function combatMember() {
@@ -526,20 +563,25 @@ function combatAttention() {
   return incomingAttacks(member).filter((d) => !d.evade || d.canReroll).length;
 }
 
-function syncPhoneNavigation(force = false) {
+function syncCombatPage() {
   const member = combatMember();
   const key = member ? JSON.stringify([view.campaign?.id, me.id, member.uid]) : null;
   const incoming = incomingAttacks(member);
-  const begin = !!key && key !== phoneFight;
-  const retargeted = incoming.some((d) => !phoneTargets.has(d.id));
-  const ended = !!phoneFight && !key;
-  const resume = resumePhoneFight;
-  resumePhoneFight = false;
-  phoneFight = key;
-  phoneTargets = new Set(incoming.map((d) => d.id));
-  if (!phoneMq.matches) return;
-  if (key && (begin || force || resume || retargeted)) openCombat({ automatic: true });
-  else if (ended) { closePhoneNavigationOverlays(); sheet.setTab('sheet'); }
+  const begin = !!key && key !== routedFight;
+  const retargeted = incoming.some((d) => !routedTargets.has(d.id));
+  const ended = !!routedFight && !key;
+  const resume = resumeFight;
+  resumeFight = false;
+  routedFight = key;
+  routedTargets = new Set(incoming.map((d) => d.id));
+  if (key && (begin || resume || retargeted)) {
+    closePlayerNavigationOverlays();
+    markStartSeen();
+    sheet.setTab('combat');
+  } else if (ended) {
+    closePlayerNavigationOverlays();
+    sheet.setTab('sheet');
+  }
 }
 
 const COMBAT_PHASES = { declare: 'Mobs choose', react: 'React', resolve: 'Hits land', act: 'Crawlers act', cleanup: 'Clean up' };
@@ -557,8 +599,14 @@ function drawCombat() {
   const rs = view?.pack?.ruleset;
   const reactionRules = rs?.combat?.flow === 'reaction';
   const standing = own && !own.down && !own.dead && own.dying == null;
-  const targeted = active && standing && rx?.step === 'react' && rx.decls.some((d) => d.targetUid === own.uid && !d.result && !d.caught && (!d.evade || d.canReroll));
-  combatPrompt.hidden = !targeted;
+  const receiptRound = active ? `${own?.uid ?? ''}:${c.round}` : null;
+  if (receiptRound !== combatReceiptRound) {
+    combatReceiptRound = receiptRound;
+    lastCombatReceipt = null;
+    combatReceipt.replaceChildren();
+    combatReceipt.hidden = true;
+  }
+  drawCombatReceipt(reaction ? { actionsLeft: reaction.left, utilityLeft: reaction.extra } : null);
   rxPhone.update(view, me);
   const step = rx?.step ?? (active ? 'active' : 'idle');
   combatPanel.dataset.combatStep = step;
@@ -577,18 +625,23 @@ function drawCombat() {
   const health = own ? { cur: own.hp, max: own.hpMax, slotValue: own.slotValue } : me.sheet?.computed?.tracks?.[hpTrack?.id];
   const quickItems = mayUse && hotlist ? (me.sheet?.inventory ?? []).filter((i) => ready.has(i.uid) && i.use
     && (!reaction?.react || (i.tags?.includes('potion') && i.use.heal?.track === potionTrack))) : [];
-  const quickSpells = mayCast ? (me.sheet?.spells ?? []).filter((s) => (!hotlist || ready.has(s.uid))
+  const basicHeal = reaction && mayCast && reaction.canInterrupt ? rs?.combat?.healSpell : null;
+  const quickSpells = mayCast ? (me.sheet?.spells ?? []).filter((s) => s.spellId !== basicHeal?.spellId && (!hotlist || ready.has(s.uid))
     && (s.attackCheck ? canStrike : !reaction?.react || s.healing || s.tags?.includes('interrupt'))) : [];
   const mana = me.sheet?.computed?.tracks;
   const costs = me.sheet?.computed?.spells;
-  const basicHeal = reaction && mayCast && reaction.canInterrupt ? rs?.combat?.healSpell : null;
+  const healingBlocked = combatBlocked(view, me, 'heal');
+  const healDisabled = basicHeal && (healingBlocked ? 'Healing is blocked'
+    : health && health.cur >= health.max ? 'Health is full' : (mana?.[basicHeal.track]?.cur ?? 0) < basicHeal.mana ? 'Not enough Mana' : '');
   const needsInitiative = waitingForMe();
   const mobs = active ? (c.combatants ?? []).filter((m) => m.type === 'mob' && !m.down) : [];
   const advantages = (rx?.advantage ?? []).filter((a) => a.uid === own?.uid);
   const history = (c?.history ?? []).slice(0, 5);
-  const phaseLabel = COMBAT_PHASES[step] ?? (isMyTurn ? 'Your turn' : active ? c.phase || 'Fight in progress' : 'No active fight');
+  const injuries = active ? own?.pendingInjuries ?? [] : [];
+  const myPhase = standing && (rx?.step === 'act' || isMyTurn);
+  const phaseLabel = myPhase ? 'Your turn' : COMBAT_PHASES[step] ?? (active ? c.phase || 'Fight in progress' : 'No active fight');
   const key = JSON.stringify([step, active, own?.uid, own?.dying, own?.dead, health, c?.round, phaseLabel, needsInitiative, canStrike,
-    reaction?.left, reaction?.extra, reaction?.canHelp, reaction?.canDoSomething, mayCast, mayUse, quickSpells, quickItems, basicHeal, mana, costs, advantages, mobs, history]);
+    reaction?.left, reaction?.extra, reaction?.canHelp, reaction?.canDoSomething, mayCast, mayUse, quickSpells, quickItems, basicHeal, healDisabled, healingBlocked, mana, costs, advantages, injuries, mobs, history]);
   if (key === combatKey) return;
   combatKey = key;
 
@@ -602,10 +655,10 @@ function drawCombat() {
     h('div.pl-health-meta', h('h2', 'Health'), h('b', hpLabel), danger ? h('span.pl-health-danger', danger) : null),
     h('div.pl-health-fill', { role: 'meter', 'aria-label': 'Health', 'aria-valuemin': 0, 'aria-valuenow': current, 'aria-valuemax': max },
       h('i', { style: { width: `${percent}%` } })),
-    h('div.pl-phase-row', h('span', active ? `${rx?.round === 0 ? 'Surprise' : `Round ${c.round}`} · ${phaseLabel}` : phaseLabel),
+    h('div.pl-phase-row', h('span', { class: myPhase ? 'pl-current-turn' : null }, active ? `${rx?.round === 0 ? 'Surprise' : `Round ${c.round}`} · ${phaseLabel}` : phaseLabel),
       reaction ? h('div.pl-remaining', { 'aria-label': 'Actions remaining' },
         h('span.pl-pips', { 'aria-hidden': 'true' }, Array.from({ length: pips }, (_, i) => h('i', { class: i < reaction.left ? 'ready' : null }))),
-        h('span', `${reaction.left} left${reaction.extra ? ` + ${reaction.extra} utility` : ''}`)) : null)),
+        h('span', `${reaction.left} action${reaction.left === 1 ? '' : 's'} left${reaction.extra ? ` + ${reaction.extra} utility` : ''}`)) : null)),
     active && !own ? h('p.dim', 'The GM can add you to this fight.') : null,
     active && own && !rx && reactionRules ? h('p.dim', 'Waiting for the GM to start the round.') : null].filter(Boolean));
 
@@ -617,17 +670,30 @@ function drawCombat() {
       const t = costs?.find((x) => x.uid === s.uid);
       const affordable = (t?.cost?.value ?? 0) <= (mana?.[t?.costTrack]?.cur ?? 0);
       const cooldown = spellCooldownHint(t?.cooldown);
-      return h('button.btn', { type: 'button', disabled: !affordable || !!cooldown, onclick: () => {
+      const selfHealing = reactionRules && s.healing && s.healing.target !== 'ally';
+      const fullHealth = selfHealing && health?.cur >= health?.max;
+      const blocked = selfHealing && healingBlocked;
+      const reason = cooldown || (blocked ? 'Healing is blocked' : fullHealth ? 'Health is full' : !affordable ? 'Not enough Mana' : '');
+      return h('button.btn', { type: 'button', disabled: !!reason, onclick: () => {
         closeDrawer();
         if (s.attackCheck) rollPad.open({ kind: 'spell', uid: s.uid }, `${s.name} to hit`);
         else sheet.castReadySpell(s.uid);
-      } }, s.name, cooldown ? h('small', cooldown) : !affordable ? h('small', 'Not enough Mana') : null);
+      } }, s.name, reason ? h('small', reason) : null);
     });
-    if (basicHeal) rows.unshift(h('button.btn', { type: 'button', disabled: (mana?.[basicHeal.track]?.cur ?? 0) < basicHeal.mana,
-      onclick: async () => {
-        try { await client.send({ t: 'rx.interrupt', kind: 'heal' }); closeDrawer(); }
-        catch (err) { toast(err.message, { error: true }); }
-      } }, 'Heal', h('small', `${basicHeal.mana} Mana · ${basicHeal.slots} slots`)));
+    if (basicHeal) rows.unshift(h('button.btn', { type: 'button', disabled: !!healDisabled,
+      onclick: async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        try {
+          const response = await client.send({ t: 'rx.interrupt', kind: 'heal' });
+          const result = response?.result;
+          if (result) showCombatReceipt(`Heal restored ${result.healed} slot${result.healed === 1 ? '' : 's'}`, result.receipt);
+          if (button.isConnected) closeDrawer();
+        } catch (err) {
+          toast(err.message, { error: true });
+          if (button.isConnected) closeDrawer();
+        }
+      } }, 'Heal', h('small', healDisabled || `Self · 1 action · ${basicHeal.mana} Mana · ${basicHeal.slots} slots`)));
     combatChoices('Spells', rows);
   }
   function pickItem() {
@@ -648,6 +714,9 @@ function drawCombat() {
     rx?.step === 'act' && advantages.length ? h('p.pl-combat-adv', `Advantage against ${advantages.map((a) => a.mob).join(', ')}. Roll 2d20 and keep the higher.`) : null].filter(Boolean));
   combatHistory.replaceChildren(h('h3', 'Recent combat'), history.length ? h('ol.pl-combat-history', { 'aria-label': 'Recent combat' }, history.map((row) => h('li', { 'data-result-kind': row.kind },
     h('strong', row.label), row.detail || row.result ? h('span.dim', row.detail || row.result) : null))) : h('p.dim', 'Your results appear here.'));
+  combatInjuries.hidden = !injuries.length;
+  combatInjuries.replaceChildren(...(injuries.length ? [h('h3', 'Injuries'), h('ul', injuries.map((injury) => h('li',
+    h('strong', injury.severity === 'major' ? 'Major injury' : 'Minor injury'), h('span', injury.desc)))), h('p.dim', 'Effects start after combat.')] : []));
   const existingTargets = combatRoster.querySelector('details')?.open;
   combatRoster.replaceChildren(...(mobs.length ? [h('details.pl-target-book', { open: existingTargets || null }, h('summary', `Targets (${mobs.length})`),
     h('ul.pl-targets', mobs.map((m) => {
@@ -659,9 +728,9 @@ function drawCombat() {
 }
 
 const phoneMq = matchMedia('(max-width: 699px)');
-phoneMq.addEventListener?.('change', () => { if (me) { sheet.redraw(); syncPhoneNavigation(true); renderStart(); } });
+phoneMq.addEventListener?.('change', () => { if (me) { sheet.redraw(); renderStart(); } });
 $('#sheet-root').append(sheet.el);
-$('#app').append(sheet.phoneNav);
+$('#app .appbar').after(sheet.playerNav);
 
 const diceLog = createDiceLog({
   gm: false,
@@ -706,9 +775,11 @@ function render() {
   applyPackTheme(view.pack?.theme);
   drawTheme();
   renderPrivateChecks();
+  levelPrompt.hidden = !levelActions() || !!view.combat?.active;
+  refreshLevelUp?.();
   drawCombat();
   sheet.update(view, me);
-  syncPhoneNavigation();
+  syncCombatPage();
   iniPrompt.hidden = !waitingForMe();
   if (initWanted && waitingForMe()) { initWanted = 0; initPrompt(); } else if (initWanted && Date.now() - initWanted > 10_000) initWanted = 0;
   if (!waitingForMe()) document.querySelector('.ini-pad')?.remove();
@@ -777,19 +848,31 @@ setInterval(tickCrawlers, 1000);
 /* ---------- Intervene: a friend's near miss, +1d6 from this phone ---------- */
 function intervenePrompt(r) {
   document.querySelector('.ivn')?.remove();
+  const inReactionFight = view?.combat?.active && view?.pack?.ruleset?.combat?.flow === 'reaction';
+  const reaction = reactionControls(view, me);
+  if (inReactionFight && !reaction?.canHelp) return;
   const who = (view?.players || []).find((p) => p.id === r.playerId)?.name || 'A friend';
+  let sending = false;
   const go = async (entered) => {
+    if (sending) return;
+    if (inReactionFight && !reactionControls(view, me)?.canHelp) { card.remove(); return; }
+    sending = true;
+    for (const button of card.querySelectorAll('button')) button.disabled = true;
     try {
       const res = await client.send({ t: 'roll.intervene', rollId: r.id, ...(entered ? { entered } : {}) });
       card.remove();
-      toast(res?.result?.hit ? `+${res.result.d6}: ${who} makes it!` : `+${res?.result?.d6}: still not enough.`, { ms: 3500 });
+      const result = res?.result;
+      if (!result) return;
+      const label = `Intervene +${result.d6} · ${result.hit ? `${who} succeeds` : `${who} still misses`}`;
+      if (result.receipt) showCombatReceipt(label, result.receipt);
+      else toast(label, { ms: 3500 });
     } catch (err) { toast(err.message, { error: true }); card.remove(); }
   };
   const card = h('div.ivn', { role: 'dialog', 'aria-label': 'Intervene' },
     h('p', h('b', `${who}: near miss${r.vs?.name ? ` on ${r.vs.name}` : ''}!`)),
-    h('p.dim', 'Intervene: roll a d6 and add it to their roll (one action). Tap what your die shows, or let the phone roll.'),
+    h('p.dim', reaction ? `Add a d6 to their roll. ${reaction.canIntervene ? 'Use your prepared action.' : 'This spends 1 action.'}` : 'Add a d6 to their roll.'),
     h('div.ivn-row', [1, 2, 3, 4, 5, 6].map((n) => h('button.btn.num', { type: 'button', onclick: () => go(n) }, String(n))),
-      h('button.btn.btn-primary', { type: 'button', onclick: () => go(null) }, icon('dice', { size: 16 }), 'Roll'),
+      diceOn() ? h('button.btn.btn-primary', { type: 'button', onclick: () => go(null) }, icon('dice', { size: 16 }), 'Roll d6') : null,
       h('button.btn.btn-quiet', { type: 'button', onclick: () => card.remove() }, 'No')));
   document.body.append(card);
   buzz([30, 30, 30]);
@@ -819,7 +902,7 @@ function renderStart() {
   $('#sheet-root').hidden = show;
   // Guided creation not finished yet: a strip above the sheet brings it back (draft kept on the phone).
   let strip = document.getElementById('cr-banner');
-  const wantStrip = !show && (!phoneMq.matches || sheet.currentPage() === 'sheet')
+  const wantStrip = !show && sheet.currentPage() === 'sheet'
     && !!view?.pack?.ruleset?.creation && !sh.created && playerEditLevel(view) === 'sheet';
   if (wantStrip && !strip) {
     strip = h('div.cr-banner#cr-banner', icon('info', { size: 16 }), h('span', 'Your crawler is not finished: background, weapon, stats, stuff.'),

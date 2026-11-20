@@ -19,7 +19,7 @@
 // mob base (10 by default) + to-hit bonus, + the world's floor when the ruleset is floor-scaled.
 import { bad, notFound } from './errors.js';
 import { rollDice } from './formula.js';
-import { computeFor, libraryOf, nextInjuryDescription, SHEET, requireStatusAllowed, statusBlocker } from './character.js';
+import { computeFor, libraryOf, nextInjuryDescription, SHEET, requireStatusAllowed, setTrack, statusBlocker } from './character.js';
 import { sheetResolver } from './ruleset.js';
 import { evaluate } from './formula.js';
 import { COMBAT_GM, defenseOf, hpTrackOf, MAX_MOB_HP } from './combat.js';
@@ -112,6 +112,18 @@ export function spendReactionAction(rx, uid, n = 1, { attack = false } = {}) {
   rx.acts[uid] = left + extra - n;
 }
 
+export function actionReceipt(rx, uid, spent) {
+  return { spent, actionsLeft: rx.acts[uid] ?? ACTIONS_PER_ROUND, utilityLeft: rx.nonAttackActions?.[uid] ?? 0 };
+}
+
+function reactionDie(a, key, sides, ctx) {
+  if (a.digital !== undefined && typeof a.digital !== 'boolean') throw bad('digital must be a boolean');
+  if (a.digital && a[key] !== undefined) throw bad('choose a phone roll or enter a die face');
+  const face = a.digital ? (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(sides) + 1 : a[key];
+  if (!Number.isInteger(face) || face < 1 || face > sides) throw bad(`${key} must be 1..${sides}`);
+  return face;
+}
+
 function buyFavorAction(st, ctx, out, x) {
   const rx = rxOf(st);
   if (!standing(x)) throw bad('that crawler cannot act');
@@ -127,7 +139,7 @@ function buyFavorAction(st, ctx, out, x) {
   p.sheet.fields = { ...(p.sheet.fields ?? {}), aiFavor: favor - 1 };
   (rx.favor ??= []).push(x.uid);
   (rx.nonAttackActions ??= {})[x.uid] = 1;
-  out.result = { favor: favor - 1, nonAttackActions: 1 };
+  out.result = { favor: favor - 1, nonAttackActions: 1, receipt: actionReceipt(rx, x.uid, 0) };
 }
 
 function crawlerEvade(st, ctx, x) {
@@ -810,16 +822,16 @@ function evadeRoll(st, ctx, out, a, playerId) {
     if (d.evade && (!d.evade.free || isSuccess(d.evade.degree))) throw bad('already evaded');
     throw bad('spend an action on Evade first');
   }
-  if (!Number.isInteger(a.die) || a.die < 1 || a.die > 20) throw bad('die must be 1..20');
-  const total = a.die + crawlerEvade(st, ctx, x);
-  const degree = degreeOf(a.die, total, d.attack.dc);
-  d.evade = { die: a.die, total, degree, ...(freeEvade ? { free: true } : {}) };
+  const die = reactionDie(a, 'die', 20, ctx);
+  const total = die + crawlerEvade(st, ctx, x);
+  const degree = degreeOf(die, total, d.attack.dc);
+  d.evade = { die, total, degree, ...(freeEvade ? { free: true } : {}) };
   // Evade natural 20 / Amazing: Advantage on the next attack against that mob (shown on the phone + TV log).
   if (degree === 'crit' || degree === 'amazing') {
     rx.advantage = [...(rx.advantage ?? []).filter((v) => !(v.uid === x.uid && v.mobUid === d.mobUid)), { uid: x.uid, mobUid: d.mobUid }].slice(-20);
     log(rx, `${nameOf(st, x)} has Advantage on the next attack against ${mobOf(st, d.mobUid).name}.`);
   }
-  out.result = { degree, label: DEGREE_LABEL[degree], near: degree === 'near', free: freeEvade };
+  out.result = { die, total, degree, label: DEGREE_LABEL[degree], near: degree === 'near', free: freeEvade, receipt: actionReceipt(rx, x.uid, 0) };
   out.emit({ kind: 'rx.evade', declId: d.id, uid: x.uid, degree, near: degree === 'near' }, 'all');
 }
 
@@ -871,30 +883,35 @@ export const REACTION_PLAYER = {
       }
       if (ok) Object.assign(d, { targetUid: me.uid, taunted: true, tauntEvade: (skill?.rank ?? 0) >= 5, caught: false, evade: null });
       out.result = { ok };
-    } else if (a.kind === 'heal' && ctx.pack.ruleset.combat?.healSpell) {
-      // The heal every crawler has (DCC: 2 Mana → 2 Health slots), before the hits land.
+    } else if (a.kind === 'heal') {
       const hs = ctx.pack.ruleset.combat.healSpell;
-      const p = st.players.find((y) => y.id === me.playerId);
+      if (!hs) throw bad('no innate Heal in this campaign');
+      if (a.target != null || a.targetUid != null) throw bad('innate Heal targets only yourself');
+      const p = playerOfCrawler(st, me);
       requireStatusAllowed(st, ctx, p, 'spell');
-      const mana = p?.sheet?.tracks?.[hs.track];
-      const have = Number(mana?.cur ?? mana?.value ?? 0);
-      if (!mana || have < hs.mana) throw bad(`not enough Mana (needs ${hs.mana})`);
-      if (me.dead) throw bad('too late');
+      requireStatusAllowed(st, ctx, p, 'heal');
+      const { computed } = computeFor(p, ctx.pack, libraryOf(st, ctx.pack));
+      const hp = computed.tracks[hpTrackOf(ctx.pack)?.id];
+      if (!hp || hp.cur <= 0) throw bad('that crawler cannot act');
+      if (hp.cur >= hp.max) throw bad('your health is already full');
+      const mana = computed.tracks[hs.track];
+      if (!mana || mana.cur < hs.mana) throw bad(`not enough Mana (needs ${hs.mana})`);
       spendReactionAction(rx, me.uid);
-      p.sheet.tracks[hs.track] = { ...mana, cur: have - hs.mana };
-      const wasDying = me.dying != null;
-      COMBAT_GM['combat.heal'](st, { uid: me.uid, amount: hs.slots }, ctx, { ...out, result: null });
-      if (wasDying) dyingTick(st, ctx, out, 'heal', me.uid);
-      out.result = { healed: hs.slots, mana: have - hs.mana };
+      setTrack(st, p, { track: hs.track, delta: -hs.mana }, ctx, out);
+      const heal = { ...out, result: null };
+      COMBAT_GM['combat.heal'](st, { uid: me.uid, amount: hs.slots }, ctx, heal);
+      out.result = { healed: heal.result.actualAmount, mana: mana.cur - hs.mana };
     } else {
+      if (rx.intervene.includes(me.uid)) throw bad('you already prepared Intervene');
       spendReactionAction(rx, me.uid);
-      if (a.kind === 'intervene') rx.intervene.push(me.uid);
+      rx.intervene.push(me.uid);
     }
+    out.result = { ...out.result, receipt: actionReceipt(rx, me.uid, 1) };
     log(rx, `${nameOf(st, me)}: ${a.kind}.`);
     out.emit({ kind: 'rx.interrupt', uid: me.uid, what: a.kind }, 'all');
   },
 
-  /** `{ declId, die }` — my Evade roll against one attack. */
+  /** `{ declId, die }` or `{ declId, digital: true }` — my Evade roll against one attack. */
   'rx.evade'(st, a, ctx, out) { evadeRoll(st, ctx, out, a, ctx.actor.playerId); },
 
   /** Spend one AI Favor to buy a single non-attack action this round. */
@@ -904,34 +921,42 @@ export const REACTION_PLAYER = {
     buyFavorAction(st, ctx, out, me);
   },
 
-  /** Intervene: `{ declId, d6 }` adds 1d6 to an ally's Evade roll (most useful on a Near miss). */
+  /** Intervene on an ally's Evade. A prepared Intervene already paid for the action. */
   'rx.intervene'(st, a, ctx, out) {
     const rx = rxOf(st);
     const me = crawlers(st).find((x) => x.playerId === ctx.actor.playerId);
-    if (!me || !rx.intervene.includes(me.uid)) throw bad('spend an action on Intervene first');
-    if (!standing(me)) throw bad('that crawler cannot act');
+    if (!me || !standing(me)) throw bad('that crawler cannot act');
+    if (rx.step !== 'react') throw bad('you cannot help an Evade after reactions');
     requireStatusAllowed(st, ctx, playerOfCrawler(st, me), 'interrupt');
     const d = declOf(rx, a.declId);
     if (!d.evade || d.result) throw bad('no open Evade roll there');
     if (d.targetUid === me.uid) throw bad('Intervene helps someone else');
-    if (!Number.isInteger(a.d6) || a.d6 < 1 || a.d6 > 6) throw bad('d6 must be 1..6');
-    rx.intervene.splice(rx.intervene.indexOf(me.uid), 1);
-    d.evade.total += a.d6;
+    const d6 = reactionDie(a, 'd6', 6, ctx);
+    const reserved = rx.intervene.indexOf(me.uid);
+    if (reserved >= 0) rx.intervene.splice(reserved, 1);
+    else spendReactionAction(rx, me.uid);
+    d.evade.total += d6;
     d.evade.degree = degreeOf(d.evade.die, d.evade.total, d.attack.dc);
-    d.evade.helped = (d.evade.helped ?? 0) + a.d6;
-    out.result = { degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree] };
+    d.evade.helped = (d.evade.helped ?? 0) + d6;
+    if (d.evade.degree === 'amazing' || d.evade.degree === 'crit') {
+      const target = crawlerOf(st, d.targetUid);
+      rx.advantage = [...(rx.advantage ?? []).filter((v) => !(v.uid === target.uid && v.mobUid === d.mobUid)), { uid: target.uid, mobUid: d.mobUid }].slice(-20);
+    }
+    out.result = { d6, degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], receipt: actionReceipt(rx, me.uid, reserved < 0 ? 1 : 0) };
     out.emit({ kind: 'rx.evade', declId: d.id, uid: d.targetUid, degree: d.evade.degree, helped: true }, 'all');
   },
 
   /** Spend a non-attack action for a move or item: `{ n? }`. */
-  'rx.spend'(st, a, ctx) {
+  'rx.spend'(st, a, ctx, out) {
     const rx = rxOf(st);
     const me = crawlers(st).find((x) => x.playerId === ctx.actor.playerId);
     if (!me) throw bad('you are not in this fight');
     if (!standing(me)) throw bad('that crawler cannot act');
     if (rx.step !== 'act' && rx.step !== 'react') throw bad('not now');
     requireStatusAllowed(st, ctx, playerOfCrawler(st, me), rx.step === 'react' ? 'interrupt' : 'action');
-    spendReactionAction(rx, me.uid, a.n === 2 ? 2 : 1);
+    const count = a.n === 2 ? 2 : 1;
+    spendReactionAction(rx, me.uid, count);
+    if (out) out.result = { receipt: actionReceipt(rx, me.uid, count) };
   },
 };
 

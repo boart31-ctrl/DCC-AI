@@ -33,7 +33,7 @@ function damagePreview({ pending: hit, act, targets, targetChoice }) {
   const damage = h('input.inp.inp-sm.rx-damage-in', { 'aria-label': 'Physical damage', type: 'number', min: 0, max: 999, value: hit.raw, required: true });
   const others = targets.filter((x) => x.uid !== hit.targetUid).map(targetChoice);
   const redirectBtn = h('button.btn.btn-sm', { type: 'submit', disabled: true }, 'Redirect');
-  const redirect = select([{ value: '', label: 'Choose crawler' }, ...others], '', { cls: 'inp-sm', label: 'Redirect target', onChange: (v) => { redirectBtn.disabled = !v; } });
+  const redirect = select([{ value: '', label: 'Select a different target' }, ...others], '', { cls: 'inp-sm', label: 'Redirect target', onChange: (v) => { redirectBtn.disabled = !v; } });
   const hasHealth = hit.before != null && hit.after != null;
   const lost = hasHealth ? Math.max(0, hit.before - hit.after) : hit.slots;
   const fallout = [];
@@ -42,13 +42,19 @@ function damagePreview({ pending: hit, act, targets, targetChoice }) {
     fallout.push(h('strong.danger', `Dying countdown ${hit.dyingBefore} → ${hit.dyingAfter}`));
   }
   if (hit.injury) fallout.push(h('span', `${hit.injury.severity === 'major' ? 'Major' : 'Minor'} injury · ${hit.injury.desc}`));
-  const faces = hit.die?.map((d) => `${d.die} ${d.value}`).join(' · ');
+  const faces = (hit.die ?? []).filter((d) => d.rolls?.length).map((d) => `${d.term} [${d.rolls.join(', ')}]`).join(' · ');
+  const damageMath = [
+    `${hit.raw} HP ${faces ? 'rolled' : 'base'}`,
+    hit.damage !== hit.raw ? `${hit.damage} HP after Evade` : '',
+    hit.afterDr != null && hit.afterDr !== hit.damage ? `${hit.afterDr} HP after protection` : '',
+    `${lost} slot${lost === 1 ? '' : 's'} lost`,
+  ].filter(Boolean).join(' → ');
   return h('section.rx-preview', { 'aria-label': 'Damage preview', 'data-danger': hit.danger || null },
     h('div.rx-preview-head',
       h('h3', `${hit.mob} · ${hit.attack} → ${hit.target}`),
       h('span.pill', hit.evade ? `Evade · ${hit.evade.label}` : 'No Evade')),
     h('div.rx-preview-numbers',
-      h('span', hit.result === 'evaded' ? 'Evaded' : `${hit.raw} HP rolled${hit.afterDr != null && hit.afterDr !== hit.raw ? ` → ${hit.afterDr} adjusted HP` : ''} → ${lost} slot${lost === 1 ? '' : 's'} lost`),
+      h('span', hit.result === 'evaded' ? 'Evaded' : damageMath),
       hasHealth ? h('strong', `Health ${hit.before} → ${hit.after}`) : null,
       hit.formula && faces ? h('small.dim', `${hit.formula} (${faces})`) : null),
     fallout.length ? h('div.rx-preview-fallout', fallout) : null,
@@ -59,14 +65,15 @@ function damagePreview({ pending: hit, act, targets, targetChoice }) {
         damage.blur();
         if (Number.isInteger(amount)) act({ t: 'rx.resolveNext', op: 'change', token: hit.token, amount });
       } }, h('label.rx-physical', h('span.mini-l', 'Physical dice'), damage), h('button.btn.btn-sm', { type: 'submit', title: 'Replace the rolled value before Evade, armour and protection' }, 'Change damage')) : null,
-      others.length ? h('form.rx-preview-edit', { onsubmit: (e) => {
-        e.preventDefault();
-        if (redirect.value) act({ t: 'rx.resolveNext', op: 'redirect', token: hit.token, targetUid: redirect.value });
-      } }, redirect, redirectBtn) : null,
+      others.length ? h('details.rx-change-target', h('summary', 'Change target'),
+        h('form.rx-preview-edit', { onsubmit: (e) => {
+          e.preventDefault();
+          if (redirect.value) act({ t: 'rx.resolveNext', op: 'redirect', token: hit.token, targetUid: redirect.value });
+        } }, redirect, redirectBtn)) : null,
       h('span.grow'),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Recalculate against current health and defences', onclick: () => act({ t: 'rx.resolveNext', op: 'preview' }) }, 'Refresh preview'),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'rx.resolveNext', op: 'skip', token: hit.token }) }, 'Skip attack'),
-      h(`button.btn.rx-primary.${hit.danger ? 'btn-danger' : 'btn-primary'}`, { type: 'button', onclick: apply }, 'Apply hit')));
+      h(`button.btn.rx-primary.${hit.danger ? 'btn-danger' : 'btn-primary'}`, { type: 'button', onclick: apply }, `Apply to ${hit.target}`)));
 }
 
 function batchPreview(batch, act) {

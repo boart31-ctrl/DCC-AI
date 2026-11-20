@@ -571,7 +571,6 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
         drDef ? h('span.cc-stat', `DR ${dr?.value ?? '—'}`) : null,
         x.noTarget ? h('span.cc-flag', 'Not targeted') : aggroDots(x),
         x.conditions.length ? h('span.cc-conds', { title: x.conditions.map((k) => k.desc || k.name).join('\n') }, x.conditions.map((k) => k.name).join(', ')) : null,
-        x.pendingInjuries?.length ? h('span.cc-flag', { title: x.pendingInjuries.map((i) => i.desc || i.severity || i).join('\n') }, `${x.pendingInjuries.length} pending`) : null,
         chev(open)),
       open ? h('div.cc-more',
         h('div.cc-more-dmg', h('span.mini-l', 'Damage / heal'), quick(x, true)),
@@ -588,7 +587,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
             h('button.icon-btn', { type: 'button', 'aria-label': `Raise ${x.name}'s aggro`, disabled: x.aggro >= 9, onclick: () => act({ t: 'combat.target', uid: x.uid, aggro: x.aggro + 1 }) }, icon('up', { size: 14 }))),
           h('label.chk.cbt-target-exclusion', { title: 'Hidden, playing dead, out of reach: mobs never pick this crawler by themselves' }, h('input', { type: 'checkbox', checked: !!x.noTarget, onchange: (e) => act({ t: 'combat.target', uid: x.uid, noTarget: e.target.checked }) }), h('span', "Don't target"))),
         injuryRows(x, p?.sheet?.buffs ?? []),
-        conditions(x)) : null,
+        conditions(x)) : injuryRows(x, []),
     );
   }
 
@@ -998,7 +997,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
     const vis = h('label.chk.cbt-pub', { title: 'Public rolls show in everyone\'s dice log and can trigger the nat 20 / nat 1 lines' },
       h('input', { type: 'checkbox', checked: C().settings?.public !== false, onchange: (e) => act({ t: 'combat.set', settings: { public: e.target.checked } }, e.target.checked ? 'Mob rolls on the TV (Boss and Fight).' : 'Mob rolls GM only (Boss and Fight).') }), h('span', 'Mob rolls on TV'));
     if (!r) return null;
-    const crawlers = C().combatants.filter((x) => x.type === 'crawler');
+    const crawlers = C().combatants.filter((x) => x.type === 'crawler' && !x.dead);
     const bufs = (r.buffs || []).map((id) => (lib().buff || []).find((b) => b.id === id)).filter(Boolean);
     return h('section.panel.cbt-last', { class: `panel cbt-last${r.nat20 ? ' nat20' : r.nat1 ? ' nat1' : ''}` },
       h('div.sec-head', h('h2', r.attack ? 'Last mob attack' : 'Last damage roll'), h('span.grow'), reaction() ? null : vis),
@@ -1008,7 +1007,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
         r.damage != null ? h('div', h('small', 'Raw damage'), h('b', `${r.damage} HP`)) : null),
       r.attack?.effects ? h('p.cbt-last-fx', r.attack.effects) : null,
       r.damage > 0 && crawlers.length ? h('div.cbt-apply', h('span.mini-l', 'Apply damage to'), crawlers.map((x) => h('button.btn.btn-sm', { type: 'button', onclick: async () => {
-        const ack = await act({ t: 'combat.damage', uid: x.uid, amount: Math.min(999, r.damage), dr: true }, null);
+        const ack = await act({ t: 'combat.damage', uid: x.uid, amount: Math.min(999, r.damage), dr: true, ...(r.attack?.dtype ? { dtype: r.attack.dtype } : {}) }, null);
         if (!ack) return;
         const applied = ack.result?.actualAmount || 0;
         toast(!applied ? `${x.name} loses no health.` : `${x.name} loses ${applied} ${x.slotValue ? `slot${applied === 1 ? '' : 's'}` : 'HP'}.`);
@@ -1129,6 +1128,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
     const keep = [...el.querySelectorAll('.cbt-picks')].map((x) => x.scrollTop);
     const page = el.closest('.gm-main');
     const pageTop = page?.scrollTop;
+    el.classList.toggle('is-running', c.active);
     const round = rxPanel({ act, view, draft: rxDraft, guide: roundGuide });
     const last = lastRollCard();
     el.replaceChildren(...[

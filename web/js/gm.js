@@ -170,33 +170,74 @@ function render() {
 }
 
 /**
- * Level-up reminder (play clock in view.gm.playClock): after 2 h of play since the last level-up a quiet card
- * asks; from 3 h it is red. Nothing happens on its own: the GM levels the party or says "not yet".
+ * Ruleset play timer. Once the GM starts it, notify at the exact milestone and offer a party level.
+ * The compatibility reminder still reads estimated play time for older rulesets.
  */
 const LEVEL_EVERY_MIN = 120;
 let levelEl = null;
+let levelClockView = null;
+let levelClockReceived = 0;
 const rankUpRule = () => view.pack?.ruleset?.skills?.rankUp;
 const dueRankUp = (skill, when) => skill.used && (rankUpRule()?.sessionMaxRank == null || (skill.rank > rankUpRule().sessionMaxRank) === (when === 'floor'));
 const rankUpEntries = (p) => [...(p.sheet?.skills ?? []), ...(p.sheet?.spells ?? []).filter((s) => s.attackCheck)];
+function exactLevelClock(raw) {
+  if (!raw) return null;
+  if (levelClockView !== raw) { levelClockView = raw; levelClockReceived = performance.now(); }
+  const extra = raw.running ? Math.max(0, performance.now() - levelClockReceived) : 0;
+  return { ...raw, elapsed: raw.elapsed + extra, sinceLevel: raw.sinceLevel + extra, due: raw.elapsed + extra >= raw.dueAt };
+}
+
+function renderLevelClock(clock) {
+  const toggle = $('#level-clock-toggle');
+  const settings = $('#level-clock-settings');
+  if (!toggle || !settings) return;
+  toggle.hidden = settings.hidden = !clock;
+  if (!clock) return;
+  const minutes = Math.floor(clock.elapsed / 60_000);
+  const elapsed = `${Math.floor(minutes / 60)}:${String(minutes % 60).padStart(2, '0')}`;
+  const action = clock.running ? 'Pause play' : clock.elapsed > 0 ? 'Resume play' : 'Start play';
+  toggle.textContent = clock.running ? `${action} · ${elapsed}` : action;
+  toggle.setAttribute('aria-label', action);
+  toggle.title = `Play clock · ${elapsed} played. Pause it for breaks.`;
+  toggle.onclick = () => act({ t: 'level.clock', op: clock.running ? 'pause' : 'start' });
+  $('#level-clock-detail').textContent = `${elapsed} of play recorded. Start when the table begins, and pause for breaks. The next level is due after ${clock.interval} minutes of play.`;
+  $('#level-clock-reset').onclick = async () => {
+    if (await ask('Reset recorded play time for this session?', { ok: 'Reset play clock' })) await act({ t: 'level.clock', op: 'reset' });
+  };
+}
+
 function renderLevelReminder() {
+  if (!view) return;
   const pc = view.gm?.playClock;
+  const clock = exactLevelClock(view.gm?.advancementClock);
+  renderLevelClock(clock);
   const crawler = (view.pack?.ruleset?.system?.family || 'crawler') === 'crawler';
-  const due = pc && crawler && view.players?.length && pc.sinceLevelMin >= LEVEL_EVERY_MIN && (pc.snoozeMin == null || pc.playMin >= pc.snoozeMin);
+  const due = view.players?.length && (clock ? clock.due
+    : pc && crawler && pc.sinceLevelMin >= LEVEL_EVERY_MIN && (pc.snoozeMin == null || pc.playMin >= pc.snoozeMin));
   if (!due) { levelEl?.remove(); levelEl = null; return; }
-  const late = pc.sinceLevelMin >= LEVEL_EVERY_MIN + 60;
+  const minutes = clock ? Math.floor(clock.sinceLevel / 60_000) : pc.sinceLevelMin;
+  const interval = clock?.interval ?? LEVEL_EVERY_MIN;
+  const late = minutes >= interval + 60;
   const marked = (view.gm?.playersFull || []).reduce((n, p) => n + rankUpEntries(p).filter((s) => dueRankUp(s, 'session')).length, 0);
   const hasRankUp = !!rankUpRule();
-  const sig = `${late}|${Math.floor(pc.sinceLevelMin / 10)}|${marked}|${hasRankUp}`;
+  const sig = `${late}|${Math.floor(minutes / 10)}|${marked}|${hasRankUp}|${clock?.next ?? ''}`;
   if (levelEl?.dataset.sig === sig) return;
   levelEl?.remove();
-  const hrs = (pc.sinceLevelMin / 60).toFixed(1).replace('.0', '');
+  const hrs = (minutes / 60).toFixed(1).replace('.0', '');
   levelEl = h('div.lvl-remind', { class: late ? 'lvl-remind late' : 'lvl-remind', role: 'status', 'data-sig': sig },
-    h('p', h('b', late ? 'Level up is overdue.' : 'Time for a level up?'), ` ${hrs} h of play since the last one (the rules: one level per 2 h).`),
+    h('p', h('b', late ? 'Level up is overdue.' : 'Time for a level up?'), ` ${hrs} h of play since the last milestone.`),
     h('div.row-start',
-      h('button.btn.btn-sm.btn-primary', { type: 'button', title: hasRankUp && marked ? 'Also rolls advancement for the marked skills and attack spells due this session' : '', onclick: () => act({ t: 'level.party', rankUp: hasRankUp }, hasRankUp && marked ? `Everyone gained a level. ${marked} rank-up roll${marked === 1 ? '' : 's'} in the dice log.` : 'Everyone gained a level.') }, hasRankUp && marked ? `Level up + ${marked} rank-up roll${marked === 1 ? '' : 's'}` : 'Level up everyone'),
+      h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: async (event) => {
+        const button = event.currentTarget;
+        button.disabled = true;
+        const a = clock ? { t: 'level.party', timed: true, checkpoint: clock.next } : { t: 'level.party', rankUp: hasRankUp };
+        try { await act(a, clock ? 'Everyone gained a level. Players can open Level up.' : 'Everyone gained a level.'); }
+        finally { button.disabled = false; }
+      } }, 'Level up everyone'),
       h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'level.snooze', minutes: 30 }) }, 'Not yet (30 min)')));
   document.body.append(levelEl);
 }
+setInterval(() => { if (view?.gm?.advancementClock?.running) renderLevelReminder(); }, 1000);
 
 function renderVoices() {
   const sel = $('#voice');

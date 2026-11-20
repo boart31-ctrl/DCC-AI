@@ -93,7 +93,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
   let tab = store.get('tab2', 'lobby');
   if (![...SCENES.map((s) => s.kind), ...TOOLS.map((t) => t.id)].includes(tab)) tab = 'lobby';
   let bossPick = D('boss').bossId ?? null;
-  const pref = { pv: store.get('pv2', true) };
+  const pref = { pv: store.get('pv2', true), focusFight: store.get('focusFight', false) };
   // One switch for every mob roll (Boss screen, Fight attack buttons, Mobs act): the fight's `public` setting.
   const atkTv = () => view().combat?.settings?.public !== false;
   const reaction = () => view().pack?.ruleset?.combat?.flow === 'reaction';
@@ -243,9 +243,14 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       if (left < bounds.left) sceneTabs.scrollLeft += left - bounds.left;
       if (right > bounds.right) sceneTabs.scrollLeft += right - bounds.right;
     }
+    document.body.classList.toggle('fight-focus', tab === 'fight' && pref.focusFight);
     showShortcuts.replaceChildren(...[
+      tab === 'fight' ? h('button.btn.btn-sm', { type: 'button', 'aria-pressed': String(pref.focusFight),
+        title: 'Collapse desk navigation and the dice log for more room',
+        onclick: () => { pref.focusFight = !pref.focusFight; store.set('focusFight', pref.focusFight); drawAll(); },
+      }, pref.focusFight ? 'Exit focus' : 'Focus fight') : null,
       tab === 'map' && D('map').mapId && !isLive('map') ? h('button.btn.btn-sm', { type: 'button', onclick: () => goLive('map') }, icon('tv', { size: 14 }), 'Map on TV') : null,
-      ['fight', 'map'].includes(tab) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(pref.pv), onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawAll(); } }, pref.pv ? 'Hide preview' : 'Show preview') : null,
+      ['fight', 'map'].includes(tab) && !(tab === 'fight' && pref.focusFight) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(pref.pv), onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawAll(); } }, pref.pv ? 'Hide preview' : 'Show preview') : null,
       ['fight', 'map'].includes(tab) ? h('button.btn.btn-sm.sh-map-switch', { type: 'button', onclick: switchMapFight },
         icon(tab === 'map' ? 'swords' : 'map', { size: 14 }), tab === 'map' ? 'Switch to fight' : 'Switch to map') : null,
     ].filter(Boolean));
@@ -424,7 +429,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
   }
   /** Asks the server for the dry-run scene of the picked chip (debounced; the same draft is asked once). */
   function pvRefresh() {
-    const wantPv = pref.pv && el.isConnected && !el.closest('[hidden]');
+    const wantPv = pref.pv && !(tab === 'fight' && pref.focusFight) && el.isConnected && !el.closest('[hidden]');
     const live = isTool(tab) || (tab === 'fight' ? !!view().combat?.active && fightOnAir() : isLive(tab));
     if (live !== pvLive) { pvLive = live; pvKey = ''; }
     pvK.textContent = live ? 'On the TV' : 'Preview';

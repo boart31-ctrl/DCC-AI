@@ -23,19 +23,19 @@ const humanize = (id) => String(id || '').replace(/([a-z])([A-Z])/g, '$1 $2').re
  * @param {object} o
  * @param {'player'|'gm'} o.mode
  * @param {(action:object)=>Promise<object>} o.send   transport send (ack promise)
- * @param {()=>Array} [o.extraTabs]  [{id,label,badge?,phonePage?,render:()=>Node}] appended after the sheet tabs
+ * @param {()=>Array} [o.extraTabs]  Additional player destinations or GM sheet tabs
  * @param {(model)=>void} [o.onBuilder]  opens the character builder
  */
-export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools, phone = () => false, onPhonePage, moreItems = () => [], top = null, onRoll = null, rollsOn = () => true } = {}) {
+export function createSheet({ mode = 'player', send, extraTabs = () => [], onBuilder, gmTools, phone = () => false, onPlayerPage, moreItems = () => [], top = null, onRoll = null, rollsOn = () => true } = {}) {
   const gm = mode === 'gm';
   const root = h('article.sheet', { class: `sheet sheet-${mode}` });
   const ui = { tab: null, page: 'sheet', editing: false, openSkill: null, invQuery: '', drawer: null, ptab: 'skills', skillQuery: '', openBoxes: {} };
-  const phoneNav = h('nav.ph-primary', { 'aria-label': 'Player navigation', hidden: true });
+  const playerNav = h('nav.ph-primary', { 'aria-label': 'Player navigation', hidden: true });
   const primary = [['sheet', 'Sheet', 'book'], ['combat', 'Combat', 'swords'], ['msg', 'Messages', 'chat'], ['more', 'More', 'more']];
   const dock = new Map(primary.map(([id, label, glyph]) => {
     const badge = h('span.ph-dock-badge', { 'aria-hidden': 'true', hidden: true });
     const button = h('button.ph-dock-btn', { type: 'button', 'data-page': id, onclick: () => setTab(id) }, icon(glyph, { size: 21 }), h('span', label), badge);
-    phoneNav.append(button);
+    playerNav.append(button);
     return [id, { button, badge }];
   }));
   let view = null;
@@ -314,7 +314,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         h('span.def-l', { title: d.label }, h('span.long', d.label), h('span.short', d.abbr || d.label)),
         rollable
           ? num(b, { title: d.label, text: minus(display || `${d.roll} + ${b.value}`).replace(/\+ −/, '− '), roll: { kind: 'derived', id: d.id }, warnKey: d.id })
-          : num(b, { title: d.label, warnKey: d.id }),
+          : num(b, { title: d.label, text: display ?? undefined, warnKey: d.id, note: d.note }),
       ));
     }
     const ok = can('sheet');
@@ -390,7 +390,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const def = libGet(M.lib, 'skill', s.skillId) || rs.skills.catalog.find((x) => x.id === s.skillId) || {};
       const statAbbr = rs.stats.find((x) => x.id === s.stat)?.abbr || s.stat || '—';
       const row = h('li.skill', { class: `skill${open ? ' open' : ''}${s.used ? ' used' : ''}` },
-        rs.skills.usedTracking ? h('label.used', { title: 'Used this session (rank-up check at the end)' },
+        rs.skills.usedTracking ? h('label.used', { title: 'Marked for the next eligible rank-up' },
           h('input', { type: 'checkbox', checked: !!s.used, disabled: !can('used'), 'aria-label': `${s.name} used this session`, onchange: (e) => act({ t: 'skill.update', uid: s.uid, used: e.target.checked }) })) : null,
         h('button.skill-n', { type: 'button', 'aria-expanded': String(open), title: def.desc || '', onclick: () => { ui.openSkill = open ? null : s.uid; draw(true); } },
           h('span.sn', s.name), h('span.sk-meta', [s.checkType, !open ? def.desc : ''].filter(Boolean).join(' · '))),
@@ -414,8 +414,14 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       return row;
     });
     const head = h('div.list-head.skill-head', rs.skills.usedTracking ? h('span', { title: 'Used this session' }, 'Used') : null, h('span', 'Skill'), h('span', 'Stat'), h('span', 'Rank'), h('span', 'Total'));
+    const rankRule = rs.skills.rankUp;
+    const uv = gm ? sectionUnverified(/^skills/) : '';
+    const rankHelp = rankRule?.note && !rankRule.verify ? h('button.btn.btn-quiet.btn-sm.rank-up-help', {
+      type: 'button',
+      onclick: () => openDrawer({ title: 'Rank-up rules', body: h('p', rankRule.note) }),
+    }, icon('info', { size: 16 }), 'Rank-up rules') : null;
     return h('section.sh-block.sh-skills', { 'aria-label': 'Skills' },
-      h('h2.blk-t', 'Skills', h('span.blk-n', String(all.length)), (() => { if (!gm) return null; const uv = sectionUnverified(/^skills/) || (rs.skills.rankUp?.note ? `Rank-up: ${rs.skills.rankUp.note}` : ''); return uv ? unverifiedBadge(uv) : null; })()),
+      h('div.sh-skills-head', h('h2.blk-t', 'Skills', h('span.blk-n', String(all.length)), uv ? unverifiedBadge(uv) : null), rankHelp),
       all.length > 6 || sq ? h('input.inp.inp-search.sk-search', { type: 'search', placeholder: `Search ${all.length} skills`, value: ui.skillQuery || '', 'aria-label': 'Search skills', oninput: (e) => { ui.skillQuery = e.target.value; const sel = e.target.selectionStart; draw(true); const n = root.querySelector('.sk-search'); n?.focus(); n?.setSelectionRange(sel, sel); } }) : null,
       list.length ? h('div.table', head, h('ul.skill-list', rows)) : h('p.empty-s', sq ? 'No skill matches.' : can('sheet') ? 'No skills yet. Add one from the catalog.' : 'No skills yet.'),
       untriedCard(),
@@ -425,14 +431,15 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
 
   /** DCC Tutorial Floors: skills tried untrained this session; at its end the crawler learns one (Rank 1). */
   function untriedCard() {
-    const U = M.rs.skills?.untrained;
+    const U = view.pack?.ruleset?.skills?.untrained;
     const list = M.sheet.untried || [];
     if (!U?.learn || !list.length) return null;
     const names = list.map((id) => ({ id, name: M.lib.skill.find((x) => x.id === id)?.name || id }));
-    const ok = can('play') || gm;
+    const milestone = !!view.pack?.ruleset?.advancement;
+    const ok = gm || (!milestone && can('play'));
     return h('div.sk-untried',
       h('p', h('b', 'Tried untrained: '), names.map((x) => x.name).join(', ')),
-      h('p.dim', 'End of the session (about 2 hours): learn one of them at Rank 1. The rest are wiped.'),
+      h('p.dim', milestone ? 'At the next play milestone, choose one of these skills at Rank 1 in Level up.' : 'At the end of the session, choose one of these skills at Rank 1.'),
       ok ? h('div.row-wrap', names.map((x) => h('button.btn.btn-sm', { type: 'button', onclick: async () => { if (await ask(`Learn ${x.name} at Rank 1? The rest of the list is wiped.`, { ok: 'Learn' })) act({ t: 'untrained.learn', skillId: x.id }, `${x.name} learned.`); } }, `Learn ${x.name}`)),
         gm ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'untrained.clear' }, 'Wiped.') }, 'Wipe') : null) : null);
   }
@@ -561,7 +568,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const short = have < cost.value;
       const cooldown = spellCooldownText(spellCooldown(s));
       const prepared = M.rs.hotlist?.combat && M.sheet.hotlist?.includes(s.uid);
-      const meta = [def.range, def.duration, cooldown].filter(Boolean);
+      const meta = [def.attackCheck ? `Rank ${s.rank}` : null, def.range, def.duration, cooldown].filter(Boolean);
       return h('li.spell', { class: s.active ? 'spell active' : 'spell' },
         itemArt({ ...def, rarity: def.rarity || 'common' }, 'inv-ico sp-ico'),
         h('button.spell-n', { type: 'button', onclick: () => spellDrawer(s), title: def.desc || '' }, h('span.sn', def.name), h('span.sp-meta', [meta.join(', '), def.desc].filter(Boolean).join(' · ') || 'Details')),
@@ -914,7 +921,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       { id: 'hotlist', label: 'Hotlist' },
       { id: 'story', label: 'Story' },
     ].filter((x) => !(x.id === 'hotlist' && !M.rs.hotlist?.size) && !(x.id === 'gear' && !M.rs.slots.length) && !(x.id === 'spells' && !M.lib.spell.length && !s.spells?.length));
-    const extra = extraTabs() || [];
+    const extra = gm ? extraTabs() || [] : [];
     const all = [...t, ...extra];
     if (!ui.tab || !all.some((x) => x.id === ui.tab)) ui.tab = all[0]?.id;
     const panel = (() => {
@@ -930,7 +937,11 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       }
     })();
     return h('section.sh-tabs',
-      tabBar(all, ui.tab, (id) => { ui.tab = id; draw(true); try { sessionStorage.setItem(`system.sheetTab.${mode}`, id); } catch {} }, { label: 'Sheet sections' }),
+      tabBar(all, ui.tab, (id) => {
+        if (gm) { ui.tab = id; try { sessionStorage.setItem(`system.sheetTab.${mode}`, id); } catch { /* storage unavailable */ } }
+        else chooseSheetSection(id);
+        draw(true);
+      }, { label: 'Sheet sections' }),
       h('div.tab-panel', { role: 'tabpanel', class: `tab-panel tp-${ui.tab}` }, panel),
     );
   }
@@ -970,7 +981,10 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         }, h('img', { src: art.still || art.src, alt: '', loading: 'lazy', decoding: 'async' }), h('span', label));
       }));
     };
-    const initial = families.find(([, entries]) => Object.values(entries).some((art) => art.src === M.sheet.portrait))?.[0] ?? families[0]?.[0];
+    const selectedFamily = families.find(([, entries]) => Object.values(entries).some((art) => art.src === M.sheet.portrait));
+    const race = M.sheet.identity?.race?.split(':').at(-1)?.trim().toLowerCase();
+    const speciesFamily = M.sheet.species && families.find(([id]) => id === race);
+    const initial = (selectedFamily || speciesFamily || families[0])?.[0];
     if (initial) showFamily(initial);
     openDrawer({
       title: 'Character picture',
@@ -1230,12 +1244,12 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     );
   }
   function openSecondary(tab) {
-    const dlg = openDrawer({ title: tab.label, body: tab.render(), onClose: () => draw(true) });
-    dlg.dataset.phoneNavigation = 'true';
+    const dlg = openDrawer({ title: tab.label, body: tab.render(), wide: tab.id === 'maps', onClose: () => draw(true) });
+    dlg.dataset.playerNavigation = 'true';
   }
 
-  function phoneMore() {
-    const extra = (extraTabs() || []).filter((t) => !t.phonePage);
+  function playerMore() {
+    const extra = (extraTabs() || []).filter((t) => !t.primaryPage);
     const row = (ic, label, sub, badge, fn) => h('li', h('button.more-row', { type: 'button', onclick: fn }, icon(ic, { size: 20 }), h('span', h('b', label), sub ? h('small', sub) : null), badge ? h('span.ph-badge.inline', String(badge)) : icon('chevron', { size: 16 })));
     const canEdit = gm || can('story');
     return h('section.ph-view-more', { 'aria-label': 'More' }, h('h2', 'More'), h('ul.more-list',
@@ -1247,7 +1261,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         x.onClick();
         if (x.navigationDrawer) {
           const dlg = document.querySelector('dialog.drawer[open]');
-          if (dlg) dlg.dataset.phoneNavigation = 'true';
+          if (dlg) dlg.dataset.playerNavigation = 'true';
         }
       })),
     ));
@@ -1295,21 +1309,21 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       default: return skillsPanel();
     }
   }
+  function playerPage(tabs) {
+    root.style.removeProperty('--ph-top-h');
+    if (ui.page === 'more') return h('div.ph-app-page', playerMore());
+    const tab = tabs.find((t) => t.primaryPage && t.id === ui.page);
+    const cls = ui.page === 'combat' ? 'ph-view-combat tp-combat' : 'ph-view-messages tp-msg';
+    return h('div.ph-app-page', { class: `ph-app-page ${cls}` }, tab?.render());
+  }
+
   function phoneBody() {
-    if (ui.page !== 'sheet') {
-      root.style.removeProperty('--ph-top-h');
-      if (ui.page === 'more') return [h('div.ph-app-page', phoneMore())];
-      const tab = (extraTabs() || []).find((t) => t.phonePage && t.id === ui.page);
-      const cls = ui.page === 'combat' ? 'ph-view-combat tp-combat' : 'ph-view-messages tp-msg';
-      return [h('div.ph-app-page', { class: `ph-app-page ${cls}` }, tab?.render())];
-    }
     const list = phoneSections();
     if (!list.some((t) => t.id === ui.ptab)) ui.ptab = 'skills';
     const nav = h('nav.ph-secs', { 'aria-label': 'Sheet sections' }, list.map((t) => h('button', {
       type: 'button', 'aria-current': ui.ptab === t.id ? 'page' : null, 'data-sec': t.id,
       onclick: () => {
-        ui.ptab = t.id;
-        try { sessionStorage.setItem(`system.sheetPhoneTab.${mode}`, t.id); } catch {}
+        chooseSheetSection(t.id);
         // Keep the tab bar where it is; when scrolled into a long section, jump to the new section's top.
         const info = root.querySelector('.ph-info');
         const topH = root.querySelector('.ph-top')?.offsetHeight || 0;
@@ -1328,9 +1342,9 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return [phoneTop(), phoneInfo(), nav, h('div.ph-panel.tab-panel', { class: `ph-panel tab-panel tp-${ui.ptab}` }, phoneSection(ui.ptab))];
   }
 
-  function updatePhoneNav(ph, tabs) {
-    phoneNav.hidden = !ph;
-    if (!ph) return;
+  function updatePlayerNav(tabs) {
+    playerNav.hidden = gm;
+    if (gm) return;
     for (const [id, { button, badge }] of dock) {
       if (ui.page === id) button.setAttribute('aria-current', 'page');
       else button.removeAttribute('aria-current');
@@ -1344,29 +1358,38 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     }
   }
 
+  function chooseSheetSection(id) {
+    const phoneSection = { attacks: 'actions', gear: 'inventory', hotlist: 'inventory', story: 'background' }[id] || id;
+    const desktopSection = { actions: 'attacks', background: 'story', features: 'story', notes: 'story', prof: 'skills' }[id] || id;
+    const changed = phone() ? ui.ptab !== phoneSection : ui.tab !== desktopSection;
+    ui.ptab = phoneSection;
+    ui.tab = desktopSection;
+    try {
+      sessionStorage.setItem(`system.sheetPhoneTab.${mode}`, phoneSection);
+      sessionStorage.setItem(`system.sheetTab.${mode}`, desktopSection);
+    } catch { /* storage unavailable */ }
+    return changed;
+  }
+
   function setTab(id) {
-    if (!phone()) { ui.tab = id === 'sheet' ? null : id; draw(true); return; }
+    if (gm) { ui.tab = id; draw(true); return; }
     hideWhy();
     const extra = (extraTabs() || []).find((t) => t.id === id);
-    if (extra && !extra.phonePage) { openSecondary(extra); return; }
+    if (extra && !extra.primaryPage) { openSecondary(extra); return; }
     const isPage = dock.has(id);
     const before = ui.page;
     const page = isPage ? id : 'sheet';
-    const section = { attacks: 'actions', gear: 'inventory', hotlist: 'inventory', story: 'background' }[id] || id;
-    const changedSection = !isPage && ui.ptab !== section;
-    if (!isPage) {
-      ui.ptab = section;
-      try { sessionStorage.setItem(`system.sheetPhoneTab.${mode}`, section); } catch { /* storage unavailable */ }
-    }
+    const ph = phone();
+    const changedSection = !isPage && chooseSheetSection(id);
     ui.page = page;
     if (before !== page || changedSection) draw(true);
-    if (before !== page) onPhonePage?.(page);
+    if (before !== page) onPlayerPage?.(page);
     if (isPage) window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
-    else {
+    else if (ph) {
       const info = root.querySelector('.ph-info');
       const top = root.querySelector('.ph-top')?.offsetHeight || 0;
       if (info) window.scrollTo({ top: Math.max(0, window.scrollY + info.getBoundingClientRect().bottom - top), behavior: 'auto' });
-    }
+    } else root.querySelector('.sh-tabs')?.scrollIntoView({ block: 'nearest', behavior: 'auto' });
   }
 
   /* ---------- assemble ---------- */
@@ -1376,7 +1399,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     M = sheetModel(view, player);
     const ph = !!phone();
     const extras = extraTabs() || [];
-    updatePhoneNav(ph, extras);
+    updatePlayerNav(extras);
     const s = JSON.stringify([player, view.library ? 1 : 0, view.session?.permissions, ui, view.pack?.ruleset?.id, M.lib.item.length, M.lib.spell.length, extras.map((x) => [x.id, x.badge, x.sig]), ph, top ? view.audience?.viewers : 0]);
     if (!force && s === sig) return;
     const ae = document.activeElement;
@@ -1387,8 +1410,8 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     root.classList.toggle('editing', ui.editing);
     root.classList.toggle('legacy', M.rs.legacy);
     root.classList.toggle('phone', ph);
-    if (ph) {
-      root.replaceChildren(...phoneBody());
+    if ((!gm && ui.page !== 'sheet') || ph) {
+      root.replaceChildren(...(!gm && ui.page !== 'sheet' ? [playerPage(extras)] : phoneBody()));
       if (ui.drawer?.kind === 'item') itemDrawer(ui.drawer.uid);
       return;
     }
@@ -1416,7 +1439,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
 
   return {
     el: root,
-    phoneNav,
+    playerNav,
     update(v, p) {
       const switched = player && p && player.id !== p.id;
       view = v; player = p;
@@ -1426,7 +1449,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     redraw: () => draw(true),
     model: () => M,
     setTab,
-    currentPage: () => phone() ? ui.page : ui.tab,
+    currentPage: () => gm ? ui.tab : ui.page,
     setEditing(on) { ui.editing = !!on; draw(true); },
     castReadySpell(uid) {
       const spell = M.sheet.spells.find((s) => s.uid === uid);

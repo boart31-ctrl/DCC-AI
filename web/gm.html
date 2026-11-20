@@ -43,6 +43,7 @@
       <span class="ai-mute-i" aria-hidden="true"></span><span class="ai-mute-l">AI</span><span class="ai-mute-s">On</span>
     </button>
     <button class="btn btn-quiet btn-sm" id="log-toggle" type="button" aria-controls="gm-log" aria-expanded="true" title="Dice log: every roll this session">Dice log</button>
+    <button class="btn btn-sm" id="level-clock-toggle" type="button" hidden></button>
     <button class="icon-btn" id="theme-btn" type="button" aria-label="Switch theme (dark, light, neon)"></button>
     <button class="btn btn-sm hold-btn" id="hold" type="button" aria-pressed="false" title="Panic: freeze the TV on a stand-by card, stop all sound, pause the countdown, AUTO off (Shift+Esc). Press again to go back.">Hold</button>
     <button class="btn btn-danger stop" id="stop" type="button" title="Stop all audio and clear the queue (Esc)">Stop <kbd>Esc</kbd></button>
@@ -197,6 +198,11 @@
         <div class="view-head"><h1>Settings</h1></div>
         <div class="settings-grid">
           <section class="panel camp-panel" id="campaigns" aria-label="Campaign and backup"></section>
+          <section class="panel" id="level-clock-settings" hidden>
+            <h2>Level-up clock</h2>
+            <p class="dim" id="level-clock-detail"></p>
+            <button class="btn btn-sm" type="button" id="level-clock-reset">Reset play clock</button>
+          </section>
           <section class="panel" id="hud-settings">
             <h2>On the TV</h2>
             <p class="dim">Extras in the broadcast. Turn off what your table does not use.</p>

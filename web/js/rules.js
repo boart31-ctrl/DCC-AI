@@ -550,7 +550,7 @@ export function computeSheet(rs, sheet, lib = {}, { level } = {}) {
   }
   if (rs.statMod?.verify) warnings.push({ kind: 'unverified', target: 'statMod', msg: 'Stat modifier formula not checked against the rulebook' });
   for (const d of rs.derived) if (d.verify) warnings.push({ kind: 'unverified', target: `derived.${d.id}`, msg: d.note || `${d.label} formula not checked` });
-  if (rs.skills.rankUp?.note) warnings.push({ kind: 'unverified', target: 'skills.rankUp', msg: rs.skills.rankUp.note });
+  if (rs.skills.rankUp?.verify) warnings.push({ kind: 'unverified', target: 'skills.rankUp', msg: rs.skills.rankUp.note || 'Rank-up rule not checked against the rulebook' });
   return out;
 }
 

@@ -131,6 +131,7 @@ export function migrateSheet(sheet, legacy, ruleset) {
     originsLocked: !!s.originsLocked,
     // Guided creation finished (server/creation.js): the phone stops offering the creator.
     ...(s.created ? { created: true } : {}),
+    ...(typeof s.starterSpell === 'string' && safeKey(s.starterSpell) ? { starterSpell: s.starterSpell } : {}),
     // Library skills tried untrained this session (ruleset skills.untrained.learn: one becomes Rank 1).
     untried: (Array.isArray(s.untried) ? s.untried : []).filter((x) => typeof x === 'string' && x.length <= 80).slice(-MAX_UNTRIED),
     ...(typeof s.species === 'string' && /^[a-z0-9_-]{1,30}$/.test(s.species) ? { species: s.species } : {}),
@@ -258,6 +259,7 @@ export function characterOf(p, ruleset) {
     originsLocked: !!sh.originsLocked,
     gearRequest: sh.gearRequest ?? [],
     created: !!sh.created,
+    ...(sh.starterSpell ? { starterSpell: sh.starterSpell } : {}),
     species: sh.species ?? null,
     untried: sh.untried ?? [],
   };
@@ -271,6 +273,48 @@ export function computeFor(p, pack, library) {
 export function markUntrainedSkill(p, untrained, floor, skillId) {
   if (!untrained?.learn || (untrained.learnMaxFloor && floor > untrained.learnMaxFloor)) return;
   p.sheet.untried = [...new Set([...(p.sheet.untried ?? []), skillId])].slice(-MAX_UNTRIED);
+}
+
+export function learnPracticedSkill(st, p, skillId, ctx, out, { allowKnown = false } = {}) {
+  const def = libraryOf(st, ctx.pack).get('skill', skillId);
+  if (!def) throw notFound(`unknown skill ${skillId}`);
+  const known = p.sheet.skills.some((x) => x.skillId === def.id);
+  if (known && !allowKnown) throw bad(`${p.name} already has ${def.name}`);
+  if (p.sheet.skills.length >= MAX_SKILLS) throw bad(`max ${MAX_SKILLS} skills`);
+  const rs = ctx.pack.ruleset;
+  if (!known) p.sheet.skills.push({ uid: ctx.genId('s'), skillId: def.id, name: def.name, stat: rs.stats.some((x) => x.id === def.stat) ? def.stat : '', checkType: def.checkType || rs.skills.checkTypes[0], rank: 1, notes: '', used: false });
+  out.emit({ kind: 'untrained.learn', playerId: p.id, skill: def.name }, 'all');
+  return def.name;
+}
+
+export function rankUpEntries(p, rs, library) {
+  const skills = p.sheet.skills.map((s) => ({ s, name: s.name, max: rs.skills.rankMax, key: 'skillUid' }));
+  if (rs.spells.attackChecks) for (const s of p.sheet.spells) {
+    const def = library.get('spell', s.spellId);
+    if (def?.attackCheck) skills.push({ s, name: def.name, max: Math.min(rs.skills.rankMax, def.rankMax ?? Infinity), key: 'spellUid' });
+  }
+  return skills;
+}
+
+export function rollSkillRankUp(st, p, entry, ctx, out, { entered, clearUsed = true } = {}) {
+  const rs = ctx.pack.ruleset;
+  const rule = rs.skills.rankUp;
+  const library = libraryOf(st, ctx.pack);
+  const { s, name, max, key } = entry;
+  const { ch, computed } = computeFor(p, ctx.pack, library);
+  const resolve = sheetResolver(computed, ch, rs, { rank: { value: s.rank, label: `${name} rank` } });
+  const target = typeof rule.target === 'number' ? rule.target : evaluate(rule.target, resolve).value;
+  const r = doRoll(rule.roll, resolve, entered == null ? ctx : { ...ctx, dieInt: () => entered - 1 });
+  const ok = rule.rule === 'gt' ? r.total > target : rule.rule === 'gte' ? r.total >= target : rule.rule === 'lt' ? r.total < target : r.total <= target;
+  const from = s.rank;
+  const to = ok && from < max ? Math.min(max, from + (rule.amount ?? 1)) : from;
+  s.rank = to;
+  if (clearUsed) s.used = false;
+  const rec = rollRecord(r, { ctx, p, by: ctx.actor.role === 'player' ? p.id : 'gm', label: `Rank-up: ${name}`, formula: rule.roll, secret: false, what: 'rankUp' });
+  rec.rankUp = { [key]: s.uid, name, rule: rule.rule, target, success: ok, from, to };
+  if (rule.verify) rec.breakdown.warnings.push({ kind: 'unverified', path: 'skills.rankUp', note: rule.note ?? 'not verified against the rulebook' });
+  pushRoll(st, rec, out, ctx);
+  return { playerId: p.id, uid: s.uid, name, roll: r.total, target, success: ok, from, to, rollId: rec.id };
 }
 
 /** Library items tagged "container" (bag of holding, backpack…) can hold other inventory entries. */
@@ -337,9 +381,15 @@ export function playerLibrary(state, pack, library, p) {
       const def = library.get('spell', s.spellId);
       if (def?.applies) add('buff', def.applies);
     }
+    if (p.sheet.starterSpell) add('spell', p.sheet.starterSpell);
     for (const b of p.sheet.buffs) if (b.buffId) add('buff', b.buffId);
     // Guided creation not finished: the plain starting things to pick from (no treasure, no weapons).
     if (pack.ruleset.creation && !p.sheet.created) for (const e of library.list('item')) if (out.item.length < 250 && isStarterItem(e)) add('item', e.id);
+    if (pack.ruleset.creation?.spellChoice && !p.sheet.created) {
+      const { choices, item } = pack.ruleset.creation.spellChoice;
+      for (const id of choices) add('spell', id);
+      add('item', item);
+    }
   }
   return out;
 }
@@ -708,6 +758,7 @@ function adjustActionReceipt(st, rec, delta) {
   const left = rx.acts[r.uid] + delta;
   if (left < 0) throw bad('no action left to restore this attack');
   rx.acts[r.uid] = left;
+  return true;
 }
 
 function adjustEvadeAdvantage(st, rec, restore) {
@@ -755,7 +806,7 @@ export function voidRoll(st, ctx, out, rec, by) {
   if (rec.what === 'attack' && rec.part === 'hit' && st.rolls.some((v) => v.weaponHitId === rec.id && !v.void)) {
     throw bad('undo the weapon damage before undoing the attack');
   }
-  adjustActionReceipt(st, rec, 1);
+  const refunded = adjustActionReceipt(st, rec, 1);
   adjustEvadeAdvantage(st, rec, true);
   adjustSpellPayment(st, ctx, out, rec, true);
   rec.void = { by, at: ctx.now };
@@ -782,6 +833,7 @@ export function voidRoll(st, ctx, out, rec, by) {
   st.rollRedo = [...(st.rollRedo ?? []).filter((id) => id !== rec.id), rec.id].slice(-MAX_UNDO);
   st.rollUndo = (st.rollUndo ?? []).filter((id) => id !== rec.id);
   out.emit({ kind: 'roll.void', id: rec.id, playerId: rec.playerId, label: rec.label }, 'all');
+  return refunded;
 }
 
 function unvoidRoll(st, ctx, out, rec) {
@@ -1043,18 +1095,12 @@ export const SHEET = {
     const p = targetOf(st, a, ctx, 'play');
     const unt = ctx.pack.ruleset.skills?.untrained;
     if (!unt?.learn) throw bad('this game does not teach untrained skills');
+    if (ctx.pack.ruleset.advancement && ctx.actor.role === 'player') throw bad('the GM must award a play milestone before you can learn a practiced skill in Level up');
     if (unt.learnMaxFloor && floorOfState(st) > unt.learnMaxFloor) throw bad(`untrained skills are learned only up to floor ${unt.learnMaxFloor}`);
     if (!(p.sheet.untried ?? []).includes(a.skillId)) throw bad('not tried untrained this session');
-    const def = libraryOf(st, ctx.pack).get('skill', a.skillId);
-    if (!def) throw notFound(`unknown skill ${a.skillId}`);
-    if (p.sheet.skills.length >= MAX_SKILLS) throw bad(`max ${MAX_SKILLS} skills`);
-    if (!p.sheet.skills.some((x) => x.skillId === def.id)) {
-      const rs = ctx.pack.ruleset;
-      p.sheet.skills.push({ uid: ctx.genId('s'), skillId: def.id, name: def.name, stat: rs.stats.some((x) => x.id === def.stat) ? def.stat : '', checkType: def.checkType || rs.skills.checkTypes[0], rank: 1, notes: '', used: false });
-    }
+    const name = learnPracticedSkill(st, p, a.skillId, ctx, out, { allowKnown: true });
     p.sheet.untried = [];
-    out.result = { name: def.name };
-    out.emit({ kind: 'untrained.learn', playerId: p.id, skill: def.name }, 'all');
+    out.result = { name };
   },
 
   'skill.update'(st, a, ctx) {
@@ -1146,6 +1192,10 @@ export const SHEET = {
       if (!rs.tracks.some((t) => t.id === def.healing.track)) throw bad('this spell has no health track');
       if (st.combat?.combatants.some((c) => c.playerId === healTarget.id && c.dead)) throw bad('that crawler is already dead');
       requireStatusAllowed(st, ctx, healTarget, 'heal');
+      if (st.combat?.active && rs.combat.flow === 'reaction') {
+        const health = (healTarget.id === p.id ? computed : computeFor(healTarget, ctx.pack, library).computed).tracks[def.healing.track];
+        if (health.cur >= health.max) throw bad('that crawler’s health is already full');
+      }
     }
     const { cost, track, cur } = payForSpell(st, p, library, computed, s, ctx, out);
     let applied = null;
@@ -1301,23 +1351,25 @@ export const SHEET = {
     if (rec.intervened) throw bad('someone already intervened');
     if (rec.what === 'stat') throw bad('no help on stat checks');
     if (ctx.now - rec.at > 10 * 60_000) throw bad('too late');
+    const d6 = a.entered === undefined ? (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(6) + 1 : int(a.entered, 'entered', 1, 6);
     const rx = st.combat?.active ? st.combat.rx : null;
+    let receipt;
     if (rx && me) {
       const cb = (st.combat.combatants ?? []).find((x) => x.type === 'crawler' && (x.playerId === me.id || x.uid === me.id));
-      if (!cb || cb.dead || cb.dying != null) throw bad('that crawler cannot act');
+      if (!cb || cb.hp <= 0 || cb.dead || cb.dying != null) throw bad('that crawler cannot act');
       if (rx.step !== 'react' && rx.step !== 'act') throw bad('you cannot intervene in this phase');
       requireStatusAllowed(st, ctx, me, 'interrupt');
       const reserved = rx.intervene?.indexOf(cb.uid) ?? -1;
       if (reserved >= 0) rx.intervene.splice(reserved, 1);
       else ctx.h.spendReactionAction(rx, cb.uid);
+      receipt = { spent: reserved < 0 ? 1 : 0, actionsLeft: rx.acts[cb.uid], utilityLeft: rx.nonAttackActions?.[cb.uid] ?? 0 };
     }
-    const d6 = a.entered === undefined ? (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(6) + 1 : int(a.entered, 'entered', 1, 6);
     rec.total += d6;
     rec.intervened = { by: me?.id ?? 'gm', name: me?.name ?? 'GM', d6 };
     rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown?.parts ?? []), { label: `Intervene (${me?.name ?? 'GM'})`, value: d6, source: 'intervene' }] };
     rescore(st, ctx, rec);
     out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: rec.playerId, why: 'intervene', by: me?.name ?? 'GM', d6, hit: !!rec.vs.hit }, 'all');
-    out.result = { d6, total: rec.total, hit: !!rec.vs.hit };
+    out.result = { d6, total: rec.total, hit: !!rec.vs.hit, ...(receipt ? { receipt } : {}) };
   },
 
   'hotlist.set'(st, a, ctx) {
@@ -1520,8 +1572,13 @@ export const SHEET = {
     const rec = [...(st.rolls ?? [])].reverse().find((r) => r.playerId === p.id && !r.void && !r.auto);
     if (!rec) throw notFound('no roll to take back');
     if (ctx.actor.role === 'player' && ctx.now - rec.at > 120_000) throw bad('too late to take it back, ask the GM');
-    voidRoll(st, ctx, out, rec, ctx.actor.role === 'gm' ? 'gm' : p.id);
+    const refunded = voidRoll(st, ctx, out, rec, ctx.actor.role === 'gm' ? 'gm' : p.id);
     out.result = { voided: rec.id };
+    if (refunded) {
+      const { rx } = st.combat;
+      const { uid } = rec.actionReceipt;
+      out.result.receipt = { spent: 0, refunded: 1, actionsLeft: rx.acts[uid], utilityLeft: rx.nonAttackActions?.[uid] ?? 0 };
+    }
   },
 };
 
@@ -1678,30 +1735,10 @@ export const SHEET_GM = {
     const library = libraryOf(st, ctx.pack);
     const results = [];
     for (const p of players) {
-      const advancing = p.sheet.skills.filter((s) => s.used)
-        .map((s) => ({ s, name: s.name, max: rs.skills.rankMax, key: 'skillUid' }));
-      if (rs.spells.attackChecks) for (const s of p.sheet.spells) {
-        if (!s.used) continue;
-        const def = library.get('spell', s.spellId);
-        if (!def?.attackCheck) continue;
-        advancing.push({ s, name: def.name, max: Math.min(rs.skills.rankMax, def.rankMax ?? Infinity), key: 'spellUid' });
-      }
-      for (const { s, name, max, key } of advancing) {
-        if (rule.sessionMaxRank != null && (s.rank > rule.sessionMaxRank) !== (when === 'floor')) continue;
-        const { ch, computed } = computeFor(p, ctx.pack, library);
-        const resolve = sheetResolver(computed, ch, rs, { rank: { value: s.rank, label: `${name} rank` } });
-        const target = typeof rule.target === 'number' ? rule.target : evaluate(rule.target, resolve).value;
-        const r = doRoll(rule.roll, resolve, ctx);
-        const ok = rule.rule === 'gt' ? r.total > target : rule.rule === 'gte' ? r.total >= target : rule.rule === 'lt' ? r.total < target : r.total <= target;
-        const from = s.rank;
-        const to = ok && from < max ? Math.min(max, from + (rule.amount ?? 1)) : from;
-        s.rank = to;
-        s.used = false;
-        const rec = rollRecord(r, { ctx, p, by: 'gm', label: `Rank-up: ${name}`, formula: rule.roll, secret: false, what: 'rankUp' });
-        rec.rankUp = { [key]: s.uid, name, rule: rule.rule, target, success: ok, from, to };
-        if (rule.verify) rec.breakdown.warnings.push({ kind: 'unverified', path: 'skills.rankUp', note: rule.note ?? 'not verified against the rulebook' });
-        pushRoll(st, rec, out, ctx);
-        results.push({ playerId: p.id, uid: s.uid, name, roll: r.total, target, success: ok, from, to, rollId: rec.id });
+      for (const entry of rankUpEntries(p, rs, library)) {
+        const s = entry.s;
+        if (!s.used || (rule.sessionMaxRank != null && (s.rank > rule.sessionMaxRank) !== (when === 'floor'))) continue;
+        results.push(rollSkillRankUp(st, p, entry, ctx, out));
       }
     }
     out.result = { results };

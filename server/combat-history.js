@@ -145,6 +145,10 @@ export function recordCombatHistory(before, st, action, out, ctx) {
     const pid = action.role === 'player' ? ctx.actor.playerId : member(action.uid);
     put(pid, `action:${ctx.genId('ch')}`, { kind: 'action', label: 'Spent Favor', detail: 'Gained a non-attack action' });
   }
+  if (['rx.intervene', 'roll.intervene'].includes(action.t) && action.role === 'player' && out.result?.receipt) {
+    const { d6 } = out.result;
+    put(ctx.actor.playerId, `action:${ctx.genId('ch')}`, { kind: 'action', label: 'Helped an ally', detail: `Added ${d6} to their roll`, die: d6 });
+  }
 
   const startHp = new Map(before.players.map((p) => [p.id, p.sheet?.tracks?.[track?.id]?.cur]));
   const seenRolls = new Set();
