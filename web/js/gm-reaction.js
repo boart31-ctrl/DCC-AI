@@ -7,12 +7,19 @@ import { h, ask } from './client.js';
 import { icon, openDrawer, select } from './ui.js';
 
 const STEP_LABEL = { declare: '1 Declare', react: '2 React', resolve: '3 Damage', act: '4 Crawlers act', cleanup: '5 Clean up' };
-const NEXT = {
-  declare: { to: 'react', label: 'Announce attacks', hint: 'Phones and TV show who is attacked; crawlers choose Evade, Take the hit, Taunt…' },
-  react: { to: 'resolve', label: 'Resolve damage', hint: 'Open damage review for the announced attacks' },
-  resolve: { to: 'act', label: 'Crawlers act', hint: 'Remaining actions: attacks go through the sheet rolls' },
-  act: { round: true, label: 'Next round', hint: 'Actions reset, mobs declare again' },
-  cleanup: { round: true, label: 'Next round', hint: '' },
+const EMPTY_ACTION = {
+  'add-crawlers': ['Add crawler', 'addCrawlers'],
+  'add-mobs': ['Add mobs', 'addMobs'],
+  'add-attacks': ['Choose a mob with attacks', 'addAttacks'],
+  'end-combat': ['End combat', 'endCombat'],
+  'review-targets': ['Review targets', 'reviewTargets'],
+  'review-conditions': ['Review conditions', 'reviewConditions'],
+};
+const EMPTY_HINT = {
+  'add-crawlers': 'Add a crawler before choosing targets.',
+  'add-mobs': 'No mobs are in the fight. Add mobs or choose a saved encounter.',
+  'add-attacks': 'No standing mob has a recorded attack. Choose a mob with attacks or let the crawlers act.',
+  'end-combat': 'No standing combatants remain on one side.',
 };
 const RESULT = { evaded: 'Evaded', half: 'Half damage', hit: 'Hit', skipped: 'Skipped' };
 const DANGER = { dying: 'Dying', dead: 'Dead', down: 'Down' };
@@ -59,7 +66,7 @@ function damagePreview({ pending: hit, act, targets, targetChoice }) {
       h('span.grow'),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Recalculate against current health and defences', onclick: () => act({ t: 'rx.resolveNext', op: 'preview' }) }, 'Refresh preview'),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'rx.resolveNext', op: 'skip', token: hit.token }) }, 'Skip attack'),
-      h(`button.btn.${hit.danger ? 'btn-danger' : 'btn-primary'}`, { type: 'button', onclick: apply }, 'Apply hit')));
+      h(`button.btn.rx-primary.${hit.danger ? 'btn-danger' : 'btn-primary'}`, { type: 'button', onclick: apply }, 'Apply hit')));
 }
 
 function batchPreview(batch, act) {
@@ -79,10 +86,10 @@ function batchPreview(batch, act) {
       h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'rx.resolveNext', op: 'preview' }) }, 'Review one at a time'),
       h('span.grow'),
       h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Recalculate against current health and defences', onclick: () => act({ t: 'rx.resolveNext', op: 'preview', all: true }) }, 'Refresh preview'),
-      h(`button.btn.${lines.length ? 'btn-danger' : 'btn-primary'}`, { type: 'button', onclick: apply }, 'Apply all')));
+      h(`button.btn.rx-primary.${lines.length ? 'btn-danger' : 'btn-primary'}`, { type: 'button', onclick: apply }, 'Apply all')));
 }
 
-export function rxPanel({ act, view, draft }) {
+export function rxPanel({ act, view, draft, guide = {} }) {
   const c = view?.combat;
   if (!c?.active) return null;
   const family = view?.pack?.ruleset?.system?.family || 'crawler';
@@ -90,7 +97,7 @@ export function rxPanel({ act, view, draft }) {
   if (!rx) {
     if (family !== 'crawler' || view?.pack?.ruleset?.combat?.flow !== 'reaction') return null;
     return h('section.panel.rx', h('div.sec-head', h('h2', 'Rounds'), h('span.dim', 'The GM never rolls a d20: mobs declare, crawlers react')),
-      h('button.btn.btn-primary', { type: 'button', onclick: () => act({ t: 'rx.start' }, 'Round 1: declare the mob attacks.') }, 'Start round 1'));
+      h('button.btn.btn-primary.rx-primary', { type: 'button', onclick: () => act({ t: 'rx.start' }, 'Round 1: declare the mob attacks.') }, 'Start round 1'));
   }
   const byUid = new Map(c.combatants.map((x) => [x.uid, x]));
   const players = new Map((view.players || []).map((p) => [p.id, p]));
@@ -99,26 +106,81 @@ export function rxPanel({ act, view, draft }) {
   const nameOf = (uid) => { const x = byUid.get(uid); return x ? (x.type === 'mob' ? x.name : players.get(x.playerId)?.name || x.name || '?') : '?'; };
   const targetChoice = (x) => ({ value: x.uid, label: `${nameOf(x.uid)}${x.dying != null ? ' (dying)' : ''}` });
   const missingEvades = rx.decls.filter((d) => d.canEvade && !d.evade);
-  const mobs = c.combatants.filter((x) => x.type === 'mob' && !x.down && (x.attacks || []).length);
-  const next = NEXT[rx.step];
+  const mobRows = c.combatants.filter((x) => x.type === 'mob');
+  const standingMobs = mobRows.filter((x) => !x.down);
+  const mobs = standingMobs.filter((x) => x.attacks?.length);
   const hasFavor = view.pack?.ruleset?.fields.some((f) => f.id === 'aiFavor');
-  const remaining = rx.step === 'resolve' ? rx.decls.filter((d) => !d.result).length : 0;
+  const remaining = rx.decls.filter((d) => !d.result).length;
+  const declared = rx.decls.length;
+  const hiddenQueued = rx.decls.filter((d) => byUid.get(d.mobUid)?.hidden).length;
+  const stillStanding = targets.some((x) => !x.down && x.dying == null);
+  const suggestion = rx.suggestion;
+  const status = h('p.dim.rx-status', { role: 'status' });
 
   const steps = h('ol.rx-steps', rx.steps.map((s) => h('li', { class: s === rx.step ? 'on' : '', 'aria-current': s === rx.step ? 'step' : null }, STEP_LABEL[s])));
-  const announceLabel = rx.decls.length ? `Announce attacks (${rx.decls.length})` : 'No mob attacks';
-  const nextBtn = h('button.btn.btn-primary', {
-    type: 'button', title: next.hint,
-    onclick: async () => {
-      if (next.round) return act({ t: 'rx.round' }, `Round ${rx.round + 1}.`);
-      if (next.to === 'resolve' && missingEvades.length) {
-        const names = [...new Set(missingEvades.map((d) => nameOf(d.targetUid)))].join(', ');
-        const yes = await ask(`Still waiting for ${missingEvades.length} Evade roll${missingEvades.length === 1 ? '' : 's'} (${names}). Unresolved rolls will count as no Evade. Continue?`, { ok: 'Resolve without Evade', danger: true });
-        if (!yes) return;
-        return act({ t: 'rx.step', to: 'resolve', force: true }, 'Unresolved Evade rolls skipped by GM.');
+  const stepTo = (to, fields = {}) => act({ t: 'rx.step', to, ...fields });
+  const primary = (label, onclick, title = null) => h('button.btn.btn-primary.rx-primary', { type: 'button', onclick, title }, label);
+  const suggest = async (e) => {
+    const button = e.currentTarget;
+    button.disabled = true;
+    try {
+      const r = await act({ t: 'rx.suggest' });
+      if (r?.result?.message) status.textContent = r.result.message;
+    } finally { button.disabled = false; }
+  };
+  const preview = async (e, all = false) => {
+    const button = e.currentTarget;
+    button.disabled = true;
+    try {
+      if (rx.step === 'react') {
+        if (missingEvades.length) {
+          const names = [...new Set(missingEvades.map((d) => nameOf(d.targetUid)))].join(', ');
+          const yes = await ask(`Still waiting for ${missingEvades.length} Evade roll${missingEvades.length === 1 ? '' : 's'} (${names}). Continue to damage review without those rolls?`, { ok: 'Resolve without Evade', danger: true });
+          if (!yes) return;
+        }
+        if (!(await stepTo('resolve', missingEvades.length ? { force: true } : {}))) return;
       }
-      await act({ t: 'rx.step', to: next.to });
-    },
-  }, rx.step === 'declare' ? announceLabel : next.label);
+      await act({ t: 'rx.resolveNext', op: 'preview', ...(all ? { all: true } : {}) });
+    } finally { button.disabled = false; }
+  };
+  const previewBatch = () => h('button.btn.btn-sm', { type: 'button', onclick: (e) => preview(e, true) }, 'Resolve all…');
+  const secondary = [];
+  let nextBtn = null;
+  if (rx.step === 'declare') {
+    if (declared) {
+      status.textContent = hiddenQueued ? `${hiddenQueued} attack${hiddenQueued === 1 ? '' : 's'} from hidden mobs. Announcing reveals those attackers.` : 'Review the targets, then announce to notify the players.';
+      if (mobs.length && stillStanding) secondary.push(h('button.btn.btn-sm', { type: 'button', title: 'Add suggestions without replacing attacks you queued', onclick: suggest }, 'Suggest attacks'));
+      nextBtn = primary(`Announce attacks (${declared})`, () => stepTo('react'));
+    } else {
+      const fallback = !crawlers.length ? 'add-crawlers' : !stillStanding || (mobRows.length && !standingMobs.length) ? 'end-combat'
+        : !standingMobs.length ? 'add-mobs' : !mobs.length ? 'add-attacks' : 'suggest';
+      const next = EMPTY_ACTION[suggestion?.next ?? fallback];
+      status.textContent = suggestion?.message || EMPTY_HINT[fallback] || 'Queue an attack and target below, or suggest attacks to review.';
+      if (next && guide[next[1]]) nextBtn = primary(next[0], guide[next[1]]);
+      else if (mobs.length && stillStanding) nextBtn = primary('Suggest attacks', suggest);
+      if (stillStanding) secondary.push(h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => stepTo('act') }, 'Skip mob attacks'));
+    }
+    if (rx.round === 1 && !declared && !rx.surprised && stillStanding && mobs.length) secondary.unshift(h('button.btn.btn-sm.btn-quiet', {
+      type: 'button', title: 'The crawlers surprised the mobs: one free action each before round 1', onclick: () => act({ t: 'rx.surprise' }, 'Surprise round: one free action each.'),
+    }, 'Surprise'));
+  } else if (rx.step === 'react') {
+    const waiting = missingEvades.length;
+    status.textContent = waiting ? `Waiting for ${waiting} Evade roll${waiting === 1 ? '' : 's'} from phones or the dice fields below.`
+      : remaining ? 'Crawlers can react until you open damage review.' : 'No mob attacks to resolve.';
+    if (remaining > 1) secondary.push(previewBatch());
+    nextBtn = remaining ? primary('Resolve next hit', preview) : primary('Crawlers act', () => stepTo('act'));
+  } else if (rx.step === 'resolve') {
+    if (!remaining) nextBtn = primary('Crawlers act', () => stepTo('act'));
+    else if (!rx.pending && !rx.batch) {
+      if (remaining > 1) secondary.push(previewBatch());
+      nextBtn = primary('Resolve next hit', preview);
+    }
+  } else {
+    nextBtn = primary('Clean up', () => act({ t: 'rx.round', round: rx.round }, `Round ${rx.round + 1}.`), 'Apply end-of-round effects and start the next round');
+  }
+  if (rx.canUndo) secondary.unshift(h('button.btn.btn-sm.btn-quiet', {
+    type: 'button', title: 'Restore the target before the last hit (Ctrl+Z)', onclick: () => act({ t: 'rx.resolveNext', op: 'undo' }),
+  }, icon('undo', { size: 13 }), 'Undo last hit'));
 
   const pips = h('div.rx-pips', crawlers.map((x) => {
     const left = rx.acts[x.uid] ?? 2;
@@ -136,7 +198,13 @@ export function rxPanel({ act, view, draft }) {
     const attackChoices = attacks.map((a, i) => ({ value: String(i), label: a.name }));
     const planned = rx.step === 'declare';
     const dieIn = h('input.inp.inp-sm.rx-die', { type: 'number', min: 1, max: 20, placeholder: 'd20', 'aria-label': `Evade die for ${nameOf(d.targetUid)}` });
-    dieIn.addEventListener('keydown', (e) => { if (e.key === 'Enter') { const v = Number(dieIn.value); if (v >= 1 && v <= 20) act({ t: 'rx.evade', declId: d.id, die: v }); } });
+    dieIn.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      const die = dieIn.valueAsNumber;
+      if (!Number.isInteger(die) || die < 1 || die > 20) return;
+      dieIn.blur();
+      act({ t: 'rx.evade', declId: d.id, die });
+    });
     return h('li.rx-decl', { class: d.result ? `rx-decl rx-${d.result}` : 'rx-decl' },
       h('b', d.mob),
       planned && attacks.length > 1 ? select(attackChoices, String(d.attackIndex ?? attacks.findIndex((a) => a.name === d.attack)), { cls: 'inp-sm', label: `Queued attack for ${d.mob}`, onChange: (v) => act({ t: 'rx.retarget', declId: d.id, attackIndex: Number(v) }) }) : h('span', d.attack),
@@ -178,22 +246,14 @@ export function rxPanel({ act, view, draft }) {
       queue);
   }
 
-  const waiting = rx.step === 'react' ? missingEvades.length : 0;
-  return h('section.panel.rx',
-    h('div.sec-head', h('h2', `Round ${rx.round}`), steps, h('span.grow'),
-      rx.step === 'declare' ? h('button.btn.btn-sm', { type: 'button', title: 'Mobs attack once each, spread evenly; elites and bosses attack every crawler', onclick: () => act({ t: 'rx.suggest' }, 'Attacks suggested. Change any you like.') }, icon('sparkle', { size: 13 }), 'Suggest') : null,
-      rx.step === 'declare' && rx.round === 1 && !rx.decls.length && !rx.surprised ? h('button.btn.btn-sm', { type: 'button', title: 'The crawlers surprised the mobs (Stealth / Ambush beat their Surprise): one free action each before round 1', onclick: () => act({ t: 'rx.surprise' }, 'Surprise round: one free action each.') }, 'Surprise') : null,
-      rx.canUndo ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Restore the target before the last hit (Ctrl+Z)', onclick: () => act({ t: 'rx.resolveNext', op: 'undo' }) }, icon('undo', { size: 13 }), 'Undo last hit') : null,
-      !remaining ? nextBtn : !rx.pending && !rx.batch ? [
-        remaining > 1 ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'rx.resolveNext', op: 'preview', all: true }) }, 'Resolve all…') : null,
-        h('button.btn.btn-primary', { type: 'button', onclick: () => act({ t: 'rx.resolveNext', op: 'preview' }) }, 'Resolve next hit'),
-      ] : null),
-    rx.step === 'declare' ? h('p.dim.rx-hint', 'Choose each mob’s attack and target, then announce the queue. The target rolls Evade in the next phase.') : null,
+  return h('section.panel.rx', { 'data-rx-step': rx.step },
+    h('div.sec-head', h('h2', `Round ${rx.round}`), steps,
+      secondary.length || nextBtn ? h('div.rx-phase-actions', secondary, nextBtn) : null),
+    status,
     adder,
     remaining && rx.batch ? batchPreview(rx.batch, act) : null,
     remaining && rx.pending ? damagePreview({ pending: rx.pending, act, targets, targetChoice }) : null,
     pips,
     rx.decls.length ? h('ul.rx-decls', rx.decls.map(declRow)) : null,
-    waiting ? h('p.dim', `${waiting} Evade roll${waiting === 1 ? '' : 's'} still missing (phones, or type the die above).`) : null,
     rx.log.length ? h('details.rx-log', h('summary', 'Round log'), h('ul', rx.log.slice().reverse().map((l) => h('li', l)))) : null);
 }

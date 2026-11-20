@@ -11,7 +11,7 @@ import { h, toast, ask, portraitSrc, onPortraits, itemArt } from './client.js';
 import { rxPanel } from './gm-reaction.js';
 import { pickFromLibrary } from './lib-picker.js';
 import { sheetModel, libraryOf } from './rules.js';
-import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed } from './ui.js';
+import { icon, explain, whyContent, avatar, field, select, unverifiedBadge, signed, openDrawer, closeDrawer } from './ui.js';
 import { entryArt } from './portrait.js';
 import { openArtGallery } from './art-gallery.js';
 import { statBlock, hasStatBlock } from './statblock.js';
@@ -36,7 +36,63 @@ export const OUTCOMES = [
 const MODES = [['auto', 'Auto'], ['focus', 'Focus'], ['spread', 'Spread']];
 const END_DELAY_S = 3;
 
-export function createCombat({ act, send, getView, sfx = null, openSound = null, goLive = null }) {
+function asFloor(value) {
+  const text = String(value ?? '').trim();
+  const floor = Number(/^\d{1,3}$/.test(text) ? text : text.match(/\b(?:(?:floor|patro)\s+|f)(\d{1,3})(?=\D|$)/i)?.[1]);
+  return Number.isInteger(floor) && floor > 0 ? floor : null;
+}
+
+function plannedEncounterFloors(view) {
+  const { docs = [], evenings = [] } = view?.gm?.prep ?? {};
+  const byId = new Map(docs.map((d) => [d.id, d]));
+  const all = new Map();
+  const planned = new Map();
+  function remember(floors, id, floor) {
+    if (!id || !floor) return;
+    if (!floors.has(id)) floors.set(id, new Set());
+    floors.get(id).add(floor);
+  }
+  for (const doc of docs) {
+    if (doc.type === 'adventure') {
+      const floors = [...new Set(evenings.filter((e) => e.adventureId === doc.template).map((e) => asFloor(e.floor)).filter(Boolean))];
+      const floor = floors.length === 1 ? floors[0] : floors.length ? null : asFloor(doc.title);
+      for (const id of Object.values(doc.seedRefs?.encounters ?? {})) remember(all, id, floor);
+      // Adventures installed before seedRefs used encounter references in their scene sections.
+      for (const section of doc.sections ?? []) for (const item of section.items ?? []) {
+        for (const ref of [item.ref, ...(item.links ?? [])]) if (ref?.kind === 'encounter') remember(all, ref.id, floor);
+      }
+    }
+    if (!doc.evening?.sourceKey) continue;
+    const seed = byId.get(doc.adventureId)?.template;
+    const template = evenings.find((e) => e.adventureId === seed && e.key === doc.evening.sourceKey);
+    if (template) for (const scene of doc.evening.scenes) remember(planned, scene.encounterId, asFloor(template.floor));
+  }
+  return new Map([...all, ...planned]);
+}
+
+function encounterRows(view) {
+  const lib = libraryOf(view);
+  const maps = new Map((Array.isArray(view?.maps) ? view.maps : []).map((m) => [m.id, m.name]));
+  const planned = plannedEncounterFloors(view);
+  return (view?.gm?.prepCards ?? []).filter((c) => c.kind === 'encounter').map((card) => {
+    const raw = Array.isArray(card.payload?.mobs) ? card.payload.mobs : [];
+    const mobs = raw.filter((m) => m && typeof m.sourceId === 'string').map((m) => {
+      const mob = lib[m.kind || 'monster']?.find((e) => e.id === m.sourceId);
+      return { name: mob?.name ?? m.sourceId, known: !!mob, floor: asFloor(mob?.floor), count: Number(m.count) || 1, hidden: m.hidden !== false };
+    });
+    const map = maps.get(card.payload?.mapId);
+    const explicit = asFloor(card.payload?.floor);
+    const named = asFloor(map) ?? asFloor(card.label);
+    const inferred = mobs.map((m) => m.floor).filter(Boolean);
+    const floors = explicit ? [explicit] : [...(planned.get(card.id) ?? (named ? [named] : new Set(inferred)))].sort((a, b) => a - b);
+    return { card, mobs, map, floors, count: mobs.reduce((n, m) => n + m.count, 0),
+      hidden: mobs.reduce((n, m) => m.hidden ? n + m.count : n, 0) };
+  }).sort((a, b) => a.card.label.localeCompare(b.card.label));
+}
+
+const encounterText = (text) => String(text ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
+
+export function createCombat({ act, send, getView, addPlayer = null, sfx = null, openSound = null, goLive = null }) {
   let view = null;
   let sig = '';
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
@@ -165,7 +221,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
           : c.active
           ? h('button.btn.btn-primary.cbt-next', { type: 'button', onclick: () => act({ t: 'combat.next' }), title: 'Next phase (N)' },
             last ? `Round ${c.round + 1}` : `Next: ${ph[c.phaseIndex + 1]}`, icon('chevron', { size: 15 }), h('kbd', 'N'))
-          : h('button.btn.btn-primary.cbt-next', { type: 'button', onclick: start }, icon('swords', { size: 15 }), 'Start combat'),
+          : h('button.btn.cbt-next', { type: 'button', class: view.players?.length ? 'btn btn-primary cbt-next' : 'btn btn-quiet cbt-next', onclick: start }, icon('swords', { size: 15 }), 'Start combat'),
         c.init?.on || c.phasesVerified ? null : h('span.verify', unverifiedBadge('Phase names and order are not checked against the rulebook')),
         c.init?.on ? null : h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(ui.editPhases), onclick: () => { ui.editPhases = !ui.editPhases; redraw(); } }, 'Phases')),
       c.active ? h('div.cbt-auto-bar',
@@ -175,9 +231,10 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         left > 0 ? h('button.btn.cbt-skip', { type: 'button', onclick: () => act({ t: 'combat.autoSkip' }), title: 'Jump the TV to the end of the cinematic' }, icon('skip', { size: 14 }), 'Skip') : null,
         c.lastAutoUndo ? h('button.btn.btn-quiet.cbt-undo', { type: 'button', onclick: undo, title: 'Undo the last automatic attack' }, icon('undo', { size: 14 }), 'Undo attack') : null,
         c.manualUndo ? h('button.btn.btn-sm.btn-quiet.cbt-undo-hand', { type: 'button', onclick: () => act({ t: 'combat.undo' }).then((r) => r?.result?.undone && toast(`Undone: ${r.result.undone}`)), title: `Take back: ${c.manualUndo.label} (Ctrl+Z)` }, icon('undo', { size: 14 }), `Undo: ${c.manualUndo.label}`) : null,
+        encounterButton(),
         h('span.grow'),
         hidden ? h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'combat.reveal', all: true }, `${hidden} revealed.`), title: 'Show every hidden mob on the TV and phones' }, icon('eye', { size: 14 }), `Reveal all (${hidden})`) : null,
-        endButton()) : (c.combatants.length ? h('div.cbt-auto-bar', h('span.grow'), endButton()) : null),
+        endButton()) : h('div.cbt-auto-bar', encounterButton(), c.combatants.length ? [h('span.grow'), endButton()] : null),
       c.autoPreview ? autoPreview(c.autoPreview) : null, ui.endMenu ? endMenu() : null,
     );
   }
@@ -529,7 +586,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
             h('button.icon-btn', { type: 'button', 'aria-label': `Lower ${x.name}'s aggro`, disabled: x.aggro <= 1, onclick: () => act({ t: 'combat.target', uid: x.uid, aggro: x.aggro - 1 }) }, icon('down', { size: 14 })),
             h('b.cc-aggro-n', String(x.aggro ?? 3)),
             h('button.icon-btn', { type: 'button', 'aria-label': `Raise ${x.name}'s aggro`, disabled: x.aggro >= 9, onclick: () => act({ t: 'combat.target', uid: x.uid, aggro: x.aggro + 1 }) }, icon('up', { size: 14 }))),
-          h('label.chk', { title: 'Hidden, playing dead, out of reach: mobs never pick this crawler by themselves' }, h('input', { type: 'checkbox', checked: !!x.noTarget, onchange: (e) => act({ t: 'combat.target', uid: x.uid, noTarget: e.target.checked }) }), h('span', "Don't target"))),
+          h('label.chk.cbt-target-exclusion', { title: 'Hidden, playing dead, out of reach: mobs never pick this crawler by themselves' }, h('input', { type: 'checkbox', checked: !!x.noTarget, onchange: (e) => act({ t: 'combat.target', uid: x.uid, noTarget: e.target.checked }) }), h('span', "Don't target"))),
         injuryRows(x, p?.sheet?.buffs ?? []),
         conditions(x)) : null,
     );
@@ -684,15 +741,89 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const names = mobs.map((m) => `${m.count > 1 ? `${m.count}× ` : ''}${(lib()[m.kind] || []).find((e) => e.id === m.sourceId)?.name || m.sourceId}`);
     const label = prompt('Name this encounter', names.slice(0, 2).join(' + '))?.trim();
     if (!label) return;
-    act({ t: 'enc.save', label: label.slice(0, 80), mobs, mapId: C().mapId, items: C().victoryItems ?? [] }, `Saved "${label}". Load it from Fight → Encounters.`);
+    act({ t: 'enc.save', label: label.slice(0, 80), mobs, mapId: C().mapId, items: C().victoryItems ?? [] }, `Saved "${label}". Find it under Add encounter.`);
   }
-  function encounterChips() {
-    const cards = (view?.gm?.prepCards || []).filter((c) => c.kind === 'encounter');
-    if (!cards.length) return null;
-    return h('div.cbt-encs', h('span.mini-l', 'Encounters'), cards.map((c) => h('span.cbt-enc',
-      h('button.btn.btn-sm', { type: 'button', title: (c.payload?.mobs || []).map((m) => `${m.count || 1}× ${(lib()[m.kind || 'monster'] || []).find((e) => e.id === m.sourceId)?.name || m.sourceId}`).join(', '),
-        onclick: () => act({ t: 'enc.run', id: c.id }, `${c.label}: added (hidden).`) }, icon('plus', { size: 12 }), c.label),
-      h('button.icon-btn.xs', { type: 'button', 'aria-label': `Delete encounter ${c.label}`, onclick: async () => { if (await ask(`Delete the encounter "${c.label}"?`, { ok: 'Delete', danger: true })) act({ t: 'prep.card.remove', id: c.id }); } }, icon('x', { size: 12 })))));
+
+  function encounterButton() {
+    return h('button.btn.btn-sm.btn-quiet.cbt-add-encounter', { type: 'button', onclick: openEncounters }, icon('plus', { size: 14 }), 'Add encounter…');
+  }
+
+  function openEncounters() {
+    const latest = () => getView?.() ?? view;
+    let rows = encounterRows(latest());
+    let signature = JSON.stringify(rows);
+    const removed = new Set();
+    let busy = false;
+    let drawer;
+    const search = h('input.inp', { type: 'search', 'aria-label': 'Search encounters', placeholder: 'Encounter or mob name', oninput: redraw });
+    const floor = h('select.inp', { 'aria-label': 'Encounter floor', onchange: redraw });
+    const list = h('div.cbt-encounter-results');
+    function renderFloors() {
+      const selected = floor.value;
+      const numbers = [...new Set(rows.flatMap((row) => row.floors))].sort((a, b) => a - b);
+      floor.replaceChildren(h('option', { value: '' }, 'All floors'), ...numbers.map((n) => h('option', { value: String(n) }, `Floor ${n}`)));
+      if (rows.some((row) => !row.floors.length)) floor.append(h('option', { value: 'unknown' }, 'Unspecified floor'));
+      floor.value = [...floor.options].some((o) => o.value === selected) ? selected : '';
+      redraw();
+    }
+    async function run(card) {
+      if (busy) return;
+      busy = true;
+      try {
+        const r = await act({ t: 'enc.run', id: card.id }, null);
+        if (!r) return;
+        if (drawer.isConnected) closeDrawer();
+        const count = r.result?.uids?.length ?? 0;
+        const skipped = r.result?.skipped?.length ?? 0;
+        toast(`Added ${count} mob${count === 1 ? '' : 's'} from ${card.label}${skipped ? ` · ${skipped} missing entries skipped` : ''}.`);
+      } finally { busy = false; }
+    }
+    async function remove(card) {
+      if (busy) return;
+      busy = true;
+      try {
+        const ok = await ask(`Delete the encounter "${card.label}"?`, { ok: 'Delete', danger: true });
+        if (ok && await act({ t: 'enc.remove', id: card.id }, 'Encounter deleted.')) {
+          removed.add(card.id);
+          rows = rows.filter((row) => row.card.id !== card.id);
+          signature = JSON.stringify(rows);
+          renderFloors();
+        }
+      } finally { busy = false; }
+    }
+    function redraw() {
+      const terms = encounterText(search.value).trim().split(/\s+/).filter(Boolean);
+      const matches = rows.filter((row) => {
+        const haystack = encounterText([row.card.label, row.map, ...row.mobs.map((m) => m.name)].join(' '));
+        const onFloor = !floor.value || (floor.value === 'unknown' ? !row.floors.length : row.floors.includes(Number(floor.value)));
+        return onFloor && terms.every((term) => haystack.includes(term));
+      });
+      if (!matches.length) {
+        list.replaceChildren(h('p.empty-s', rows.length ? 'No matching encounters. Try another name or floor.' : 'No saved encounters yet. Add mobs to the fight, then choose Save as encounter.'));
+        return;
+      }
+      list.replaceChildren(h('ul.cbt-encounter-list', matches.map(({ card, mobs, count, hidden, map, floors }) => {
+        const summary = [floors.length ? floors.map((n) => `Floor ${n}`).join(', ') : 'Unspecified floor', `${count} mob${count === 1 ? '' : 's'}`, `${hidden} hidden`, card.used ? 'Used' : '', map].filter(Boolean).join(' · ');
+        const roster = mobs.map((m) => `${m.count}× ${m.name}`).join(', ');
+        return h('li.cbt-encounter-entry',
+          h('div.cbt-encounter-copy', h('strong', card.label), h('span.dim', summary), roster ? h('span.dim.cbt-encounter-mobs', { title: roster }, roster) : null),
+          h('button.btn.btn-sm.btn-primary', { type: 'button', 'aria-label': `Add ${card.label}`, disabled: !mobs.some((m) => m.known), onclick: () => run(card) }, icon('plus', { size: 14 }), 'Add'),
+          h('button.icon-btn.danger', { type: 'button', 'aria-label': `Delete encounter ${card.label}`, title: `Delete encounter ${card.label}`, onclick: () => remove(card) }, icon('trash', { size: 15 })));
+      })));
+    }
+    renderFloors();
+    drawer = openDrawer({ title: 'Add encounter', body: h('div.cbt-encounter-picker', h('div.cbt-encounter-filters', search, floor), list),
+      onClose: () => { ui.refreshEncounters = null; } });
+    ui.refreshEncounters = () => {
+      if (!drawer.isConnected) { ui.refreshEncounters = null; return; }
+      const next = encounterRows(latest()).filter((row) => !removed.has(row.card.id));
+      const nextSignature = JSON.stringify(next);
+      if (signature === nextSignature) return;
+      rows = next;
+      signature = nextSignature;
+      renderFloors();
+    };
+    search.focus();
   }
 
   /* ---------- victory loot, set up before the fight ---------- */
@@ -912,6 +1043,42 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     if (again) { again.focus(); try { again.setSelectionRange(pos, pos); } catch {} }
   }
 
+  function focusFightPart(...queries) {
+    const node = queries.map((query) => el.querySelector(query)).find(Boolean);
+    if (!node) return;
+    node.scrollIntoView({ block: 'nearest' });
+    if (!node.matches('button, input, select, summary')) node.tabIndex = -1;
+    node.focus({ preventScroll: true });
+  }
+
+  function openMobBuilder(tab) {
+    if (tab) setPref('tab', tab);
+    ui.addOpen = true;
+    redraw();
+    focusFightPart('.cbt-builder input[type="search"]', '.cbt-add > summary');
+  }
+
+  const roundGuide = {
+    addMobs() { openMobBuilder(); },
+    addAttacks() { openMobBuilder('monsters'); },
+    addCrawlers() { if (!view.players?.length && addPlayer) addPlayer(); else focusFightPart('.cbt-late button', '.cbt-party-col'); },
+    endCombat() { ui.endMenu = true; ui.special = null; redraw(); focusFightPart('.cbt-endmenu button'); },
+    reviewTargets() {
+      const target = C().combatants.find((x) => x.type === 'crawler' && x.noTarget && !x.down);
+      if (!target) return focusFightPart('.cbt-party-col');
+      ui.open.add(target.uid);
+      redraw();
+      focusFightPart(`[data-uid="${CSS.escape(target.uid)}"] .cbt-target-exclusion input`);
+    },
+    reviewConditions() {
+      const mob = C().combatants.find((x) => x.type === 'mob' && !x.down && x.attacks?.length && x.conditions?.length);
+      if (!mob) return focusFightPart('.cbt-mob-col');
+      ui.open.add(mob.uid);
+      redraw();
+      focusFightPart(`[data-uid="${CSS.escape(mob.uid)}"] .cc-sub`);
+    },
+  };
+
   function draw(force = false) {
     if (!view) return;
     const c = C();
@@ -933,7 +1100,9 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
         const player = view.players?.find((x) => x.id === p.playerId);
         const sheet = view.gm?.playersFull?.find((x) => x.id === p.playerId)?.sheet;
         return h('li', avatar(p.name, { size: 32, src: player?.portrait, color: p.color }), h('div.cbt-preview-person', h('b', p.name), injuryRows(p, sheet?.buffs ?? [])));
-      })) : crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('p.empty-s', 'No crawlers in the fight.'),
+      })) : crawlers.length ? h('ul.cbt-list', crawlers.map(crawlerCard)) : h('div.empty-s',
+        view.players?.length ? 'Choose a crawler below to join the fight.' : 'Add the first crawler to show the party here.',
+        !c.active && !view.players?.length && addPlayer ? h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: addPlayer }, icon('plus', { size: 14 }), 'Add crawler') : null),
       lateJoin(c, crawlers)),
       h('section.cbt-mob-col',
       h('div.sec-head.cbt-mobs-head', h('h2', 'Mobs'), h('span.dim', mobs.length ? `${living.length} standing${hiddenN ? `, ${hiddenN} hidden` : ''}` : ''), strength, h('span.grow'),
@@ -944,7 +1113,6 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
           for (const m of mobs) await act({ t: 'combat.remove', uid: m.uid }, null);
           toast('Board cleared.');
         } }, icon('trash', { size: 13 }), h('span.cbt-roster-action', 'Remove all')) : null),
-      encounterChips(),
       living.length ? h('ul.cbt-list', living.map(mobCard)) : h('p.empty-s', mobs.length ? 'Every mob is down.' : 'No mobs yet. Add them below.'),
       dead.length ? h('details.cbt-fallen', { open: ui.fallenOpen || null, ontoggle: (e) => { ui.fallenOpen = e.target.open; } },
         h('summary', `Defeated (${dead.length})`), h('ul.cbt-list', dead.map(fallenRow))) : null,
@@ -961,7 +1129,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     const keep = [...el.querySelectorAll('.cbt-picks')].map((x) => x.scrollTop);
     const page = el.closest('.gm-main');
     const pageTop = page?.scrollTop;
-    const round = rxPanel({ act, view, draft: rxDraft });
+    const round = rxPanel({ act, view, draft: rxDraft, guide: roundGuide });
     const last = lastRollCard();
     el.replaceChildren(...[
       h('div.cbt-command', header(), round && last ? h('div.cbt-round-work', round, last) : [round, last], manualDamageRoll(), c.init?.on ? initPanel() : null, ui.editPhases ? phaseEditor() : null),
@@ -994,7 +1162,7 @@ export function createCombat({ act, send, getView, sfx = null, openSound = null,
     act({ t: 'combat.next' });
   });
 
-  return { el, chooseAttack, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; draw(); } };
+  return { el, chooseAttack, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; ui.refreshEncounters?.(); draw(); } };
 }
 
 export { signed };

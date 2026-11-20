@@ -157,6 +157,43 @@ test('prep: encounter refs in monster sections, links on scenes', () => {
   assert.throws(() => gm(s, { t: 'prep.item.update', id: doc, key: 'scenes', itemId: it.id, links: [{ kind: 'nope', id: 'x' }] }), /links/);
   s = gm(s, { t: 'enc.remove', id: encId }).state;
   assert.equal(s.prepCards.length, 0);
+  const sections = s.prep.docs.find((x) => x.id === doc).sections;
+  assert.equal(sections.find((x) => x.key === mons.key).items[0].ref, null);
+  assert.deepEqual(sections.find((x) => x.key === 'scenes').items[0].links, [{ kind: 'npc', id: 'quill' }]);
+});
+
+test('removing a saved encounter detaches Prep and preserves its bound combat tokens', () => {
+  const { s, mapId } = setup();
+  let state = s;
+  const play = (action) => {
+    const { state: next, result } = gm(state, action);
+    state = next;
+    return result;
+  };
+  const { id: linked } = play({ t: 'enc.save', label: 'First fight', mapId,
+    mobs: [{ sourceId: 'rat', hidden: false }, { sourceId: 'missing' }] });
+  const { id: unrelated } = play({ t: 'enc.save', label: 'Second fight', mapId, mobs: [{ sourceId: 'goblin' }] });
+  play({ t: 'enc.tokens', id: unrelated });
+  const { id: docId, sceneId } = play({ t: 'prep.evening.plan' });
+  play({ t: 'prep.scene.update', id: docId, sceneId, patch: { encounterId: linked } });
+  const scene = () => state.prep.docs.find((d) => d.id === docId).evening.scenes.find((x) => x.id === sceneId);
+  const tokens = () => state.maps.list.find((m) => m.id === mapId).tokens;
+  const { uids: [uid] } = play({ t: 'enc.run', id: linked, start: true });
+  const bound = tokens().find((t) => t.ref === uid && t.enc === linked);
+  assert.ok(bound);
+  assert.equal(tokens().filter((t) => t.enc === linked).length, 2);
+  play({ t: 'map.token.move', id: mapId, tokenId: bound.id, x: 0.25, y: 0.6 });
+  play({ t: 'enc.remove', id: linked });
+  assert.equal(state.combat.active, true);
+  assert.equal(state.combat.mapId, mapId);
+  assert.equal(scene().encounterId, null);
+  assert.equal(tokens().filter((t) => t.enc === linked).length, 0);
+  assert.equal(tokens().filter((t) => t.enc === unrelated).length, 1);
+  const token = tokens().find((t) => t.id === bound.id);
+  assert.deepEqual([token.ref, token.x, token.y, token.combatToken], [uid, 0.25, 0.6, true]);
+  assert.deepEqual(state.prepCards.map((card) => card.id), [unrelated]);
+  play({ t: 'prep.scene.run', id: docId, sceneId });
+  assert.ok(state.combat.combatants.some((c) => c.uid === uid), 'the scene can still be opened');
 });
 
 test('encounter items: saved with the encounter, handed out from the fight, "given" survives edits', () => {

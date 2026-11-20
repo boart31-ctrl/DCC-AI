@@ -569,6 +569,8 @@ function seedLink(st, ctx, out, GM, original, kind, key) {
   const seed = owners[0];
   const doc = installedAdventure(st, seed, ctx, out, GM);
   const id = legacySeedRef(st, doc, seed, kind, key);
+  // A GM may delete an installed encounter while retaining the original book template.
+  if (!id && kind === 'encounter') return null;
   if (!id) throw notFound(`no installed ${kind} ${key}`);
   doc.seedRefs ??= { encounters: {}, maps: {} };
   doc.seedRefs[bucket] = { ...doc.seedRefs[bucket], [key]: id };

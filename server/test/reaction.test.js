@@ -363,6 +363,120 @@ test('suggest: mobs spread evenly, an elite attacks every crawler once', () => {
   assert.equal(swine.length, 3, 'one action per crawler');
 });
 
+test('suggest queues hidden attackers and effect-only traps while retaining manual declarations', () => {
+  let s = fight();
+  const targetUid = crawlerUid(s, 'Donut');
+  const vip = gm(s, { t: 'combat.addAdhoc', name: 'Faceless watcher', hp: 5, attacks: [
+    { name: 'Jab', damage: '2' }, { name: 'Shove', damage: '1d4' },
+  ] });
+  const [mobUid] = vip.result.uids;
+  const trap = gm(vip.state, { t: 'combat.addAdhoc', name: 'Pressure plate', hp: 2, attacks: [{ name: 'Release mist', damage: '0', effects: 'Area now obscured.' }] });
+  const [trapUid] = trap.result.uids;
+  const obscured = gm(trap.state, { t: 'combat.addAdhoc', name: 'Hidden bystander', hp: 2 });
+  const [bystander] = obscured.result.uids;
+  const before = gm(obscured.state, { t: 'rx.declare', mobUid, targetUid, attackIndex: 1 });
+  const declId = before.result.declId;
+  s = gm(before.state, { t: 'rx.area', declId, area: 'splash' }).state;
+  const manual = structuredClone(s.combat.rx.decls[0]);
+
+  const suggestion = gm(s, { t: 'rx.suggest' });
+  s = suggestion.state;
+  assert.deepEqual(suggestion.result, { count: 5, added: 4, preserved: 1, hidden: 2, limited: false, reason: null, next: 'announce', message: null });
+  assert.deepEqual(s.combat.rx.decls[0], manual);
+  assert.ok(s.combat.rx.decls.some((d) => d.mobUid === trapUid && d.attack.damage === '0'));
+  assert.ok(!s.combat.rx.decls.some((d) => d.mobUid === bystander));
+  assert.ok(s.combat.combatants.find((x) => x.uid === mobUid).hidden);
+  assert.equal(suggestion.events.length, 0);
+  for (const role of ['stage', 'player']) {
+    const v = viewFor(s, pack, role, { playerId: playerId(s, 'Donut') });
+    assert.deepEqual(v.combat.rx.decls, []);
+    assert.equal(v.combat.rx.suggestion, undefined);
+    assert.ok(!JSON.stringify(v.combat).includes('Faceless watcher'));
+  }
+  const retry = gm(s, { t: 'rx.suggest' });
+  assert.equal(retry.changed, false);
+  assert.equal(retry.result.reason, 'already-queued');
+  assert.equal(retry.result.next, 'announce');
+  assert.deepEqual(retry.state.combat.rx.decls, s.combat.rx.decls);
+  assert.throws(() => gm(s, { t: 'rx.step', to: 'act' }), /remaining attacks/);
+  assert.throws(() => gm(s, { t: 'rx.round', round: 1 }), /remaining attacks/);
+  const announced = gm(s, { t: 'rx.step', to: 'react' });
+  const reveals = announced.events.filter((e) => e.event.kind === 'combat.reveal').flatMap((e) => e.event.uids);
+  assert.deepEqual(reveals, [mobUid, trapUid]);
+  const stage = viewFor(announced.state, pack, 'stage').combat.rx.decls;
+  assert.ok(stage.some((d) => d.id === declId && d.targetUid === targetUid && d.attack === 'Shove'));
+  assert.ok(!announced.state.combat.rx.decls.some((d) => d.mobUid === bystander));
+  assert.ok(announced.state.combat.combatants.find((x) => x.uid === bystander).hidden);
+  const duplicate = gm(announced.state, { t: 'rx.step', to: 'react' });
+  assert.equal(duplicate.changed, false);
+  assert.equal(duplicate.events.length, 0);
+});
+
+test('suggest reports specific empty reasons plus next actions and cleanup can safely retry', () => {
+  const { pack: special } = loadPack(writePack(tmpDir(), { 'buffs.json': [{ id: 'disabled', name: 'Disabled', blocks: ['action'] }] }));
+  const act = (s, a) => gm(s, a, { pack: special });
+  let s = act(createState(special, 0), { t: 'combat.start' }).state;
+  s = act(s, { t: 'rx.start' }).state;
+  const reason = (expected, next, extra = {}) => {
+    const r = act(s, { t: 'rx.suggest', ...extra });
+    assert.equal(r.changed, false);
+    assert.deepEqual([r.result.count, r.result.reason, r.result.next], [0, expected, next]);
+    assert.ok(r.result.message.length > 4);
+    if (extra.includeHidden !== false) assert.equal(viewFor(s, special, 'gm').combat.rx.suggestion.reason, expected);
+  };
+  reason('no-crawlers', 'add-crawlers');
+  const player = act(s, { t: 'player.add', name: 'Runner' });
+  s = act(player.state, { t: 'combat.addCrawler', playerId: player.result.playerId }).state;
+  reason('no-mobs', 'add-mobs');
+  s = act(s, { t: 'combat.addAdhoc', name: 'Passive creature', hp: 5 }).state;
+  reason('no-attacks', 'add-attacks');
+  const armed = act(s, { t: 'combat.addAdhoc', name: 'Hunter', hp: 5, attacks: [{ name: 'Claw', damage: '2' }] });
+  s = armed.state;
+  const [uid] = armed.result.uids;
+  assert.equal(viewFor(s, special, 'gm').combat.rx.suggestion.next, 'suggest');
+  reason('hidden-excluded', 'include-hidden', { includeHidden: false });
+  s = act(s, { t: 'combat.condition', uid, buffId: 'disabled', on: true }).state;
+  reason('blocked', 'review-conditions');
+  const crawler = s.combat.combatants.find((x) => x.type === 'crawler');
+  crawler.noTarget = true;
+  reason('no-targets', 'review-targets');
+  crawler.dying = 1;
+  reason('no-standing-crawlers', 'end-combat');
+  crawler.dying = null;
+  crawler.noTarget = false;
+  const hp = s.players[0].sheet.tracks.hp;
+  const savedHp = hp.cur;
+  hp.cur = 0;
+  reason('no-standing-crawlers', 'end-combat');
+  hp.cur = savedHp;
+  for (const mob of s.combat.combatants.filter((x) => x.type === 'mob')) mob.hp = 0;
+  reason('all-mobs-down', 'end-combat');
+  s = act(s, { t: 'rx.step', to: 'act' }).state;
+  const next = act(s, { t: 'rx.round', round: 1 });
+  assert.deepEqual(next.result, { round: 2 });
+  assert.equal(next.events.filter((e) => e.event.kind === 'rx.round').length, 1);
+  const retry = act(next.state, { t: 'rx.round', round: 1 });
+  assert.equal(retry.changed, false);
+  assert.deepEqual(retry.result, { round: 2, existing: true });
+  assert.equal(retry.events.length, 0);
+});
+
+test('announce validates targets and attackers before revealing any hidden mob', () => {
+  let s = fight();
+  const queued = gm(s, { t: 'combat.addAdhoc', name: 'Lurker', hp: 3, count: 2, attacks: [{ name: 'Claw', damage: '1' }] });
+  const [a, b] = queued.result.uids;
+  const carl = crawlerUid(s, 'Carl');
+  s = gm(queued.state, { t: 'rx.declare', mobUid: a, targetUid: carl }).state;
+  s = gm(s, { t: 'rx.declare', mobUid: b, targetUid: carl }).state;
+  s = gm(s, { t: 'combat.update', uid: b, hp: 0 }).state;
+  assert.throws(() => gm(s, { t: 'rx.step', to: 'react' }), /attacker can no longer act/);
+  assert.ok(s.combat.combatants.find((x) => x.uid === a).hidden);
+  s = gm(s, { t: 'rx.undeclare', declId: s.combat.rx.decls[1].id }).state;
+  s.combat.combatants.find((x) => x.uid === carl).dead = true;
+  assert.throws(() => gm(s, { t: 'rx.step', to: 'react' }), /Choose an available crawler/);
+  assert.ok(s.combat.combatants.find((x) => x.uid === a).hidden);
+});
+
 test('announce publishes the selected attack and target before any damage roll', () => {
   let s = fight();
   const uid = crawlerUid(s, 'Carl');

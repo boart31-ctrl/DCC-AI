@@ -300,6 +300,12 @@ test('prepared evening remaps old adventure links, resolves a shared map, and ru
   assert.equal(scenes[1].encounterId, installed);
   assert.equal(scenes[1].mapId, oldMap);
   assert.equal(scenes[1].secrets[0].text, 'GM only tunnel');
+  step({ t: 'enc.remove', id: installed });
+  const replanned = step({ t: 'prep.evening.plan', adventureId: 'quarter', key: 'walk' });
+  const afterRemoval = state.prep.docs.find((d) => d.id === replanned.id).evening.scenes;
+  assert.equal(afterRemoval.find((s) => s.id === 'gate').encounterId, null);
+  assert.equal(afterRemoval.find((s) => s.id === 'gate').mapId, oldMap);
+  assert.equal(state.prepCards.length, 0, 'planning does not recreate the deleted encounter');
 });
 
 test('evening editor carries incomplete scenes and clues and atomically links NPCs and encounters', () => {

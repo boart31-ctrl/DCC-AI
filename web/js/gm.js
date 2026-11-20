@@ -1126,7 +1126,7 @@ const openSound = () => {
   scenes.pick('sound');
   requestAnimationFrame(() => document.getElementById('combat-sounds')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
 };
-const combat = createCombat({ act, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight') });
+const combat = createCombat({ act, addPlayer: showAddPlayer, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight') });
 $('#view-settings .settings-grid').append(sound.settingsEl);
 const npcs = createNpcs({ act, getView: () => view, openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
 // The campaign panel ("Previously on…", plus the hosted edition's extras) lives in Show → Desk.

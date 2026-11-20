@@ -116,7 +116,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
   };
   async function switchMapFight() {
     if (tab === 'map') {
-      const boss = fightBossOnMap && view().combat?.combatants?.some((m) => m.sourceKind === 'boss' && m.sourceId === fightBossOnMap && !m.down);
+      const boss = fightBossOnMap && view().combat?.combatants?.some((m) => m.sourceKind === 'boss' && m.sourceId === fightBossOnMap && !m.down && !m.hidden);
       const kind = boss ? 'boss' : 'combat';
       if (await act({ t: 'scene.set', kind, data: boss ? { bossId: fightBossOnMap } : {} }, null)) pick('fight');
       return;
@@ -304,7 +304,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
   }
   /** The scene kind GO LIVE sends for a chip (Fight → boss screen when a boss is in the fight). */
   function fightBoss() {
-    return (view().combat?.combatants || []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && !x.down) || null;
+    return (view().combat?.combatants || []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && !x.down && !x.hidden) || null;
   }
   function sceneKindFor(chipId) {
     if (chipId === 'fight') return fightBoss() ? 'boss' : 'combat';
@@ -342,17 +342,17 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
   }
 
   /**
-   * Boss: scene → the boss joins the fight (library bosses have attacks) → prepared minions are revealed →
-   * the fight starts → intro cinematic, always.
+   * Showing a boss introduces that boss. Other prepared opponents retain their visibility.
    */
   async function goLiveBoss(data) {
     if (!data) { toast('Pick a boss first (or build one ad hoc).', { error: true }); return false; }
     if (!(await act({ t: 'scene.set', kind: 'boss', data }, null))) return false;
     const c = view().combat || {};
-    if (data.bossId && !(c.combatants || []).some((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === data.bossId)) {
-      await act({ t: 'combat.addMob', kind: 'boss', sourceId: data.bossId, hidden: false }, null);
+    if (data.bossId) {
+      const boss = (c.combatants || []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === data.bossId);
+      if (!boss) await act({ t: 'combat.addMob', kind: 'boss', sourceId: data.bossId, hidden: false }, null);
+      else if (boss.hidden) await act({ t: 'combat.reveal', uid: boss.uid }, null);
     }
-    if ((view().combat?.combatants || []).some((x) => x.type === 'mob' && x.hidden && !x.down)) await act({ t: 'combat.reveal', all: true }, null);
     if (!view().combat?.active) await act({ t: 'combat.start' }, null);
     await act({ t: 'boss.intro' }, null);
     toast('On air: boss intro.');

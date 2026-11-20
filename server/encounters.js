@@ -54,6 +54,26 @@ function cardOf(st, id) {
   return c;
 }
 
+function unlinkEncounter(st, id) {
+  const live = new Set((st.combat?.combatants ?? []).filter((c) => c.type === 'mob').map((c) => c.uid));
+  for (const map of st.maps?.list ?? []) map.tokens = map.tokens.flatMap((token) => {
+    if (token.enc !== id) return [token];
+    if (map.id !== st.combat?.mapId || !live.has(token.ref)) return [];
+    const { enc, slot, ...bound } = token;
+    return [{ ...bound, combatToken: true }];
+  });
+  const matches = (ref) => ref?.kind === 'encounter' && ref.id === id;
+  for (const doc of st.prep?.docs ?? []) {
+    for (const scene of doc.evening?.scenes ?? []) if (scene.encounterId === id) scene.encounterId = null;
+    for (const section of doc.sections ?? []) for (const item of section.items ?? []) {
+      if (matches(item.ref)) item.ref = null;
+      if (item.links?.some(matches)) item.links = item.links.filter((ref) => !matches(ref));
+    }
+    const seeds = doc.seedRefs?.encounters;
+    for (const key of Object.keys(seeds ?? {})) if (seeds[key] === id) delete seeds[key];
+  }
+}
+
 /** One entry per mob (count expanded), with the names the fight will give them. */
 export function expandEncounter(st, ctx, payload) {
   const lib = libraryOf(st, ctx.pack);
@@ -99,7 +119,7 @@ export function makeEncounterGM(GM) {
 
     'enc.remove'(st, a) {
       const c = cardOf(st, a.id);
-      for (const m of st.maps?.list ?? []) m.tokens = m.tokens.filter((t) => t.enc !== c.id);
+      unlinkEncounter(st, c.id);
       st.prepCards = st.prepCards.filter((x) => x !== c);
     },
 

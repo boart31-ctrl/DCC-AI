@@ -158,31 +158,107 @@ function addDecl(st, ctx, rx, mob, attackIndex = 0, targetUid) {
   return d;
 }
 
-/** The book's rule of thumb: elites and bosses act once per crawler, other mobs once, spread evenly. */
-export function suggestDecls(st, ctx) {
-  const c = C(st);
-  const targets = crawlers(st).filter(standing);
-  if (!targets.length) return [];
+const SUGGESTION_HELP = {
+  'no-crawlers': ['add-crawlers', 'Add a crawler to the fight before queuing an attack.'],
+  'no-standing-crawlers': ['end-combat', 'No crawler is standing. End combat or let the party recover.'],
+  'no-targets': ['review-targets', 'All standing crawlers are marked Don’t target. Update targeting or choose a target manually.'],
+  'no-mobs': ['add-mobs', 'No mobs are in the fight. Add mobs or choose a saved encounter.'],
+  'all-mobs-down': ['end-combat', 'All mobs are down. End combat or add reinforcements.'],
+  'no-attacks': ['add-attacks', 'No standing mob has a recorded attack. Choose a mob with attacks or let the crawlers act.'],
+  blocked: ['review-conditions', 'Conditions prevent every armed mob from acting. Review conditions or let the crawlers act.'],
+  'hidden-excluded': ['include-hidden', 'Only hidden mobs can attack. Include hidden mobs or let the crawlers act.'],
+  'already-queued': ['announce', 'Eligible attacks are already queued. Announce them when ready.'],
+  'queue-full': ['announce', 'The attack queue is full. Announce it or remove rows to fit more attacks.'],
+};
+
+function suggestionHint(reason, next = 'suggest') {
+  const [action, message] = SUGGESTION_HELP[reason] ?? [next, null];
+  return { reason, next: action, message };
+}
+
+function suggestionRoster(st, pack, library, includeHidden = true) {
+  const members = new Map(st.players.map((p) => [p.id, p]));
+  const party = crawlers(st).filter((x) => members.has(x.playerId));
+  const hp = hpTrackOf(pack)?.id;
+  const up = party.filter((x) => {
+    const track = hp && members.get(x.playerId).sheet?.tracks?.[hp];
+    const current = typeof track === 'number' ? track : track?.cur ?? track?.value;
+    return standing(x) && (current == null || current > 0);
+  });
+  const targets = up.filter((x) => !x.noTarget);
+  const allMobs = C(st).combatants.filter((x) => x.type === 'mob');
+  const alive = allMobs.filter((x) => x.hp > 0);
+  const armed = alive.filter((x) => x.attacks?.length);
+  const eligible = armed.filter((x) => !statusBlocker(x, library, 'action'));
+  const mobs = includeHidden ? eligible : eligible.filter((x) => !x.hidden);
+  const missing = [
+    [party, 'no-crawlers'], [up, 'no-standing-crawlers'], [targets, 'no-targets'],
+    [allMobs, 'no-mobs'], [alive, 'all-mobs-down'], [armed, 'no-attacks'],
+    [eligible, 'blocked'], [mobs, 'hidden-excluded'],
+  ].find(([rows]) => !rows.length);
+  const reason = missing?.[1] ?? null;
+  return { party, targets, mobs, reason };
+}
+
+/** Elites and bosses act once per crawler, other mobs once. Existing rows count toward each quota. */
+function fillSuggestions(ctx, roster, declared) {
+  const { party, targets, mobs } = roster;
+  if (roster.reason) return { plans: [], limited: false };
   const load = new Map(targets.map((t) => [t.uid, 0]));
-  const out = [];
-  const library = libraryOf(st, ctx.pack);
-  const mobs = c.combatants.filter((x) => x.type === 'mob' && x.hp > 0 && !x.hidden && (x.attacks ?? []).length && !statusBlocker(x, library, 'action'));
+  const byMob = new Map();
+  for (const row of declared) {
+    if (load.has(row.targetUid)) load.set(row.targetUid, load.get(row.targetUid) + 1);
+    if (!byMob.has(row.mobUid)) byMob.set(row.mobUid, []);
+    byMob.get(row.mobUid).push(row);
+  }
+  const plans = [];
   const pickAttack = (m) => (m.attackMode === 'random' ? Math.floor(ctx.rng() * m.attacks.length) : 0);
   for (const m of mobs) {
     const big = m.sourceKind === 'boss' || m.role === 'elite' || m.role === 'boss';
-    // One action per crawler in the fight, even the fallen ones (the book): extra attacks go round the standing.
-    if (big) { const n = crawlers(st).length; for (let i = 0; i < n; i++) { const t = targets[i % targets.length]; out.push({ mobUid: m.uid, attackIndex: pickAttack(m), targetUid: t.uid }); load.set(t.uid, load.get(t.uid) + 1); } continue; }
-    let target;
-    if (m.targetMode === 'focus' && load.has(m.focus)) target = m.focus;
-    else {
-      const min = Math.min(...load.values());
-      const pool = targets.filter((t) => load.get(t.uid) === min);
-      target = pool[Math.floor(ctx.rng() * pool.length)].uid;
+    const rows = byMob.get(m.uid) ?? [];
+    const own = big ? new Map(targets.map((t) => [t.uid, rows.filter((d) => d.targetUid === t.uid).length])) : null;
+    const quota = big ? party.length : 1;
+    // Extra boss attacks for fallen crawlers still go around the standing targets.
+    for (let i = rows.length; i < quota; i++) {
+      if (declared.length + plans.length >= MAX_DECLS) return { plans, limited: true };
+      let targetUid;
+      if (!big && m.targetMode === 'focus' && load.has(m.focus)) targetUid = m.focus;
+      else {
+        let peers = targets;
+        if (own) {
+          const fewestOwn = Math.min(...own.values());
+          peers = targets.filter((t) => own.get(t.uid) === fewestOwn);
+        }
+        const minLoad = Math.min(...peers.map((t) => load.get(t.uid)));
+        const pool = peers.filter((t) => load.get(t.uid) === minLoad);
+        targetUid = pool[Math.floor(ctx.rng() * pool.length)].uid;
+      }
+      load.set(targetUid, load.get(targetUid) + 1);
+      if (own) own.set(targetUid, own.get(targetUid) + 1);
+      plans.push({ mobUid: m.uid, attackIndex: pickAttack(m), targetUid });
     }
-    load.set(target, load.get(target) + 1);
-    out.push({ mobUid: m.uid, attackIndex: pickAttack(m), targetUid: target });
   }
-  return out;
+  return { plans, limited: false };
+}
+
+export function suggestDecls(st, ctx, { includeHidden = true, declared = [] } = {}) {
+  const roster = suggestionRoster(st, ctx.pack, libraryOf(st, ctx.pack), includeHidden);
+  return fillSuggestions(ctx, roster, declared).plans;
+}
+
+function validateAnnouncement(st, ctx, declarations) {
+  const actors = new Map(C(st).combatants.map((x) => [x.uid, x]));
+  const library = libraryOf(st, ctx.pack);
+  for (const d of declarations) {
+    const mob = actors.get(d.mobUid);
+    const target = actors.get(d.targetUid);
+    if (mob?.type !== 'mob' || mob.hp <= 0 || statusBlocker(mob, library, 'action')) {
+      throw bad(`Remove the queued ${d.attack.name} attack. Its attacker can no longer act.`);
+    }
+    if (target?.type !== 'crawler' || target.dead || !playerOfCrawler(st, target)) {
+      throw bad(`Choose an available crawler for ${mob.name}'s ${d.attack.name}.`);
+    }
+  }
 }
 
 function attackResult(st, ctx, d) {
@@ -516,19 +592,29 @@ export const REACTION_GM = {
     rx.decls = rx.decls.filter((x) => x.id !== a.declId);
   },
 
-  /** Replace the declarations with the rule-of-thumb split. */
+  /** Fill the remaining action slots, including eligible hidden mobs by default. */
   'rx.suggest'(st, a, ctx, out) {
     const rx = rxOf(st);
     if (rx.step !== 'declare') throw bad('attacks are declared in the declare step');
-    rx.decls = [];
-    for (const s of suggestDecls(st, ctx)) addDecl(st, ctx, rx, mobOf(st, s.mobUid), s.attackIndex, s.targetUid);
-    out.result = { count: rx.decls.length };
+    const preserved = rx.decls.length;
+    const roster = suggestionRoster(st, ctx.pack, libraryOf(st, ctx.pack), a.includeHidden !== false);
+    const { plans, limited } = fillSuggestions(ctx, roster, rx.decls);
+    for (const s of plans) addDecl(st, ctx, rx, mobOf(st, s.mobUid), s.attackIndex, s.targetUid);
+    const hidden = new Set(C(st).combatants.filter((m) => m.type === 'mob' && m.hidden).map((m) => m.uid));
+    const count = rx.decls.length;
+    const reason = limited ? 'queue-full' : plans.length ? null : roster.reason ?? 'already-queued';
+    out.result = { count, added: plans.length, preserved, hidden: rx.decls.filter((d) => hidden.has(d.mobUid)).length, limited,
+      ...suggestionHint(reason, 'announce') };
+    if (!plans.length) out.changed = false;
   },
 
   /** `{ to }` one of STEPS. Resolve opens the queue without inflicting damage (missing Evades: `force`). */
   'rx.step'(st, a, ctx, out) {
     const rx = rxOf(st);
     if (!STEPS.includes(a.to)) throw bad(`to must be one of ${STEPS.join(', ')}`);
+    if (a.to === rx.step && !(a.to === 'resolve' && a.all === true)) { out.changed = false; return; }
+    if (a.to === 'declare') throw bad('clean up the round before declaring attacks again');
+    if (a.to === 'react' && rx.step !== 'declare') throw bad('announce attacks from the Declare step');
     if (a.to === 'resolve' && rx.step !== 'resolve') {
       if (rx.step !== 'react') throw bad('announce the attacks before resolving damage');
       const byUid = new Map(crawlers(st).map((x) => [x.uid, x]));
@@ -550,10 +636,11 @@ export const REACTION_GM = {
       resolveNext(st, { ...a, op: a.token ? 'apply' : 'preview' }, ctx, out);
       return;
     }
-    if (unresolved(rx).length && ((rx.step === 'resolve' && a.to !== 'resolve') || (rx.step === 'react' && ['act', 'cleanup'].includes(a.to)))) {
+    if (unresolved(rx).length && ['act', 'cleanup'].includes(a.to)) {
       throw bad('resolve or skip the remaining attacks first');
     }
     if (a.to === 'react' && rx.step === 'declare') {
+      validateAnnouncement(st, ctx, rx.decls);
       for (const uid of new Set(rx.decls.map((d) => d.mobUid))) {
         const m = C(st).combatants.find((x) => x.uid === uid);
         if (m?.hidden) COMBAT_GM['combat.reveal'](st, { uid }, ctx, { ...out, result: undefined });
@@ -584,7 +671,12 @@ export const REACTION_GM = {
   /** Clean up and start the next round at declare. */
   'rx.round'(st, a, ctx, out) {
     const rx = rxOf(st);
-    if (['react', 'resolve'].includes(rx.step) && unresolved(rx).length) throw bad('resolve or skip the remaining attacks first');
+    if (a.round !== undefined) {
+      if (!Number.isInteger(a.round) || a.round < 0) throw bad('round must be a nonnegative integer');
+      if (a.round > rx.round) throw bad('that round has not started');
+      if (a.round < rx.round) { out.result = { round: rx.round, existing: true }; out.changed = false; return; }
+    }
+    if (unresolved(rx).length) throw bad('resolve or skip the remaining attacks first');
     debuffTicks(st, ctx, out, rx);
     dyingTick(st, ctx, out, 'cleanup');
     if (rx.round > 0) advanceGameTime(st, ctx.pack.ruleset.combat.roundSeconds, out);
@@ -601,6 +693,7 @@ export const REACTION_GM = {
       return rounds === 1 ? [] : rounds > 1 ? [{ ...k, rounds: rounds - 1 }] : [k];
     });
     out.emit({ kind: 'rx.round', round: rx.round }, 'all');
+    out.result = { round: rx.round };
   },
 
   /** GM enters an Evade roll for a crawler (physical dice at the table): `{ declId, die }`. */
@@ -851,7 +944,7 @@ export function reactionView(state, role, pack) {
   const mobs = new Map(c.combatants.filter((x) => x.type === 'mob').map((x) => [x.uid, x]));
   const byUid = new Map(crawlers(state).map((x) => [x.uid, x]));
   const library = pack && libraryOf(state, pack);
-  const decls = rx.decls.filter((d) => gm || (rx.step !== 'declare' && !mobs.get(d.mobUid)?.hidden)).map((d) => {
+  const decls = rx.decls.filter((d) => gm || (rx.step !== 'declare' && mobs.has(d.mobUid) && !mobs.get(d.mobUid).hidden)).map((d) => {
     const m = mobs.get(d.mobUid);
     const target = byUid.get(d.targetUid);
     const blocked = library && !!statusBlocker(playerOfCrawler(state, target), library, 'interrupt');
@@ -860,6 +953,8 @@ export function reactionView(state, role, pack) {
   });
   const advantage = (rx.advantage ?? []).filter((v) => gm || !mobs.get(v.mobUid)?.hidden).map((v) => ({ uid: v.uid, mobUid: v.mobUid, mob: mobs.get(v.mobUid)?.name ?? '?' }));
   const lastUndo = ['resolve', 'act'].includes(rx.step) ? rx.resolutionUndo?.at(-1) : null;
+  const roster = gm && library && rx.step === 'declare' && !rx.decls.length ? suggestionRoster(state, pack, library) : null;
+  const suggestion = roster ? { ...suggestionHint(roster.reason), mobs: roster.mobs.length, targets: roster.targets.length } : null;
   return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, nonAttackActions: rx.nonAttackActions ?? {}, favor: rx.favor ?? [], evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5),
-    ...(gm ? { pending: rx.pending ?? null, batch: rx.batch ?? null, canUndo: !!lastUndo, undoAt: lastUndo?.at ?? null } : {}) };
+    ...(gm ? { pending: rx.pending ?? null, batch: rx.batch ?? null, canUndo: !!lastUndo, undoAt: lastUndo?.at ?? null, suggestion } : {}) };
 }
