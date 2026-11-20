@@ -21,7 +21,12 @@
 <body class="gm tool">
   <header class="topbar">
     <div class="brand">
-      <span class="brand-name">The System</span>
+      <a class="brand-name" href="/" title="Choose your role">The System</a>
+      <nav class="desk-navigation" aria-label="Desk navigation">
+        <button type="button" class="icon-btn" id="desk-back" title="Back" aria-label="Back" disabled></button>
+        <button type="button" class="icon-btn" id="desk-forward" title="Forward" aria-label="Forward" disabled></button>
+        <button type="button" class="icon-btn" id="desk-home" title="Home · Show Lobby" aria-label="Home · Show Lobby"></button>
+      </nav>
       <span class="room" title="Room code">Room <b id="room">····</b></span>
       <span class="conn" id="conn"><span class="dot"></span><span class="conn-text">Connecting</span></span>
     </div>

@@ -83,7 +83,7 @@ export function minionRows(combat) {
   return out;
 }
 
-export function createScenes({ client, act, getView, getCues = () => null, chooseAttack = () => {} }) {
+export function createScenes({ client, act, getView, getCues = () => null, onPick = () => {}, chooseAttack = () => {} }) {
   const audio = createGmAudio({ client, getView });
   const view = () => getView() || {};
   // Drafts per scene kind (what F-keys / GO LIVE send). Persisted per device.
@@ -255,6 +255,7 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     if (tab !== id) ui.editOpen = false;
     tab = id;
     store.set('tab2', tab);
+    onPick();
     sig = '';
     drawAll();
   }
@@ -1178,6 +1179,6 @@ export function createScenes({ client, act, getView, getCues = () => null, choos
     return true;
   }
 
-  const api = { el, update, audio, mountInto, loadDraft, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
+  const api = { currentTab: () => tab, el, update, audio, mountInto, loadDraft, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
   return api;
 }

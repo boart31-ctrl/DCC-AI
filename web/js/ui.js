@@ -52,6 +52,7 @@ const PATHS = {
   qr: 'M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2v2h-2zM18 14h2v2h-2zM14 18h2v2h-2zM18 18h2v2h-2zM16 16h2v2h-2z',
   phone: 'M7 3h10v18H7zM11 18h2',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  home: 'M3 10l9-7 9 7 M5 9v12h5v-7h4v7h5V9',
   back: 'M15 6l-6 6 6 6',
   check: 'M5 12l5 5 9-10',
   share: 'M12 4v11M8 8l4-4 4 4M5 14v6h14v-6',

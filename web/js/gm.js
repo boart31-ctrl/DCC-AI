@@ -985,10 +985,45 @@ const VIEWS = ['party', 'prep', 'show', 'library', 'rewards', 'messages', 'setti
 // Old section names (links, saved tabs): they live inside Show now.
 const INTO_SHOW = { combat: 'fight', npcs: 'npc', campaign: 'desk' };
 let currentView = 'party';
+const deskTrail = [];
+let deskIndex = -1;
+const backButton = $('#desk-back');
+const forwardButton = $('#desk-forward');
+backButton.append(icon('back'));
+forwardButton.append(icon('chevron'));
+$('#desk-home').append(icon('home'));
+
+function recordDesk() {
+  const tab = currentView === 'show' ? scenes.currentTab() : null;
+  const last = deskTrail[deskIndex];
+  if (last?.view !== currentView || last.tab !== tab) {
+    deskTrail.splice(++deskIndex, Infinity, { view: currentView, tab });
+  }
+  backButton.disabled = deskIndex <= 0;
+  forwardButton.disabled = deskIndex >= deskTrail.length - 1;
+}
+
+function revisit(index) {
+  const route = deskTrail[index];
+  if (!route) return;
+  deskIndex = index;
+  showView(route.view);
+  if (route.tab) scenes.pick(route.tab);
+  $('.gm-main').scrollTop = 0;
+  recordDesk();
+}
+backButton.onclick = () => revisit(deskIndex - 1);
+forwardButton.onclick = () => revisit(deskIndex + 1);
+$('#desk-home').onclick = () => {
+  showView('show');
+  scenes.pick('lobby');
+  $('.gm-main').scrollTop = 0;
+};
 function showView(v) {
   if (INTO_SHOW[v]) { const sub = INTO_SHOW[v]; showView('show'); scenes.pick(sub); return; }
   if (!VIEWS.includes(v)) v = 'party';
   currentView = v;
+  queueMicrotask(recordDesk);
   for (const b of document.querySelectorAll('#gm-nav [data-view], #gm-bnav [data-view]')) {
     if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
@@ -1110,7 +1145,7 @@ const library = createLibrary({
 $('#view-library').append(library.el);
 // Show = the broadcast switcher (gm-scenes.js): scenes, the fight tracker, NPCs, sound and the old desk.
 // Hoisted use in render() is safe: views arrive after boot.
-const scenes = createScenes({ client, act, getView: () => view, getCues: () => cues, chooseAttack: (uid, index) => combat.chooseAttack(uid, index) });
+const scenes = createScenes({ client, act, onPick: () => queueMicrotask(recordDesk), getView: () => view, getCues: () => cues, chooseAttack: (uid, index) => combat.chooseAttack(uid, index) });
 scenes.audio.credential = () => ext.credential; // the audio fetches use the desk's login
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
