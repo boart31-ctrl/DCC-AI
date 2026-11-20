@@ -1,13 +1,13 @@
 // One map on screen (server/maps.js): image, fog of war, zones, tokens. Used by the TV scene, the phones
 // and the GM editor.
 //
-// createMapView({ gm = false, onDrag, onPen, onPoly, tool, onTokenMove, canMoveToken, onToken }) →
+// createMapView({ gm = false, onDrag, onPen, onPoly, tool, onTokenMove, canMoveToken, onToken, onCamera }) →
 //   { el, set(map, opts), toLocal(evt), destroy() }
 //   gm            translucent fog, every zone outlined with its name (revealed ones solid), hidden tokens dim,
 //                 GM-only drawings dashed
 //   tool()        GM: what a drag on the map does: 'zone' | 'reveal' | 'cover' (rectangle → onDrag),
 //                 'pen' (freehand → onPen(points)), 'poly' (click corners, click the first one or double-click
-//                 to close → onPoly(points)), 'move' (only tokens move)
+//                 to close → onPoly(points)), 'move' (only tokens move), 'pan' (move the camera)
 //   onDrag(rect, evt)        a finished rectangle, rect in 0..1 image coordinates
 //   onTokenMove(token, x, y) a token was dropped (x, y 0..1)
 //   canMoveToken(token)      who may drag which token (default: nobody)
@@ -18,6 +18,7 @@ import { imageRef } from './portrait.js';
 
 const SVGNS = 'http://www.w3.org/2000/svg';
 const isRevealed = (z) => z.revealed !== false;
+const fitCamera = { zoom: 1, x: 0.5, y: 0.5 };
 
 function decode(b64, cols, rows) {
   const out = new Uint8Array(Math.ceil((cols * rows) / 8));
@@ -37,7 +38,7 @@ function tracePath(ctx, shape, W, H) {
   } else ctx.rect(shape.x * W, shape.y * H, shape.w * W, shape.h * H);
 }
 
-export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly = null, tool = () => (onDrag ? 'zone' : 'move'), onTokenMove = null, canMoveToken = () => false, onToken = null, fit = false } = {}) {
+export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly = null, tool = () => (onDrag ? 'zone' : 'move'), onTokenMove = null, canMoveToken = () => false, onToken = null, onCamera = null, fit = false } = {}) {
   const mapImage = () => h('img.mv-img', { alt: '', draggable: false });
   let img = mapImage();
   const unavailable = h('p.mv-image-unavailable', { role: 'status', hidden: true }, 'Map picture unavailable');
@@ -52,23 +53,39 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   ink.setAttribute('preserveAspectRatio', 'none');
   const tokens = h('div.mv-tokens');
   const sel = h('div.mv-sel', { hidden: true });
-  const stage = h('div.mv-stage', img, fog, svg, ink, tokens, sel, unavailable);
+  const world = h('div.mv-world', img, fog, svg, ink, tokens, sel);
+  const stage = h('div.mv-stage', world, unavailable);
   const el = h('div.mv', { class: gm ? 'mv mv-gm' : 'mv' }, stage);
   let map = null;
   let opts = {};
   let lastSig = '';
   let pictureKey = null;
   let tokenDragging = false;
-  // fit: scale the map to fit inside the element (TV), "contain" style, instead of full width.
+  let camera = fitCamera;
+  let visibleCamera = fitCamera;
+  let panPointer = null;
+  // Fit the full image at 1x. Allow a zoomed world to use the original letterbox space.
   function fitNow() {
     if (!fit || !map) return;
-    const W = el.clientWidth;
-    const H = el.clientHeight;
-    if (!W || !H) return;
-    const a = map.aspect || 1.5;
-    const w = Math.min(W, H * a);
-    stage.style.width = `${Math.floor(w)}px`;
-    stage.style.height = `${Math.floor(w / a)}px`;
+    const { clientWidth: width, clientHeight: height } = el;
+    if (!width || !height) return;
+    const { zoom, x, y } = camera;
+    const aspect = map.aspect || 1.5;
+    const baseWidth = Math.min(width, height * aspect);
+    const baseHeight = baseWidth / aspect;
+    const scaledWidth = baseWidth * zoom;
+    const scaledHeight = baseHeight * zoom;
+    const frameWidth = Math.min(width, scaledWidth);
+    const frameHeight = Math.min(height, scaledHeight);
+    const bound = (n, edge) => Math.min(1 - edge, Math.max(edge, n));
+    visibleCamera = { zoom, x: bound(x, frameWidth / scaledWidth / 2), y: bound(y, frameHeight / scaledHeight / 2) };
+    stage.style.width = `${frameWidth}px`;
+    stage.style.height = `${frameHeight}px`;
+    world.style.width = `${baseWidth}px`;
+    world.style.height = `${baseHeight}px`;
+    world.style.transform = zoom > 1
+      ? `translate(${frameWidth / 2 - visibleCamera.x * scaledWidth}px, ${frameHeight / 2 - visibleCamera.y * scaledHeight}px) scale(${zoom})`
+      : '';
   }
   const resize = fit && typeof ResizeObserver !== 'undefined' ? new ResizeObserver(fitNow) : null;
   resize?.observe(el);
@@ -97,8 +114,59 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   }
 
   function toLocal(e) {
-    const r = stage.getBoundingClientRect();
+    const r = world.getBoundingClientRect();
     return { x: Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)), y: Math.max(0, Math.min(1, (e.clientY - r.top) / r.height)) };
+  }
+
+  function displayCamera(value = fitCamera) {
+    camera = value;
+    fitNow();
+  }
+
+  if (onCamera) {
+    stage.addEventListener('pointerdown', (e) => {
+      if (!map || tool() !== 'pan' || camera.zoom <= 1 || e.button !== 0 || panPointer !== null) return;
+      const id = map.id;
+      const before = visibleCamera;
+      const focus = toLocal(e);
+      const { width, height } = world.getBoundingClientRect();
+      let moved = false;
+      panPointer = e.pointerId;
+      stage.setPointerCapture(panPointer);
+      const move = (ev) => {
+        if (ev.pointerId !== panPointer) return;
+        const dx = ev.clientX - e.clientX;
+        const dy = ev.clientY - e.clientY;
+        moved ||= Math.hypot(dx, dy) >= 5;
+        if (moved) displayCamera({ zoom: before.zoom, x: before.x - dx / width, y: before.y - dy / height });
+      };
+      const finish = (ev) => {
+        if (ev.pointerId !== panPointer) return;
+        panPointer = null;
+        stage.removeEventListener('pointermove', move);
+        stage.removeEventListener('pointerup', finish);
+        stage.removeEventListener('pointercancel', finish);
+        stage.removeEventListener('lostpointercapture', finish);
+        if (map?.id !== id || ev.type !== 'pointerup') { displayCamera(map?.camera); return; }
+        if (!moved) displayCamera({ ...focus, zoom: before.zoom });
+        if (visibleCamera.x !== before.x || visibleCamera.y !== before.y) onCamera(id, visibleCamera);
+      };
+      stage.addEventListener('pointermove', move);
+      stage.addEventListener('pointerup', finish);
+      stage.addEventListener('pointercancel', finish);
+      stage.addEventListener('lostpointercapture', finish);
+    });
+    stage.addEventListener('keydown', (e) => {
+      if (!map || tool() !== 'pan' || camera.zoom <= 1) return;
+      const step = 0.12 / camera.zoom;
+      const direction = {
+        ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step],
+      }[e.key];
+      if (!direction) return;
+      e.preventDefault();
+      displayCamera({ ...visibleCamera, x: visibleCamera.x + direction[0], y: visibleCamera.y + direction[1] });
+      onCamera(map.id, visibleCamera);
+    });
   }
 
   function drawFog() {
@@ -259,11 +327,11 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
     stage.addEventListener('pointerdown', (e) => {
       if (e.button !== 0) return;
       const mode = tool();
-      if (mode === 'move') return;
+      if (mode === 'move' || mode === 'pan') return;
       if (mode === 'poly') {
         const p = toLocal(e);
         const first = poly[0];
-        const r = stage.getBoundingClientRect();
+        const r = world.getBoundingClientRect();
         if (first && poly.length >= 3 && Math.hypot((p.x - first[0]) * r.width, (p.y - first[1]) * r.height) < 14) { closePoly(); return; }
         poly.push([p.x, p.y]);
         drawPoly();
@@ -326,14 +394,19 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
   }
 
   function set(m, o = {}) {
+    const previousId = map?.id;
     map = m;
     opts = o;
     updatePicture(m);
     if (!m) { el.hidden = true; lastSig = ''; return; }
     el.hidden = false;
     stage.style.aspectRatio = String(m.aspect || 1.5);
-    fitNow();
     stage.dataset.tool = gm ? tool() : '';
+    stage.tabIndex = stage.dataset.tool === 'pan' ? 0 : -1;
+    if (stage.dataset.tool === 'pan') stage.setAttribute('aria-label', 'Pan map view');
+    else stage.removeAttribute('aria-label');
+    if (panPointer === null || previousId !== m.id) displayCamera(o.camera === false ? undefined : m.camera);
+    else fitNow();
     const sig = JSON.stringify([m.id, m.cols, m.rows, m.fog, m.zones, m.tokensOn, m.tokens, m.strokes, o.selected, o.selectedToken, o.labels, o.names]);
     if (sig === lastSig) return;
     lastSig = sig;
@@ -346,5 +419,5 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
 
   const stopPortraits = onPortraits(() => { if (map && el.isConnected) drawTokens(); });
   const destroy = () => { set(null); resize?.disconnect(); stopPortraits(); };
-  return { el, set, toLocal, destroy, cancelPoly: () => { poly = []; drawPoly(); } };
+  return { el, set, toLocal, destroy, focus: () => stage.focus(), cancelPoly: () => { poly = []; drawPoly(); } };
 }

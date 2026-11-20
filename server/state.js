@@ -25,7 +25,7 @@ import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventur
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { ADVANCEMENT_PLAYER, advancementClockView, changeAdvancementClock, consumeAdvancementMilestone, normalizeAdvancementClock,
   normalizeLevelGrants, recordLevelGrant, snoozeAdvancementClock } from './advancement.js';
-import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens } from './maps.js';
+import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens, startCombatOnMap } from './maps.js';
 import { REACTION_GM, REACTION_PLAYER, reactionView, dyingTick, onCrawlerDamage, spendReactionAction, actionReceipt } from './reaction.js';
 import { combatHistoryFor, normalizeCombatHistory, recordCombatHistory } from './combat-history.js';
 import { makeEncounterGM } from './encounters.js';
@@ -872,6 +872,7 @@ const PLAYER = {
 Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM, REACTION_GM);
 Object.assign(GM, makeEncounterGM(GM));
 Object.assign(GM, PREP_CHECKS_GM);
+GM['map.toFight'] = (st, a, ctx, out) => startCombatOnMap(st, a, ctx, out, GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
 GM['prep.evening.plan'] = (st, a, ctx, out) => planEvening(st, a, ctx, out, GM);
 GM['prep.scene.run'] = (st, a, ctx, out) => runPrepScene(st, a, ctx, out, GM);
@@ -1162,7 +1163,7 @@ export function reduce(state, action, ctx) {
   };
   if (action.role === 'system') out.changed = false;
   fn(st, action, full, out);
-  if (out.changed && st.combat?.mapId && ['map.bindCombat', 'enc.run', 'prep.scene.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
+  if (out.changed && st.combat?.mapId && ['map.bindCombat', 'map.toFight', 'enc.run', 'prep.scene.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
     syncCombatTokens(st, full);
   }
   if (out.changed && full.pack && (combatDangerAffected(action) || action.t === 'prep.scene.run')) refreshCombatDanger(st, full.pack);

@@ -1030,12 +1030,35 @@ const deskTrail = [];
 let deskIndex = -1;
 const backButton = $('#desk-back');
 const forwardButton = $('#desk-forward');
+const mapNavToggle = $('#map-nav-toggle');
+const deskSections = $('#gm-nav');
+mapNavToggle.prepend(icon('log'));
 backButton.append(icon('back'));
 forwardButton.append(icon('chevron'));
 $('#desk-home').append(icon('home'));
 
+function toggleMapNavigation(open) {
+  document.body.classList.toggle('map-nav-open', open);
+  mapNavToggle.setAttribute('aria-expanded', String(open));
+}
+mapNavToggle.onclick = () => {
+  const open = mapNavToggle.getAttribute('aria-expanded') !== 'true';
+  toggleMapNavigation(open);
+  if (open) (deskSections.querySelector('[aria-current="page"]') || deskSections.querySelector('button'))?.focus();
+};
+document.addEventListener('pointerdown', (e) => {
+  if (mapNavToggle.getAttribute('aria-expanded') === 'true' && !deskSections.contains(e.target) && !mapNavToggle.contains(e.target)) toggleMapNavigation(false);
+});
+deskSections.addEventListener('focusout', (e) => {
+  if (!deskSections.contains(e.relatedTarget) && !mapNavToggle.contains(e.relatedTarget)) toggleMapNavigation(false);
+});
+
 function recordDesk() {
   const tab = currentView === 'show' ? scenes.currentTab() : null;
+  const onMap = tab === 'map';
+  document.body.classList.toggle('desk-map', onMap);
+  mapNavToggle.hidden = !onMap;
+  if (!onMap) toggleMapNavigation(false);
   const last = deskTrail[deskIndex];
   if (last?.view !== currentView || last.tab !== tab) {
     deskTrail.splice(++deskIndex, Infinity, { view: currentView, tab });
@@ -1079,6 +1102,10 @@ for (const nav of [$('#gm-nav'), $('#gm-bnav')]) {
     const b = e.target.closest('button[data-view]');
     if (!b || !nav.contains(b)) return;
     showView(b.dataset.view);
+    if (mapNavToggle.getAttribute('aria-expanded') === 'true') {
+      if (b.dataset.view === 'show') mapNavToggle.focus();
+      toggleMapNavigation(false);
+    }
     $('.gm-main').scrollTop = 0;
   });
 }
@@ -1186,7 +1213,7 @@ const library = createLibrary({
 $('#view-library').append(library.el);
 // Show = the broadcast switcher (gm-scenes.js): scenes, the fight tracker, NPCs, sound and the old desk.
 // Hoisted use in render() is safe: views arrive after boot.
-const scenes = createScenes({ client, act, onPick: () => queueMicrotask(recordDesk), getView: () => view, getCues: () => cues, chooseAttack: (uid, index) => combat.chooseAttack(uid, index) });
+const scenes = createScenes({ client, act, onPick: () => queueMicrotask(() => { recordDesk(); if (view) combat.update(view); }), getView: () => view, getCues: () => cues, chooseAttack: (uid, index) => combat.chooseAttack(uid, index) });
 scenes.audio.credential = () => ext.credential; // the audio fetches use the desk's login
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
@@ -1202,7 +1229,7 @@ const openSound = () => {
   scenes.pick('sound');
   requestAnimationFrame(() => document.getElementById('combat-sounds')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
 };
-const combat = createCombat({ act, addPlayer: showAddPlayer, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight') });
+const combat = createCombat({ act, addPlayer: showAddPlayer, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight'), currentMap: () => scenes.currentMap() });
 $('#view-settings .settings-grid').append(sound.settingsEl);
 const npcs = createNpcs({ act, getView: () => view, openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
 // The campaign panel ("Previously on…", plus the hosted edition's extras) lives in Show → Desk.
@@ -1238,6 +1265,11 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (sheet.open || drawerOpen() || document.querySelector('dialog[open]')) return; // dialogs close first
     e.preventDefault();
+    if (mapNavToggle.getAttribute('aria-expanded') === 'true') {
+      mapNavToggle.focus();
+      toggleMapNavigation(false);
+      return;
+    }
     stopAll();
     return;
   }

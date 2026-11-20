@@ -92,7 +92,7 @@ function encounterRows(view) {
 
 const encounterText = (text) => String(text ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
-export function createCombat({ act, send, getView, addPlayer = null, sfx = null, openSound = null, goLive = null }) {
+export function createCombat({ act, send, getView, addPlayer = null, sfx = null, openSound = null, goLive = null, currentMap = () => null }) {
   let view = null;
   let sig = '';
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
@@ -107,6 +107,11 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
   document.body.append(toastEl);
 
   const C = () => view?.combat || { active: false, round: 1, phaseIndex: 0, phases: ['Crawlers', 'Mobs'], combatants: [] };
+  function startMap() {
+    if (C().active) return null;
+    const map = view?.maps?.find((m) => m.id === currentMap());
+    return map?.tokens.some((t) => t.kind === 'mob' && !t.hidden && !t.down && (t.ref || t.sourceId)) ? map : null;
+  }
   const reaction = () => view?.pack?.ruleset?.combat?.flow === 'reaction';
   const rxDraft = {};
   const lib = () => libraryOf(view);
@@ -186,6 +191,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
 
   function header() {
     const c = C();
+    const map = startMap();
     const ph = c.phases || [];
     const last = c.phaseIndex >= ph.length - 1;
     const mobs = c.combatants.filter((x) => x.type === 'mob');
@@ -222,6 +228,9 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
           ? h('button.btn.btn-primary.cbt-next', { type: 'button', onclick: () => act({ t: 'combat.next' }), title: 'Next phase (N)' },
             last ? `Round ${c.round + 1}` : `Next: ${ph[c.phaseIndex + 1]}`, icon('chevron', { size: 15 }), h('kbd', 'N'))
           : h('button.btn.cbt-next', { type: 'button', class: view.players?.length ? 'btn btn-primary cbt-next' : 'btn btn-quiet cbt-next', onclick: start }, icon('swords', { size: 15 }), 'Start combat'),
+        map ? h('button.btn.btn-sm', { type: 'button', title: `Start combat on ${map.name} with its revealed mobs`,
+          onclick: () => act({ t: 'map.toFight', id: map.id }, 'Combat started from the map.'),
+        }, icon('map', { size: 14 }), 'Start with revealed map mobs') : null,
         c.init?.on || c.phasesVerified ? null : h('span.verify', unverifiedBadge('Phase names and order are not checked against the rulebook')),
         c.init?.on ? null : h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(ui.editPhases), onclick: () => { ui.editPhases = !ui.editPhases; redraw(); } }, 'Phases')),
       c.active ? h('div.cbt-auto-bar',
@@ -1081,7 +1090,8 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
   function draw(force = false) {
     if (!view) return;
     const c = C();
-    const s = JSON.stringify([c, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait), p.sheet?.buffs]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, view.library?.item?.length, view.gm?.drops, ui.endMenu, ui.special != null, (view.gm?.prepCards || []).filter((x) => x.kind === 'encounter').map((x) => [x.id, x.label]), view.players?.length, view.pack?.lootTiers?.length, sfx?.on, playingLeft() > 0]);
+    const map = startMap();
+    const s = JSON.stringify([c, map?.id, map?.name, (view.rolls || []).slice(-5).map((r) => [r.id, r.void]), view.scene?.kind, view.scene?.id, view.scene?.data?.bossId, view.gm?.playersFull?.map((p) => [p.id, p.sheet?.computed?.derived, p.sheet?.portrait, !!portraitSrc(p.sheet?.portrait), p.sheet?.buffs]), view.library?.monster?.length, view.library?.boss?.length, view.library?.buff?.length, view.library?.location?.length, view.library?.item?.length, view.gm?.drops, ui.endMenu, ui.special != null, (view.gm?.prepCards || []).filter((x) => x.kind === 'encounter').map((x) => [x.id, x.label]), view.players?.length, view.pack?.lootTiers?.length, sfx?.on, playingLeft() > 0]);
     if (!force && s === sig) return;
     if (!force && el.contains(document.activeElement) && document.activeElement.matches('input:not([type=checkbox]), textarea')) return;
     sig = s;

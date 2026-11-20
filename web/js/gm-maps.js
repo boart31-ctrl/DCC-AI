@@ -21,7 +21,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(`system.maps.${k}`, JSON.stringify(v)); } catch {} },
 };
 const TOOLS = [
-  { id: 'move', label: 'Move', icon: 'target', hint: 'Drag tokens. Click a token to find it in the list.' },
+  { id: 'move', label: 'Move', icon: 'target', hint: 'Drag tokens to move them. Click a token to open its details.' },
   { id: 'zone', label: 'Zone', icon: 'map', hint: 'Drag a rectangle over a room or street to make a zone you can reveal with one tap.' },
   { id: 'poly', label: 'Shape', icon: 'edit', hint: 'Click the corners of an odd-shaped zone. Click the first corner again, double-click or press Enter to finish. Esc cancels.' },
   { id: 'freezone', label: 'Freehand zone', icon: 'edit', hint: 'Trace the boundary of a zone and release to close it.' },
@@ -75,19 +75,47 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
   let sig = '';
   let pending = false;
   let awaitingMap = null;
+  let pan = false;
   const st = { sel: store.get(`sel.${mode}`, null), tool: store.get('tool', 'move'), zone: null, token: null, side: store.get('side', 'tokens'), pen: store.get('pen', PEN_COLORS[0]), penGm: store.get('penGm', false) };
   const el = h('div.gmap', { class: `gmap gmap-${mode}` });
+  const cameraAction = (id, camera) => act({ t: 'map.camera', id, ...camera });
   const mv = createMapView({
     gm: true,
     fit: true,
-    tool: () => st.tool,
+    tool: () => pan ? 'pan' : st.tool,
     onDrag: (rect) => onDrag(rect),
     onPen: (pts) => cur() && act({ t: 'map.stroke.add', id: cur().id, pts, color: st.pen, gm: st.penGm }),
     onPoly: (points) => newZone({ points }),
     onTokenMove: (t, x, y) => cur() && act({ t: 'map.token.move', id: cur().id, tokenId: t.id, x, y }),
-    canMoveToken: () => st.tool === 'move',
-    onToken: (t) => { st.token = t.id; st.side = 'tokens'; sig = ''; draw(); },
+    canMoveToken: () => !pan && st.tool === 'move',
+    onToken: (t) => selectToken(t.id),
+    onCamera: live ? cameraAction : null,
   });
+  const fullscreenButton = h('button.btn.btn-sm', { type: 'button', 'aria-pressed': 'false', onclick: toggleFullscreen }, 'Fullscreen map');
+  function syncFullscreen(on) {
+    el.classList.toggle('gmap-fullscreen', on);
+    fullscreenButton.setAttribute('aria-pressed', String(on));
+    fullscreenButton.textContent = on ? 'Exit fullscreen' : 'Fullscreen map';
+  }
+  async function toggleFullscreen() {
+    if (document.fullscreenElement === el) { await document.exitFullscreen(); return; }
+    if (el.classList.contains('gmap-fullscreen')) { syncFullscreen(false); return; }
+    try {
+      if (el.requestFullscreen) { await el.requestFullscreen(); return; }
+    } catch { /* Keep the map expanded on browsers that block native fullscreen. */ }
+    syncFullscreen(true);
+  }
+  document.addEventListener('fullscreenchange', () => {
+    if (document.fullscreenElement === el || el.classList.contains('gmap-fullscreen')) syncFullscreen(document.fullscreenElement === el);
+  });
+  document.addEventListener('keydown', (event) => {
+    if (event.key !== 'Escape' || !el.classList.contains('gmap-fullscreen')) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (document.fullscreenElement === el) document.exitFullscreen();
+    else syncFullscreen(false);
+    fullscreenButton.focus();
+  }, true);
 
   const maps = () => view?.maps || [];
   const cur = () => maps().find((m) => m.id === st.sel) || null;
@@ -95,11 +123,12 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
   const cards = () => view?.gm?.prepCards || [];
   const combatants = () => view?.combat?.combatants || [];
   function pick(id) {
+    pan = false;
     st.sel = id; st.zone = null; st.token = null; store.set(`sel.${mode}`, id);
     if (live && id) scenes?.loadDraft('map', { mapId: id });
     sig = ''; draw();
   }
-  const setTool = (id) => { st.tool = id; store.set('tool', id); mv.cancelPoly(); sig = ''; draw(); };
+  const setTool = (id) => { pan = false; st.tool = id; store.set('tool', id); mv.cancelPoly(); sig = ''; draw(); };
 
   async function newZone(shape) {
     const m = cur();
@@ -272,18 +301,66 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
       },
     });
   }
+  function selectToken(id, focus = false) {
+    const previous = st.token;
+    st.token = id;
+    st.side = 'tokens';
+    sig = '';
+    draw();
+    if (focus) {
+      const selector = id ? '.gmap-token-back' : `[data-map-focus="token-${CSS.escape(previous)}"]`;
+      el.querySelector(selector)?.focus({ preventScroll: !!id });
+    }
+  }
+  const tokenArt = (t) => entryArt({ ...t, name: t.label, image: portraitSrc(t.image) }, { cls: 'gmap-tok-art' });
+  function visibilityButton(m, t) {
+    if (t.kind === 'pc') return null;
+    const label = `${t.hidden ? 'Reveal' : 'Hide'} ${t.label}`;
+    return h('button.icon-btn', { type: 'button', title: label, 'aria-label': label, onclick: () => toggleToken(m, t) }, icon(t.hidden ? 'lock' : 'eye', { size: 14 }));
+  }
+  function removeTokenButton(m, t) {
+    const label = `Remove ${t.label} from the map`;
+    return h('button.icon-btn', { type: 'button', title: label, 'aria-label': label, onclick: () => act({ t: 'map.token.remove', id: m.id, tokenId: t.id }) }, icon('trash', { size: 14 }));
+  }
   function tokenRow(m, t) {
     const c = combatantOf(t);
     const state = t.down ? 'down' : t.hidden ? 'hidden' : 'visible';
-    return h('li.gmap-tok', { class: `gmap-tok${st.token === t.id ? ' sel' : ''}${t.down ? ' down' : ''}`, onclick: () => { st.token = st.token === t.id ? null : t.id; sig = ''; draw(); } },
-      entryArt({ ...t, name: t.label, image: portraitSrc(t.image) }, { cls: 'gmap-tok-art' }),
-      h('b', t.label),
-      h('span.dim', t.kind === 'pc' ? 'crawler' : t.kind === 'mark' ? 'marker' : c ? `in the fight · ${state}` : t.ref ? 'left the fight' : state),
-      h('span.grow'),
-      t.kind !== 'pc' ? h('button.icon-btn', { type: 'button', title: t.hidden ? 'Hidden from the players: show' : 'Visible: hide', onclick: (e) => { e.stopPropagation(); toggleToken(m, t); } }, icon(t.hidden ? 'lock' : 'eye', { size: 14 })) : null,
-      h('button.icon-btn', { type: 'button', title: 'Remove the token', onclick: (e) => { e.stopPropagation(); act({ t: 'map.token.remove', id: m.id, tokenId: t.id }); } }, icon('trash', { size: 14 })));
+    return h('li.gmap-tok', { class: `gmap-tok${t.down ? ' down' : ''}` },
+      h('button.gmap-tok-open', { type: 'button', 'data-map-focus': `token-${t.id}`, 'aria-label': `Edit ${t.label}`, onclick: () => selectToken(t.id, true) },
+        tokenArt(t), h('b', t.label),
+        h('span.dim', t.kind === 'pc' ? 'crawler' : t.kind === 'mark' ? 'marker' : c ? `in the fight · ${state}` : t.ref ? 'left the fight' : state)),
+      visibilityButton(m, t), removeTokenButton(m, t));
+  }
+  function tokenDetails(m, token) {
+    const src = (lib()[token.sourceKind] || []).find((e) => e.id === token.sourceId);
+    const c = combatantOf(token);
+    const def = c ? { ...src, ...c } : src;
+    const health = c?.slotValue ? `${c.hp}/${c.hpMax} slots · ${c.slotValue} HP/slot` : `${c?.hp}/${c?.hpMax} HP`;
+    const stats = hasStatBlock(def) ? statBlock(def, view?.pack?.ruleset?.combat || {}) : null;
+    const note = (label, text) => text ? h('p', h('b', `${label} `), text) : null;
+    const edit = (patch) => act({ t: 'map.token.update', id: m.id, tokenId: token.id, ...patch });
+    const rename = (value) => {
+      const label = value.trim();
+      if (label) return c ? act({ t: 'combat.update', uid: c.uid, name: label }) : edit({ label });
+    };
+    return h('section.gmap-details', { 'aria-label': 'Token details', 'data-details-id': token.id },
+      h('header.gmap-detail-head',
+        h('button.icon-btn.gmap-token-back', { type: 'button', 'aria-label': 'Back to tokens', title: 'Back to tokens', 'data-map-focus': 'back', onclick: () => selectToken(null, true) }, icon('back', { size: 16 })),
+        tokenArt(token),
+        h('div.gmap-detail-title', h('h4', token.label),
+          h('p.dim', Number.isFinite(c?.hp) ? `${health} · ${c.down ? 'Defeated' : c.hidden ? 'Hidden' : 'In the fight'}`
+            : token.kind === 'pc' ? 'Crawler' : `${token.kind === 'mark' ? 'Marker' : 'Mob'} · ${token.hidden ? 'Hidden' : 'Visible'}`)),
+        visibilityButton(m, token), removeTokenButton(m, token)),
+      h('div.gmap-detail-fields',
+        h('label', h('span', 'Token label'), field(token.label, { cls: 'inp-sm', attrs: { maxlength: c ? 80 : 40, title: c ? 'Also updates the name in Fight' : null }, onCommit: rename })),
+        h('label', h('span', 'Token notes'), field(token.notes || '', { multiline: true, rows: 2, placeholder: 'GM only', attrs: { maxlength: 2000 }, onCommit: (notes) => edit({ notes }) }))),
+      stats || def?.desc || def?.tactics || src?.notes || c?.notes ? h('section.gmap-details-ref', { 'aria-label': 'Monster reference', tabindex: 0, 'data-map-focus': 'reference' },
+        h('h5', 'Monster reference'), stats, note('Description', def?.desc), note('Tactics', def?.tactics), note('Reference notes', src?.notes),
+        c?.notes !== src?.notes ? note('Combat notes', c?.notes) : null) : null);
   }
   function tokensPanel(m) {
+    const token = m.tokens.find((t) => t.id === st.token);
+    if (token) return tokenDetails(m, token);
     const encs = cards().filter((c) => c.kind === 'encounter' && c.payload?.mapId === m.id);
     const groups = [
       ['Crawlers', m.tokens.filter((t) => t.kind === 'pc')],
@@ -293,29 +370,11 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
     ].filter(([, list]) => list.length);
     const players = view?.players || [];
     const missingPc = players.filter((p) => !m.tokens.some((t) => t.kind === 'pc' && t.ref === p.id)).length;
-    const token = m.tokens.find((t) => t.id === st.token);
-    const details = token && (() => {
-      const src = (lib()[token.sourceKind] || []).find((e) => e.id === token.sourceId);
-      const c = combatantOf(token);
-      const def = c ? { ...src, ...c } : src;
-      const health = c?.slotValue ? `${c.hp}/${c.hpMax} slots · ${c.slotValue} HP/slot` : `${c?.hp}/${c?.hpMax} HP`;
-      return h('section.gmap-details',
-        h('h4', token.label),
-        def?.desc ? h('p', def.desc) : null,
-        c && Number.isFinite(c.hp) && Number.isFinite(c.hpMax)
-          ? h('p.dim', `${health} · ${c.hidden ? 'Hidden' : c.down ? 'Defeated' : 'In the fight'}`) : null,
-        def && hasStatBlock(def) ? statBlock(def, view?.pack?.ruleset?.combat || {}) : null,
-        def?.tactics ? h('p', def.tactics) : null,
-        def?.notes ? h('p', def.notes) : null,
-        field(token.label, { cls: 'inp-sm', attrs: { 'aria-label': 'Token label', maxlength: 40 }, onCommit: (label) => label.trim() && act({ t: 'map.token.update', id: m.id, tokenId: token.id, label }) }),
-        field(token.notes || '', { multiline: true, rows: 3, placeholder: 'GM notes for this token', attrs: { 'aria-label': 'Token notes', maxlength: 2000 }, onCommit: (notes) => act({ t: 'map.token.update', id: m.id, tokenId: token.id, notes }) }));
-    })();
     return [
       h('div.gmap-actions',
         players.length ? h('button.btn.btn-sm', { type: 'button', disabled: !missingPc, title: 'One token per crawler, top left: drag them where the party starts', onclick: () => act({ t: 'map.token.party', id: m.id }, 'Crawler tokens placed top left: drag them to the start.') }, icon('users', { size: 14 }), missingPc ? 'Crawlers’ start' : 'Crawlers placed') : null,
         h('button.btn.btn-sm', { type: 'button', onclick: () => addMobTokens(m) }, icon('skull', { size: 14 }), 'Monsters'),
         h('button.btn.btn-sm', { type: 'button', onclick: async () => { const n = await promptName('Marker', 'Stairs'); if (n) act({ t: 'map.token.add', id: m.id, kind: 'mark', label: n, x: 0.5, y: 0.5 }); } }, icon('flag', { size: 14 }), 'Marker')),
-      details,
       encs.length ? h('ul.gmap-encs', encs.map((e) => {
         const n = (e.payload?.mobs || []).reduce((a, x) => a + (x.count || 1), 0);
         const placed = m.tokens.filter((t) => t.enc === e.id).length;
@@ -330,27 +389,46 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
   }
 
   /* ---------- draw ---------- */
+  function cameraControls(m) {
+    const zoom = m.camera?.zoom ?? 1;
+    const zoomButton = (label, glyph, next, disabled) => h('button.btn.btn-sm', {
+      type: 'button', 'aria-label': label, title: label, disabled, onclick: () => cameraAction(m.id, { zoom: next }),
+    }, icon(glyph, { size: 16 }));
+    return h('div.gmap-camera', { role: 'group', 'aria-label': 'Map view' },
+      live ? zoomButton('Zoom out', 'minus', Math.max(1, zoom - 0.5), zoom <= 1) : null,
+      live ? h('output', { 'aria-label': 'Zoom level' }, `${Math.round(zoom * 100)}%`) : null,
+      live ? zoomButton('Zoom in', 'plus', Math.min(4, zoom + 0.5), zoom >= 4) : null,
+      live ? h('button.btn.btn-sm', { type: 'button', onclick: () => cameraAction(m.id, { zoom: 1 }), disabled: zoom <= 1 }, 'Fit map') : null,
+      live ? h('button.btn.btn-sm', {
+        type: 'button', 'aria-pressed': String(pan), disabled: zoom <= 1,
+        title: 'Drag or use the arrows to pan. Click a point to center it.',
+        onclick: () => { pan = !pan; mv.cancelPoly(); draw(); if (pan) mv.focus(); },
+      }, 'Pan map') : null,
+      fullscreenButton);
+  }
   function toolbar(m) {
     const t = TOOLS.find((x) => x.id === st.tool) || TOOLS[0];
     const strokes = m.strokes || [];
     return [
-      h('div.gmap-tools', { role: 'radiogroup', 'aria-label': 'Tool' }, TOOLS.map((x) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(st.tool === x.id), 'aria-pressed': String(st.tool === x.id), title: x.hint, onclick: () => setTool(x.id) }, icon(x.icon, { size: 14 }), x.label))),
-      st.tool === 'pen' ? h('div.gmap-pen',
+      h('div.gmap-tools', { role: 'radiogroup', 'aria-label': 'Tool' }, TOOLS.map((x) => h('button', { type: 'button', role: 'radio', 'aria-checked': String(!pan && st.tool === x.id), 'aria-pressed': String(!pan && st.tool === x.id), title: x.hint, onclick: () => setTool(x.id) }, icon(x.icon, { size: 14 }), x.label))),
+      cameraControls(m),
+      !pan && st.tool === 'pen' ? h('div.gmap-pen',
         PEN_COLORS.map((c) => h('button.gmap-swatch', { type: 'button', 'aria-label': `Colour ${c}`, 'aria-pressed': String(st.pen === c), style: { '--sw': c }, onclick: () => { st.pen = c; store.set('pen', c); mv.set(m, viewOpts()); sig = ''; draw(); } })),
         h('label.chk', h('input', { type: 'checkbox', checked: st.penGm, onchange: (e) => { st.penGm = e.target.checked; store.set('penGm', st.penGm); } }), 'GM only'),
         h('button.btn.btn-sm.btn-quiet', { type: 'button', disabled: !strokes.length, onclick: () => act({ t: 'map.stroke.remove', id: m.id, strokeId: strokes[strokes.length - 1].id }) }, icon('undo', { size: 14 }), 'Undo line'),
         h('button.btn.btn-sm.btn-quiet', { type: 'button', disabled: !strokes.length, onclick: async () => { if (await ask('Erase every drawing on this map?', { ok: 'Erase', danger: true })) act({ t: 'map.stroke.remove', id: m.id, all: true }); } }, 'Erase all')) : null,
-      st.tool === 'reveal' || st.tool === 'cover' ? h('div.gmap-pen',
+      !pan && (st.tool === 'reveal' || st.tool === 'cover') ? h('div.gmap-pen',
         h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'map.fog', id: m.id, all: true }, 'Everything revealed.') }, 'Reveal all'),
         h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: async () => { if (await ask('Cover the whole map again (all zones hidden)?', { ok: 'Cover all' })) act({ t: 'map.fog', id: m.id, all: false }, 'Map covered.'); } }, 'Cover all')) : null,
-      h('p.dim.gmap-hint', t.hint),
+      h('p.dim.gmap-hint', pan ? 'Drag the map, click a point to center it, or use the arrow keys.' : t.hint),
     ];
   }
-  const viewOpts = () => ({ selected: st.zone, selectedToken: st.token, penColor: st.pen, onZone: (z) => { if (st.tool === 'move' || st.tool === 'zone') { st.zone = z.id; st.side = 'zones'; sig = ''; draw(); } } });
+  const viewOpts = () => ({ camera: live, selected: st.zone, selectedToken: st.token, penColor: st.pen, onZone: (z) => { if (!pan && (st.tool === 'move' || st.tool === 'zone')) { st.zone = z.id; st.side = 'zones'; sig = ''; draw(); } } });
 
   function draw() {
     const active = document.activeElement;
     if (active && el.contains(active) && /^(INPUT|TEXTAREA)$/.test(active.tagName) && active.type !== 'checkbox') { pending = true; return; }
+    pending = false;
     if (!cur() && maps().length && st.sel !== null) st.sel = maps()[0].id;
     const m = cur() || (maps().length ? maps()[0] : null);
     if (!m) {
@@ -362,7 +440,13 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
       return;
     }
     if (st.sel !== m.id) { st.sel = m.id; store.set(`sel.${mode}`, m.id); }
+    if (!m.camera) pan = false;
+    const returnPanFocus = active?.matches('.mv-stage[data-tool="pan"]') && el.contains(active);
+    const returnTokenFocus = el.contains(active) && active?.dataset.mapFocus;
+    const reading = el.querySelector('.gmap-details-ref');
+    const detailsScroll = reading?.closest('.gmap-details')?.dataset.detailsId === st.token ? reading.scrollTop : 0;
     mv.set(m, viewOpts());
+    const canStart = m.tokens.some((t) => t.kind === 'mob' && !t.hidden && !t.down && (t.ref || t.sourceId));
     const tabs = [['tokens', `Tokens (${m.tokens.length})`], ['zones', `Zones (${m.zones.filter((z) => z.revealed).length}/${m.zones.length})`]];
     el.replaceChildren(
       h('div.gmap-top',
@@ -371,6 +455,10 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
         h('button.btn.btn-sm', { type: 'button', onclick: () => newMap(null, m) }, 'Change picture'),
         live ? h('button.btn.btn-sm', { type: 'button', 'aria-pressed': String(view?.combat?.mapId === m.id),
           onclick: () => act({ t: 'map.bindCombat', id: view?.combat?.mapId === m.id ? null : m.id }) }, view?.combat?.mapId === m.id ? 'Linked to fight' : 'Link to fight') : null,
+        live && !view?.combat?.active ? h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: !canStart,
+          title: canStart ? `Start combat on ${m.name}` : 'Reveal a monster or boss token from the Library first',
+          onclick: async () => { if (await act({ t: 'map.toFight', id: m.id })) { showView('show'); scenes.pick('fight'); } },
+        }, icon('swords', { size: 14 }), 'Start combat with revealed mobs') : null,
         h('button.icon-btn', { type: 'button', title: 'Rename', onclick: async () => { const n = await promptName('Rename map', m.name); if (n) act({ t: 'map.update', id: m.id, name: n }); } }, icon('edit', { size: 14 })),
         h('button.icon-btn', { type: 'button', title: 'Delete map', onclick: async () => { if (await ask(`Delete map "${m.name}"?`, { ok: 'Delete', danger: true })) { await act({ t: 'map.remove', id: m.id }, 'Map deleted.'); st.sel = null; sig = ''; draw(); } } }, icon('trash', { size: 14 })),
         h('span.grow'),
@@ -378,9 +466,15 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
         !live ? h('span.pill', { title: 'Nothing here reaches the TV. Show it from Show → Map, or run its encounter.' }, icon('lock', { size: 12 }), 'Prep: not on the TV') : null),
       h('div.gmap-bar', toolbar(m)),
       h('div.gmap-grid', mv.el,
-        h('aside.gmap-side',
-          h('div.gmap-tabs', { role: 'tablist' }, tabs.map(([id, label]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(st.side === id), onclick: () => { st.side = id; store.set('side', id); sig = ''; draw(); } }, label))),
+        h('aside.gmap-side', { 'aria-label': 'Map editing' },
+          h('div.gmap-tabs', { role: 'tablist', 'aria-label': 'Map editing' }, tabs.map(([id, label]) => h('button', { type: 'button', role: 'tab', 'aria-selected': String(st.side === id), onclick: () => { st.side = id; store.set('side', id); sig = ''; draw(); } }, label))),
           h('div.gmap-side-body', st.side === 'zones' ? zonesPanel(m) : tokensPanel(m)))));
+    if (returnPanFocus && pan) mv.focus();
+    if (returnTokenFocus) el.querySelector(`[data-map-focus="${CSS.escape(returnTokenFocus)}"]`)?.focus({ preventScroll: true });
+    if (detailsScroll) {
+      const next = el.querySelector('.gmap-details-ref');
+      if (next) next.scrollTop = detailsScroll;
+    }
   }
   el.addEventListener('focusout', () => setTimeout(() => { if (pending && !el.contains(document.activeElement)) { pending = false; sig = ''; draw(); } }, 0));
 
@@ -391,7 +485,9 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
       awaitingMap = null;
       pick(id);
     }
-    const s = JSON.stringify([v.maps, cards().filter((c) => c.kind === 'encounter').map((c) => [c.id, c.label, c.used, c.payload]), Object.values(lib()).map((x) => x.length), (v.players || []).length, combatants().map((c) => [c.uid, c.hidden, c.hp]), v.combat?.mapId]);
+    const token = cur()?.tokens.find((t) => t.id === st.token);
+    const selectedMob = token && combatantOf(token);
+    const s = JSON.stringify([v.maps, cards().filter((c) => c.kind === 'encounter').map((c) => [c.id, c.label, c.used, c.payload]), Object.values(lib()).map((x) => x.length), (v.players || []).length, combatants().map((c) => [c.uid, c.hidden, c.hp]), selectedMob, v.combat?.mapId, v.combat?.active]);
     if (s === sig) return;
     sig = s;
     draw();

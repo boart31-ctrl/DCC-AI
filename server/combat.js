@@ -826,14 +826,14 @@ export const COMBAT_GM = {
   },
 
   /** Monsters (or a boss) from the library: `count` copies, auto-numbered, hidden until revealed. */
-  'combat.addMob'(st, a, ctx, out) {
+  'combat.addMob'(st, a, ctx, out, mapToken = null) {
     const { kind, e } = libSource(st, ctx, a);
     const count = a.count === undefined ? 1 : intIn(a.count, 'count', 1, 20);
     const hidden = a.hidden === undefined ? true : flag(a.hidden, 'hidden');
     roomFor(st, count);
     const sourceKey = `${kind}:${e.id}`;
-    const names = numberedNames(st, e.name, sourceKey, count);
-    const pickImage = familyPicker(st, ctx, kind, e, sourceKey);
+    const names = mapToken ? [mapToken.name] : numberedNames(st, e.name, sourceKey, count);
+    const pickImage = mapToken ? () => mapToken.image : familyPicker(st, ctx, kind, e, sourceKey);
     const uids = names.map((name) => {
       const m = {
         uid: ctx.genId('cb'), type: 'mob', sourceKind: kind, sourceId: e.id, sourceKey, name,
@@ -1144,7 +1144,7 @@ const DANGER_ACTIONS = new Set([
   'combat.start', 'combat.end', 'combat.next', 'combat.set', 'combat.addMob', 'combat.addAdhoc', 'combat.addCrawler',
   'combat.addEncounter', 'combat.remove', 'combat.reveal', 'combat.update', 'combat.damage', 'combat.heal',
   'combat.condition', 'combat.target', 'combat.undo', 'combat.auto', 'combat.autoStep', 'combat.autoConfirm', 'combat.autoUndo', 'combat.mobAct',
-  'rx.start', 'rx.step', 'rx.resolveNext', 'rx.undo', 'rx.round', 'rx.surprise', 'rx.favor', 'enc.run',
+  'rx.start', 'rx.step', 'rx.resolveNext', 'rx.undo', 'rx.round', 'rx.surprise', 'rx.favor', 'enc.run', 'map.toFight',
   'boss.damage', 'boss.heal', 'boss.defeat', 'scene.update', 'player.add', 'player.remove', 'player.stat', 'player.resource',
   'crawlers.set', 'crawlers.collapse', 'level.party', 'rest.party', 'prep.card.fire', 'lib.upsert', 'lib.remove', 'lib.give',
   'roll.undo', 'roll.void', 'roll.restore', 'roll.undoLast', 'roll.redoLast', 'roll.favor', 'roll.intervene',

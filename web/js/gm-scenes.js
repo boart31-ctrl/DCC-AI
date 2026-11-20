@@ -1184,6 +1184,6 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     return true;
   }
 
-  const api = { currentTab: () => tab, el, update, audio, mountInto, loadDraft, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
+  const api = { currentTab: () => tab, currentMap, el, update, audio, mountInto, loadDraft, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
   return api;
 }

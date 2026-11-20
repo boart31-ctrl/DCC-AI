@@ -2,7 +2,7 @@
 // brush reveals, and (optional, for online play) tokens. Pure + browser-safe.
 //
 // state.maps = { list: [Map] }
-//   Map   = { id, name, image, aspect, phones, tokensOn, cols, rows, fog, zones: [Zone], tokens: [Token], createdAt }
+//   Map   = { id, name, image, aspect, phones, tokensOn, cols, rows, fog, zones: [Zone], tokens: [Token], createdAt, camera? }
 //     image     URL (https://… or /pack/…), e.g. a map from the content pack or a location picture
 //     aspect    width / height of the image (the client measures it)
 //     phones    the revealed part is visible on the players' phones ("from the GM" materials)
@@ -42,6 +42,14 @@ const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const clamp01 = (v) => Math.max(0, Math.min(1, v));
 const fin = (v) => typeof v === 'number' && Number.isFinite(v);
 const text = (v, max) => (typeof v === 'string' ? v.slice(0, max) : '');
+
+function normalizeCamera(value) {
+  if (!isObj(value) || !fin(value.zoom) || value.zoom <= 1) return null;
+  const zoom = Math.min(4, value.zoom);
+  const edge = 0.5 / zoom;
+  const coord = (n) => Math.min(1 - edge, Math.max(edge, fin(n) ? n : 0.5));
+  return { zoom, x: coord(value.x), y: coord(value.y) };
+}
 
 // ---------- fog bitmap ----------
 
@@ -230,10 +238,12 @@ function normMap(m) {
   const image = typeof m.image === 'string' && IMAGE_RE.test(m.image) ? m.image : '';
   const fallbackImage = typeof m.fallbackImage === 'string' && m.fallbackImage !== image && IMAGE_RE.test(m.fallbackImage) ? m.fallbackImage : null;
   const mobStarts = startsOf(m.mobStarts);
+  const camera = normalizeCamera(m.camera);
   return {
     id: m.id, name: text(m.name, 80) || 'Map', image,
     ...(fallbackImage ? { fallbackImage } : {}),
     ...(mobStarts.length ? { mobStarts } : {}),
+    ...(camera ? { camera } : {}),
     aspect, phones: m.phones === true, tokensOn: m.tokensOn === true, cols, rows, fog,
     ...(typeof m.zoneZero === 'boolean' ? { zoneZero: m.zoneZero } : {}),
     zones: (Array.isArray(m.zones) ? m.zones : []).map(normZone).filter(Boolean).slice(0, MAX_ZONES),
@@ -328,6 +338,16 @@ export const MAPS_GM = {
     if (a.aspect !== undefined) changeAspect(m, aspectArg(a.aspect));
     if (a.phones !== undefined) m.phones = a.phones === true;
     if (a.tokensOn !== undefined) m.tokensOn = a.tokensOn === true;
+  },
+
+  'map.camera'(st, a, ctx, out) {
+    const m = mapOf(st, a.id);
+    if (!fin(a.zoom) || a.zoom < 1 || a.zoom > 4) throw bad('zoom must be a number from 1 to 4');
+    for (const axis of ['x', 'y']) if (a[axis] !== undefined && !fin(a[axis])) throw bad(`${axis} must be a number`);
+    const camera = normalizeCamera({ ...m.camera, zoom: a.zoom, ...(a.x === undefined ? {} : { x: a.x }), ...(a.y === undefined ? {} : { y: a.y }) });
+    if (camera) m.camera = camera;
+    else delete m.camera;
+    out.result = { camera };
   },
 
   'map.remove'(st, a) {
@@ -533,6 +553,68 @@ export function bindEncounterTokens(st, mapId, encId, uids) {
   return n;
 }
 
+function mapMobArt(entry, token) {
+  const images = [entry?.imageSquare || entry?.image, ...(entry?.variants ?? [])].filter(Boolean);
+  return images.length ? images[(token.artIndex ?? 0) % images.length] : null;
+}
+
+/** Start normal combat with exactly the revealed mob tokens on this map. */
+export function startCombatOnMap(st, a, ctx, out, gm) {
+  const map = mapOf(st, a.id);
+  const combat = st.combat;
+  if (combat.active) {
+    if (combat.mapId !== map.id) throw bad('End the current fight before starting one on this map.');
+    out.changed = false;
+    out.result = { mapId: map.id, started: false, added: 0 };
+    return;
+  }
+
+  const library = libraryOf(st, ctx.pack);
+  const queued = combat.combatants.filter((x) => x.type === 'mob');
+  const byUid = new Map(queued.map((x) => [x.uid, x]));
+  const existing = new Set();
+  const additions = [];
+  const bindings = [];
+  for (const token of map.tokens) {
+    if (token.kind !== 'mob') continue;
+    if (token.ref) {
+      const mob = byUid.get(token.ref);
+      if (mob && !mob.hidden && mob.hp > 0) existing.add(mob.uid);
+    } else if (!token.hidden && ['monster', 'boss'].includes(token.sourceKind)) {
+      const entry = library.get(token.sourceKind, token.sourceId);
+      if (entry) additions.push({ token, entry });
+    }
+  }
+
+  // An unbound draft entry can be reused if its source and visible name identify the map token.
+  for (const { token } of additions) {
+    const matches = queued.filter((mob) => !existing.has(mob.uid) && !mob.hidden && mob.hp > 0
+      && mob.sourceKind === token.sourceKind && mob.sourceId === token.sourceId && mob.name === token.label);
+    if (matches.length !== 1) continue;
+    const [mob] = matches;
+    existing.add(mob.uid);
+    bindings.push({ token, uid: mob.uid });
+  }
+
+  if (queued.length && (existing.size !== queued.length || (combat.mapId && combat.mapId !== map.id))) {
+    throw bad('A different lineup is already prepared. Start it normally or clear it before starting with this map’s revealed mobs.');
+  }
+  if (!existing.size && !additions.length) throw bad('Reveal at least one monster or boss token from the Library on this map first.');
+
+  combat.mapId = map.id;
+  for (const { token, uid } of bindings) token.ref = uid;
+  const newMobs = additions.filter(({ token }) => !token.ref);
+  for (const { token, entry } of newMobs) {
+    // Bind before the usual combat-token sync so same-species tokens keep their identity and positions.
+    const sub = { ...out, result: null };
+    gm['combat.addMob'](st, { kind: token.sourceKind, sourceId: entry.id, hidden: false, intro: false }, ctx, sub,
+      { name: token.label, image: mapMobArt(entry, token) });
+    [token.ref] = sub.result.uids;
+  }
+  gm['combat.start'](st, {}, ctx, out);
+  out.result = { mapId: map.id, started: true, added: newMobs.length };
+}
+
 // ---------- player actions ----------
 
 export const MAPS_PLAYER = {
@@ -590,8 +672,7 @@ function liveToken(st, library, combatRows, t) {
     image: live?.image ?? raw.image ?? null, hidden: raw.hidden === true, down: raw.hp <= 0 };
   if (t.combatToken) return null;
   const e = library?.get(t.sourceKind, t.sourceId);
-  const images = [e?.imageSquare || e?.image, ...(e?.variants ?? [])].filter(Boolean);
-  return { ...t, image: images.length ? images[(t.artIndex ?? 0) % images.length] : null, ...(t.ref ? { hidden: true, down: true } : {}) };
+  return { ...t, image: mapMobArt(e, t), ...(t.ref ? { hidden: true, down: true } : {}) };
 }
 function withLive(st, m, library, rows) {
   return { ...m, fog: outsideFog(m), tokens: m.tokens.map((t) => liveToken(st, library, rows, t)).filter(Boolean) };
@@ -617,6 +698,7 @@ export function mapsView(state, role, library, combat) {
   const rows = new Map((combat?.combatants ?? []).map((c) => [c.type === 'mob' ? c.uid : c.playerId, c]));
   return list.map((m) => {
     const view = withLive(state, m, library, rows);
-    return role === 'gm' ? view : publicMap(view);
+    if (role === 'gm') return view;
+    return { ...publicMap(view), ...(role === 'stage' && view.camera ? { camera: view.camera } : {}) };
   });
 }

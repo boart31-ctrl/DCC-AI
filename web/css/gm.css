@@ -66,6 +66,29 @@ body.log-closed .gm-log { display: none; }
   .gm-main { padding: 14px; }
 }
 
+@media (min-width: 761px) {
+  #map-nav-toggle:not([hidden]) { display: inline-flex; padding-inline: 7px; white-space: nowrap; }
+  body.desk-map .gm-shell { position: relative; grid-template-columns: minmax(0, 1fr) 320px; }
+  body.desk-map.log-closed .gm-shell { grid-template-columns: minmax(0, 1fr); }
+  body.desk-map .gm-nav { display: none; }
+  body.desk-map.map-nav-open .gm-nav {
+    position: absolute; z-index: 26; top: 0; left: 0; display: flex;
+    width: 168px; max-height: 100%; padding: 6px;
+    border: 1px solid var(--c-line-2); border-radius: 0 0 var(--r-2) 0; box-shadow: var(--c-shadow);
+  }
+}
+@media (761px <= width <= 1100px) {
+  body.desk-map .gm-shell { grid-template-columns: minmax(0, 1fr); }
+}
+@media (761px <= width <= 980px) {
+  #map-nav-toggle span { display: none; }
+  body.desk-map .topbar, body.desk-map .topbar .brand { gap: 6px; }
+  body.desk-map .topbar :is(.room, .conn-text, .tv-state) { display: none; }
+}
+@media (max-width: 760px) {
+  #map-nav-toggle { display: none; }
+}
+
 /* ---------- party ---------- */
 
 .add-player { display: flex; gap: 8px; align-items: center; max-width: 560px; margin-bottom: 12px; }

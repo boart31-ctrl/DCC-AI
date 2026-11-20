@@ -161,6 +161,64 @@ test('linked tokens follow the same combatants, reveal, images and saved positio
   assert.equal(normalizeState(state(), pack).combat.mapId, id);
 });
 
+test('starting combat from the map recruits revealed mobs once in place and keeps the TV map', () => {
+  const { act, view, state } = setup();
+  const { playerId } = act({ t: 'player.add', name: 'Runner' });
+  const { id } = act({ t: 'map.add', name: 'Room', image: '/pack/images/duck.webp' });
+  const { id: other } = act({ t: 'map.add', name: 'Hall', image: '/pack/images/duck.webp' });
+  const { tokenId: pc } = act({ t: 'map.token.add', id, kind: 'pc', ref: playerId, x: 0.19, y: 0.67 });
+  const mobToken = { t: 'map.token.add', id, kind: 'mob', sourceKind: 'monster', sourceId: 'beetle' };
+  const { tokenId: hidden } = act(mobToken);
+  const { tokenId: a } = act({ ...mobToken, hidden: false, label: 'Green scout', x: 0.24, y: 0.48 });
+  const { tokenId: b } = act({ ...mobToken, hidden: false, label: 'White scout', x: 0.59, y: 0.12 });
+  act({ t: 'scene.set', kind: 'map', data: { mapId: id } });
+  const priorMap = view().maps.find((m) => m.id === id);
+
+  assert.throws(() => act({ t: 'map.toFight', id, role: 'player', actorId: playerId }), /unknown action/);
+  assert.deepEqual(act({ t: 'map.toFight', id }), { mapId: id, started: true, added: 2 });
+  const c = view().combat;
+  assert.equal(c.active, true);
+  assert.equal(c.round, 1);
+  assert.equal(c.mapId, id);
+  assert.equal(c.combatants.find((x) => x.type === 'crawler').playerId, playerId);
+  assert.deepEqual(c.combatants.filter((x) => x.type === 'mob').map((x) => [x.name, x.hp, x.hidden]),
+    [['Green scout', 2, false], ['White scout', 2, false]]);
+  assert.equal(view('stage').scene.kind, 'map');
+  const afterMap = view().maps.find((m) => m.id === id);
+  assert.equal(afterMap.tokens.find((t) => t.id === hidden).ref, null);
+  assert.deepEqual(view('stage').maps[0].tokens.map((t) => t.id), [pc, a, b]);
+  for (const tokenId of [pc, a, b]) {
+    const before = priorMap.tokens.find((t) => t.id === tokenId);
+    const after = afterMap.tokens.find((t) => t.id === tokenId);
+    assert.deepEqual([after.x, after.y, after.image], [before.x, before.y, before.image]);
+  }
+  const uid = afterMap.tokens.find((t) => t.id === a).ref;
+  act({ t: 'combat.damage', uid, amount: 1 });
+  const current = state();
+  assert.deepEqual(act({ t: 'map.toFight', id }), { mapId: id, started: false, added: 0 });
+  assert.equal(state(), current);
+  assert.throws(() => act({ t: 'map.toFight', id: other }), /End the current fight/);
+  assert.equal(normalizeState(state(), pack).maps.list.find((m) => m.id === id).tokens.find((t) => t.id === a).ref, uid);
+});
+
+test('map combat reuses a matching draft mob and protects an unrelated or hidden draft from replacement', () => {
+  const { act, view, state } = setup();
+  const { id } = act({ t: 'map.add', name: 'Room', image: '/pack/images/duck.webp' });
+  const { tokenId } = act({ t: 'map.token.add', id, kind: 'mob', sourceKind: 'monster', sourceId: 'beetle' });
+  act({ t: 'map.fog', id, all: true });
+  assert.throws(() => act({ t: 'map.toFight', id }), /Reveal at least one/);
+  const { uids: [uid] } = act({ t: 'combat.addMob', sourceId: 'beetle' });
+  act({ t: 'map.token.update', id, tokenId, hidden: false });
+  const pending = state();
+  assert.throws(() => act({ t: 'map.toFight', id }), /different lineup/);
+  assert.equal(state(), pending);
+  act({ t: 'combat.reveal', uid });
+  act({ t: 'combat.damage', uid, amount: 1 });
+  assert.deepEqual(act({ t: 'map.toFight', id }), { mapId: id, started: true, added: 0 });
+  assert.deepEqual(view().combat.combatants.map((m) => [m.uid, m.hp]), [[uid, 1]]);
+  assert.equal(view().maps[0].tokens.find((t) => t.id === tokenId).ref, uid);
+});
+
 test('Zone 0 affects the complement of overlapping rectangles and freehand polygons', () => {
   const { act, view } = setup();
   const { id } = act({ t: 'map.add', name: 'Room', image: '/pack/images/duck.webp', aspect: 2 });

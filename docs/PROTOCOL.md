@@ -520,12 +520,14 @@ Map views may include an alternate `fallbackImage`. The GM view also includes au
 |---|---|---|
 | `map.add` | `name`, `image` (URL, /pack/ or /art/ path), `fallbackImage?`, `aspect?` (w/h, 0.2..5), `mobStarts?` (up to 40 `[x,y]` pairs) | Ack `result.id`. |
 | `map.update` | `id`, `name?`, `image?`, `fallbackImage?`, `aspect?`, `phones?`, `tokensOn?` | A new aspect resamples painted fog at the same relative coordinates. Changing the image clears its old fallback unless one is supplied. `fallbackImage: null` explicitly clears it. |
+| `map.camera` | `id`, `zoom` (1–4), `x?`, `y?` (normalized image center) | GM-controlled camera mirrored by the TV when this map is on air. Coordinates clamp to the image edges. Zoom 1 fits the entire map. Phones keep their own full map. Ack `{ camera: {zoom,x,y} | null }`. |
 | `map.remove` | `id` | |
 | `map.fog` | `id`, `rect {x,y,w,h}` + `reveal` (bool) — or `all` (true reveals everything, false covers it and hides every zone) | Event `map.fog` when the map is on air |
 | `map.zone.add` | `id`, `name`, `shape` (`{x,y,w,h}` or `{points:[[x,y]…]}` 3..40), `text?`, `notes?` | Ack `result.zoneId` |
 | `map.zone.update` | `id`, `zoneId`, `name?`, `shape?`, `text?` (read-aloud), `notes?` (GM only), `links?` `[{kind: monster/boss/npc/location/item/card, id}]` | |
 | `map.zone.remove` | `id`, `zoneId` | |
 | `map.bindCombat` | map `id` or null | Attach the current combat to a map, add any missing tokens, or detach. |
+| `map.toFight` | map `id` | Start normal combat with revealed monsters and bosses placed on this map. Keep token positions and existing combatant IDs. A matching active fight stays unchanged. A different active or prepared fight is protected. Ack `result {mapId, started, added}`. |
 | `map.zone.reveal` | `id`, `zoneId` (use `0` for the area outside all drawn zones), `on?` (default true) | Event `map.reveal {mapId, zoneId, name}` when on air or shared |
 | `map.token.add` | `id`, `kind` (`pc` with `ref` = player id, one per crawler · `mob` · `mark`), `label?`, `color?`, `x?`, `y?`, `hidden?` | Mobs start hidden. Ack `result.tokenId` |
 | `map.token.party` | `id` | A token for every crawler without one; ack `result.added` |

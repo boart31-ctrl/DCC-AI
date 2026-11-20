@@ -72,6 +72,27 @@ test('views: GM full; TV only the map on air; phones only shared maps; no notes,
   assert.throws(() => gm(s, { t: 'scene.set', kind: 'map', data: { mapId: '../x' } }), /map id/);
 });
 
+test('GM camera clamps to the map, persists on reload and mirrors the TV only', () => {
+  let { state, result: { id } } = gm(withPlayers(), { t: 'map.add', name: 'Gallery', image: '/pack/maps/gallery.webp' });
+  assert.equal(state.maps.list[0].camera, undefined);
+  assert.throws(() => gm(state, { t: 'map.camera', id, zoom: 5 }), /zoom/);
+  assert.throws(() => gm(state, { t: 'map.camera', id, zoom: 2, x: '0.5' }), /x must be a number/);
+  const playerId = state.players[0].id;
+  assert.throws(() => reducePlayerAction(state, { t: 'map.camera', id, zoom: 2 }, { ...ctx(), playerId }), /unknown|not allowed|forbidden/i);
+  state = run(state, { t: 'map.update', id, phones: true }, { t: 'map.camera', id, zoom: 2, x: 0, y: 1 });
+  const camera = { zoom: 2, x: 0.25, y: 0.75 };
+  assert.deepEqual(state.maps.list[0].camera, camera);
+  assert.deepEqual(viewFor(state, pack, 'stage', { now: 0 }).maps, []);
+
+  state = normalizeState(state, pack, 0);
+  state = run(state, { t: 'scene.set', kind: 'map', data: { mapId: id } });
+  assert.deepEqual(viewFor(state, pack, 'gm', { now: 0 }).maps[0].camera, camera);
+  assert.deepEqual(viewFor(state, pack, 'stage', { now: 0 }).maps[0].camera, camera);
+  assert.equal(viewFor(state, pack, 'player', { now: 0, playerId }).maps[0].camera, undefined);
+  state = run(state, { t: 'map.camera', id, zoom: 1 });
+  assert.equal(viewFor(state, pack, 'stage', { now: 0 }).maps[0].camera, undefined);
+});
+
 test('tokens: GM adds party and mobs; players move only their own, only with tokens on; hidden mobs stay hidden', () => {
   let s = withPlayers();
   const [carl, donut] = s.players;
