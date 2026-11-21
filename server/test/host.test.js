@@ -481,6 +481,19 @@ test('restore points: first action, every 10 min, after 30 min idle, session.new
   void manual;
 });
 
+test('starting a fight saves its preceding state and offers it to the GM for restore', async () => {
+  const { gm, host } = setup();
+  const g = gm();
+  await act(g, { t: 'player.add', name: 'Scout' });
+  const before = structuredClone(host.state.combat);
+  assert.equal((await act(g, { t: 'combat.start' })).ok, true);
+  const { backups } = (await act(g, { t: 'backup.list', lastFight: true })).result;
+  assert.equal(backups.length, 1);
+  assert.equal(backups[0].reason, 'before-fight');
+  assert.equal((await act(g, { t: 'backup.restore', id: backups[0].id })).ok, true);
+  assert.deepEqual(host.state.combat, before);
+});
+
 test('backups unavailable without a snapshot store', async () => {
   const { gm } = setup({ snapshots: null });
   const g = gm();

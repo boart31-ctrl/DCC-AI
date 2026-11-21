@@ -333,7 +333,7 @@ Access, devices and backups (handled by `server/host.js`, both editions):
 | `player.deny` | `requestId` | Declines a join request |
 | `tv.pair` | `code` (4 letters, case-insensitive), `label?` | Pairs the screen showing that code. Ack `result: {tvId}`. Max 3 TVs |
 | `tv.unpair` | `tvId` | Revokes that TV |
-| `backup.list` | — | Ack `result.backups: [{id, at, reason, size?}]`, newest first |
+| `backup.list` | `lastFight?` | With true, returns only the newest pre-fight point for the current campaign. Ack `result.backups: [{id, at, reason, size?}]`, newest first |
 | `backup.create` | — | Manual restore point. Ack `result.id` |
 | `backup.restore` | `id` | Takes a `before-restore` point, then replaces the game state with the restore point. Links, TVs, room and legacy tokens stay as they are now; phones and TVs stay connected (a phone whose player does not exist in the restored state is closed with 4004). Voice queue cleared. Ack `result: {restored, backup}` |
 
