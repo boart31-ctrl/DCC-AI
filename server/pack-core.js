@@ -6,6 +6,7 @@ import { normalizeRuleset, normalizeLibEntry, LIB_KINDS } from './ruleset.js';
 import { normalizeCrawlersConfig } from './crawlers.js';
 import { normalizePrepConfig } from './prep.js';
 import { normalizeRulesIndex } from './rules-search.js';
+import { normalizeOrigins } from './origins.js';
 
 export { STANDARD_CATEGORIES };
 
@@ -185,6 +186,7 @@ function loadMeta(raw, warnings) {
     theme: loadTheme(raw.theme, warnings),
     crawlers: normalizeCrawlersConfig(raw.crawlers, warnings), // crawlers.js: worldwide head count
     prep: normalizePrepConfig(raw.prep, warnings), // prep.js: session-prep templates
+    origins: normalizeOrigins(raw.origins, warnings), // origins.js: content source labels
     cheats: loadCheats(raw.cheats, warnings), // printable cheat sheets (pack docs/), linked on phones and the GM desk
     lootTiers,
     audience: { startViewers, sponsorHypeThreshold },
@@ -719,7 +721,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib', 'prep', 'rulesIndex'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib', 'prep', 'rulesIndex', 'origins'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -755,6 +757,7 @@ export function deserializePack(data) {
   pack.crawlers = normalizeCrawlersConfig(d.crawlers ?? null);
   pack.prep = normalizePrepConfig(d.prep ?? null);
   pack.rulesIndex = normalizeRulesIndex(d.rulesIndex ?? null);
+  pack.origins = normalizeOrigins(d.origins ?? null);
   pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
   pack.sounds = Array.isArray(d.sounds) ? d.sounds.filter((x) => isObj(x) && isStr(x.id) && Array.isArray(x.urls)) : [];
   pack.cues = isObj(d.cues) ? { events: isObj(d.cues.events) ? d.cues.events : {}, groups: isObj(d.cues.groups) ? d.cues.groups : {} } : { events: {}, groups: {} };
@@ -779,6 +782,7 @@ export function fallbackPack() {
     crawlers: normalizeCrawlersConfig(null),
     prep: normalizePrepConfig(null),
     rulesIndex: [],
+    origins: {},
     cheats: [],
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },

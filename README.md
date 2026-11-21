@@ -86,6 +86,10 @@ listening to the table (local speech-to-text, transcript only, never stored audi
 - [docs/PUBLIC_RELEASE.md](docs/PUBLIC_RELEASE.md) — the plan for the public, open-source release
 - [docs/ART_PIPELINE.md](docs/ART_PIPELINE.md) — bulk art sheets → pack (slicing, cut-outs, animations, ui.json)
 
+## Third-party material
+
+5e campaigns include the monsters of the 5e SRD 5.1 (CC-BY-4.0). Attribution and details: [NOTICE](NOTICE). The System is an unofficial fan-made tool, not affiliated with or endorsed by Wizards of the Coast, Renegade Game Studios or Matt Dinniman.
+
 ## License
 
 Code: MIT. Demo pack content: CC-BY-4.0. Unofficial fan tool, not affiliated with any publisher.

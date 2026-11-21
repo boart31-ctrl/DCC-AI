@@ -19,6 +19,7 @@ import { normalizeRuleset, normalizeLibEntry, LIB_KINDS } from './ruleset.js';
 import dnd5e from './rulesets/dnd5e.js';
 import dnd2024 from './rulesets/dnd2024.js';
 import pf2e from './rulesets/pf2e.js';
+import { SRD5_MONSTERS } from './srd5-monsters.js';
 
 export const BUILTIN_RULESETS = Object.freeze({ dnd5e, dnd2024, pf2e });
 export const BUILTIN_IDS = Object.keys(BUILTIN_RULESETS);
@@ -358,7 +359,28 @@ export function builtinRuleset(id) {
  * The pack the engine runs a campaign with. Same object for the pack's own ruleset; otherwise a shallow copy
  * with the ruleset swapped and content converted. Cached per (pack, ruleset id).
  */
+// 5e SRD monsters (R17): every D&D-family campaign gets them in its Library, normalized once.
+let srdLib = null;
+const srdMonsters = () => (srdLib ??= SRD5_MONSTERS.map((m) => normalizeLibEntry('monster', m, { source: 'srd' })).filter(Boolean));
+/** Library monsters for a D&D-family campaign: SRD first, without the pack's own crawler conversions of them. */
+function withSrdMonsters(list) {
+  const own = (list ?? []).filter((e) => e.origin !== 'srd51_dcc');
+  const ids = new Set(own.map((e) => e.id));
+  return [...srdMonsters().filter((e) => !ids.has(e.id)), ...own];
+}
+const srdCache = new WeakMap();
+
 export function packForRuleset(pack, rulesetId) {
+  if (pack && familyOf(pack.ruleset) === 'dnd' && (!rulesetId || rulesetId === pack.ruleset?.id)) {
+    // The pack itself is D&D-family: same pack, plus the SRD monsters.
+    let out = srdCache.get(pack);
+    if (!out) {
+      out = Object.create(Object.getPrototypeOf(pack));
+      Object.assign(out, pack, { library: { ...pack.library, monster: withSrdMonsters(pack.library?.monster) } });
+      srdCache.set(pack, out);
+    }
+    return out;
+  }
   if (!pack || !rulesetId || rulesetId === pack.ruleset?.id || !Object.hasOwn(BUILTIN_RULESETS, rulesetId)) return pack;
   if (Array.isArray(pack.rulesetChoices) && !pack.rulesetChoices.includes(rulesetId)) return pack;
   let byId = cache.get(pack);
@@ -380,6 +402,7 @@ export function packForRuleset(pack, rulesetId) {
       lib[k] = [...own.values(), ...packList.filter((b) => !own.has(b.id)).map((b) => convertEntry('buff', b, from, ruleset))];
     } else lib[k] = packList.map((e) => convertEntry(k, e, from, ruleset));
   }
+  if (familyOf(ruleset) === 'dnd') lib.monster = withSrdMonsters(lib.monster);
   const items = (pack.items ?? []).map((it) => convertEntry('item', it, from, ruleset));
   const out = Object.create(Object.getPrototypeOf(pack));
   Object.assign(out, pack, legacyFromRuleset(ruleset), { ruleset, library: lib, items, baseRulesetId: pack.ruleset.id });

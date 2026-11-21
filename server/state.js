@@ -24,6 +24,7 @@ import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { RULES_GM } from './rules-search.js';
+import { originsFor } from './origins.js';
 import { ADVANCEMENT_PLAYER, advancementClockView, changeAdvancementClock, consumeAdvancementMilestone, normalizeAdvancementClock,
   normalizeLevelGrants, recordLevelGrant, snoozeAdvancementClock } from './advancement.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens, startCombatOnMap } from './maps.js';
@@ -1289,6 +1290,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   } else if (role === 'gm') {
     const cats = [...new Set([...STANDARD_CATEGORIES, ...pack.quipsByCategory.keys()])];
     v.gm = {
+      origins: originsFor(pack), // content source badges (Library, Prep picker, mob cards)
       // Level-up reminder (gm.js): minutes of play, since the last party level-up, snoozed until.
       playClock: { playMin: Math.floor((state.session.playMs ?? 0) / 60_000), sinceLevelMin: Math.floor(((state.session.playMs ?? 0) - (state.session.levelAtMs ?? 0)) / 60_000), snoozeMin: state.session.levelSnoozeMs != null ? Math.ceil(state.session.levelSnoozeMs / 60_000) : null },
       advancementClock: advancementClockView(state.session, pack.ruleset, now),

@@ -421,6 +421,8 @@ function statBlockExtras(raw) {
   }
   // Numbers printed without +F (one-shot adventures): the floor is not added to its Evade or attacks.
   if (raw.flat === true) out.flat = true;
+  // Where it comes from (origins.js): GM-side badge, e.g. srd51, dcc_official, homebrew_ai.
+  if (typeof raw.origin === 'string' && /^[a-z0-9_-]{1,40}$/.test(raw.origin)) out.origin = raw.origin;
   return out;
 }
 
