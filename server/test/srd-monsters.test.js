@@ -25,6 +25,7 @@ test('the 5e SRD list is complete, sourced and carries no art', () => {
 test('5e campaigns get the SRD monsters (not the crawler conversions); crawler campaigns keep their own', () => {
   const pack = crawlerPack();
   const own = pack.library.monster.find((m) => m.id === 'srd_goblin');
+  own.image = '/pack/images/srd/goblin.webp'; // as when the art file exists
   assert.equal(own.origin, 'srd51_dcc');
   assert.equal(pack.library.monster.length, 2, 'a crawler campaign has no 5e SRD list');
   for (const id of ['dnd5e', 'dnd2024']) {
@@ -33,6 +34,7 @@ test('5e campaigns get the SRD monsters (not the crawler conversions); crawler c
     assert.equal(goblins.length, 1);
     assert.equal(goblins[0].origin, 'srd51');
     assert.equal(goblins[0].evade, 15);
+    assert.equal(goblins[0].image, '/pack/images/srd/goblin.webp', 'the 5e original borrows the crawler version’s art');
     assert.ok(dnd.library.monster.some((m) => m.id === 'rat'), 'the pack’s own monsters stay (converted)');
   }
   assert.equal(packForRuleset(pack, 'pf2e').library.monster.filter((m) => m.origin === 'srd51').length, 0);

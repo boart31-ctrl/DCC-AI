@@ -365,8 +365,10 @@ const srdMonsters = () => (srdLib ??= SRD5_MONSTERS.map((m) => normalizeLibEntry
 /** Library monsters for a D&D-family campaign: SRD first, without the pack's own crawler conversions of them. */
 function withSrdMonsters(list) {
   const own = (list ?? []).filter((e) => e.origin !== 'srd51_dcc');
+  // The pack's crawler versions may bring art (same id): the 5e originals borrow it.
+  const art = new Map((list ?? []).filter((e) => e.origin === 'srd51_dcc' && e.image).map((e) => [e.id, e]));
   const ids = new Set(own.map((e) => e.id));
-  return [...srdMonsters().filter((e) => !ids.has(e.id)), ...own];
+  return [...srdMonsters().filter((e) => !ids.has(e.id)).map((e) => (art.has(e.id) ? { ...e, image: art.get(e.id).image, variants: art.get(e.id).variants ?? [] } : e)), ...own];
 }
 const srdCache = new WeakMap();
 
