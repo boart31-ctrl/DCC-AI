@@ -369,7 +369,8 @@ export async function startServer(opts = {}) {
       if (p.startsWith('/pack/content/')) return await sendContentResponse(res, contentArtResponse(host.state, p, req.method === 'HEAD'));
       if (p.startsWith('/pack/')) {
         const file = pack.dir && safeJoin(pack.dir, p.slice('/pack/'.length));
-        return file ? sendFile(req, res, file) : notFoundRes(res);
+        if (!file || path.basename(file).toLowerCase() === 'rules_index.json') return notFoundRes(res);
+        return sendFile(req, res, file);
       }
       const page = pageFor(p);
       const file = safeJoin(webDir, page ?? p.slice(1));

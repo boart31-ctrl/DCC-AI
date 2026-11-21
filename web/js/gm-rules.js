@@ -27,9 +27,9 @@ export function createRulesSearch({ send, button }) {
   }
 
   async function run() {
+    const mine = ++seq;
     const q = input.value.trim();
     if (q.length < 2) { list.replaceChildren(); status.textContent = 'Type a rule, a debuff or a question.'; return; }
-    const mine = ++seq;
     status.textContent = 'Searching…';
     let res;
     try {
@@ -52,6 +52,16 @@ export function createRulesSearch({ send, button }) {
     }));
   }
 
+  dlg.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); dlg.close(); }
+  });
+  dlg.addEventListener('close', () => {
+    clearTimeout(timer);
+    seq++;
+    input.value = '';
+    list.replaceChildren();
+    status.textContent = 'Type a rule, a debuff or a question.';
+  });
   function open() {
     if (!dlg.open) dlg.showModal();
     input.focus();
