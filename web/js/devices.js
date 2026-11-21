@@ -122,7 +122,7 @@ $('#dev-pair-form').addEventListener('submit', async (e) => {
 
 const REASON = {
   'session.new': 'before a new session', idle: 'after a break', periodic: 'during play',
-  manual: 'saved by hand', 'before-restore': 'before a restore',
+  'before-fight': 'before a fight', manual: 'saved by hand', 'before-restore': 'before a restore',
 };
 
 async function listBackups() {
@@ -159,6 +159,14 @@ async function exportData(kind) {
   }
 }
 
+$('#bk-fight').addEventListener('click', async () => {
+  const r = await act({ t: 'backup.list', lastFight: true });
+  if (!r) return;
+  const point = r.result.backups[0];
+  if (!point) { toast('No fight restore point in this campaign yet.'); return; }
+  if (!await ask('Return to just before the last fight? Your current state will be saved first.', { ok: 'Restore fight', danger: true })) return;
+  if (await act({ t: 'backup.restore', id: point.id }, 'Restored to before the fight.')) listBackups();
+});
 $('#bk-refresh').addEventListener('click', listBackups);
 $('#bk-create').addEventListener('click', async () => { if (await act({ t: 'backup.create' }, 'Restore point saved.')) listBackups(); });
 $('#bk-export-session').addEventListener('click', () => exportData('session'));

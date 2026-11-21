@@ -518,10 +518,14 @@ export function createHost(opts) {
     const h = prev.host ?? {};
     let reason = null;
     if (type === 'session.new') reason = 'session.new';
+    else if (next.combat?.active && (!prev.combat?.active || next.combat.id !== prev.combat.id) && next.campaign?.id === prev.campaign?.id) reason = 'before-fight';
     else if (h.lastActionAt && t - h.lastActionAt > L.idleMs) reason = 'idle';
     else if (!h.lastSnapshotAt || t - h.lastSnapshotAt >= L.snapshotEveryMs) reason = 'periodic';
     const host = { ...next.host, lastActionAt: t };
-    if (reason && snapshots && snapshot(reason, prev, t) != null) host.lastSnapshotAt = t;
+    if (reason && snapshots) {
+      if (snapshot(reason, prev, t) != null) host.lastSnapshotAt = t;
+      else if (reason === 'before-fight' || reason === 'session.new') throw new ActionError('internal', 'Could not save the restore point.');
+    }
     return { ...next, host };
   }
 
@@ -969,9 +973,14 @@ export function createHost(opts) {
       campaigns.remove(msg.id);
       return { deleted: msg.id };
     },
-    'backup.list'() {
+    'backup.list'(msg) {
       if (!snapshots) throw bad('restore points are not available on this server');
-      return { backups: snapshots.list() };
+      const backups = snapshots.list();
+      if (msg.lastFight === true) {
+        const last = backups.find(b => b.reason === 'before-fight' && snapshots.load(b.id)?.campaign?.id === state.campaign.id);
+        return { backups: last ? [last] : [] };
+      }
+      return { backups };
     },
     'backup.create'(msg) {
       if (!snapshots) throw bad('restore points are not available on this server');
