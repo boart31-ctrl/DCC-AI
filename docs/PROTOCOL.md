@@ -858,3 +858,5 @@ worker).
 `POST /api/maps/image?name=…` creates a map. Use `?mapId=…` to replace the picture on an existing map. Send `image/png`, `X-System-Campaign-Id`, and `X-GM-Key` (or a GM token on local Node). The same-origin adapter validates the PNG and derives its aspect ratio. The map and its image save together. The response contains `{id,image}`, with status 201 for creation or 200 for replacement. Images use the campaign's existing media allowance and travel in campaign backups.
 
 Solo map tokens may specify `sourceKind` and `sourceId` in `map.token.add` for monster or boss library art. `map.token.update` accepts a GM-only `notes` string up to 2000 characters. Tokens linked to combat follow the combatant's image, visibility, and defeated state. Moving a token updates its map coordinates.
+
+| `rules.search` | `q` (≤200 chars), `limit?` (1–20) | GM only. Full-text search of the pack's `rules_index.json` (book, page, heading, passage). Changes nothing; the index is never in a view or a static file. Ack `{hits:[{book,page,heading,text,score}], total}`. |

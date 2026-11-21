@@ -23,6 +23,7 @@ import {
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
+import { RULES_GM } from './rules-search.js';
 import { ADVANCEMENT_PLAYER, advancementClockView, changeAdvancementClock, consumeAdvancementMilestone, normalizeAdvancementClock,
   normalizeLevelGrants, recordLevelGrant, snoozeAdvancementClock } from './advancement.js';
 import { MAPS_GM, MAPS_PLAYER, initMaps, normalizeMaps, mapsView, syncCombatTokens, startCombatOnMap } from './maps.js';
@@ -874,6 +875,7 @@ const PLAYER = {
 Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM, REACTION_GM);
 Object.assign(GM, makeEncounterGM(GM));
 Object.assign(GM, PREP_CHECKS_GM);
+Object.assign(GM, RULES_GM);
 GM['map.toFight'] = (st, a, ctx, out) => startCombatOnMap(st, a, ctx, out, GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
 GM['prep.evening.plan'] = (st, a, ctx, out) => planEvening(st, a, ctx, out, GM);

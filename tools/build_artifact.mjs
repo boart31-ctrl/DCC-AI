@@ -62,6 +62,7 @@ export function build(packDir, outDir) {
   const { pack, warnings } = normalizePack(raw, { assetExists: () => false });
   for (const w of warnings) if (!/not found/.test(w)) console.warn(`[pack] ${w}`);
   const ser = serializePack(pack);
+  ser.rulesIndex = []; // book text never goes into a single-file artifact
   for (const it of ser.items) it.image = null;
   for (const q of ser.quips) { q.audio = null; q.audioByVoice = {}; }
   fs.writeFileSync(path.join(out, 'pack.json'), JSON.stringify(ser));

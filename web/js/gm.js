@@ -24,6 +24,7 @@ import { createPrep } from './gm-prep.js';
 import { createMaps } from './gm-maps.js';
 import { createCrawlers } from './gm-crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
+import { createRulesSearch } from './gm-rules.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -32,6 +33,7 @@ const client = new TransportHub();
 export const ext = { afterRender: [], customAchievementWriter: null, libraryDraft: null, hosted: false };
 // Players & devices panel (devices.js) + GM key login (gmlogin.js) hook in here.
 ext.client = client;
+createRulesSearch({ send: (a) => client.send(a), button: document.getElementById('rules-btn') });
 ext.credential = null; // { key } or { token }
 
 let view = null;

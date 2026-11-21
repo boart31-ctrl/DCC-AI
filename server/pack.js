@@ -29,6 +29,7 @@ export function readPackFiles(dir) {
   }
   const raw = {};
   for (const k of ['pack', 'achievements', 'items', 'loot', 'quips', 'chat', 'ruleset', 'sfx', 'sounds', 'cues', 'ui', 'icons', 'adventures', ...LIBRARY_FILES]) raw[k] = readJson(abs, `${k}.json`);
+  raw.rulesIndex = readJson(abs, 'rules_index.json'); // optional GM-only rules search (rules-search.js)
   if (raw.pack === undefined) throw new PackError(`pack.json is missing (looked in ${abs})`);
   return { abs, raw };
 }
