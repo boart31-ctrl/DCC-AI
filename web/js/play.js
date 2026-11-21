@@ -280,6 +280,9 @@ client.on('view', (v) => {
   if (phoneMapsEl?.isConnected) renderMaps();
   msgCenter.update();
   maybeRecap(v.recap);
+  if (prev?.id !== me.id) {
+    for (const item of pendingLoot()) enqueueTakeover(item);
+  }
   replayMissed(v);
 });
 
@@ -329,8 +332,7 @@ client.on('event', (e) => {
   if (e.playerId !== me.id) return;
   if (['achievement', 'loot', 'sponsor'].includes(e.kind)) {
     if (e.id && seenLoad()?.has(e.id)) return; // the view got here first and already played it
-    markSeen(e.id);
-    enqueueTakeover(e);
+    receiveTakeover(e);
   }
 });
 
@@ -350,6 +352,25 @@ function markSeen(id) {
   set.add(id);
   try { localStorage.setItem(SEEN_KEY(), JSON.stringify([...set].slice(-60))); } catch {}
 }
+// Keep awarded cards across a phone reload, even after the event has left the recent feed.
+const lootKey = () => `system.pendingLoot.${me.id}`;
+function pendingLoot() {
+  try {
+    const cards = JSON.parse(localStorage.getItem(lootKey()));
+    return Array.isArray(cards) ? cards : [];
+  } catch { return []; }
+}
+function savePendingLoot(cards) {
+  try {
+    if (cards.length) localStorage.setItem(lootKey(), JSON.stringify(cards));
+    else localStorage.removeItem(lootKey());
+  } catch {}
+}
+function receiveTakeover(e) {
+  if (e.kind === 'loot') savePendingLoot([...pendingLoot(), e]);
+  markSeen(e.id);
+  enqueueTakeover(e);
+}
 function replayMissed(v) {
   if (!me) return;
   const mine = (v.feed || []).filter((f) => f.playerId === me.id && f.replay && ['achievement', 'loot', 'sponsor'].includes(f.kind));
@@ -357,9 +378,8 @@ function replayMissed(v) {
   const now = v.now || Date.now();
   for (const f of mine) {
     if (seenSet.has(f.id)) continue;
-    markSeen(f.id);
-    if (now - f.at > REPLAY_MS) continue;
-    enqueueTakeover({ id: f.id, kind: f.kind, playerId: me.id, ...f.replay, replayed: true });
+    if (now - f.at > REPLAY_MS) { markSeen(f.id); continue; }
+    receiveTakeover({ id: f.id, kind: f.kind, playerId: me.id, ...f.replay, replayed: true });
   }
 }
 
@@ -1078,7 +1098,11 @@ function nextTakeover() {
     ready = true;
     el.append(h('p.to-hint', { style: { position: 'absolute', bottom: '28px', left: 0, right: 0 } }, 'Tap anywhere to close'));
   }, delay);
-  el.onclick = () => { if (ready) nextTakeover(); };
+  el.onclick = () => {
+    if (!ready) return;
+    if (e.kind === 'loot') savePendingLoot(pendingLoot().filter((card) => card.id !== e.id));
+    nextTakeover();
+  };
 
   if (e.kind === 'achievement') {
     buzz([60, 40, 60, 40, 200]);
@@ -1113,7 +1137,8 @@ function nextTakeover() {
         ),
       );
       buzz(r === 'legendary' || r === 'epic' ? [100, 50, 100, 50, 400] : 120);
-      dismissable(reduced ? 200 : 900);
+      ready = true;
+      inner.append(h('button.btn', { type: 'button' }, 'Close item details'));
     };
     if (reduced) { reveal(); } else {
       requestAnimationFrame(() => box.classList.add('shake'));

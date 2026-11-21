@@ -90,6 +90,7 @@ function render() {
   document.body.classList.toggle('ai-muted', !!view.session?.aiMute); // Mute AI: no audience chat strip
   syncHold(!!view.session?.hold);
   director.render(view);
+  syncLootMoment(view.scene);
   showAudio.view(view);
   syncCurtain();
   $('#room').textContent = view.room || '····';
@@ -341,6 +342,7 @@ function onEvent(e) {
     if (hold) { voicePlayer.holdFor(hold); subOnly.holdFor(hold); }
     return;
   }
+  if (e.kind === 'loot' && e.sceneId) return; // The confirmed scene drives the reveal, including after reconnect.
   if (e.kind === 'loot' || e.kind === 'sponsor') director.event(e);
   if (String(e.kind).startsWith('combat.') || e.kind === 'rx.hit' || e.kind === 'rx.undo') {
     director.event(e);
@@ -438,11 +440,21 @@ function flashPlayer(id) {
 
 function playerOf(id) { return view?.players?.find((p) => p.id === id) || null; }
 
+// Timed announcements may cover the opening. The loot card is the resting view of its scene.
+let lootMoment = null;
+let lastOpening = null;
+function syncLootMoment(scene) {
+  const id = scene?.kind === 'loot' && scene.data.opened ? scene.id : null;
+  if (id === (lootMoment?.sceneId ?? null)) return;
+  lootMoment = id ? { kind: 'loot', sceneId: id, playerId: scene.data.playerId, tier: scene.data.tier, item: scene.data.opened } : null;
+  if (!momentBusy) nextMoment();
+}
+
 function nextMoment() {
-  const e = momentQ.shift();
+  const e = momentQ.shift() ?? lootMoment;
   const el = $('#moment');
   if (!e) { momentBusy = false; document.body.classList.remove('moment-on', 'recap-on'); el.hidden = true; el.replaceChildren(); return; }
-  momentBusy = true;
+  momentBusy = e !== lootMoment;
   document.body.classList.add('moment-on');
   document.body.classList.toggle('recap-on', e.kind === 'recap');
   el.classList.remove('out', 'shake');
@@ -561,7 +573,9 @@ function nextMoment() {
       );
       inner.replaceChildren(...top.slice(0, 1), card);
     };
-    if (reduced) { reveal(); hold = 6000; } else {
+    const resume = e === lootMoment && (lastOpening === e.sceneId || view.scene.now - view.scene.since >= 1950);
+    if (e === lootMoment) lastOpening = e.sceneId;
+    if (reduced || resume) { reveal(); hold = 6000; } else {
       requestAnimationFrame(() => box.classList.add('shake'));
       setTimeout(() => { box.classList.remove('shake'); box.classList.add('open'); openCrate?.(); }, 1500);
       setTimeout(reveal, 1950);
@@ -569,6 +583,7 @@ function nextMoment() {
     }
     if (reduced) hold = readTime(`${e.item?.name || ''} ${e.item?.desc || ''} ${e.item?.flavor || ''}`, 6000);
   }
+  if (e === lootMoment) return;
   setTimeout(() => {
     el.classList.add('out');
     setTimeout(nextMoment, 500);

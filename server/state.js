@@ -10,7 +10,7 @@ import { STANDARD_CATEGORIES } from './constants.js';
 import { packForRuleset, rulesetChoices } from './systems.js';
 import { normalizeContentMedia } from './content-media.js';
 import { ActionError, bad, notFound } from './errors.js';
-import { SCENE_GM, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView, syncBossHealth } from './scenes.js';
+import { SCENE_GM, setScene, initScene, initShow, normalizeScene, normalizeShow, fillMissingBossArt, sceneView, showView, syncBossHealth } from './scenes.js';
 import { COMBAT_GM, INIT_GM, INIT_PLAYER, initCombat, normalizeCombat, fillMissingMobArt, combatView, onSheetRoll, applyMobDamage,
   combatDangerAffected, refreshCombatDanger } from './combat.js';
 import { AUTO_GM, MAX_COMBAT_LOG } from './combat-auto.js';
@@ -472,7 +472,9 @@ const GM = {
     }
     const item = libraryOf(st, ctx.pack).get('item', picked ?? lootRoll(st, ctx, a.tier).id);
     const inv = giveItem(p, item, ctx);
-    const ev = out.emit({ kind: 'loot', playerId: p.id, tier: a.tier, item: inv }, 'all');
+    const { name, desc, flavor, rarity, image } = inv;
+    setScene(st, ctx, 'loot', { playerId: p.id, tier: a.tier, opened: { name, desc, flavor, rarity, image } });
+    const ev = out.emit({ kind: 'loot', sceneId: st.scene.id, playerId: p.id, tier: a.tier, item: inv }, 'all');
     feedPush(st, ev, `${p.name} opened a ${ctx.pack.tiersById.get(a.tier).name}: ${item.name}`);
     out.emit(bumpPct(st, ctx, randRange(ctx.rng, 0.03, 0.08)));
     const line = categoryLine(st, ctx, 'loot', 1);

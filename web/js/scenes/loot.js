@@ -12,7 +12,8 @@ export default function loot(root, sc, env) {
   const ped = h('div.lt-ped', box, h('div.lt-glow'));
   const last = h('div.lt-last');
   const wait = h('p.lt-wait', 'Box ready. Waiting for the GM.');
-  root.append(h('div.lt-wrap', h('div.lt-top', name, tier), ped, wait, last));
+  const contents = h('div.lt-wrap', h('div.lt-top', name, tier), ped, wait, last);
+  root.append(contents);
   let opened = null;
   let lastS = sc;
   let lastV = env.view;
@@ -20,6 +21,8 @@ export default function loot(root, sc, env) {
     lastS = s;
     lastV = view;
     const d = s.data || {};
+    contents.hidden = !!d.opened; // The full-screen item card owns the opened scene.
+    if (contents.hidden) return;
     const p = view.players?.find((x) => x.id === d.playerId);
     const t = d.tierInfo || view.pack?.lootTiers?.find((x) => x.id === d.tier) || view.pack?.lootTiers?.[0];
     root.style.setProperty('--t', t?.color || '#e4ff2e');

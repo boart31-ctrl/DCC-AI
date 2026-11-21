@@ -94,6 +94,10 @@ client.on('event', (e) => {
   if (e.kind === 'stat') return;
   const p = view?.players?.find((x) => x.id === e.playerId);
   if (e.kind === 'achievement') toast(`Achievement → ${p?.name || 'player'}: ${e.title}`);
+  if (e.kind === 'loot' && e.sceneId) {
+    showView('show');
+    scenes.pick('loot');
+  }
   if (e.kind === 'loot') toast(`${p?.name || 'Player'} got ${e.item?.name || 'an item'} (${e.item?.rarity || '?'})`);
   if (e.kind === 'sponsor') toast(`${e.sponsor || 'Sponsor'} box → ${p?.name || 'player'}: ${e.item?.name || ''}`);
 });
@@ -1041,6 +1045,12 @@ function toggleMapNavigation(open) {
   document.body.classList.toggle('map-nav-open', open);
   mapNavToggle.setAttribute('aria-expanded', String(open));
 }
+$('#desk-nav-edge').addEventListener('pointerenter', (e) => {
+  if (e.pointerType === 'mouse') toggleMapNavigation(true);
+});
+deskSections.addEventListener('pointerleave', () => {
+  if (!deskSections.contains(document.activeElement)) toggleMapNavigation(false);
+});
 mapNavToggle.onclick = () => {
   const open = mapNavToggle.getAttribute('aria-expanded') !== 'true';
   toggleMapNavigation(open);
@@ -1055,10 +1065,6 @@ deskSections.addEventListener('focusout', (e) => {
 
 function recordDesk() {
   const tab = currentView === 'show' ? scenes.currentTab() : null;
-  const onMap = tab === 'map';
-  document.body.classList.toggle('desk-map', onMap);
-  mapNavToggle.hidden = !onMap;
-  if (!onMap) toggleMapNavigation(false);
   const last = deskTrail[deskIndex];
   if (last?.view !== currentView || last.tab !== tab) {
     deskTrail.splice(++deskIndex, Infinity, { view: currentView, tab });
@@ -1103,7 +1109,7 @@ for (const nav of [$('#gm-nav'), $('#gm-bnav')]) {
     if (!b || !nav.contains(b)) return;
     showView(b.dataset.view);
     if (mapNavToggle.getAttribute('aria-expanded') === 'true') {
-      if (b.dataset.view === 'show') mapNavToggle.focus();
+      mapNavToggle.focus();
       toggleMapNavigation(false);
     }
     $('.gm-main').scrollTop = 0;

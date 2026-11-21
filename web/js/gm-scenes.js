@@ -344,7 +344,9 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       if (ok) toast(`On air: ${label}.`);
       return ok;
     }
-    return act({ t: 'scene.set', kind: chipId, data }, `On air: ${label}.`);
+    const ok = await act({ t: 'scene.set', kind: chipId, data }, `On air: ${label}.`);
+    if (ok && chipId === 'loot' && tab !== 'loot') pick('loot');
+    return ok;
   }
 
   /**
@@ -741,6 +743,11 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const ps = view().players || [];
     const p = ps.find((x) => x.id === sc.data.playerId);
     const tier = view().pack?.lootTiers?.find((t) => t.id === sc.data.tier);
+    if (sc.data.opened) {
+      const item = sc.data.opened;
+      return h('div.sc-ex-live', h('p.sc-line', p?.name, ' opened ', tier?.name || 'a loot box'),
+        h('div.sc-line', itemArt(item, 'sc-peek-art'), h('b', item.name)), item.desc ? h('p', item.desc) : null);
+    }
     const all = D('loot').playerId === '*';
     // GM peek: roll the table privately, re-roll until it fits the story, then open with that item.
     const pk = ui.peek && ui.peek.tier === tier?.id ? ui.peek : null;

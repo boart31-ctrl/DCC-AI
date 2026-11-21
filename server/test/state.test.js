@@ -88,6 +88,14 @@ test('loot.open adds item, emits loot, unknown tier rejected', () => {
   assert.equal(inv[0].itemId, 'sword');
   assert.equal(r.events[0].event.kind, 'loot');
   assert.equal(r.events[0].event.item.name, 'Sword');
+  assert.equal(r.events[0].event.sceneId, r.state.scene.id);
+  const restored = normalizeState(JSON.parse(JSON.stringify(r.state)), pack);
+  const scene = viewFor(restored, pack, 'stage', {}).scene;
+  assert.equal(scene.kind, 'loot');
+  assert.equal(scene.data.playerId, id);
+  assert.equal(scene.data.opened.name, 'Sword');
+  const restart = gm(restored, { t: 'scene.set', kind: 'loot', data: { playerId: id, tier: 'bronze' } });
+  assert.equal(restart.state.scene.data.opened, undefined);
   assert.throws(() => gm(state, { t: 'loot.open', playerId: id, tier: 'mythic' }), /unknown loot tier/);
   const rm = gm(r.state, { t: 'item.remove', playerId: id, uid: inv[0].uid });
   assert.equal(rm.state.players[0].inventory.length, 0);

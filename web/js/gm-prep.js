@@ -55,7 +55,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   const party = () => (view?.players || []).map((p) => ({ level: p.level || 1 }));
   const tplLabel = (id) => (P().templates || []).find((t) => t.id === id)?.label || P().adventures?.find((a) => a.id === id)?.title || id;
   const currentEvening = () => (docById(P().current)?.evening ? docById(P().current) : docs().findLast((d) => d.evening)) ?? null;
-  const evening = createEvening({ act, redraw, onPlan: planEvening, onRun: runEvening, onShow: showEvening, openInLibrary });
+  const evening = createEvening({ act, redraw, onPlan: planEvening, onSelect: select_, onRun: runEvening, onShow: showEvening, openInLibrary });
 
   function entryOf(ref) {
     if (!ref) return null;
@@ -82,7 +82,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     return { cls: 'rd-green', why: 'Has a picture.' };
   }
   /* ---------- actions ---------- */
-  const select_ = (id) => { st.sel = id; st.newEvening = false; redraw(); };
+  function select_(id) { st.sel = id; st.newEvening = false; redraw(); }
   function redraw(force = false) { sig = ''; draw(force); }
   async function planEvening(payload) {
     const r = await act({ t: 'prep.evening.plan', ...payload });

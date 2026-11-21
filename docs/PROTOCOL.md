@@ -249,7 +249,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `player.remove` | `playerId` | |
 | `ach.award` | `playerId`, `achId` **or** `title`+`desc?`+`reward?` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
 | `loot.peek` | `tier` | GM preview: rolls the tier's table, gives nothing. Ack `result.item {id, name, rarity, image, desc}` |
-| `loot.open` | `playerId`, `tier`, `itemId?` | Rolls pack loot table for tier (or takes the peeked `itemId`, which must be on that table), adds item, event `loot` |
+| `loot.open` | `playerId`, `tier`, `itemId?` | Rolls pack loot table for tier (or takes the peeked `itemId`, which must be on that table), adds the item and opens its loot scene. The `loot` event carries `sceneId`. The live scene keeps the awarded item in `data.opened` until replaced |
 | `item.give` | `playerId`, `itemId`, `qty?`, `bonus?` (0-3) | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack with the same bonus (`qty` added). `bonus` = a +N copy: name `+N`, rarity at least uncommon/rare/epic, weapons +N to hit and damage (`attack.bonus`), armour +N to its `armor` effect |
 | `item.enhance` | `playerId`, `uid`, `bonus` (0-3) | Make an inventory copy +N (0 = plain). Not for a stack of more than one |
 | `item.remove` | `playerId`, `uid` | Also clears it from the hotlist |

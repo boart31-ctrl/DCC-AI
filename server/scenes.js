@@ -273,6 +273,7 @@ function lootMerge(st, ctx, prev, patch) {
       }
     } else throw bad(`unknown field ${k} for scene loot`);
   }
+  if (out.playerId !== prev.playerId || out.tier !== prev.tier) delete out.opened;
   return out;
 }
 
@@ -407,7 +408,7 @@ export function normalizeShow(raw) {
   return { audioDevice: AUDIO_DEVICES.includes(raw?.audioDevice) ? raw.audioDevice : 'gm' };
 }
 
-function setScene(st, ctx, kind, data) {
+export function setScene(st, ctx, kind, data) {
   rememberBoss(st);
   st.scene = { id: ctx.genId('sc'), kind, data, since: ctx.now };
 }

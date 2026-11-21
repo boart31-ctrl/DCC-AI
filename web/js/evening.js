@@ -1,5 +1,5 @@
 import { h } from './client.js';
-import { closeDrawer, field, icon, openDrawer } from './ui.js';
+import { closeDrawer, field, icon, openDrawer, select } from './ui.js';
 import { addEveningMob, eveningScene } from './evening-scene.js';
 import { eveningTools } from './evening-tools.js';
 
@@ -36,7 +36,7 @@ function readiness(scene, view) {
 }
 
 /** Evening selection and layout. Scene content and GM tools are rendered by their own components. */
-export function createEvening({ act, redraw, onPlan, onRun, onShow, openInLibrary }) {
+export function createEvening({ act, redraw, onPlan, onSelect, onRun, onShow, openInLibrary }) {
   const selection = new Map();
   const blockState = { open: new Set(['goal']), focus: null };
   let coach = readCoach();
@@ -114,6 +114,8 @@ export function createEvening({ act, redraw, onPlan, onRun, onShow, openInLibrar
     return h('aside.panel.ev-agenda', { 'aria-label': 'Evening agenda' },
       h('h2', 'Evening'),
       field(doc.title, { cls: 'ev-title', attrs: { 'aria-label': 'Evening title', maxlength: 100 }, onCommit: (title) => title.trim() && update({ title: title.trim() }) }),
+      select(view.gm.prep.docs.filter((d) => d.evening).map((d) => ({ value: d.id, label: d.title })), doc.id,
+        { label: 'Switch evening', onChange: onSelect }),
       h('label.ev-budget', h('span', 'Planned length'), field(doc.evening.minutes, { type: 'number', cls: 'inp-sm',
         attrs: { min: 1, max: 1440, 'aria-label': 'Planned minutes' }, onCommit: (minutes) => Number.isInteger(minutes) && minutes > 0 && minutes <= 1440 && update({ minutes }) }), h('span.dim', 'min')),
       h('div.ev-time', { class: total > doc.evening.minutes ? 'ev-time over' : 'ev-time' },

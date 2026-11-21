@@ -499,7 +499,7 @@
 
 /* Focus is a local desk preference. Leaving Fight restores the surrounding navigation. */
 body.fight-focus[data-desk="show"] .gm-shell { grid-template-columns: minmax(0, 1fr); }
-body.fight-focus[data-desk="show"] :is(.gm-nav, .gm-bnav, .gm-log, #log-toggle) { display: none !important; }
+body.fight-focus[data-desk="show"] :is(.gm-nav, .gm-bnav, .gm-log, #log-toggle, #map-nav-toggle, #desk-nav-edge) { display: none !important; }
 body.fight-focus[data-desk="show"] .gm-main { padding: 5px 10px 12px; }
 .cbt-list-panel { align-items: start; }
 .cbt-list-panel .cbt-list { gap: 3px; align-content: start; }
