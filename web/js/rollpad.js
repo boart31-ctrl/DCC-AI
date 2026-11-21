@@ -1,7 +1,7 @@
 // Roll pad (player phone): dice entry against a target.
 //   Pick what you do (attack, skill, save, ability...) -> in a fight pick the monster -> type the number on your real
 //   die (or let the phone roll) -> the app adds your modifiers and says HIT / MISS. After a hit: damage the same way,
-//   it lands on the monster. Undo takes back a misclick. The GM sees the defence and the margin, players never do.
+//   it lands on the monster. No player undo (the GM can take a roll back). The GM sees the defence and the margin, players never do.
 // Dice modes (per crawler, `dice.mode`): off = the phone only explains numbers; enter = keypad first; digital = Roll first.
 import { h, toast, buzz } from './client.js';
 import { dieFaces, icon, signed, spellCooldownHint } from './ui.js';
@@ -153,14 +153,6 @@ export function createRollPad({ send, getView, getMe }) {
     }
   }
 
-  async function undo() {
-    try {
-      await send({ t: 'roll.undo' });
-      toast('Taken back');
-      close();
-    } catch (err) { toast(err.message, { error: true }); }
-  }
-
   function damageNext() {
     const rollId = st.result?.rollId;
     st.what = { kind: st.what.kind, uid: st.what.uid, part: 'damage' };
@@ -236,9 +228,11 @@ export function createRollPad({ send, getView, getMe }) {
       return target ? h('p.rp-hint', `Damage to ${target.name}`) : h('p.rp-hint', 'To apply damage to an enemy, land an attack from Combat first.');
     }
     return h('div.rp-targets', h('span.rp-l', isDamage() ? 'Damage to' : 'Attack'),
-      h('div.rp-chips', list.map((m) => h('button.chip', { type: 'button', 'aria-pressed': String(st.target === m.uid), onclick: () => { if (st.target === m.uid) return; st.target = m.uid; draw(); } }, m.name)),
+      // Stable order (by name, numbers in order) so a chip never moves under the finger when the view updates.
+      h('div.rp-chips', [...list].sort((a, b) => String(a.name).localeCompare(String(b.name), undefined, { numeric: true })).map((m) => h('button.chip', { type: 'button', 'aria-pressed': String(st.target === m.uid), onclick: () => { if (st.target === m.uid) return; st.target = m.uid; draw(); } }, m.name)),
         h('button.chip', { type: 'button', 'aria-pressed': String(st.target === null), onclick: () => { st.target = null; draw(); } }, 'No target')),
-      st.target === undefined ? h('span.rp-need', 'Pick a target or No target to roll.') : null);
+      // Always takes its line, so the dice below don't jump up when a target is picked.
+      h('span.rp-need', { style: st.target === undefined ? null : 'visibility:hidden' }, 'Pick a target or No target to roll.'));
   }
 
   function modsRow() {
@@ -253,11 +247,7 @@ export function createRollPad({ send, getView, getMe }) {
       advOn ? h('div.rp-adv', ['adv', 'dis'].map((k) => h('button.chip', { type: 'button', 'aria-pressed': String(st.adv === k), onclick: () => { st.adv = st.adv === k ? null : k; draw(); } }, advLabel(k)))) : null,
       inherent ? h('span.rp-hint', `${st.label} starts with ${advLabel(inherent)}.`) : null,
       sz ? h('span.rp-hint', sz.text) : null,
-      earned ? h('span.rp-hint', 'Your Evade earned Advantage against this target.') : null,
-      isDamage() ? null : h('div.rp-bonus', h('span.rp-l', 'Extra'),
-        h('button.btn.btn-sm', { type: 'button', 'aria-label': 'Minus one', onclick: () => { st.bonus -= 1; draw(); } }, '−'),
-        h('b', signed(st.bonus)),
-        h('button.btn.btn-sm', { type: 'button', 'aria-label': 'Plus one', onclick: () => { st.bonus += 1; draw(); } }, '+')));
+      earned ? h('span.rp-hint', 'Your Evade earned Advantage against this target.') : null);
   }
 
   function evadeAdvantage() {
@@ -337,11 +327,10 @@ export function createRollPad({ send, getView, getMe }) {
       r.deg7 === 'crit' ? h('p.rp-note', rules().crit === 'dice' ? 'Critical: roll your damage dice twice.' : 'Critical: the app applies the extra damage.') : null,
       roll.vs?.sizeDamage ? h('p.rp-note', `+${roll.vs.sizeDamage} damage from your size.`) : null,
       roll.vs?.ignoredDr ? h('p.rp-note', 'Armor-piercing: ignores DR.') : null,
-      h('div.rp-next',
-        isAttack() && r.hit ? h('button.btn.btn-primary', { type: 'button', onclick: damageNext }, 'Roll damage') : null,
-        favorBtn(r),
-        h('button.btn', { type: 'button', onclick: undo }, icon('undo', { size: 16 }), 'Undo'),
-        h('button.btn.btn-quiet', { type: 'button', onclick: close }, 'Done'))));
+      // Players never undo their own rolls (the GM can); after a hit the only way on is damage.
+      h('div.rp-next', isAttack() && r.hit
+        ? h('button.btn.btn-primary.rp-damage-next', { type: 'button', onclick: damageNext }, icon('dice', { size: 18 }), 'Roll damage')
+        : [favorBtn(r), h('button.btn.btn-quiet', { type: 'button', onclick: close }, 'Done')])));
   }
 
   /** AI Favor: reroll the d20 once (never a natural 1), costs 1 Favor (rules with an aiFavor field). */

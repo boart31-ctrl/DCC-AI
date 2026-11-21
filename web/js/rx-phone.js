@@ -105,7 +105,7 @@ export function createRxPhone({ send, toast, onReceipt }) {
         const title = kind === 'taunt' ? result.ok ? 'Taunted. The attack comes for you.' : 'The taunt did not land.'
           : kind === 'intervene' ? `Intervene +${result.d6} · ${crawlerName(d.targetUid)} · ${result.label}`
             : `${label} d20 ${result.die} · ${result.label}${result.near ? ' · A friend can Intervene' : ''}`;
-        onReceipt?.(title, result.receipt);
+        onReceipt?.(title, result.receipt, { kind, label, ...result });
       }
       update(latest.view, latest.me);
     }

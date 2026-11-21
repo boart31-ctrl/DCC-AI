@@ -296,7 +296,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.scene.remove` | `id`, `sceneId` | Remove the scene from the evening. |
 | `prep.scene.encounter` | `id`, `sceneId`, `mobs?` or `add? {kind,sourceId}` or `change? {index,kind,sourceId,delta?,hidden?,remove?}`, `mapId?` | Atomically create or edit the linked encounter. A row edit checks its source. Ack `{id,sceneId,encounterId,mapId}`. |
 | `prep.scene.npc` | `id`, `sceneId`, `name`, `motive?`, `voice?` | Create a library NPC and add it to the scene. Ack `{id,sceneId,npcId}`. |
-| `prep.scene.run` | `id`, `sceneId`, `fight?` | Marks the scene played and puts its resources in Within reach. Fight and Boss scenes start their linked encounter automatically. Other scene types wait for `fight: true` before starting their optional encounter. Repeating while that fight runs returns the existing combat ID. Protects unrelated active or queued fights. Ack `{id,sceneId,encounterId,mapId,combatId?,existing?}`. |
+| `prep.scene.run` | `id`, `sceneId`, `fight?`, `tv?` | Marks the scene played, puts its resources in Within reach and sends it to the TV at once (`tv:false` keeps the TV): the fight if one started, else the scene's map, else an Explore card with its title and read-aloud text. Fight and Boss scenes start their linked encounter automatically. Other scene types wait for `fight: true` before starting their optional encounter. Repeating while that fight runs returns the existing combat ID. Protects unrelated active or queued fights. Ack `{id,sceneId,encounterId,mapId,combatId?,existing?,tv?}`. |
 | `prep.doc.update` | `id`, `title?`, `adventureId?` (sessions only, `null` unlinks) | |
 | `prep.doc.copy` | `id` | Duplicate with fresh item ids; ack `result.id` |
 | `prep.doc.remove` | `id` | Sessions linked to a removed adventure are unlinked; current falls back to the newest session |
@@ -699,7 +699,7 @@ ElevenLabs the host renders the chained text while the lead-in plays. The lead-i
 | `msg.react` | `id`, `r` | Toggles my reaction on a message addressed to me |
 | `msg.read` | `thread` | Marks a whole conversation read |
 | `me.notes` | `text` (max 2000 chars) | Player edits own notes (needs `playerEdit` ≥ `notes`) |
-| `prep.check.reply` | `id` from own `view.checkPrompts[]`, `entered?` (1–20) | Omitting the face rolls digitally. A retry returns the same receipt `{received:true}`. Each prompt contains only `{id,label,ability,advantage?}`. The DC and all outcomes stay in the GM view. |
+| `prep.check.reply` | `id` from own `view.checkPrompts[]`, `entered?` (1–20) | Omitting the face rolls digitally. Ack `{received:true,label,ability,die,modifier,total,degree,advantage?}` so the player sees the result (a retry returns the same). No DC. Each prompt contains only `{id,label,ability,advantage?}`. The DC and all outcomes stay in the GM view. |
 | `ping` | — | Keepalive, server answers `pong` |
 
 ### Sheet actions

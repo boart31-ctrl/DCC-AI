@@ -62,7 +62,11 @@ test('private scene checks reach only selected phones and persist until exactly 
   assert.throws(() => reply(outsider, response), /not assigned/);
   assert.throws(() => reply(first, { ...response, entered: 0 }), /d20 face/);
   const acknowledged = reply(first, response);
-  assert.deepEqual(acknowledged.result, { received: true });
+  assert.equal(acknowledged.result.received, true);
+  assert.equal(acknowledged.result.die, 10, 'the player sees what was rolled');
+  assert.equal(acknowledged.result.total, 10 + acknowledged.result.modifier);
+  assert.ok(acknowledged.result.degree, 'and how it went (the DC itself stays hidden)');
+  assert.equal('dc' in acknowledged.result, false);
   assert.deepEqual(acknowledged.events, []);
   assert.equal(state.players[0].sheet.skills[0].used, true);
   assert.deepEqual(view('player', first).checkPrompts, []);

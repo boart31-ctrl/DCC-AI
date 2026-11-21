@@ -36,7 +36,8 @@
 .cbt-next { gap: 6px; }
 .cbt-next kbd { border-color: color-mix(in srgb, var(--c-accent-ink) 40%, transparent) !important; color: var(--c-accent-ink) !important; }
 .cbt-head .grow, .row-end .grow, .cbt-auto-bar .grow, .cc-more-row .grow { flex: 1; }
-.cbt-tvbtn.is-live { color: var(--c-bad); box-shadow: inset 0 0 0 1px var(--c-bad); }
+.cbt-tvbtn { gap: 6px; font-weight: 600; }
+.cbt-tvbtn.is-live { color: var(--c-bad); box-shadow: inset 0 0 0 1px var(--c-bad); background: transparent; }
 .cbt-phase-edit { display: grid; gap: 8px; margin-bottom: 12px; max-width: 720px; }
 /* the mob phase is one big button: the thing the GM presses most in a fight */
 .btn.cbt-act { min-height: 40px; padding: 0 16px; gap: 7px; font-weight: 700; color: #fff; background: var(--c-bad); border-color: var(--c-bad); }

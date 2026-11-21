@@ -255,3 +255,21 @@ body:has(.tp-combat) :is(.roll-fab, .ini-prompt) { display: none; }
 .ivn-row button.num { width: 44px; height: 44px; font-size: 18px; font-weight: 800; }
 .rp-favor { flex-basis: 100%; display: grid; gap: 8px; padding: 10px; border-radius: 12px; border: 1px solid var(--c-accent); }
 .rp-favor p { margin: 0; }
+
+/* Last roll card (checks, Evade, Intervene, Taunt): big, stays until closed */
+.prep-prompt { padding: 12px 14px; border: 2px solid var(--c-accent, #f5b301); }
+.prep-prompt-k { flex-basis: 100%; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .75; }
+.prep-prompt b { font-size: 18px; }
+.roll-card { display: flex; align-items: flex-start; gap: 10px; margin: 8px 12px 0; padding: 12px 14px; border: 2px solid var(--c-line); }
+.roll-card.is-good { border-color: #2fbf71; }
+.roll-card.is-bad { border-color: #e5484d; }
+.roll-card.deg-near { border-color: #f5b301; }
+.roll-card.deg-crit, .roll-card.deg-critfail { border-width: 3px; }
+.roll-card-main { flex: 1; display: grid; gap: 2px; }
+.roll-card-title { font-size: 13px; opacity: .8; }
+.roll-card-verdict { font-size: 26px; line-height: 1.1; letter-spacing: .02em; }
+.roll-card.is-good .roll-card-verdict { color: #2fbf71; }
+.roll-card.is-bad .roll-card-verdict { color: #e5484d; }
+.roll-card.deg-near .roll-card-verdict { color: #f5b301; }
+.roll-card-math { font-size: 18px; font-variant-numeric: tabular-nums; }
+.roll-card-note { font-size: 13px; opacity: .85; }

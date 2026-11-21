@@ -210,11 +210,12 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
         h('span.grow'),
         displayControls(c),
         soundButton(),
-        h('button.icon-btn.cbt-tvbtn', {
-          type: 'button', class: onTv() ? 'icon-btn cbt-tvbtn is-live' : 'icon-btn cbt-tvbtn', 'aria-pressed': String(onTv()),
+        // A labelled button, not a small icon (playtest 21 Nov): red "Go live on TV" until the fight is on the TV.
+        h('button.btn.cbt-tvbtn', {
+          type: 'button', class: onTv() ? 'btn cbt-tvbtn is-live' : 'btn btn-primary cbt-tvbtn', 'aria-pressed': String(onTv()),
           title: onTv() ? 'The fight is on the TV' : 'Go live: arena, or the boss screen when a boss is in the fight', 'aria-label': onTv() ? 'The fight is on the TV' : 'Put the fight on the TV',
           onclick: () => (goLive ? goLive() : act({ t: 'scene.set', kind: 'combat', data: {} }, 'On TV: the arena.')),
-        }, icon('tv', { size: 18 }))),
+        }, icon('tv', { size: 18 }), onTv() ? 'Live on TV' : 'Go live on TV')),
       rx ? null : h('div.cbt-turn',
         c.init?.on ? h('span.cbt-now', c.phase ? `Now: ${c.phase}` : 'Waiting for initiative') : h('ol.cbt-phases', { 'aria-label': 'Phases' }, ph.map((p, i) => h('li', h('button', {
           type: 'button', 'aria-current': c.active && i === c.phaseIndex ? 'step' : null, disabled: !c.active,

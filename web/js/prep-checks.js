@@ -54,7 +54,7 @@ export function privateChecks({ view, act, doc, scene, patch }) {
     return h('li.prep-check-result', { 'data-player-id': recipient.playerId },
       h('b', players.get(recipient.playerId) ?? 'Crawler'),
       r ? h('span.prep-check-degree', DEGREES[r.degree] ?? r.degree) : h('span.dim', q.closed ? 'Closed' : 'Waiting'),
-      r ? h('span.dim', `${r.total} total · d20 ${r.die}`) : null,
+      r ? h('span.dim', `d20 ${r.die} ${(recipient.modifier ?? r.total - r.die) < 0 ? '−' : '+'} ${Math.abs(recipient.modifier ?? r.total - r.die)} = ${r.total} vs DC ${q.dc}`) : null,
       note ? h('span.prep-check-outcome', note) : null);
   }
 

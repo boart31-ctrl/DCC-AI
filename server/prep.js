@@ -679,6 +679,21 @@ export function runPrepScene(st, a, ctx, out, GM) {
     }
   }
   if (result.existing && evening.activeSceneId === scene.id && st.prep.current === d.id && scene.played) out.changed = false;
+  // Run = the TV shows the scene at once (David, 21 Nov): the fight if one started, else the scene's map, else its
+  // title and read-aloud text. `tv: false` keeps the TV as it is.
+  if (a.tv !== false) {
+    const fight = !!(result.combatId && st.combat?.active);
+    const tv = fight ? { kind: 'combat', data: { title: String(scene.title ?? '').slice(0, 80) } }
+      : mapId ? { kind: 'map', data: { mapId } }
+        : { kind: 'explore', data: { location: String(scene.title ?? '').slice(0, 80), text: String(scene.readAloud || scene.goal || '').slice(0, 1200) } };
+    const same = st.scene?.kind === tv.kind && (tv.kind !== 'map' || st.scene?.data?.mapId === mapId)
+      && (tv.kind !== 'explore' || st.scene?.data?.location === tv.data.location);
+    if (!same) {
+      GM['scene.set'](st, tv, ctx, out);
+      out.changed = true;
+    }
+    result.tv = tv.kind;
+  }
   evening.activeSceneId = scene.id;
   st.prep.current = d.id;
   scene.played = true;

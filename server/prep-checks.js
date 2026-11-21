@@ -107,7 +107,7 @@ export const PREP_CHECKS_PLAYER = {
     const recipient = q?.recipients.find((r) => r.playerId === ctx.actor.playerId);
     if (!recipient) throw forbidden('this check is not assigned to you');
     out.result = { received: true };
-    if (recipient.result) { out.changed = false; return; }
+    if (recipient.result) { out.changed = false; out.result = { received: true, label: q.label, ability: q.ability, ...recipient.result, modifier: recipient.modifier }; delete out.result.at; return; }
     if (q.closed) throw bad('the GM closed this check');
     const rand = ctx.dieInt ?? ctx.rollInt ?? ctx.randInt;
     let die = a.entered;
@@ -118,6 +118,8 @@ export const PREP_CHECKS_PLAYER = {
     } else if (!Number.isInteger(die) || die < 1 || die > 20) throw bad('choose a d20 face from 1 to 20');
     const total = die + recipient.modifier;
     recipient.result = { die, total, degree: resultDegree(q, die, total, q.dc), at: ctx.now };
+    out.result = { received: true, label: q.label, ability: q.ability, die, modifier: recipient.modifier, total, degree: recipient.result.degree,
+      ...(recipient.advantage ? { advantage: recipient.advantage } : {}) };
     if (q.check.skillId) {
       const player = st.players.find((p) => p.id === recipient.playerId);
       const skills = ctx.pack.ruleset.skills;

@@ -527,9 +527,14 @@ async function sendWithActionReceipt(action) {
   return response;
 }
 
-function showCombatReceipt(label, receipt) {
+function showCombatReceipt(label, receipt, detail) {
   lastCombatReceipt = { label, spent: receipt?.spent };
   drawCombatReceipt(receipt);
+  if (!detail) return;
+  if (detail.kind === 'intervene') showLastRoll({ title: `Intervene · ${detail.label ?? ''}`, verdict: `+${detail.d6}`, note: label });
+  else if (detail.kind === 'taunt') showLastRoll({ title: 'Taunt', verdict: detail.ok ? 'TAUNTED' : 'NO EFFECT', degree: detail.degree, die: detail.die, modifier: Number.isFinite(detail.die) ? detail.total - detail.die : undefined, total: detail.total });
+  else if (Number.isFinite(detail.die)) showLastRoll({ title: detail.free ? 'Free Evade' : 'Evade', die: detail.die, modifier: detail.total - detail.die, total: detail.total, degree: detail.degree,
+    note: ['crit', 'amazing', 'success'].includes(detail.degree) ? 'You dodge this attack.' : detail.near ? null : 'The attack can hit you.' });
 }
 
 function drawCombatReceipt(receipt) {
@@ -648,7 +653,7 @@ function drawCombat() {
   const current = health?.cur ?? 0;
   const max = health?.max ?? 0;
   const percent = max ? Math.round(100 * current / max) : 0;
-  const hpLabel = health?.slotValue != null ? `${percent}% · ${current}/${max} slots` : `${current}/${max} HP`;
+  const hpLabel = health?.slotValue != null ? `${percent}% · ${current}/${max} slots · 1 slot = ${health.slotValue} HP` : `${current}/${max} HP`;
   const danger = own?.dead ? 'Dead' : own?.dying != null ? `Dying · ${own.dying} round${own.dying === 1 ? '' : 's'} left` : own?.down ? 'Down' : null;
   const pips = reaction ? Math.max(rx.surprised && rx.round === 0 ? 1 : 2, reaction.left) : 0;
   combatBar.replaceChildren(...[h('div.pl-combat-health', { 'data-danger': danger ? 'true' : null },
@@ -790,6 +795,33 @@ function render() {
   renderTicker();
 }
 
+/* ---------- the last roll, big and kept until the player closes it (checks, Evade, Intervene, Taunt) ---------- */
+const ROLL_DEGREES = { crit: 'CRITICAL HIT', amazing: 'AMAZING', success: 'SUCCESS', near: 'NEAR MISS', fail: 'FAIL', major: 'MAJOR FAIL', critfail: 'CRITICAL FAIL' };
+const ROLL_MEANING = { crit: 'Natural 20. The best possible result.', amazing: 'Beat it by 10 or more.', near: 'Missed by 1 or 2. A friend can Intervene with +1d6.',
+  major: 'Missed by 10 or more. Expect consequences.', critfail: 'Natural 1. The System noticed.' };
+const ROLL_BUZZ = { crit: [40, 60, 40, 60, 120], amazing: [30, 50, 30], success: [20, 40, 20], near: [60, 40, 60], fail: 15, major: [80], critfail: [200] };
+function showLastRoll({ title, die, modifier, total, degree, verdict, note, adv }) {
+  const el = $('#roll-card');
+  if (!el) return;
+  const mod = Number(modifier) || 0;
+  const math = Number.isFinite(die) ? `d20 ${die} ${mod < 0 ? '−' : '+'} ${Math.abs(mod)} = ${total ?? die + mod}` : '';
+  const word = verdict || ROLL_DEGREES[degree] || (degree ? String(degree).toUpperCase() : '');
+  const good = ['crit', 'amazing', 'success'].includes(degree) || /hit|evaded|success/i.test(verdict || '');
+  el.className = `roll-card panel${degree ? ` deg-${degree}` : ''}${good ? ' is-good' : word ? ' is-bad' : ''}`;
+  el.replaceChildren(
+    h('div.roll-card-main',
+      h('span.roll-card-title', title || 'Your roll'),
+      word ? h('b.roll-card-verdict', word) : null,
+      math ? h('span.roll-card-math', math) : null,
+      adv ? h('span.roll-card-note', adv === 'adv' ? 'Advantage: higher of two d20' : 'Disadvantage: lower of two d20') : null,
+      ROLL_MEANING[degree] ? h('span.roll-card-note', ROLL_MEANING[degree]) : null,
+      note ? h('span.roll-card-note', note) : null),
+    h('button.icon-btn.roll-card-x', { type: 'button', 'aria-label': 'Close', onclick: () => { el.hidden = true; } }, icon('x', { size: 18 })));
+  el.hidden = false;
+  buzz(ROLL_BUZZ[degree] ?? 15);
+  el.scrollIntoView?.({ block: 'nearest', behavior: 'smooth' });
+}
+
 let checkDrawer = null;
 let openCheck = null;
 
@@ -798,8 +830,8 @@ function renderPrivateChecks() {
   const el = $('#prep-prompts');
   if (checkDrawer?.open && !prompts.some((p) => p.id === openCheck)) closeDrawer();
   el.hidden = !prompts.length;
-  el.replaceChildren(...prompts.map((p) => h('div.panel.prep-prompt', h('b', p.label || 'Private check'),
-    h('button.btn.btn-primary.btn-sm', { type: 'button', onclick: () => openPrivateCheck(p) }, icon('dice', { size: 14 }), `Roll ${p.ability}`))));
+  el.replaceChildren(...prompts.map((p) => h('div.panel.prep-prompt', h('span.prep-prompt-k', 'The GM asks for a roll'), h('b', p.label || 'Private check'),
+    h('button.btn.btn-primary', { type: 'button', onclick: () => openPrivateCheck(p) }, icon('dice', { size: 18 }), `Roll ${p.ability}`))));
 }
 
 function openPrivateCheck(p) {
@@ -810,9 +842,10 @@ function openPrivateCheck(p) {
     if (buttons.some((b) => b.disabled)) return;
     buttons.forEach((b) => { b.disabled = true; });
     try {
-      await client.send({ t: 'prep.check.reply', id: p.id, ...(entered === undefined ? {} : { entered }) });
+      const res = await client.send({ t: 'prep.check.reply', id: p.id, ...(entered === undefined ? {} : { entered }) });
       if (dialog.open) closeDrawer();
-      toast('Check sent to the GM.');
+      const r = res?.result ?? {};
+      showLastRoll({ title: `${r.ability || p.ability} · ${r.label || p.label || 'Check'}`, die: r.die, modifier: r.modifier, total: r.total, degree: r.degree, adv: r.advantage, note: 'The GM sees your result.' });
     } catch (error) {
       buttons.forEach((b) => { b.disabled = false; });
       toast(error.message || 'The check could not be sent.', { error: true });
