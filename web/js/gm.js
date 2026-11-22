@@ -27,6 +27,7 @@ import { createCrawlers } from './gm-crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
 import { createRulesSearch } from './gm-rules.js';
 import { createWhatNow } from './gm-whatnow.js';
+import { openLootAdvisor } from './gm-loot.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -598,7 +599,12 @@ function achievementSheet(p) {
     }
     list.replaceChildren(...(hits.length ? out.map((a) => a instanceof Node ? a : h('button.cat-item', {
       type: 'button',
-      onclick: async () => { if (await act({ t: 'ach.award', playerId: p.id, achId: a.id }, `Awarded ${a.title}.`)) closeSheet(); },
+      onclick: async () => {
+        if (!await act({ t: 'ach.award', playerId: p.id, achId: a.id }, `Awarded ${a.title}.`)) return;
+        closeSheet();
+        // The achievement pays a box: open it with the System's offers (C1).
+        if (a.box && (view.pack?.lootTiers || []).some((t) => t.id === a.box)) setTimeout(() => openLootAdvisor({ p: fullPlayer(p.id), tier: a.box, tiers: view.pack.lootTiers, send: (x) => client.send(x), act, toast, openSheet, closeSheet }), 400);
+      },
     }, h('b', a.title), h('span', a.desc), a.reward ? h('span.rw', `Reward: ${a.reward}`) : null)) : [h('p.empty', 'Nothing matches. Write a custom one below.')]));
   };
   search.addEventListener('input', draw);
@@ -706,7 +712,7 @@ function createRewards() {
           avatar(id.name || p.name, { color: p.color, src: M.sheet.portrait, size: 40 }),
           h('div', h('b', id.name || p.name), h('span.dim', [[id.race, id.class].filter(Boolean).join(' '), `Lv ${id.level ?? p.level ?? 1}`, `${p.gold ?? 0} gold`].filter(Boolean).join(' · ')))),
         h('div.rw-acts',
-          btn('gift', 'Loot box', () => lootSheet(p, false), '.btn-primary'),
+          btn('gift', 'Loot box', () => openLootAdvisor({ p, tiers: view.pack?.lootTiers || [], send: (a) => client.send(a), act, toast, openSheet, closeSheet, legacy: () => lootSheet(p, false) }), '.btn-primary'),
           btn('star', 'Sponsor box', () => lootSheet(p, true)),
           btn('sparkle', 'Achievement', () => achievementSheet(p)),
           btn('plus', 'Give from library', () => givePicker(p, sheetModel(view, fullPlayer(p.id))))));

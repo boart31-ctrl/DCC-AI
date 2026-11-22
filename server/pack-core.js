@@ -7,6 +7,7 @@ import { normalizeCrawlersConfig } from './crawlers.js';
 import { normalizePrepConfig } from './prep.js';
 import { normalizeRulesIndex } from './rules-search.js';
 import { normalizeOrigins } from './origins.js';
+import { normalizeLootPolicy } from './loot-advisor.js';
 
 export { STANDARD_CATEGORIES };
 
@@ -187,6 +188,7 @@ function loadMeta(raw, warnings) {
     crawlers: normalizeCrawlersConfig(raw.crawlers, warnings), // crawlers.js: worldwide head count
     prep: normalizePrepConfig(raw.prep, warnings), // prep.js: session-prep templates
     origins: normalizeOrigins(raw.origins, warnings), // origins.js: content source labels
+    lootPolicy: normalizeLootPolicy(raw.lootPolicy, warnings), // loot-advisor.js: box rarities, power budget per floor
     cheats: loadCheats(raw.cheats, warnings), // printable cheat sheets (pack docs/), linked on phones and the GM desk
     lootTiers,
     audience: { startViewers, sponsorHypeThreshold },
@@ -329,6 +331,8 @@ function loadAchievements(raw, quipsById, warnings) {
       reward: isStr(a.reward) ? a.reward.trim().replace(/^reward\s*:\s*/i, '') : '', // the UI adds its own "Reward:"
       group: isStr(a.group) ? a.group.trim() : '',
       voice,
+      // Loot box tier this achievement pays out (C1): the GM gets the box with the System's offers right after.
+      ...(isStr(a.box) && ID_RE.test(a.box) ? { box: a.box } : {}),
     };
   });
 }
@@ -721,7 +725,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib', 'prep', 'rulesIndex', 'origins'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib', 'prep', 'rulesIndex', 'origins', 'lootPolicy'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -758,6 +762,7 @@ export function deserializePack(data) {
   pack.prep = normalizePrepConfig(d.prep ?? null);
   pack.rulesIndex = normalizeRulesIndex(d.rulesIndex ?? null);
   pack.origins = normalizeOrigins(d.origins ?? null);
+  pack.lootPolicy = normalizeLootPolicy(d.lootPolicy ?? null);
   pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
   pack.sounds = Array.isArray(d.sounds) ? d.sounds.filter((x) => isObj(x) && isStr(x.id) && Array.isArray(x.urls)) : [];
   pack.cues = isObj(d.cues) ? { events: isObj(d.cues.events) ? d.cues.events : {}, groups: isObj(d.cues.groups) ? d.cues.groups : {} } : { events: {}, groups: {} };
@@ -783,6 +788,7 @@ export function fallbackPack() {
     prep: normalizePrepConfig(null),
     rulesIndex: [],
     origins: {},
+    lootPolicy: normalizeLootPolicy(null),
     cheats: [],
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },

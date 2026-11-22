@@ -1,0 +1,144 @@
+// Loot advisor (C1): power scores, build fit, floor budgets, boss boxes, pity, and a two-floor campaign simulation
+// that must never push a crawler over budget.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { DEFAULT_LOOT_POLICY as P, itemPower, itemBuilds, crawlerBuild, offersFor, giveWarnings, budgetFor, RARITY_ORDER } from '../loot-advisor.js';
+import { loadPack } from '../pack.js';
+import { createState, reduce } from '../state.js';
+import { tmpDir, writePack } from './fixtures.js';
+
+const seeded = (seed = 7) => () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
+
+test('power: what an item does, never below its rarity; D&D-scale armour is flagged', () => {
+  const plate = itemPower({ name: 'Old plate', rarity: 'common', effects: [{ target: 'armor', op: 'add', value: 4 }] });
+  assert.equal(plate.power, 8);
+  assert.equal(plate.underrated, true);
+  assert.equal(plate.implied, 'legendary');
+  assert.equal(itemPower({ rarity: 'uncommon', effects: [{ target: 'stat.str', op: 'add', value: 2 }] }).power, 1.5);
+  assert.equal(itemPower({ rarity: 'rare', desc: 'Once per session: something wild' }).power, 2, 'text-only items count by rarity');
+  assert.equal(itemPower({ rarity: 'common', attack: { dice: '2d6', stat: 'str' } }).power, 1.75);
+  assert.deepEqual(itemBuilds({ name: 'Longbow', attack: { dice: '1d8', stat: 'dex', range: '80ft' } }), ['ranged']);
+  assert.ok(itemBuilds({ name: 'Lockpick set', effects: [{ target: 'skill.lockpicking', value: 2 }] }).includes('stealth'));
+  assert.deepEqual(itemBuilds({ name: 'Mug', builds: ['social'] }), ['social'], 'explicit builds win');
+});
+
+test('crawler build: sheet + GM steering', () => {
+  const sheet = { stats: { str: { enhanced: 2 }, dex: { enhanced: 6 }, int: { enhanced: 3 }, cha: { enhanced: 3 }, con: { enhanced: 3 } },
+    skills: [{ skillId: 'sneak', rank: 4, used: true }, { skillId: 'archery', name: 'Bow', rank: 2 }] };
+  const b = crawlerBuild(sheet);
+  assert.ok(['stealth', 'ranged'].includes(b.top[0]));
+  assert.equal(crawlerBuild(sheet, { builds: ['magic'] }).top[0], 'magic', 'the GM can steer a crawler somewhere new');
+});
+
+// ---------- a synthetic library: 6 builds × 5 rarities × 3 + consumables ----------
+const SLOTS = ['hands', 'torso', 'head', 'feet', 'accessories'];
+const BUILD_FX = {
+  melee: (v) => ({ attack: { dice: v ? `${v + 1}d6` : '1d6', stat: 'str' }, slot: 'hands' }),
+  ranged: (v) => ({ attack: { dice: v ? `${v + 1}d6` : '1d6', stat: 'dex', range: '60ft' }, slot: 'hands', name: 'Bow' }),
+  defense: (v) => ({ effects: [{ target: 'armor', op: 'add', value: Math.max(1, Math.round(v * 0.8)) }], slot: 'torso' }),
+  stealth: (v) => ({ effects: [{ target: 'skill.sneak', op: 'add', value: 2 + v * 2 }], slot: 'feet' }),
+  magic: (v) => ({ effects: [{ target: 'stat.int', op: 'add', value: 1 + v }], slot: 'head', name: 'Spell focus' }),
+  social: (v) => ({ effects: [{ target: 'stat.cha', op: 'add', value: 1 + v }], slot: 'accessories' }),
+};
+const library = [];
+for (const [b, fx] of Object.entries(BUILD_FX)) {
+  RARITY_ORDER.forEach((rarity, v) => {
+    for (let k = 0; k < 3; k++) {
+      const f = fx(v);
+      library.push({ id: `${b}_${rarity}_${k}`, name: `${f.name ?? b} ${rarity} ${k}`, rarity, slot: f.slot, effects: f.effects ?? [], ...(f.attack ? { attack: f.attack } : {}), builds: [b] });
+    }
+  });
+}
+for (const rarity of RARITY_ORDER) for (let k = 0; k < 4; k++) library.push({ id: `potion_${rarity}_${k}`, name: `Potion ${rarity} ${k}`, rarity, stackable: true, tags: ['consumable'] });
+library.push({ id: 'map_x', name: 'Neighbourhood map', rarity: 'rare', tags: ['map'] });
+const byId = new Map(library.map((it) => [it.id, it]));
+const itemOf = (id) => byId.get(id);
+
+const crawler = (build) => ({
+  sheet: { stats: { str: { enhanced: build === 'melee' ? 6 : 3 }, dex: { enhanced: build === 'ranged' || build === 'stealth' ? 6 : 3 }, int: { enhanced: build === 'magic' ? 6 : 3 }, cha: { enhanced: build === 'social' ? 6 : 3 }, con: { enhanced: 3 } },
+    skills: [] },
+  prefs: { builds: [build] }, inventory: [], stats: { noFit: 0 }, build,
+});
+
+test('offers respect the floor budget, lift the boss box and hold back what does not fit', () => {
+  const c = crawler('defense');
+  c.inventory.push({ itemId: 'defense_uncommon_0', rarity: 'uncommon', equippedSlot: 'torso' }); // power 2 (armour +1 → 2)
+  const r = offersFor(P, { tier: 'silver', floor: 1, sheet: c.sheet, prefs: c.prefs, inventory: c.inventory, items: library, itemOf, rng: seeded(3) });
+  assert.equal(r.budget.cap, 3);
+  for (const s of r.slots) for (const o of s.offers) {
+    assert.ok(o.power <= 3 + 1e-9 || byId.get(o.itemId).stackable, `${o.name} fits the Floor 1 budget`);
+    assert.notEqual(o.itemId, 'map_x', 'maps / quest items are never box loot');
+  }
+  assert.ok(r.held.some((h) => /over the Floor 1 budget/.test(h.reason)) || r.slots.every((s) => s.rarity !== 'rare'));
+  const boss = offersFor(P, { tier: 'bronze', boss: true, floor: 1, sheet: c.sheet, prefs: c.prefs, inventory: [], items: library, itemOf, rng: seeded(5) });
+  assert.ok(['uncommon', 'rare'].includes(boss.slots[0].rarity), 'a boss box lifts its best item one step');
+  assert.equal(offersFor(P, { tier: 'bronze', floor: 1, sheet: c.sheet, prefs: c.prefs, stats: { noFit: 2 }, inventory: [], items: library, itemOf, rng: seeded(9) })
+    .slots.flatMap((s) => s.offers).filter((o) => o.wild).length, 0, 'pity: after 2 misses, no wild cards');
+});
+
+test('simulated Floors 1–2: four crawlers never exceed the budget, most boxes fit, nothing absurd drops', () => {
+  const rng = seeded(42);
+  const party = ['melee', 'ranged', 'magic', 'stealth'].map(crawler);
+  let boxes = 0;
+  let fitting = 0;
+  const seen = new Set();
+  const equip = (c, it) => {
+    if (it.stackable || !it.slot) return;
+    const cur = c.inventory.find((i) => i.equippedSlot === it.slot);
+    if (cur && itemPower(itemOf(cur.itemId)).power >= itemPower(it).power) { c.inventory.push({ itemId: it.id, rarity: it.rarity, equippedSlot: null }); return; }
+    if (cur) cur.equippedSlot = null;
+    c.inventory.push({ itemId: it.id, rarity: it.rarity, equippedSlot: it.slot });
+  };
+  const run = (floor, plan) => {
+    for (const [tier, boss, times] of plan) for (let n = 0; n < times; n++) for (const c of party) {
+      const r = offersFor(P, { tier, boss, floor, sheet: c.sheet, prefs: c.prefs, stats: c.stats, inventory: c.inventory, items: library, itemOf, rng });
+      boxes++;
+      // The GM takes the first offer of each slot (the advisor's best pick) — the lazy-GM case.
+      const picks = r.slots.map((s) => itemOf(s.offers[0].itemId));
+      const fit = picks.some((it) => itemBuilds(it).includes(c.build));
+      if (fit) fitting++;
+      c.stats.noFit = fit ? 0 : c.stats.noFit + 1;
+      for (const it of picks) { seen.add(it.rarity); equip(c, it); }
+      const used = c.inventory.filter((i) => i.equippedSlot).reduce((s, i) => s + itemPower(itemOf(i.itemId)).power, 0);
+      assert.ok(used <= budgetFor(P, floor) + 1e-9, `${c.build} on Floor ${floor}: ${used} ≤ ${budgetFor(P, floor)}`);
+      for (const it of picks) assert.ok(RARITY_ORDER.indexOf(it.rarity) <= RARITY_ORDER.indexOf(P.floorRarity[floor - 1]) + (boss ? 1 : 0), `${it.rarity} on Floor ${floor}`);
+    }
+  };
+  // Book pacing: per floor ~3 neighbourhood bosses (Bronze Boss Box), achievements (Bronze), a quest (Silver), a sponsor.
+  run(1, [['bronze', true, 3], ['bronze', false, 6], ['silver', false, 1], ['sponsor', false, 1]]);
+  run(2, [['bronze', true, 3], ['silver', true, 1], ['bronze', false, 6], ['silver', false, 2], ['sponsor', false, 1]]);
+  assert.ok(fitting / boxes >= 0.85, `fit rate ${Math.round((fitting / boxes) * 100)}%`);
+  assert.equal(seen.has('legendary'), false);
+});
+
+test('loot.offers / loot.prefs / loot.box / item.give warnings through the reducer', () => {
+  const { pack } = loadPack(writePack(tmpDir(), {
+    'pack.json': { id: 't', name: 'T', lootTiers: [{ id: 'bronze', name: 'Bronze Box' }, { id: 'silver', name: 'Silver Box' }] },
+    'items.json': library.filter((it) => it.id.startsWith('melee_') || it.id.startsWith('defense_') || it.id.startsWith('potion_')),
+    'loot.json': { bronze: [{ item: 'potion_common_0', weight: 1 }], silver: [{ item: 'potion_uncommon_0', weight: 1 }] },
+  }));
+  let n = 0;
+  const ctx = { pack, now: 1000, rng: seeded(11), genId: (p) => `${p}_${++n}` };
+  let state = createState(pack, 0);
+  const add = reduce(state, { role: 'gm', t: 'player.add', name: 'Carl' }, ctx);
+  state = add.state;
+  const playerId = add.result.playerId;
+  state = reduce(state, { role: 'gm', t: 'loot.prefs', playerId, builds: ['melee'] }, ctx).state;
+  assert.deepEqual(state.players[0].lootPrefs.builds, ['melee']);
+  assert.throws(() => reduce(state, { role: 'gm', t: 'loot.prefs', playerId, builds: ['wizardry'] }, ctx), /builds/);
+  const offers = reduce(state, { role: 'gm', t: 'loot.offers', playerId, tier: 'bronze' }, ctx);
+  assert.equal(offers.changed, false);
+  assert.equal(offers.result.slots.length, 2);
+  const picks = offers.result.slots.map((s) => s.offers[0].itemId);
+  assert.ok(offers.result.slots.flatMap((s) => s.offers).some((o) => o.builds.includes('melee')));
+  assert.throws(() => reduce(state, { role: 'gm', t: 'loot.box', playerId, tier: 'bronze', itemIds: ['melee_epic_0'] }, ctx), /above what a bronze box holds/);
+  const box = reduce(state, { role: 'gm', t: 'loot.box', playerId, tier: 'bronze', itemIds: picks }, ctx);
+  state = box.state;
+  assert.equal(state.players[0].inventory.length, picks.length);
+  assert.ok(box.result.gold >= 1 && box.result.gold <= 10, 'a bronze box holds 1d10 gold');
+  assert.equal(state.players[0].gold, box.result.gold);
+  assert.equal(state.scene.kind, 'loot');
+  assert.equal(state.players[0].lootStats.boxes, 1);
+  const gift = reduce(state, { role: 'gm', t: 'item.give', playerId, itemId: 'defense_legendary_0' }, ctx);
+  assert.ok(gift.result.warnings.some((w) => /above the usual Floor 1/.test(w)));
+});

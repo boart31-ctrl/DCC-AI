@@ -860,3 +860,7 @@ worker).
 Solo map tokens may specify `sourceKind` and `sourceId` in `map.token.add` for monster or boss library art. `map.token.update` accepts a GM-only `notes` string up to 2000 characters. Tokens linked to combat follow the combatant's image, visibility, and defeated state. Moving a token updates its map coordinates.
 
 | `rules.search` | `q` (≤200 chars), `limit?` (1–20) | GM only. Full-text search of the pack's `rules_index.json` (book, page, heading, passage). Changes nothing; the index is never in a view or a static file. Ack `{hits:[{book,page,heading,text,score}], total}`. |
+
+| `loot.offers` | `playerId`, `tier`, `boss?` | GM. The System's offers for a box (loot-advisor.js): per item 3 candidates (on-build + wild card), the crawler's floor budget, held-back items. Read-only; call again to re-roll. |
+| `loot.prefs` | `playerId`, `builds?` (≤3 of melee, ranged, defense, stealth, magic, social, support, crafty, boom, pet, utility), `lean?` 0..1, `block?` [itemId] | GM steering per crawler, saved as `player.lootPrefs`. |
+| `loot.box` | `playerId`, `tier`, `boss?`, `itemIds` (1–8), `gold?`, `force?` | GM opens a box with the picked items: gives them + rolled gold, TV loot scene with the best item, System line, viewers. Items above the tier's reach need `force`. Ack `{uids, gold, warnings, fit}`. `item.give` acks `warnings` too. |
