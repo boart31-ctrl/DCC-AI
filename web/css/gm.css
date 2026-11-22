@@ -427,3 +427,13 @@ body.on-hold .topbar { box-shadow: inset 0 -3px 0 #c0392b; }
 .lib-list .lib-row, .et-origin-row .et-mob { min-width: 0; flex: 1; }
 .origin-badge { max-width: 100%; white-space: normal; font-size: 11px; }
 .lib-filters select { min-width: 0; }
+/* "What now?" bar (gm-whatnow.js) */
+.whatnow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 14px; border-bottom: 1px solid var(--c-line); background: color-mix(in srgb, var(--c-accent, #f5b301) 8%, transparent); }
+.whatnow.is-off { padding: 2px 14px; background: none; justify-content: flex-end; }
+.whatnow-k { font-size: 11px; text-transform: uppercase; letter-spacing: .08em; opacity: .7; }
+.whatnow-main { display: flex; align-items: baseline; gap: 10px; flex: 1 1 320px; min-width: 0; }
+.whatnow-main b { font-size: 16px; }
+.whatnow-hint { font-size: 13px; opacity: .75; }
+.whatnow-err { font-size: 13px; color: var(--c-bad); }
+.whatnow-chip { font-size: 12px; }
+.whatnow-x { margin-left: auto; }

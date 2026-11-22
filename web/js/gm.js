@@ -26,6 +26,7 @@ import { createMaps } from './gm-maps.js';
 import { createCrawlers } from './gm-crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
 import { createRulesSearch } from './gm-rules.js';
+import { createWhatNow } from './gm-whatnow.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -166,6 +167,7 @@ function render() {
   sound.update(view);
   rewards.update(view);
   msgCenter.update();
+  whatNowBar?.update(view);
   const q = gm.queue || [];
   const bits = [];
   if (gm.playing) bits.push('speaking now');
@@ -1258,6 +1260,7 @@ scenes.mountInto($('#view-show'), { maps: maps.el, mapEditor: maps, fight: comba
 const rewards = createRewards();
 $('#view-rewards').append(rewards.el);
 // Message centre: every conversation with the crawlers (private lines, groups, everyone); unread badge in the nav.
+var whatNowBar = createWhatNow({ mount: document.getElementById('whatnow'), send: (a) => client.send(a), showView: (v) => showView(v), unread: () => msgCenter?.unread?.() ?? 0 });
 var msgCenter = createMsgCenter({
   role: 'gm',
   send: (a) => client.send(a),
