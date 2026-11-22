@@ -648,3 +648,17 @@ test('a downed City Boss drops a gold boss box that waits on its recipient', () 
   assert.deepEqual(s.players[0].pendingBoxes.map((b) => [b.tier, b.boss]), [['gold', true]]);
   assert.throws(() => gm(s, take), /already taken/);
 });
+
+test('experimental PF2e keeps the advisor and disables boss drops by default', () => {
+  let { s, pid } = base();
+  s.campaign.ruleset = 'pf2e';
+  const boss = gm(s, { t: 'combat.addMob', sourceKind: 'boss', sourceId: 'porter', hidden: false });
+  const uid = boss.result.uids[0];
+  s = gm(boss.state, { t: 'combat.start' }).state;
+  s = gm(s, { t: 'combat.damage', uid, amount: 999 }).state;
+  assert.throws(() => gm(s, { t: 'loot.corpse', uid }), /nothing to drop/);
+  assert.ok(!s.drops.flatMap((d) => d.items).some((it) => it.box));
+  const advisor = viewFor(s, pack, 'gm').gm.loot;
+  assert.equal(advisor.family, 'pf2e');
+  assert.ok(advisor.crawlers.find((c) => c.playerId === pid)?.rating.grade);
+});
