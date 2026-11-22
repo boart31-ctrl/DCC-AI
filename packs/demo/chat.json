@@ -1187,5 +1187,117 @@
   "tags": [
    "reveal"
   ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "{player} has a SKULL now. we're not friends anymore",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "MomOfFour",
+  "text": "{player} what did you DO",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "xX_CrawlFan_Xx",
+  "text": "PLAYER KILLER. PLAYER KILLER.",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "OddsBot_3000",
+  "text": "SKULL ISSUED. TRUST RATING: ZERO",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "ClipThatPls",
+  "text": "{mob} had a family probably",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "SponsorScout",
+  "text": "...some sponsors love this. most don't",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "BingeWatcher99",
+  "text": "the redemption arc starts now (it won't)",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "CouchCoach",
+  "text": "that skull is permanent, buddy",
+  "tags": [
+   "pk"
+  ]
+ },
+ {
+  "user": "xX_CrawlFan_Xx",
+  "text": "{player} GOT A STAR. {mob} IS DONE",
+  "tags": [
+   "star"
+  ]
+ },
+ {
+  "user": "OddsBot_3000",
+  "text": "BOSS DEFEATED. STAR AWARDED. ODDS WERE 31%",
+  "tags": [
+   "star"
+  ]
+ },
+ {
+  "user": "MomOfFour",
+  "text": "so proud. so so proud.",
+  "tags": [
+   "star"
+  ]
+ },
+ {
+  "user": "ClipThatPls",
+  "text": "victory pose please",
+  "tags": [
+   "star"
+  ]
+ },
+ {
+  "user": "GrumpyGolem",
+  "text": "fine. that was good.",
+  "tags": [
+   "star"
+  ]
+ },
+ {
+  "user": "SponsorScout",
+  "text": "now THAT is a highlight",
+  "tags": [
+   "star"
+  ]
+ },
+ {
+  "user": "BingeWatcher99",
+  "text": "season finale energy",
+  "tags": [
+   "star"
+  ]
+ },
+ {
+  "user": "SnackGremlin",
+  "text": "gold star energy",
+  "tags": [
+   "star"
+  ]
  }
 ]

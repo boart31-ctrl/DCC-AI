@@ -24,6 +24,7 @@ import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { RULES_GM } from './rules-search.js';
+import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
 import { originsFor } from './origins.js';
 import { BUILD_IDS, offersFor, giveWarnings, itemBuilds, crawlerBuild, crawlerRating, rewardMode, effectiveLootPolicy, normalizeLootPolicy, REWARD_MODES, SETTING_KEYS } from './loot-advisor.js';
 import { floorOfState } from './outcome.js';
@@ -1016,6 +1017,7 @@ Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_G
 Object.assign(GM, makeEncounterGM(GM));
 Object.assign(GM, PREP_CHECKS_GM);
 Object.assign(GM, RULES_GM);
+Object.assign(GM, MARKS_GM);
 GM['map.toFight'] = (st, a, ctx, out) => startCombatOnMap(st, a, ctx, out, GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
 GM['prep.evening.plan'] = (st, a, ctx, out) => planEvening(st, a, ctx, out, GM);
@@ -1188,6 +1190,7 @@ function giveStarterAttack(st, p, ctx) {
     const party = new Set((st.combat?.combatants ?? []).filter((x) => x.type === 'crawler').map((x) => x.playerId));
     const marks = inj ? (st.combat?.combatants ?? []).filter((x) => x.type === 'crawler' && x.injuries?.length).map((x) => [x.playerId, x.injuries]) : [];
     prepareEndLoot(st, ctx, a.outcome);
+    creditMarks(st, { ...ctx, h: { ...(ctx.h ?? {}), feedPush } }, out); // skulls and stars over the killers' heads (marks.js)
     end(st, a, ctx, out);
     const sickness = ctx.pack.ruleset.hotlist.potionSickness;
     if (sickness) for (const p of st.players) p.sheet.buffs = p.sheet.buffs.filter((b) => b.buffId !== sickness);
@@ -1395,6 +1398,8 @@ function common(state, pack, opts) {
     players: state.players.map((p) => ({
       id: p.id, name: p.name, color: p.color, level: p.level,
       achievementCount: p.achievements.length,
+      // HUD marks are public (DCC: everyone sees skulls and stars over a crawler's head).
+      marks: (() => { const m = normalizeMarks(p.marks); return { skulls: m.skulls, goldSkulls: m.goldSkulls, stars: m.stars.length }; })(),
       connected: opts.connected?.has(p.id) ?? false,
       portrait: p.sheet?.portrait ?? null, // host.js swaps data: URLs for "portrait:<hash>" refs (see `portraits`)
     })),

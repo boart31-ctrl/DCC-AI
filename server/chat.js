@@ -20,6 +20,7 @@ export const CHAT_TAGS = [
   'crawlers_count', 'crawlers_drop', 'floor_collapse',
   // C2: the seven degrees and other real moments (reaction rounds, sheet rolls, reveals, rescues)
   'amazing', 'near_miss', 'major_fail', 'evade', 'saved', 'reveal',
+  'pk', 'star',
 ];
 const TAG_SET = new Set(CHAT_TAGS);
 const PLACEHOLDER_RE = /\{(player|boss|mob|item|count|lost)\}/g;
@@ -117,6 +118,8 @@ export const REACTIONS = {
   evade: { tag: 'evade', alt: 'combat', burst: [1, 3], viewers: [0.006, 0.018] },
   saved: { tag: 'saved', alt: 'combat', burst: [3, 4], viewers: [0.03, 0.06] },
   reveal: { tag: 'reveal', alt: 'combat', burst: [2, 3], viewers: [0.02, 0.05] },
+  pk: { tag: 'pk', alt: 'death', burst: [4, 6], viewers: [0.06, 0.12] },
+  star: { tag: 'star', alt: 'nat20', burst: [3, 5], viewers: [0.04, 0.08] },
 };
 
 // Seven-degree results (outcome.js degree7 / reaction.js degreeOf) → reaction key, from the crawler's side.
@@ -146,6 +149,7 @@ export function reactionFor(e) {
     }
     case 'rx.evade': return EVADE_REACTION[e.degree] ? { key: EVADE_REACTION[e.degree], fill } : null;
     case 'dying.dead': return { key: 'death', fill };
+    case 'marks': return { key: e.mark === 'star' ? 'star' : 'pk', fill: { ...fill, ...(e.victim ? { mob: e.victim } : {}) } };
     case 'dying.saved': return { key: 'saved', fill };
     case 'combat.reveal': return { key: 'reveal', fill: { ...fill, ...(Array.isArray(e.names) && e.names[0] ? { mob: String(e.names[0]).replace(/\s+\d+$/, '') } : {}) } };
     case 'boss.intro': return { key: 'boss_intro', fill: { ...fill, boss: e.name } };
