@@ -79,7 +79,7 @@ function normNames(raw, warnings) {
 
 /** Whole tables.json → { tables, names, crowd }. */
 export function normalizeTables(raw, warnings = []) {
-  const out = { tables: [], names: [], crowd: { places: [] } };
+  const out = { tables: [], names: [], crowd: { places: [], portraits: [] } };
   if (raw == null) return out;
   if (typeof raw !== 'object') { warnings.push('tables.json must be an object'); return out; }
   const seen = new Set();
