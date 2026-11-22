@@ -533,3 +533,37 @@ dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .tb-kept { margin: 0; padding-left: 18px; font-size: 13px; }
 .tb-names { display: flex; flex-wrap: wrap; gap: 8px; }
 .tb-name { padding: 10px 14px; min-height: 44px; font-size: 16px; font-weight: 600; border: 1px solid var(--c-line); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+
+/* Prep: evenings menu, overview, new-evening builder */
+.ev-menu { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ev-menu .chip { display: inline-flex; align-items: center; gap: 5px; }
+.ev-menu .chip.on, .ev-modes .chip.on { outline: 2px solid var(--c-accent); }
+.ev-name { display: grid; gap: 4px; margin: 8px 0 12px; }
+.ev-name span { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+.ev-name .field { font-size: 18px; padding: 10px 12px; }
+.ev-modes { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.ev-modes .chip { min-height: 40px; padding-inline: 14px; }
+.ev-build { display: grid; gap: 12px; }
+.ev-q { margin: 0; font-weight: 600; }
+.ev-palette { display: flex; flex-wrap: wrap; gap: 6px; }
+.ev-palette .btn { min-height: 40px; }
+.ev-recipe { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; min-height: 44px; }
+.ev-step { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; min-height: 40px; border: 1px solid var(--c-line); border-radius: 8px; background: var(--c-bg-2, transparent); color: inherit; cursor: pointer; }
+.ev-step:hover { border-color: var(--c-danger, #e55); }
+.ev-step-n { font-weight: 700; opacity: .6; }
+.ev-step-x { opacity: .4; font-size: 11px; }
+.ev-step:hover .ev-step-x { opacity: 1; color: var(--c-danger, #e55); }
+.ev-recipes { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.ev-overview { display: grid; gap: 14px; max-width: 1200px; margin: 0 auto; }
+.ev-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.ev-card { display: grid; gap: 8px; align-content: start; }
+.ev-card.tonight { border-color: var(--c-accent); }
+.ev-card-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.ev-card-title { background: none; border: 0; color: inherit; padding: 0; text-align: left; cursor: pointer; font-size: 18px; }
+.ev-card-title:hover b { text-decoration: underline; }
+.ev-card .dim { margin: 0; }
+.ev-card-scenes { margin: 0; padding-left: 20px; display: grid; gap: 2px; }
+.ev-card-scenes li.played { opacity: .5; text-decoration: line-through; }
+.ev-card-scene { display: inline-flex; gap: 6px; align-items: center; background: none; border: 0; color: inherit; padding: 3px 0; cursor: pointer; text-align: left; }
+.ev-card-scene:hover span { text-decoration: underline; }
+.ev-card-acts { display: flex; gap: 6px; align-items: center; margin-top: 4px; }

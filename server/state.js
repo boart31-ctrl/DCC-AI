@@ -21,7 +21,7 @@ import {
   sheetView, legacyStats, computeFor, enrichInventory, playerLibrary, gmLibrary, rollsFor, requireNotes, requireStatusAllowed, setTrack, PLAYER_EDIT, MAX_ROLLS, DICE_MODES,
 } from './character.js';
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
-import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
+import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, buildEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { RULES_GM } from './rules-search.js';
 import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
@@ -508,7 +508,7 @@ const GM = {
     const line = voiced
       ? quipLine(st, voiced, 1)
       : categoryLine(st, ctx, 'achievement', 1) ?? { priority: 1, text: `New achievement. ${ach.title}.`, quipId: null, crit: false };
-    out.lines.push(line);
+    if (a.quiet !== true) out.lines.push(line);
   },
 
   /** GM peek: rolls the tier's table without giving anything. Ack `result.item` {id, name, rarity, image}. Re-roll = call again. */
@@ -1035,6 +1035,7 @@ Object.assign(GM, {
 GM['map.toFight'] = (st, a, ctx, out) => startCombatOnMap(st, a, ctx, out, GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
 GM['prep.evening.plan'] = (st, a, ctx, out) => planEvening(st, a, ctx, out, GM);
+GM['prep.evening.build'] = (st, a, ctx, out) => buildEvening(st, a, ctx, out, GM);
 GM['prep.scene.run'] = (st, a, ctx, out) => runPrepScene(st, a, ctx, out, GM);
 GM['prep.scene.encounter'] = (st, a, ctx, out) => editPrepEncounter(st, a, ctx, out, GM);
 GM['prep.scene.npc'] = (st, a, ctx, out) => addSceneNpc(st, a, ctx, out, GM);
@@ -1325,7 +1326,7 @@ export function reduce(state, action, ctx) {
   if (action.role === 'system') out.changed = false;
   fn(st, action, full, out);
   // The System notices moments that match an achievement trigger and suggests it to the GM (ach-triggers.js).
-  if (out.changed && full.pack && action.t !== 'ach.suggest.award') suggestAchievements(st, full, out);
+  if (out.changed && full.pack && action.t !== 'ach.suggest.award') suggestAchievements(st, full, out, GM);
   if (out.changed && st.combat?.mapId && ['map.bindCombat', 'map.toFight', 'enc.run', 'prep.scene.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
     syncCombatTokens(st, full);
   }

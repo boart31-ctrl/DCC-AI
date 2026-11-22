@@ -27,6 +27,7 @@ export function normalizeTrigger(raw) {
   if (['skull', 'goldSkull', 'star'].includes(raw.mark)) t.mark = raw.mark;
   if (raw.partyFirst === true) t.partyFirst = true;
   for (const k of ['inRound', 'streak', 'count']) { const v = int(raw[k], 1, 100); if (v) t[k] = v; }
+  if (raw.auto === true) t.auto = true; // quiet: awarded without asking the GM, no System voice line
   return t;
 }
 
@@ -72,7 +73,7 @@ const fits = (t, m) => t.on === m.on
  * After an action: match moments against every achievement trigger, keep counters, add suggestions
  * (st.achSuggestions, newest last) and a short recent-moments list (st.achRecent) for the picker.
  */
-export function suggestAchievements(st, ctx, out) {
+export function suggestAchievements(st, ctx, out, GM = null) {
   if (st.achSettings?.suggest === false) return;
   const moments = momentsOf(st, out.events ?? []);
   if (!moments.length) return;
@@ -118,6 +119,10 @@ export function suggestAchievements(st, ctx, out) {
       if (never.has(`${a.id}|${p.id}`)) continue;
       if (p.achievements.some((x) => x.achId === a.id)) continue;
       if (sugg.some((s) => s.achId === a.id && s.playerId === p.id)) continue;
+      if (t.auto && GM && st.achSettings?.auto !== false) {
+        GM['ach.award'](st, { playerId: p.id, achId: a.id, quiet: true }, ctx, out);
+        continue;
+      }
       sugg.push({ id: ctx.genId('as'), achId: a.id, playerId: p.id, title: a.title, name: p.name, at: ctx.now });
       out.emit({ kind: 'ach.suggest', achId: a.id, playerId: p.id, title: a.title }, { roles: ['gm'] });
     }
@@ -143,6 +148,11 @@ export const ACH_SUGGEST_GM = {
   },
   /** a: { suggest: bool } */
   'ach.settings'(st, a) {
+    if (a.auto !== undefined) {
+      if (typeof a.auto !== 'boolean') throw bad('auto must be true or false');
+      st.achSettings = { ...(st.achSettings ?? { suggest: true }), auto: a.auto };
+      if (a.suggest === undefined) return;
+    }
     if (typeof a.suggest !== 'boolean') throw bad('suggest must be true/false');
     st.achSettings = { ...(st.achSettings ?? {}), suggest: a.suggest };
   },

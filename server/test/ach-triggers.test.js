@@ -67,3 +67,26 @@ test('reducer: a box opened → "first box" suggested → Award gives it; Never 
   step({ t: 'loot.box', playerId: pid, tier: 'bronze', itemIds: ['spoon'] });
   assert.equal(state.achSuggestions.length, 0, 'switched off');
 });
+
+test('quiet (auto) achievement: given without asking, no System line; auto off → suggested instead', () => {
+  const { pack } = loadPack(writePack(tmpDir(), {
+    'pack.json': { id: 't', name: 'T', lootTiers: [{ id: 'bronze', name: 'Bronze Box' }] },
+    'items.json': [{ id: 'spoon', name: 'Spoon', rarity: 'common' }],
+    'loot.json': { bronze: [{ item: 'spoon', weight: 1 }] },
+    'achievements.json': [{ id: 'first_box', title: 'Unboxing Video', trigger: { on: 'loot', auto: true } }],
+  }));
+  let n = 0;
+  const ctx = { pack, now: 1, rng: () => 0.3, genId: (p) => `${p}_${++n}` };
+  let state = createState(pack, 0);
+  const step = (a) => { const r = reduce(state, { role: 'gm', ...a }, ctx); state = r.state; return r; };
+  const a = step({ t: 'player.add', name: 'Carl' }).result.playerId;
+  const b = step({ t: 'player.add', name: 'Donut' }).result.playerId;
+  const r = step({ t: 'loot.box', playerId: a, tier: 'bronze', itemIds: ['spoon'] });
+  assert.equal(state.players[0].achievements[0].achId, 'first_box');
+  assert.ok(!(r.lines ?? []).some((l) => /achievement/i.test(l.text ?? '')));
+  assert.equal((state.achSuggestions ?? []).length, 0);
+  step({ t: 'ach.settings', auto: false });
+  step({ t: 'loot.box', playerId: b, tier: 'bronze', itemIds: ['spoon'] });
+  assert.equal(state.players[1].achievements.length, 0);
+  assert.deepEqual(state.achSuggestions.map((s) => s.achId), ['first_box']);
+});

@@ -1,0 +1,33 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { loadPack } from '../pack.js';
+import { createState, reduce, viewFor } from '../state.js';
+
+test('prep.evening.build: from scratch with suggestions → named evening, scenes filled (encounter, NPC, check), becomes tonight', () => {
+  const { pack } = loadPack(new URL('../../packs/demo', import.meta.url).pathname);
+  let n = 0;
+  const ctx = { pack, now: 1, rng: () => 0.3, genId: (p) => `${p}_${++n}` };
+  let state = createState(pack, 0);
+  const step = (a) => { const r = reduce(state, { role: 'gm', ...a }, ctx); state = r.state; return r; };
+  for (const name of ['Carl', 'Donut', 'Katia']) step({ t: 'player.add', name });
+  step({ t: 'lib.upsert', kind: 'monster', entry: { name: 'Rat', hpSlots: 2, evade: 10, dr: 0, attacks: [{ name: 'Bite', toHit: 2, damage: '1d4' }] } });
+  const r = step({ t: 'prep.evening.build', title: 'Večer 1', recipe: ['hook', 'check', 'fight', 'talk', 'trap'], minutes: 180 }).result;
+  const doc = state.prep.docs.find((d) => d.id === r.id);
+  assert.equal(doc.title, 'Večer 1');
+  assert.equal(state.prep.current, doc.id);
+  assert.equal(doc.evening.minutes, 180);
+  assert.deepEqual(doc.evening.scenes.map((s) => s.type), ['talk', 'explore', 'fight', 'talk', 'trap']);
+  const [hook, check, fight, talk] = doc.evening.scenes;
+  assert.match(hook.title, /^Hook: /);
+  assert.equal(hook.npcs.length, 1);
+  assert.equal(hook.secrets.length, 1);
+  assert.ok(check.checks.length >= 1);
+  assert.ok(fight.encounterId, 'fight has an encounter');
+  const enc = state.prepCards.find((c) => c.id === fight.encounterId);
+  assert.equal(enc.payload.mobs.reduce((s, m) => s + m.count, 0) >= 2, true);
+  assert.notEqual(talk.npcs[0], hook.npcs[0]);
+  assert.ok(viewFor(state, pack, 'gm', ctx).gm.prep.docs.some((d) => d.id === doc.id));
+  const plain = step({ t: 'prep.evening.build', title: 'Prázdný', recipe: ['fight'], suggest: false }).result;
+  assert.equal(state.prep.docs.find((d) => d.id === plain.id).evening.scenes[0].encounterId, null);
+  assert.throws(() => step({ t: 'prep.evening.build', recipe: ['dance'] }), /recipe step/);
+});

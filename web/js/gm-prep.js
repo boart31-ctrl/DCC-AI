@@ -38,7 +38,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   let sig = '';
   let reachSig = '';
   let pending = false;
-  const st = { sel: null, newEvening: false, closed: new Set(store.get('closed', [])) };
+  const st = { sel: null, newEvening: false, overview: false, closed: new Set(store.get('closed', [])) };
   const el = h('div.prep2');
   const reach = h('div.sh-reach', { hidden: true });
   // One map editor for Prep (Maps + an encounter's battle map); never touches the TV.
@@ -82,7 +82,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     return { cls: 'rd-green', why: 'Has a picture.' };
   }
   /* ---------- actions ---------- */
-  function select_(id) { st.sel = id; st.newEvening = false; redraw(); }
+  function select_(id) { st.sel = id; st.newEvening = false; st.overview = false; redraw(); }
   function redraw(force = false) { sig = ''; draw(force); }
   async function planEvening(payload) {
     const r = await act({ t: 'prep.evening.plan', ...payload });
@@ -90,6 +90,16 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     const { id, sceneId } = r.result;
     await waitView((v) => v.gm?.prep?.docs.some((d) => d.id === id));
     evening.selectScene(id, sceneId);
+    select_(id);
+    return true;
+  }
+  async function buildEvening(payload) {
+    const r = await act({ t: 'prep.evening.build', ...payload }, `${payload.title} is ready.`);
+    if (!r?.result?.id) return false;
+    const { id, sceneId } = r.result;
+    await waitView((v) => v.gm?.prep?.docs.some((d) => d.id === id));
+    evening.selectScene(id, sceneId);
+    evening.resetPicker();
     select_(id);
     return true;
   }
@@ -448,7 +458,8 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   }
   function main() {
     const active = currentEvening();
-    if (st.newEvening) return evening.picker(view, { first: !active });
+    if (st.newEvening) return evening.picker(view, { first: !active, onBuild: buildEvening });
+    if (st.overview) return overview();
     if (selKind() === 'enc') {
       const c = cards().find((x) => x.id === selId() && x.kind === 'encounter');
       if (c) {
@@ -464,7 +475,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
       return h('div.pp-grid.ev-legacy', h('div.pp-main', mapEd.el));
     }
     const d = docById(st.sel) || active;
-    if (!d) return evening.picker(view);
+    if (!d) return evening.picker(view, { onBuild: buildEvening });
     if (d.evening) return evening.render(view, d);
     const visible = d.sections.filter((s) => !s.hidden);
     const prepared = P().adventures?.some((a) => a.id === d.template);
@@ -473,13 +484,51 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     }, s.label))) : null, visible.map((s) => section(d, s)), hiddenRow(d)));
   }
 
+  const SCENE_ICON = { fight: 'swords', explore: 'map', talk: 'chat', trap: 'warn', boss: 'skull' };
+  const evenings = () => docs().filter((d) => d.evening).slice().reverse();
+  const mins = (d) => d.evening.scenes.reduce((n, s) => n + (s.minutes || 0), 0);
+  const fmt = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);
+  function newEvening() { st.newEvening = true; st.overview = false; evening.resetPicker(); redraw(); }
+
+  /** Every evening with its name and all its scenes: open one, make it tonight, remove it. */
+  function overview() {
+    const list = evenings();
+    const tonight = P().current;
+    return h('section.ev-overview',
+      h('div.view-head', h('h1', 'Evenings'), h('span.dim', `${list.length} planned`), h('span.grow'),
+        h('button.btn.btn-primary', { type: 'button', onclick: newEvening }, icon('plus', { size: 14 }), 'New evening')),
+      list.length ? h('div.ev-cards', list.map((d) => {
+        const played = d.evening.scenes.filter((x) => x.played).length;
+        return h('article.panel.ev-card', { class: `panel ev-card${d.id === tonight ? ' tonight' : ''}` },
+          h('header.ev-card-head',
+            h('button.ev-card-title', { type: 'button', onclick: () => select_(d.id) }, h('b', d.title)),
+            d.id === tonight ? h('span.pill.pill-on', icon('star', { size: 11 }), 'Tonight') : null),
+          h('p.dim', `${d.evening.scenes.length} scenes · ${fmt(mins(d))}${played ? ` · ${played} played` : ''}`),
+          h('ol.ev-card-scenes', d.evening.scenes.map((x) => h('li', { class: x.played ? 'played' : '' },
+            h('button.ev-card-scene', { type: 'button', onclick: () => { evening.selectScene(d.id, x.id); select_(d.id); } }, icon(SCENE_ICON[x.type] || 'map', { size: 13 }), h('span', x.title))))),
+          h('footer.ev-card-acts',
+            h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: () => select_(d.id) }, 'Open'),
+            d.id !== tonight ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'prep.session.current', id: d.id }, `${d.title} is tonight.`) }, 'Make tonight') : null,
+            h('span.grow'),
+            h('button.icon-btn', { type: 'button', title: 'Remove this evening', 'aria-label': `Remove ${d.title}`, onclick: async () => {
+              if (await ask(`Remove the evening "${d.title}"? Its scenes go with it (encounters and NPCs stay in the library).`, { ok: 'Remove', danger: true })) act({ t: 'prep.doc.remove', id: d.id }, 'Evening removed.');
+            } }, icon('trash', { size: 14 }))));
+      })) : h('p.dim', 'No evenings yet.'));
+  }
+
   function toolbar() {
     const legacy = selKind() !== 'doc' || !!(docById(st.sel) && !docById(st.sel).evening);
-    const active = currentEvening();
+    const openId = st.newEvening || st.overview || legacy ? null : (docById(st.sel)?.evening ? st.sel : currentEvening()?.id);
+    const list = evenings();
+    const tonight = P().current;
     return h('div.ev-top',
-      legacy || (st.newEvening && active) ? h('button.btn.btn-sm', { type: 'button', onclick: () => select_(null) }, icon('back', { size: 14 }), 'Back to evening') : null,
+      legacy ? h('button.btn.btn-sm', { type: 'button', onclick: () => select_(null) }, icon('back', { size: 14 }), 'Back to evening') : null,
+      list.length ? h('nav.ev-menu', { 'aria-label': 'Evenings' },
+        h('button.chip', { type: 'button', class: `chip${st.overview ? ' on' : ''}`, 'aria-pressed': String(st.overview), onclick: () => { st.overview = true; st.newEvening = false; redraw(); } }, icon('log', { size: 13 }), 'All evenings'),
+        list.slice(0, 6).map((d) => h('button.chip', { type: 'button', class: `chip${openId === d.id ? ' on' : ''}`, 'aria-pressed': String(openId === d.id), title: `${d.evening.scenes.length} scenes`, onclick: () => select_(d.id) },
+          d.id === tonight ? icon('star', { size: 12 }) : null, d.title))) : null,
       h('span.grow'),
-      active && !st.newEvening ? h('button.btn.btn-sm', { type: 'button', onclick: () => { st.newEvening = true; evening.resetPicker(); redraw(); } }, icon('plus', { size: 14 }), 'New evening') : null,
+      list.length && !st.overview ? h('button.btn.btn-sm', { type: 'button', class: `btn btn-sm${st.newEvening ? ' btn-primary' : ''}`, onclick: newEvening }, icon('plus', { size: 14 }), 'New evening') : null,
       h('button.btn.btn-sm', { type: 'button', onclick: openLibrary }, icon('book', { size: 14 }), 'Library'));
   }
 

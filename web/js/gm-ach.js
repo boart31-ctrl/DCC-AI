@@ -7,7 +7,9 @@ import { h } from './client.js';
 export function suggestionsPanel(gm, { act }) {
   const list = gm?.achSuggestions ?? [];
   const head = h('div.ach-sg-head', h('b', 'The System noticed'),
-    h('label.dim', h('input', { type: 'checkbox', checked: gm?.achSettings?.suggest !== false, onchange: (e) => act({ t: 'ach.settings', suggest: e.target.checked }) }), ' suggest achievements'));
+    h('span.ach-sg-opts',
+      h('label.dim', h('input', { type: 'checkbox', checked: gm?.achSettings?.suggest !== false, onchange: (e) => act({ t: 'ach.settings', suggest: e.target.checked }) }), ' suggest achievements'),
+      h('label.dim', { title: 'Small ones (first box, first hit…) are given without asking and without a System line' }, h('input', { type: 'checkbox', checked: gm?.achSettings?.auto !== false, onchange: (e) => act({ t: 'ach.settings', auto: e.target.checked }) }), ' give quiet ones by itself')));
   if (!list.length) return h('div.panel.ach-sg', head, h('p.dim', 'Nothing yet. Crits, fumbles, kills and rescues show up here; press H to award anything by hand.'));
   return h('div.panel.ach-sg', head, h('ul', [...list].reverse().map((s) => h('li',
     h('span', h('b', s.title), ` → ${s.name}`),

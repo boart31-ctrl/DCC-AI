@@ -155,6 +155,13 @@ function expand(st, ctx, text, vars, depth) {
   return s.replace(/\{(name|species|place|they)\}/g, (m, k) => vars?.[k] ?? m);
 }
 
+/** A random visible table whose scope fits a scene type (pack homebrew first), or null. */
+export function tableForScene(st, ctx, sceneType) {
+  const fits = tablesOf(st, ctx).filter((t) => !t.hidden && t.scope?.scenes?.includes(sceneType));
+  if (!fits.length) return null;
+  return fits[ctx.randInt(fits.length)];
+}
+
 export function rollTable(st, ctx, id, vars = {}) {
   const t = findTable(st, ctx, id);
   if (!t) throw notFound(`unknown table ${id}`);
@@ -182,7 +189,7 @@ function sentence(s) {
 }
 
 /** One crowd person: name + exactly 3 sentences (look · want right now · hook / line for the GM). */
-function makePerson(st, ctx, place, taken = new Set()) {
+export function makePerson(st, ctx, place, taken = new Set()) {
   const C = ctx.pack.tables?.crowd ?? {};
   const tab = (k) => place?.[k] ?? C[k] ?? null;
   let species = '';
@@ -227,7 +234,7 @@ function pushRecent(st, r) {
 }
 
 /** Save one crowd person as a campaign NPC (library npc, homebrew). Same name = update that NPC (no dupes). */
-function savePerson(st, ctx, out, GM, person, placeName) {
+export function savePerson(st, ctx, out, GM, person, placeName) {
   const existing = (st.library?.npc ?? []).find((n) => n.name.toLowerCase() === person.name.toLowerCase());
   const entry = {
     ...(existing ?? {}),

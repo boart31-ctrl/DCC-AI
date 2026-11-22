@@ -68,37 +68,61 @@ export function createEvening({ act, redraw, onPlan, onSelect, onRun, onShow, op
     redraw();
   }
 
-  function resetPicker() { floor = null; template = null; }
+  const STEPS = { hook: ['Hook', 'flag', 15], explore: ['Explore', 'map', 25], check: ['Check', 'dice', 15], fight: ['Fight', 'swords', 30], talk: ['Talk', 'chat', 15], trap: ['Trap', 'warn', 15], boss: ['Boss', 'skull', 45] };
+  const RECIPES = [
+    ['Classic', ['hook', 'explore', 'check', 'fight', 'talk', 'fight']],
+    ['Big fight night', ['hook', 'fight', 'trap', 'fight', 'boss']],
+    ['Talk & mystery', ['hook', 'talk', 'check', 'explore', 'talk', 'fight']],
+  ];
+  const plan = { mode: 'build', name: '', recipe: [...RECIPES[0][1]], suggest: true, minutes: 240 };
 
-  function picker(view, { first = true } = {}) {
+  function resetPicker() { floor = null; template = null; plan.mode = 'build'; plan.name = ''; plan.recipe = [...RECIPES[0][1]]; plan.suggest = true; }
+
+  function picker(view, { first = true, onBuild } = {}) {
     const source = view?.gm?.prep?.evenings ?? [];
     const floors = [...new Set(source.map((t) => t.floor))].sort((a, b) => a - b);
-    const blank = view?.pack?.ruleset?.system?.family === 'crawler'
-      ? { title: 'Blank evening' }
-      : { title: 'Lazy DM evening', label: 'Lazy DM' };
+    const count = (view?.gm?.prep?.docs ?? []).filter((d) => d.evening).length;
+    const defaultName = `Evening ${count + 1}`;
+    const name = () => plan.name.trim() || defaultName;
     const choose = (t) => h('button.btn.ev-template', {
       type: 'button', 'aria-pressed': String(template?.key === t.key && template?.adventureId === t.adventureId && !!template),
       onclick: () => { template = t; redraw(); },
     }, t.label || t.title);
-    const submit = async () => {
-      if (!template || planning) return;
-      planning = true;
-      redraw();
-      const { key, adventureId, title } = template;
-      try { await onPlan(key ? { key, adventureId } : { title }); }
-      finally { planning = false; redraw(); }
+    const go = async (fn) => {
+      if (planning) return;
+      planning = true; redraw();
+      try { await fn(); } finally { planning = false; redraw(); }
     };
+    const create = () => go(async () => {
+      if (plan.mode === 'build') return onBuild?.({ title: name(), recipe: plan.recipe, suggest: plan.suggest, minutes: plan.minutes });
+      if (plan.mode === 'book' && template) return onPlan({ key: template.key, adventureId: template.adventureId, title: plan.name.trim() || template.title });
+      return onPlan({ title: name() });
+    });
+    const modes = [['build', 'Build it with suggestions'], ['book', 'From the book'], ['empty', 'Empty evening']];
+    const total = plan.recipe.reduce((n, k) => n + STEPS[k][2], 0);
+    const body = plan.mode === 'build'
+      ? h('div.ev-build',
+        h('p.ev-q', 'What do you want tonight? Tap to add, tap a scene to remove it.'),
+        h('div.ev-palette', Object.entries(STEPS).map(([k, [label, glyph]]) => h('button.btn.btn-sm', { type: 'button', disabled: plan.recipe.length >= 12, onclick: () => { plan.recipe.push(k); redraw(); } }, icon('plus', { size: 12 }), icon(glyph, { size: 13 }), label))),
+        h('ol.ev-recipe', { 'aria-label': 'Scenes in order' }, plan.recipe.map((k, i) => h('li', h('button.ev-step', { type: 'button', title: 'Remove', onclick: () => { plan.recipe.splice(i, 1); redraw(); } },
+          h('span.ev-step-n', String(i + 1)), icon(STEPS[k][1], { size: 14 }), STEPS[k][0], h('span.ev-step-x', '✕'))))),
+        h('div.ev-recipes', h('span.dim', 'Quick start:'), RECIPES.map(([label, r]) => h('button.chip', { type: 'button', onclick: () => { plan.recipe = [...r]; redraw(); } }, label))),
+        h('label.chk', h('input', { type: 'checkbox', checked: plan.suggest, onchange: (e) => { plan.suggest = e.target.checked; } }),
+          ' Fill the scenes for me: monsters for your floor and party, new NPCs with a hook, checks with DCs, a complication'),
+        h('p.dim', `${plan.recipe.length} scenes · about ${formatTime(total)}. Everything stays editable.`))
+      : plan.mode === 'book'
+        ? h('div.ev-template-floors', floors.length ? floors.map((n) => h('section.ev-floor',
+          h('button.btn.ev-floor-button', { type: 'button', 'aria-expanded': String(floor === n), onclick: () => { floor = floor === n ? null : n; redraw(); } }, icon(floor === n ? 'down' : 'chevron', { size: 14 }), `Floor ${n}`),
+          floor === n ? h('div.ev-template-list', source.filter((x) => x.floor === n).map(choose)) : null)) : h('p.dim', 'This pack has no prepared evenings.'))
+        : h('p.dim', view?.pack?.ruleset?.system?.family === 'crawler' ? 'One empty scene. You add the rest.' : 'A Lazy DM skeleton: strong start, a person, a confrontation, clues.');
+    const can = !planning && (plan.mode !== 'build' || plan.recipe.length) && (plan.mode !== 'book' || template);
     return h('section.panel.ev-first', { 'aria-labelledby': 'ev-first-title' },
-      h('h1#ev-first-title', first ? 'Plan your first evening' : 'Plan an evening'),
-      h('p.dim', 'Choose a template. Each evening is an ordered list of scenes you can edit and run.'),
-      h('div.ev-template-floors', floors.map((n) => h('section.ev-floor',
-        h('button.btn.ev-floor-button', {
-          type: 'button', 'aria-expanded': String(floor === n),
-          onclick: () => { floor = floor === n ? null : n; redraw(); },
-        }, icon(floor === n ? 'down' : 'chevron', { size: 14 }), `Floor ${n}`),
-        floor === n ? h('div.ev-template-list', source.filter((x) => x.floor === n).map(choose)) : null))),
-      choose(blank),
-      h('footer.ev-first-actions', h('button.btn.btn-primary', { type: 'button', disabled: !template || planning, onclick: submit }, 'Plan evening')));
+      h('h1#ev-first-title', first ? 'Plan your first evening' : 'New evening'),
+      h('label.ev-name', h('span', 'Name'), h('input.field', { type: 'text', maxlength: 100, value: plan.name, placeholder: defaultName, 'aria-label': 'Evening name',
+        oninput: (e) => { plan.name = e.target.value; } })),
+      h('div.ev-modes', { role: 'tablist' }, modes.map(([id, label]) => h('button.chip', { type: 'button', role: 'tab', class: `chip${plan.mode === id ? ' on' : ''}`, 'aria-selected': String(plan.mode === id), onclick: () => { plan.mode = id; redraw(); } }, label))),
+      body,
+      h('footer.ev-first-actions', h('button.btn.btn-primary', { type: 'button', disabled: !can, onclick: create }, planning ? 'Creating…' : 'Create evening')));
   }
 
   function agenda(view, doc, scene) {
@@ -114,8 +138,6 @@ export function createEvening({ act, redraw, onPlan, onSelect, onRun, onShow, op
     return h('aside.panel.ev-agenda', { 'aria-label': 'Evening agenda' },
       h('h2', 'Evening'),
       field(doc.title, { cls: 'ev-title', attrs: { 'aria-label': 'Evening title', maxlength: 100 }, onCommit: (title) => title.trim() && update({ title: title.trim() }) }),
-      select(view.gm.prep.docs.filter((d) => d.evening).map((d) => ({ value: d.id, label: d.title })), doc.id,
-        { label: 'Switch evening', onChange: onSelect }),
       h('label.ev-budget', h('span', 'Planned length'), field(doc.evening.minutes, { type: 'number', cls: 'inp-sm',
         attrs: { min: 1, max: 1440, 'aria-label': 'Planned minutes' }, onCommit: (minutes) => Number.isInteger(minutes) && minutes > 0 && minutes <= 1440 && update({ minutes }) }), h('span.dim', 'min')),
       h('div.ev-time', { class: total > doc.evening.minutes ? 'ev-time over' : 'ev-time' },

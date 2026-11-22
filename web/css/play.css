@@ -171,7 +171,11 @@ body.log-open .log-rail { display: block; position: fixed; z-index: 30; left: 0;
 .reveal .art { border: 0; border-bottom: 2px solid var(--r, var(--r-common)); }
 .reveal .meta { padding: 14px 16px 16px; text-align: left; display: grid; gap: 6px; }
 .reveal .nm { font-family: var(--f-display); font-stretch: condensed; font-weight: 900; font-size: 1.6rem; line-height: 1; }
-.reveal .ds { color: var(--ink); margin: 0; overflow-wrap: anywhere; }
+.reveal .ds { color: var(--ink); margin: 0; overflow-wrap: anywhere; font-size: 1.05rem; line-height: 1.4; }
+/* The reveal card is always dark: never inherit the sheet's (light-theme) text colour. */
+.reveal .meta { color: #f5f0ff; }
+.reveal .nm { color: #fff; text-shadow: 0 2px 0 #000; border-left: 4px solid var(--r, var(--r-common)); padding-left: 10px; }
+.reveal .flavor { margin: 4px 0 0; color: #cfc6ee; font-style: italic; line-height: 1.45; padding-left: 10px; border-left: 2px solid rgba(255,255,255,.25); overflow-wrap: anywhere; }
 .reveal .nm { overflow-wrap: anywhere; }
 .reveal { max-height: calc(100dvh - 150px); display: flex; flex-direction: column; }
 .reveal .art { flex: none; aspect-ratio: auto; height: min(34dvh, 340px); }

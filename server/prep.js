@@ -21,6 +21,8 @@
 // A template with `families` only shows up in campaigns whose ruleset family matches.
 import { bad, notFound } from './errors.js';
 import { libraryOf } from './character.js';
+import { floorOfState } from './outcome.js';
+import { makePerson, savePerson, tableForScene, rollTable } from './tables.js';
 import { MAPS_GM, MAX_MAPS, upgradePreparedMap } from './maps.js';
 
 export const DOC_TYPES = ['adventure', 'session'];
@@ -218,7 +220,7 @@ function normalizeEveningScene(s, index = 0) {
   };
 }
 
-function normalizeEvening(e) {
+export function normalizeEvening(e) {
   if (!isObj(e)) return null;
   const scenes = uniqueRows(e.scenes, normalizeEveningScene, MAX_SCENES);
   const activeSceneId = scenes.some((s) => s.id === e.activeSceneId) ? e.activeSceneId : scenes[0]?.id ?? null;
@@ -569,7 +571,7 @@ function installedAdventure(st, seed, ctx, out, GM) {
   return docOf(st, sub.result.id);
 }
 
-function scenePreset(type, ctx, title, extra = {}) {
+export function scenePreset(type, ctx, title, extra = {}) {
   const check = SCENE_CHECKS[type];
   const family = ctx.pack.ruleset.system.family;
   const checks = check ? [{
@@ -641,6 +643,91 @@ export function planEvening(st, a, ctx, out, GM) {
   PREP_GM['prep.session.add'](st, { title: a.title ?? template?.title, ...(adventure ? { adventureId: adventure.id } : {}) }, ctx, sub);
   const doc = docOf(st, sub.result.id);
   doc.evening = normalizeEvening({ minutes, scenes, sourceKey: template?.key ?? prev?.evening?.sourceKey });
+  out.result = { id: doc.id, sceneId: doc.evening.activeSceneId };
+}
+
+// ---------- a new evening from scratch, with suggestions ----------
+
+/** Recipe steps the GM can pick ("hook" and "check" are flavours of talk / explore). */
+export const RECIPE_STEPS = ['hook', 'explore', 'check', 'fight', 'talk', 'trap', 'boss'];
+const STEP_TYPE = { hook: 'talk', check: 'explore' };
+
+function pickMobs(st, ctx, kind, n) {
+  const floor = floorOfState(st);
+  const all = libraryOf(st, ctx.pack).list(kind).filter((e) => !String(e.origin ?? '').startsWith('srd') && (e.attacks?.length || kind === 'boss'));
+  const near = all.filter((e) => String(e.floor ?? '') === String(floor));
+  const pool = near.length ? near : all.filter((e) => !e.floor || Number(e.floor) <= floor);
+  const use = pool.length ? pool : all;
+  const out = [];
+  for (let i = 0; i < n && use.length; i++) {
+    const e = use[ctx.randInt(use.length)];
+    if (!out.includes(e)) out.push(e);
+  }
+  return out;
+}
+
+function suggestScene(st, ctx, out, GM, step, i, used) {
+  const type = STEP_TYPE[step] ?? step;
+  const scene = scenePreset(type, ctx, `Scene ${i + 1}`);
+  const party = Math.max(1, st.players.length);
+  if (type === 'fight' || type === 'boss') {
+    const mobs = [];
+    let label;
+    if (type === 'boss') {
+      const [boss] = pickMobs(st, ctx, 'boss', 1);
+      if (boss) { mobs.push({ kind: 'boss', sourceId: boss.id, count: 1 }); label = boss.name; }
+      const [minion] = pickMobs(st, ctx, 'monster', 1);
+      if (minion && party > 2) mobs.push({ kind: 'monster', sourceId: minion.id, count: Math.max(1, party - 2) });
+    } else {
+      const kinds = pickMobs(st, ctx, 'monster', party >= 4 ? 2 : 1).filter((e) => !used.has(e.id));
+      const each = Math.max(1, Math.round(Math.max(2, party) / Math.max(1, kinds.length)));
+      for (const e of kinds) { mobs.push({ kind: 'monster', sourceId: e.id, count: each }); used.add(e.id); }
+      label = kinds.map((e) => e.name).join(' & ');
+    }
+    if (mobs.length) {
+      const sub = { ...out, result: undefined };
+      GM['enc.save'](st, { label: label || scene.title, mobs }, ctx, sub);
+      scene.encounterId = sub.result.id;
+      scene.title = type === 'boss' ? `Boss: ${label}` : `Fight: ${label}`;
+    } else scene.title = type === 'boss' ? 'Boss fight' : 'Fight';
+    return scene;
+  }
+  if (type === 'talk') {
+    const person = makePerson(st, ctx, null);
+    const r = savePerson(st, ctx, out, GM, person, '');
+    scene.npcs = [r.id];
+    scene.title = step === 'hook' ? `Hook: ${person.name}` : person.name;
+    scene.readAloud = person.lines[0];
+    scene.goal = step === 'hook' ? `${person.lines[1]} The party gets a reason to go further tonight.` : person.lines[1];
+    scene.secrets = [{ id: ctx.genId('psec'), text: person.lines[2] }];
+    return scene;
+  }
+  const table = tableForScene(st, ctx, type);
+  if (table) {
+    const r = rollTable(st, ctx, table.id);
+    if (type === 'trap') scene.readAloud = r.text;
+    else scene.notes = `${table.name}: ${r.text}`;
+  }
+  scene.title = step === 'check' ? 'A check to pass' : type === 'trap' ? 'Trap' : 'Explore';
+  if (step === 'check' && !scene.checks.length) scene.checks = scenePreset('trap', ctx, '').checks;
+  return scene;
+}
+
+/** `{ title, recipe: [...RECIPE_STEPS], minutes?, suggest? }` → a new evening (becomes tonight), nothing carried over. */
+export function buildEvening(st, a, ctx, out, GM) {
+  const prep = ensurePrep(st);
+  checkRoom(prep);
+  if (!Array.isArray(a.recipe) || !a.recipe.length || a.recipe.length > 12) throw bad('recipe must have 1..12 steps');
+  for (const step of a.recipe) if (!RECIPE_STEPS.includes(step)) throw bad(`recipe step must be one of ${RECIPE_STEPS.join(', ')}`);
+  const minutes = a.minutes === undefined ? 240 : eveningMinutes(a.minutes);
+  const used = new Set();
+  const scenes = a.recipe.map((step, i) => (a.suggest === false
+    ? scenePreset(STEP_TYPE[step] ?? step, ctx, `${step[0].toUpperCase()}${step.slice(1)}`)
+    : suggestScene(st, ctx, out, GM, step, i, used)));
+  const sub = { ...out, result: undefined };
+  PREP_GM['prep.session.add'](st, { ...(a.title != null ? { title: a.title } : {}), adventureId: null }, ctx, sub);
+  const doc = docOf(st, sub.result.id);
+  doc.evening = normalizeEvening({ minutes, scenes });
   out.result = { id: doc.id, sceneId: doc.evening.activeSceneId };
 }
 
