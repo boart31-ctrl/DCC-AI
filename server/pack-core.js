@@ -8,6 +8,7 @@ import { normalizePrepConfig } from './prep.js';
 import { normalizeRulesIndex } from './rules-search.js';
 import { normalizeOrigins } from './origins.js';
 import { normalizeLootPolicy } from './loot-advisor.js';
+import { normalizeTrigger } from './ach-triggers.js';
 
 export { STANDARD_CATEGORIES };
 
@@ -333,6 +334,8 @@ function loadAchievements(raw, quipsById, warnings) {
       voice,
       // Loot box tier this achievement pays out (C1): the GM gets the box with the System's offers right after.
       ...(isStr(a.box) && ID_RE.test(a.box) ? { box: a.box } : {}),
+      // ach-triggers.js: the moment the System suggests this achievement for
+      ...(normalizeTrigger(a.trigger) ? { trigger: normalizeTrigger(a.trigger) } : {}),
     };
   });
 }

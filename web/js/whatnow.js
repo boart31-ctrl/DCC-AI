@@ -60,6 +60,8 @@ function prepNext(v) {
 export function whatNow(v, { unread = 0 } = {}) {
   const more = [];
   const gm = v?.gm ?? {};
+  // The System noticed an achievement moment: one tap awards it (Loot & Rewards has Later / Never).
+  for (const sg of (gm.achSuggestions ?? []).slice(-2).reverse()) more.push({ text: `🏆 ${sg.title} → ${sg.name}?`, act: { t: 'ach.suggest.award', id: sg.id } });
   for (const p of gm.playersFull ?? []) {
     const req = p.sheet?.gearRequest ?? [];
     if (req.length) more.push({ text: `${p.name} asks for ${plural(req.length, 'item')}`, go: 'party' });

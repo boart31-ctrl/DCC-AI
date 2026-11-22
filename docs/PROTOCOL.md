@@ -248,6 +248,9 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `player.resource` | `playerId`, `res`, `cur?`, `max?`, `delta?` | Changes hp/mana etc. (clamped 0..max) |
 | `player.remove` | `playerId` | |
 | `ach.award` | `playerId`, `achId` **or** `title`+`desc?`+`reward?` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
+| `ach.suggest.award` | `id` (from `gm.achSuggestions`) | Awards the suggested achievement (same as `ach.award`) and drops the suggestion |
+| `ach.suggest.dismiss` | `id`, `never?` | Drops a suggestion; `never: true` = never suggest that achievement to that crawler again |
+| `ach.settings` | `suggest` (bool) | Turns System achievement suggestions on/off. Suggestions come from pack achievement `trigger`: `{ on: roll\|evade\|kill\|down\|saved\|mark\|loot\|sponsor, nat?, deg?, what?, hit?, rarity?, mark?, partyFirst?, inRound?, streak?, count? }`; GM always confirms, nothing is auto-awarded. GM view: `achSuggestions`, `achRecent`, `achSettings`, catalog `on` |
 | `loot.peek` | `tier` | GM preview: rolls the tier's table, gives nothing. Ack `result.item {id, name, rarity, image, desc}` |
 | `loot.open` | `playerId`, `tier`, `itemId?` | Rolls pack loot table for tier (or takes the peeked `itemId`, which must be on that table), adds the item and opens its loot scene. The `loot` event carries `sceneId`. The live scene keeps the awarded item in `data.opened` until replaced |
 | `item.give` | `playerId`, `itemId`, `qty?`, `bonus?` (0-3) | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack with the same bonus (`qty` added). `bonus` = a +N copy: name `+N`, rarity at least uncommon/rare/epic, weapons +N to hit and damage (`attack.bonus`), armour +N to its `armor` effect |

@@ -29,6 +29,7 @@ import { createRulesSearch } from './gm-rules.js';
 import { createWhatNow } from './gm-whatnow.js';
 import { openLootAdvisor, lootPowerBlock, lootSettingsPanel } from './gm-loot.js';
 import { marksEl } from './marks.js';
+import { createAchPicker, suggestionsPanel } from './gm-ach.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -39,6 +40,7 @@ export const ext = { afterRender: [], customAchievementWriter: null, libraryDraf
 ext.client = client;
 document.getElementById('gm-credits').onclick = () => showCredits(view?.gm?.origins);
 createRulesSearch({ send: (a) => client.send(a), button: document.getElementById('rules-btn') });
+createAchPicker({ getView: () => view, act, button: document.getElementById('ach-btn') });
 ext.credential = null; // { key } or { token }
 
 let view = null;
@@ -700,7 +702,7 @@ function createRewards() {
   function update(v) {
     const list = v.players || [];
     const recent = [...(v.feed || [])].filter((e) => ['achievement', 'loot', 'sponsor'].includes(e.kind)).reverse().slice(0, 12);
-    const s = JSON.stringify([list.map((p) => [p.id, p.name, p.color, p.connected, fullPlayer(p.id)?.gold, fullPlayer(p.id)?.sheet?.portrait ? 1 : 0]), recent.map((e) => e.id || e.at), v.gm?.loot]);
+    const s = JSON.stringify([list.map((p) => [p.id, p.name, p.color, p.connected, fullPlayer(p.id)?.gold, fullPlayer(p.id)?.sheet?.portrait ? 1 : 0]), recent.map((e) => e.id || e.at), v.gm?.loot, v.gm?.achSuggestions, v.gm?.achSettings]);
     if (s === sig) return;
     sig = s;
     const btn = (ic, label, fn, cls = '') => h(`button.btn.rw-btn${cls}`, { type: 'button', onclick: () => { buzz(10); fn(); } }, icon(ic, { size: 16 }), label);
@@ -728,6 +730,7 @@ function createRewards() {
       h('div.view-head', h('h1', 'Loot & Rewards'), h('span.dim', 'Power of each crawler, boxes waiting, the System\'s offers, achievements and gifts')),
       list.length ? btn('tv', 'Show builds on TV', () => act({ t: 'scene.set', kind: 'builds' }, 'Build analysis on TV.')) : null,
       v.gm?.loot ? lootSettingsPanel(v.gm.loot, { act }) : null,
+      suggestionsPanel(v.gm, { act }),
       list.length ? h('div.rw-grid', list.map(card)) : h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add them on Party first.')),
       h('section.panel.rw-recent',
         h('h2', 'Handed out lately'),

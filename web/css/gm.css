@@ -487,3 +487,19 @@ dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .lp-settings summary { cursor: pointer; }
 .lp-set { display: grid; gap: 10px; margin-top: 10px; }
 .lp-set label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+
+/* Achievements: suggestions + picker (gm-ach.js) */
+.ach-sg { margin-bottom: 12px; }
+.ach-sg-head { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.ach-sg ul { list-style: none; margin: 8px 0 0; padding: 0; display: grid; gap: 6px; }
+.ach-sg li { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
+.ach-sg-btns { display: flex; gap: 6px; }
+.ach-pk { width: min(720px, 94vw); }
+.ach-pk-who { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.ach-pk-who .chip.on { outline: 2px solid var(--c-accent); }
+.ach-pk-body { display: grid; gap: 6px; max-height: 60vh; overflow: auto; margin-top: 8px; }
+.ach-pk-body h4 { margin: 8px 0 2px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; opacity: .7; }
+.ach-pk-row { display: grid; gap: 2px; text-align: left; padding: 8px 10px; border: 1px solid var(--c-line); border-radius: 8px; background: transparent; color: inherit; cursor: pointer; }
+.ach-pk-row:hover, .ach-pk-row:focus-visible { border-color: var(--c-accent); }
+.ach-pk-why { font-size: 12px; color: var(--c-accent); }
+.ach-pk-custom { justify-self: start; margin-top: 6px; }

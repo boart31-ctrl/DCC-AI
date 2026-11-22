@@ -25,6 +25,7 @@ import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventur
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { RULES_GM } from './rules-search.js';
 import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
+import { ACH_SUGGEST_GM, suggestAchievements } from './ach-triggers.js';
 import { originsFor } from './origins.js';
 import { BUILD_IDS, floorRarityFor, offersFor, giveWarnings, itemBuilds, crawlerBuild, crawlerRating, rewardMode, effectiveLootPolicy, normalizeLootPolicy, REWARD_MODES, SETTING_KEYS } from './loot-advisor.js';
 import { floorOfState } from './outcome.js';
@@ -1024,6 +1025,10 @@ Object.assign(GM, makeEncounterGM(GM));
 Object.assign(GM, PREP_CHECKS_GM);
 Object.assign(GM, RULES_GM);
 Object.assign(GM, MARKS_GM);
+Object.assign(GM, {
+  ...ACH_SUGGEST_GM,
+  'ach.suggest.award': (st, a, ctx, out) => ACH_SUGGEST_GM['ach.suggest.award'](st, a, ctx, out, GM),
+});
 GM['map.toFight'] = (st, a, ctx, out) => startCombatOnMap(st, a, ctx, out, GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
 GM['prep.evening.plan'] = (st, a, ctx, out) => planEvening(st, a, ctx, out, GM);
@@ -1316,6 +1321,8 @@ export function reduce(state, action, ctx) {
   };
   if (action.role === 'system') out.changed = false;
   fn(st, action, full, out);
+  // The System notices moments that match an achievement trigger and suggests it to the GM (ach-triggers.js).
+  if (out.changed && full.pack && action.t !== 'ach.suggest.award') suggestAchievements(st, full, out);
   if (out.changed && st.combat?.mapId && ['map.bindCombat', 'map.toFight', 'enc.run', 'prep.scene.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
     syncCombatTokens(st, full);
   }
@@ -1470,7 +1477,10 @@ export function viewFor(state, basePack, role, opts = {}) {
         left: quipsLeft(pack, state.usedQuips, id),
         total: categoryPool(pack, id).length,
       })),
-      achievementsCatalog: pack.achievements.map(({ id, title, desc, reward, group, box }) => ({ id, title, desc, reward, group, ...(box ? { box } : {}) })),
+      achievementsCatalog: pack.achievements.map(({ id, title, desc, reward, group, box, trigger }) => ({ id, title, desc, reward, group, ...(box ? { box } : {}), ...(trigger ? { on: trigger.on } : {}) })),
+      achSuggestions: state.achSuggestions ?? [],
+      achRecent: state.achRecent ?? [],
+      achSettings: state.achSettings ?? { suggest: true },
       iconLib: pack.iconLib ?? [], // icon library for the custom-item picker
       itemsCatalog: library.list('item').map(({ id, name, rarity, desc, flavor, slot, stackable, source, attack, effects }) => ({ id, name, rarity, desc, flavor, slot, stackable, source, enhanceable: !!attack || (effects ?? []).some((e) => e.target === 'armor') })),
       pendingAuto: q.pendingAuto,
