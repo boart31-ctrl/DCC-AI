@@ -366,7 +366,7 @@ export function playerLibrary(state, pack, library, p) {
     const e = library.get(kind, id);
     if (e && !out[kind].some((x) => x.id === e.id)) out[kind].push(e);
   };
-  for (const kind of ['skill', 'race', 'class', 'background']) out[kind] = library.list(kind);
+  for (const kind of ['skill', 'race', 'class', 'background']) out[kind] = [...library.list(kind)];
   for (const kind of ['race', 'class', 'background']) for (const e of out[kind]) for (const f of e.features ?? []) add('feature', f);
   if (p) {
     for (const i of p.inventory) {
@@ -389,6 +389,13 @@ export function playerLibrary(state, pack, library, p) {
       const { choices, item } = pack.ruleset.creation.spellChoice;
       for (const id of choices) add('spell', id);
       add('item', item);
+    }
+  }
+  for (const entries of Object.values(out)) {
+    for (const [i, entry] of entries.entries()) {
+      if (!entry.origin) continue;
+      const { origin, ...publicEntry } = entry;
+      entries[i] = publicEntry;
     }
   }
   return out;

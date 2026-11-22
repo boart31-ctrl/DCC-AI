@@ -1,3 +1,4 @@
+import { showCredits } from './gm-origins.js';
 import {
   SystemClient, TransportHub, takeHashToken, buzz, h, toast, itemArt, fmtNum, timeAgo,
   rarityOf, statusText, registerSW, isHosted, ask,
@@ -33,6 +34,7 @@ const client = new TransportHub();
 export const ext = { afterRender: [], customAchievementWriter: null, libraryDraft: null, hosted: false };
 // Players & devices panel (devices.js) + GM key login (gmlogin.js) hook in here.
 ext.client = client;
+document.getElementById('gm-credits').onclick = () => showCredits(view?.gm?.origins);
 createRulesSearch({ send: (a) => client.send(a), button: document.getElementById('rules-btn') });
 ext.credential = null; // { key } or { token }
 

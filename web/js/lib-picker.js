@@ -1,3 +1,4 @@
+import { originBadge, originOptions } from './gm-origins.js';
 // Library picker: pull entries from the library in a few clicks (Prep, encounters, scene links).
 // A wide drawer: search, kind chips, floor chips, a grid of tiles with their pictures.
 //
@@ -32,7 +33,7 @@ export function entriesOf(view, kind) {
   if (kind === 'card') return cards.filter((c) => c.kind !== 'encounter').map((c) => ({ id: c.id, name: c.label, sub: c.kind, floor: '', art: null, glyph: 'star' }));
   if (kind === 'map') return (view?.maps || []).map((m) => ({ id: m.id, name: m.name, sub: `${m.zones?.length || 0} zones`, floor: '', art: { name: m.name, image: m.image } }));
   return (lib[kind] || []).map((e) => ({
-    id: e.id, name: e.name, floor: e.floor ?? '',
+    id: e.id, name: e.name, origin: e.origin, floor: e.floor ?? '',
     sub: [
       e.floor !== '' && e.floor != null ? `F${e.floor}` : null,
       e.title || e.role || e.group || null,
@@ -55,6 +56,7 @@ export function pickFromLibrary({ view, kinds, title = 'Add from the library', m
   let floor = lastFloor;
   const chosen = new Map(); // "kind:id" → count
   const grid = h('div.lp-grid');
+  const originSel = h('select.inp', { 'aria-label': 'Origin', onchange: () => drawGrid() }, originOptions(view.gm?.origins));
   const floorsEl = h('div.lp-chips');
   const foot = h('div.lp-foot');
   const search = h('input.inp.lp-q', { type: 'search', placeholder: 'Search by name…', 'aria-label': 'Search', oninput: (e) => { q = e.target.value.trim().toLowerCase(); drawGrid(); } });
@@ -85,7 +87,7 @@ export function pickFromLibrary({ view, kinds, title = 'Add from the library', m
     floorsEl.hidden = floors.length < 2;
     floorsEl.replaceChildren(...[['', 'All floors'], ...floors.map((f) => [String(f), `Floor ${f}`])].map(([v, label]) =>
       h('button.lp-chip.sm', { type: 'button', 'aria-pressed': String(String(floor) === v), onclick: () => { floor = v; lastFloor = v; drawGrid(); } }, label)));
-    const list = all.filter((e) => (!q || e.name.toLowerCase().includes(q) || e.sub.toLowerCase().includes(q)) && (floor === '' || String(e.floor) === String(floor)))
+    const list = all.filter((e) => (!originSel.value || e.origin === originSel.value) && (!q || e.name.toLowerCase().includes(q) || e.sub.toLowerCase().includes(q)) && (floor === '' || String(e.floor) === String(floor)))
       .sort((a, b) => a.name.localeCompare(b.name));
     grid.replaceChildren(...(list.length ? list.map((e) => {
       const key = `${kind}:${e.id}`;
@@ -104,6 +106,7 @@ export function pickFromLibrary({ view, kinds, title = 'Add from the library', m
         e.art ? entryArt(e.art, { cls: 'lp-art', lit: false }) : h('span.lp-art.lp-glyph', icon(e.glyph || 'star', { size: 22 })),
         h('span.lp-name', e.name), h('span.lp-sub', e.sub || KIND_LABEL[kind]),
         had ? h('span.lp-had', icon('check', { size: 12 }), 'linked') : null),
+        originBadge(e, view.gm?.origins),
         withCount && n ? stepper(n, { min: 1, max: 20, label: `How many ${e.name}`, onChange: (v) => { chosen.set(key, v); drawGrid(); drawFoot(); } }) : null);
     }) : [h('p.empty-s', q ? `Nothing called "${q}".` : `No ${(KIND_PLURAL[kind] || kind).toLowerCase()} yet. Add them in the Library.`)]));
   }
@@ -112,7 +115,7 @@ export function pickFromLibrary({ view, kinds, title = 'Add from the library', m
   openDrawer({
     title, wide: true,
     sub: multi ? 'Tap to pick, then Add. Filter by floor or type a name.' : 'Tap one to add it.',
-    body: h('div.lp', search, kinds.length > 1 ? kindChips : null, floorsEl, grid, foot),
+    body: h('div.lp', search, kinds.length > 1 ? kindChips : null, originSel, floorsEl, grid, foot),
   });
   drawGrid();
   drawFoot();

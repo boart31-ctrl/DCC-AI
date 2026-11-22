@@ -422,3 +422,8 @@ body.on-hold .topbar { box-shadow: inset 0 -3px 0 #c0392b; }
 .rules-src { font-size: 13px; margin-bottom: 4px; }
 .rules-text { margin: 0; line-height: 1.5; }
 .rules-text mark { background: color-mix(in srgb, var(--c-accent, #f5b301) 45%, transparent); color: inherit; border-radius: 3px; padding: 0 2px; }
+
+.lib-list li:has(.origin-badge), .et-origin-row { display: flex; align-items: center; gap: 4px; }
+.lib-list .lib-row, .et-origin-row .et-mob { min-width: 0; flex: 1; }
+.origin-badge { max-width: 100%; white-space: normal; font-size: 11px; }
+.lib-filters select { min-width: 0; }

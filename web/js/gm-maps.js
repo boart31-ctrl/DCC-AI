@@ -336,7 +336,7 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
     const c = combatantOf(token);
     const def = c ? { ...src, ...c } : src;
     const health = c?.slotValue ? `${c.hp}/${c.hpMax} slots · ${c.slotValue} HP/slot` : `${c?.hp}/${c?.hpMax} HP`;
-    const stats = hasStatBlock(def) ? statBlock(def, view?.pack?.ruleset?.combat || {}) : null;
+    const stats = hasStatBlock(def) ? statBlock(def, view?.pack?.ruleset?.combat || {}, view?.gm?.origins) : null;
     const note = (label, text) => text ? h('p', h('b', `${label} `), text) : null;
     const edit = (patch) => act({ t: 'map.token.update', id: m.id, tokenId: token.id, ...patch });
     const rename = (value) => {

@@ -1,3 +1,4 @@
+import { originBadge, originOptions } from './gm-origins.js';
 // The same tools panel mounts in the desktop column and the narrower Prep drawer.
 import { h } from './client.js';
 import { icon } from './ui.js';
@@ -42,26 +43,28 @@ function calculator(view) {
     family === 'crawler' ? h('small.dim', 'Floor ' + floor) : null);
 }
 
-function mobSearch(lib, addMob) {
+function mobSearch(lib, addMob, origins) {
   const rows = ['monster', 'boss'].flatMap((kind) => (lib[kind] ?? []).map((entry) => ({ kind, entry })));
   const search = input('Search mobs to add', { type: 'search', placeholder: 'Find a mob…' });
+  const filter = h('select.inp.inp-sm', { 'aria-label': 'Encounter origin' }, originOptions(origins));
   const list = h('div.et-results');
   const render = () => {
     const query = search.value.trim().toLocaleLowerCase();
-    const matches = rows.filter(({ entry }) => entry.name.toLocaleLowerCase().includes(query));
+    const matches = rows.filter(({ entry }) => (!filter.value || entry.origin === filter.value) && entry.name.toLocaleLowerCase().includes(query));
     list.replaceChildren(...matches.slice(0, 20).map(({ kind, entry }) => {
       const ref = { kind, id: entry.id };
-      return h('button.et-mob', { type: 'button', draggable: true, title: 'Add ' + entry.name + ' to this encounter',
+      return h('div.et-origin-row', h('button.et-mob', { type: 'button', draggable: true, title: 'Add ' + entry.name + ' to this encounter',
         onclick: () => addMob(ref), ondragstart: (e) => {
           e.dataTransfer.setData('application/x-evening-mob', JSON.stringify(ref));
           e.dataTransfer.effectAllowed = 'copy';
-        } }, h('span', entry.name), h('small.dim', kind === 'boss' ? 'Boss' : entry.role || 'Mob'), icon('plus', { size: 13 }));
+        } }, h('span', entry.name), h('small.dim', kind === 'boss' ? 'Boss' : entry.role || 'Mob'), icon('plus', { size: 13 })), originBadge(entry, origins));
     }));
     if (!matches.length) list.append(h('small.dim', 'No matching mobs.'));
   };
+  filter.addEventListener('change', render);
   search.addEventListener('input', render);
   render();
-  return toolSection('Encounter search', search, list);
+  return toolSection('Encounter search', search, filter, list);
 }
 
 function readiness(view, lib, scene, selectBlock, openInLibrary) {
@@ -127,6 +130,6 @@ function diceRoller(act, doc) {
 export function eveningTools({ view, act, doc, scene, selectBlock, addMob, openInLibrary }) {
   const lib = libraryOf(view);
   return h('aside.et-tools', { 'aria-label': 'GM tools' }, h('h2', 'GM tools'), calculator(view),
-    scene ? mobSearch(lib, addMob) : null, scene ? readiness(view, lib, scene, selectBlock, openInLibrary) : null,
+    scene ? mobSearch(lib, addMob, view.gm?.origins) : null, scene ? readiness(view, lib, scene, selectBlock, openInLibrary) : null,
     scene ? quickNpc(doc, scene, act) : null, diceRoller(act, doc));
 }

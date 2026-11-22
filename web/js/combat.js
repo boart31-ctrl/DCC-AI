@@ -1,3 +1,4 @@
+import { originBadge, originOptions } from './gm-origins.js';
 // GM desk → Combat: the synced tracker (server/combat.js + combat-auto.js). Everything here is engine
 // state, so the TV, phones and a reloaded desk all see the same fight.
 //
@@ -645,7 +646,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
               onclick: () => (v === 'focus' && !m.focus && crawlers[0] ? act({ t: 'combat.target', uid: m.uid, focus: crawlers.find((x) => !x.down)?.uid || crawlers[0].uid }) : act({ t: 'combat.target', uid: m.uid, targetMode: v })) }, l))),
           m.targetMode === 'focus' ? select(crawlers.map((x) => ({ value: x.uid, label: x.name })), m.focus || '', { cls: 'inp-sm', label: 'Focus target', onChange: (v) => act({ t: 'combat.target', uid: m.uid, focus: v }) }) : null)),
       h('div.cc-block', h('span.mini-l', 'Conditions'), conditions(m)),
-      hasStatBlock(e) ? statBlock({ ...e, evade: m.evade, dr: m.dr, attacks: m.attacks }, getView()?.pack?.ruleset?.combat || {}) : null,
+      hasStatBlock(e) ? statBlock({ ...e, evade: m.evade, dr: m.dr, attacks: m.attacks }, getView()?.pack?.ruleset?.combat || {}, getView()?.gm?.origins) : null,
       e?.tactics || e?.notes || e?.lootHint || m.attacks.some((a) => a.effects) ? h('div.cbt-info',
         e?.tactics ? h('p', h('b', 'Tactics. '), e.tactics) : null,
         e?.notes ? h('p', h('b', 'Notes. '), e.notes) : null,
@@ -667,7 +668,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
     return h('li.cc.cc-mob', { class: `cc cc-mob${m.down ? ' down' : ''}${m.hidden ? ' is-hidden' : ''}${m.sourceKind === 'boss' ? ' is-boss' : ''}`, 'data-uid': m.uid },
       h('div.cc-who',
         artBtn(entryArt({ name: m.name, image: m.image }, { cls: 'cbt-art' }), `Change the art of ${m.name}`, () => pickMobArt(m)),
-        h('div.cc-nm', h('b', m.name),
+        h('div.cc-nm', h('b', m.name), originBadge(e, getView()?.gm?.origins),
           h('span.dim', { title: m.slotValue ? `${m.hp} of ${m.hpMax} health slots` : null }, `${m.hp}/${m.hpMax} ${m.slotValue ? `· ${m.slotValue} HP/slot` : 'HP'}`, m.sourceKind === 'boss' ? h('span.pill.pill-on', m.linked ? 'Boss · on TV' : 'Boss') : null, m.hidden ? h('span.pill', 'Hidden') : null)),
         h('button.icon-btn.cbt-eye', {
           type: 'button', 'aria-pressed': String(!m.hidden), class: m.hidden ? 'icon-btn cbt-eye' : 'icon-btn cbt-eye on',
@@ -951,17 +952,19 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
     const sv = e.slotValue || view.pack?.ruleset?.combat?.mobSlotValue;
     return h('li.cbt-pick', { class: e.image ? 'cbt-pick' : 'cbt-pick no-art' },
       artBtn(entryArt(e, { cls: 'cbt-pick-art' }), e.image ? `Change the art of ${e.name}` : `${e.name} has no art yet: pick a picture`, () => pickLibArt(kind, e)),
-      h('div.cbt-pick-t', h('b', e.name), h('span.dim', [kind === 'boss' ? 'Boss' : e.group, e.floor !== '' && e.floor != null ? `F${e.floor}` : '', `${e.hpSlots} ${sv ? `slots × ${sv} HP` : 'HP'}`, `${DEF() === 'Evade' ? 'Ev' : DEF()} ${e.evade ?? 0}`, hasDr() ? `DR ${e.dr ?? 0}` : ''].filter(Boolean).join(' · ') + linkedHint)),
+      h('div.cbt-pick-t', h('b', e.name), originBadge(e, view.gm?.origins), h('span.dim', [kind === 'boss' ? 'Boss' : e.group, e.floor !== '' && e.floor != null ? `F${e.floor}` : '', `${e.hpSlots} ${sv ? `slots × ${sv} HP` : 'HP'}`, `${DEF() === 'Evade' ? 'Ev' : DEF()} ${e.evade ?? 0}`, hasDr() ? `DR ${e.dr ?? 0}` : ''].filter(Boolean).join(' · ') + linkedHint)),
       kind === 'boss' ? h('span') : countStepper(key),
       h('button.btn.btn-sm', { type: 'button', onclick: () => addMob(kind, e, kind === 'boss' ? 1 : countOf(key)), 'aria-label': `Add ${e.name}` }, icon('plus', { size: 13 }), 'Add'));
   }
   function monstersTab() {
     const q = (pref.q || '').toLowerCase();
-    const match = (e) => !q || `${e.name} ${e.group || ''} ${(e.tags || []).join(' ')} ${e.floor}`.toLowerCase().includes(q);
+    const filter = h('select.inp.inp-sm', { 'aria-label': 'Monster origin', onchange: e => { ui.origin = e.target.value; redraw(); } }, originOptions(view.gm?.origins));
+    filter.value = ui.origin || '';
+    const match = (e) => (!filter.value || e.origin === filter.value) && (!q || `${e.name} ${e.group || ''} ${(e.tags || []).join(' ')} ${e.floor}`.toLowerCase().includes(q));
     const mons = (lib().monster || []).filter(match).sort((a, b) => (Number(a.floor) || 0) - (Number(b.floor) || 0) || a.name.localeCompare(b.name));
     const bosses = (lib().boss || []).filter(match);
     const search = h('input.inp.inp-sm', { type: 'search', value: pref.q || '', placeholder: 'Search monsters', 'aria-label': 'Search monsters', oninput: (ev) => { pref.q = ev.target.value; savePref(pref); redrawKeepFocus(ev.target); } });
-    return h('div.cbt-tab', search,
+    return h('div.cbt-tab', search, filter,
       h('ul.cbt-picks', mons.length ? mons.map((e) => monsterItem('monster', e)) : h('li.empty-s', (lib().monster || []).length ? 'Nothing matches.' : 'No monsters yet. Add monsters.json to the pack or create one in the Library.')),
       bosses.length ? [h('h3.sub-t', 'Bosses as combatants'), h('ul.cbt-picks', bosses.map((e) => monsterItem('boss', e)))] : null);
   }

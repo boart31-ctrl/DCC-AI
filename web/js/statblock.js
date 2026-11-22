@@ -1,3 +1,4 @@
+import { originBadge } from './gm-origins.js';
 // Book stat block (GM only): Level, Surprise, Evade, Move, DR, the five stats, attacks as the book prints them.
 // `rules` = the ruleset's combat block: mobBase + floorScaled turn engine numbers back into "12+F".
 import { h } from './client.js';
@@ -14,7 +15,7 @@ export function hasStatBlock(e) {
   return !!e && (e.level != null || e.surprise != null || e.stats || e.move || e.size);
 }
 
-export function statBlock(e, rules = {}) {
+export function statBlock(e, rules = {}, origins) {
   if (!hasStatBlock(e)) return null;
   const F = rules.floorScaled && !e.flat ? '+F' : '';
   const top = [e.rank, e.size?.label, e.creature].filter(Boolean).join(' · ');
@@ -28,7 +29,7 @@ export function statBlock(e, rules = {}) {
   const stats = e.stats ? STAT_ORDER.filter((k) => e.stats[k]).map((k) => [k, e.stats[k]]) : [];
   const sv = e.slotValue || rules.mobSlotValue;
   const health = e.hpSlots ? `${e.hpSlots} ${sv ? `slots × ${sv} HP` : 'HP'}` : null;
-  return h('div.statblock',
+  return h('div.statblock', originBadge(e, origins),
     top ? h('p.sb-top', top, health ? h('span.sb-hp', ` · Health ${health}`) : null) : null,
     h('dl.sb-nums', nums.map(([k, v]) => h('div', h('dt', k), h('dd', String(v))))),
     stats.length ? h('dl.sb-nums.sb-stats', stats.map(([k, v]) => h('div', h('dt', k[0].toUpperCase() + k.slice(1)), h('dd', `${v.score} (${v.mod >= 0 ? '+' : ''}${v.mod})`)))) : null,

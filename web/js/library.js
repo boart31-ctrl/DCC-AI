@@ -1,3 +1,4 @@
+import { originBadge, originOptions } from './gm-origins.js';
 // GM library: browse pack + homebrew entries, edit homebrew with live formula validation,
 // preview exactly what players see, give entries to crawlers, draft with Claude (hosted edition).
 import { h, toast, rarityOf, ask } from './client.js';
@@ -53,6 +54,8 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
   const search = h('input.inp', { type: 'search', placeholder: 'Search the library  ( / )', 'aria-label': 'Search the library', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); drawList(true); } });
   const kindSeg = h('div.lib-kinds', { role: 'tablist', 'aria-label': 'Kind' });
   const sourceSel = select([{ value: 'all', label: 'Pack and homebrew' }, { value: 'pack', label: 'Pack only' }, { value: 'homebrew', label: 'Homebrew only' }], 'all', { cls: 'inp-sm', label: 'Source', onChange: (v) => { st.source = v; drawList(true); } });
+  const originSel = h('select.inp.inp-sm', { 'aria-label': 'Origin', onchange: () => drawList(true) });
+  const floorSel = h('select.inp.inp-sm', { 'aria-label': 'Floor', onchange: () => drawList(true) });
   const tagSel = h('select.inp.inp-sm', { 'aria-label': 'Tag', onchange: (e) => { st.tag = e.target.value; drawList(true); } });
   const newSel = select([{ value: '', label: 'New entry…' }, ...LIB_KINDS.map((k) => ({ value: k.id, label: `New ${k.label.toLowerCase()}` }))], '', { cls: 'inp-sm lib-new', label: 'Create', onChange: (v) => { if (v) { startNew(v); newSel.value = ''; } } });
   const importFile = h('input', { type: 'file', accept: '.zip,application/zip', hidden: true, onchange: importContent });
@@ -66,7 +69,7 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
     importStatus,
     kindSeg,
     h('div.lib-cols',
-      h('div.lib-side', search, h('div.lib-filters', sourceSel, tagSel), list),
+      h('div.lib-side', search, h('div.lib-filters', sourceSel, originSel, floorSel, tagSel), list),
       editor,
     ),
   );
@@ -139,7 +142,7 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
   function drawList(force = false) {
     const all = entries();
     const tags = [...new Set(all.flatMap(({ e }) => e.tags || []))].sort();
-    const sig = JSON.stringify([all.map(({ kind, e }) => [kind, e.id, e.name, e.source, e.tags]), st.kind, st.source, st.tag, st.q, st.sel]);
+    const sig = JSON.stringify([all.map(({ kind, e }) => [kind, e.id, e.name, e.source, e.origin, e.floor, e.tags]), st.kind, st.source, st.tag, st.q, st.sel]);
     if (!force && sig === listSig) return;
     listSig = sig;
     if (tagSel.dataset.sig !== tags.join('|')) {
@@ -147,8 +150,18 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
       tagSel.dataset.sig = tags.join('|');
       tagSel.value = st.tag;
     }
+    const conversions = all.some(({ e }) => e.origin === 'srd51_dcc');
+    const origin = originSel.options.length ? originSel.value : conversions ? 'campaign' : '';
+    const floor = floorSel.value;
+    originSel.replaceChildren(...(conversions ? [h('option', { value: 'campaign' }, 'Campaign (without SRD conversions)')] : []), ...originOptions(view?.gm?.origins));
+    originSel.value = origin;
+    const floors = [...new Set(all.map(({ e }) => e.floor).filter(f => f != null && f !== ''))].sort((a,b) => a-b);
+    floorSel.replaceChildren(h('option', { value: '' }, 'All floors'), ...floors.map(f => h('option', { value: f }, 'Floor ' + f)));
+    floorSel.value = floor;
     const hits = all.filter(({ kind, e }) => (st.kind === 'all' || st.kind === kind)
       && (st.source === 'all' || (e.source || 'pack') === st.source)
+      && (originSel.value === 'campaign' ? e.origin !== 'srd51_dcc' : !originSel.value || e.origin === originSel.value)
+      && (!floorSel.value || String(e.floor) === floorSel.value)
       && (!st.tag || (e.tags || []).includes(st.tag))
       && (!st.q || `${e.name} ${e.desc || ''} ${(e.tags || []).join(' ')}`.toLowerCase().includes(st.q)))
       .sort((a, b) => a.e.name.localeCompare(b.e.name));
@@ -163,7 +176,7 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
       h('span.lr-k', LIB_KINDS.find((k) => k.id === kind).label),
       e.rarity ? h('span.lr-r', { class: `lr-r rar-${rarityOf(e.rarity)}` }, e.rarity) : null,
       (e.source || 'pack') === 'homebrew' ? h('span.lr-hb', 'Homebrew') : null,
-      ));
+      ), originBadge(e, view?.gm?.origins));
     }) : [h('li.empty-s', st.q ? 'Nothing matches. Try another word or kind.' : 'Nothing here yet. Create the first entry.')]));
   }
 
@@ -261,7 +274,7 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
     if (f.includes('group')) textRow('group', 'Group', { ph: 'construct, vermin, undead' });
     if (f.includes('hpSlots')) formRows.push(labeled('HP slots', field(d.hpSlots ?? 10, { type: 'number', disabled: ro, attrs: { min: 1, max: 100 }, onCommit: (v) => set('hpSlots')(Math.max(1, Math.min(100, Math.round(v) || 10))) })));
     const numRow = (k, label) => formRows.push(labeled(label, field(d[k] ?? 0, { type: 'number', disabled: ro, attrs: { min: -99, max: 99 }, onCommit: (v) => set(k)(Math.max(-99, Math.min(99, Math.round(v) || 0))) })));
-    if ((kind === 'monster' || kind === 'boss') && hasStatBlock(d)) formRows.push(h('div.span-all', statBlock(d, rs.combat || {})));
+    if ((kind === 'monster' || kind === 'boss') && hasStatBlock(d)) formRows.push(h('div.span-all', statBlock(d, rs.combat || {}, view?.gm?.origins)));
     if (f.includes('evade')) numRow('evade', 'Evade');
     if (f.includes('dr')) numRow('dr', 'DR');
     if (f.includes('image')) formRows.push(imageField(d, ro, kind));
