@@ -26,6 +26,7 @@ import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor 
 import { RULES_GM } from './rules-search.js';
 import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
 import { ACH_SUGGEST_GM, suggestAchievements } from './ach-triggers.js';
+import { TABLES_GM, tablesView } from './tables.js';
 import { originsFor } from './origins.js';
 import { BUILD_IDS, floorRarityFor, offersFor, giveWarnings, itemBuilds, crawlerBuild, crawlerRating, rewardMode, effectiveLootPolicy, normalizeLootPolicy, REWARD_MODES, SETTING_KEYS } from './loot-advisor.js';
 import { floorOfState } from './outcome.js';
@@ -1028,6 +1029,8 @@ Object.assign(GM, MARKS_GM);
 Object.assign(GM, {
   ...ACH_SUGGEST_GM,
   'ach.suggest.award': (st, a, ctx, out) => ACH_SUGGEST_GM['ach.suggest.award'](st, a, ctx, out, GM),
+  ...TABLES_GM,
+  'crowd.save': (st, a, ctx, out) => TABLES_GM['crowd.save'](st, a, ctx, out, GM),
 });
 GM['map.toFight'] = (st, a, ctx, out) => startCombatOnMap(st, a, ctx, out, GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
@@ -1481,6 +1484,7 @@ export function viewFor(state, basePack, role, opts = {}) {
       achSuggestions: state.achSuggestions ?? [],
       achRecent: state.achRecent ?? [],
       achSettings: state.achSettings ?? { suggest: true },
+      tables: tablesView(state, pack),
       iconLib: pack.iconLib ?? [], // icon library for the custom-item picker
       itemsCatalog: library.list('item').map(({ id, name, rarity, desc, flavor, slot, stackable, source, attack, effects }) => ({ id, name, rarity, desc, flavor, slot, stackable, source, enhanceable: !!attack || (effects ?? []).some((e) => e.target === 'armor') })),
       pendingAuto: q.pendingAuto,

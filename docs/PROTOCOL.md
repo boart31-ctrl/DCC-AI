@@ -251,6 +251,13 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `ach.suggest.award` | `id` (from `gm.achSuggestions`) | Awards the suggested achievement (same as `ach.award`) and drops the suggestion |
 | `ach.suggest.dismiss` | `id`, `never?` | Drops a suggestion; `never: true` = never suggest that achievement to that crawler again |
 | `ach.settings` | `suggest` (bool) | Turns System achievement suggestions on/off. Suggestions come from pack achievement `trigger`: `{ on: roll\|evade\|kill\|down\|saved\|mark\|loot\|sponsor, nat?, deg?, what?, hit?, rarity?, mark?, partyFirst?, inRound?, streak?, count? }`; GM always confirms, nothing is auto-awarded. GM view: `achSuggestions`, `achRecent`, `achSettings`, catalog `on` |
+| `table.roll` | `id` | Rolls a random table (pack `tables.json` or campaign); `{XdY+Z}` rolled, `[[table]]` nested (depth 3), last 3 rows of that table not repeated. Ack `result` `{ id, tableId, table, die, roll, row, text, make }`, also in GM view `tables.recent` |
+| `names.roll` | `list?`, `n?` (1–10, default 5) | Ack `result.names` from a pack name list |
+| `crowd.gen` | `place?` (pack crowd place id), `n` (1–6) | Replaces `tables.crowd` with N quick NPCs `{ id, name, species, lines: [look, want, hook] }` (exactly 3 sentences) |
+| `crowd.reroll` | `id` | Re-rolls one crowd person, keeps the rest |
+| `crowd.save` | `id` **or** `all: true` | Saves to the campaign NPCs (library `npc`, homebrew, tags `campaign`, `met`, place); same name updates that NPC. Ack `result.npcIds` |
+| `crowd.clear` | — | Clears the crowd |
+| `table.keep` | `table?`, `text` | Keeps a result for tonight (`tables.kept`, last 60) |
 | `loot.peek` | `tier` | GM preview: rolls the tier's table, gives nothing. Ack `result.item {id, name, rarity, image, desc}` |
 | `loot.open` | `playerId`, `tier`, `itemId?` | Rolls pack loot table for tier (or takes the peeked `itemId`, which must be on that table), adds the item and opens its loot scene. The `loot` event carries `sceneId`. The live scene keeps the awarded item in `data.opened` until replaced |
 | `item.give` | `playerId`, `itemId`, `qty?`, `bonus?` (0-3) | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack with the same bonus (`qty` added). `bonus` = a +N copy: name `+N`, rarity at least uncommon/rare/epic, weapons +N to hit and damage (`attack.bonus`), armour +N to its `armor` effect |

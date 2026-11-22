@@ -7,6 +7,7 @@ import { normalizeCrawlersConfig } from './crawlers.js';
 import { normalizePrepConfig } from './prep.js';
 import { normalizeRulesIndex } from './rules-search.js';
 import { normalizeOrigins } from './origins.js';
+import { normalizeTables } from './tables.js';
 import { normalizeLootPolicy } from './loot-advisor.js';
 import { normalizeTrigger } from './ach-triggers.js';
 
@@ -720,7 +721,8 @@ export function normalizePack(raw, opts = {}) {
   const sounds = loadSounds(io, raw.sounds, warnings);
   const cues = loadCues(raw.cues, warnings);
   const ui = loadUi(io, raw.ui, warnings);
-  const pack = finish({ ...meta, sfx, sounds, cues, ui, iconLib, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
+  const tables = normalizeTables(raw.tables, warnings);
+  const pack = finish({ ...meta, tables, sfx, sounds, cues, ui, iconLib, ...legacyFromRuleset(ruleset), dir: opts.dir ?? null, achievements, items, loot, quips, chat, ruleset: JSON.parse(JSON.stringify(ruleset)), library });
   return { pack, warnings };
 }
 
@@ -730,7 +732,7 @@ const DATA_KEYS = [
   'stats', 'resources', 'voices', 'achievements', 'items', 'loot', 'quips', 'chat',
 ];
 // v2 keys: optional on deserialize (packs serialized before v2 still load).
-const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib', 'prep', 'rulesIndex', 'origins', 'lootPolicy'];
+const OPTIONAL_KEYS = ['ruleset', 'library', 'theme', 'sfx', 'sounds', 'cues', 'ui', 'crawlers', 'iconLib', 'prep', 'rulesIndex', 'origins', 'lootPolicy', 'tables'];
 
 function emptyLibrary() {
   return Object.fromEntries(LIB_KINDS.filter((k) => k !== 'item').map((k) => [k, []]));
@@ -768,6 +770,7 @@ export function deserializePack(data) {
   pack.rulesIndex = normalizeRulesIndex(d.rulesIndex ?? null);
   pack.origins = normalizeOrigins(d.origins ?? null);
   pack.lootPolicy = normalizeLootPolicy(d.lootPolicy ?? null);
+  pack.tables = normalizeTables(d.tables ?? null);
   pack.sfx = Array.isArray(d.sfx) ? d.sfx.filter((x) => isObj(x) && isStr(x.id) && isStr(x.url)) : [];
   pack.sounds = Array.isArray(d.sounds) ? d.sounds.filter((x) => isObj(x) && isStr(x.id) && Array.isArray(x.urls)) : [];
   pack.cues = isObj(d.cues) ? { events: isObj(d.cues.events) ? d.cues.events : {}, groups: isObj(d.cues.groups) ? d.cues.groups : {} } : { events: {}, groups: {} };
@@ -794,6 +797,7 @@ export function fallbackPack() {
     rulesIndex: [],
     origins: {},
     lootPolicy: normalizeLootPolicy(null),
+    tables: normalizeTables(null),
     cheats: [],
     lootTiers: [],
     audience: { startViewers: 1000, sponsorHypeThreshold: 0.8 },

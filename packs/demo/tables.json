@@ -1,0 +1,480 @@
+{
+  "tables": [
+    {
+      "id": "complication",
+      "name": "Something goes wrong",
+      "group": "Scene",
+      "rows": [
+        "The floor tilts {1d4} degrees and everything round starts rolling toward the exit.",
+        "A camera drone gets stuck in someone's hair and will not leave.",
+        "The lights go out for {1d6} seconds. When they come back, one door is gone.",
+        "A sponsor jingle starts playing at full volume and will not stop until someone finds the speaker.",
+        "Something in the walls starts knocking back whenever anyone talks.",
+        "A pipe bursts. The water is warm, smells of soup and rises {1d3} inches a minute.",
+        "A rival team runs through, shouting a warning nobody understands, and is gone.",
+        "The exit sign now points in a direction that does not exist.",
+        "A tiny monster is following the party and pretending very hard not to be.",
+        "The ceiling lowers by a foot. Then it waits, as if thinking about it.",
+        "An announcer voice reads out one character's most embarrassing moment. Ratings jump.",
+        "The air turns to glitter. Breathing is fine; seeing is not."
+      ],
+      "scope": {
+        "scenes": [
+          "explore",
+          "trap"
+        ]
+      }
+    },
+    {
+      "id": "fight_twist",
+      "name": "Fight twist",
+      "group": "Fight",
+      "rows": [
+        "Reinforcements: {1d4} more of the weakest enemy burst out of a wall.",
+        "The floor cracks. Next round, a 10-foot section collapses into a pit.",
+        "A sponsor drops a small box between the two sides. Whoever grabs it gets one healing item.",
+        "The biggest enemy panics and tries to flee, dropping something shiny.",
+        "A rival crawler shows up, watches for one round and then picks a side.",
+        "The lights strobe: all attacks this round have disadvantage, the audience loves it.",
+        "An enemy shouts a name. One of them is clearly the leader, kill it and the rest waver.",
+        "Fire starts in a corner and spreads one square a round.",
+        "The music changes to a boss theme. Nothing else happens. Yet.",
+        "An enemy surrenders and offers information for its life."
+      ],
+      "scope": {
+        "scenes": [
+          "combat",
+          "boss"
+        ]
+      }
+    },
+    {
+      "id": "background",
+      "name": "In the background",
+      "group": "Show",
+      "rows": [
+        "The leaderboard updates: someone the party knows dropped {1d10} places.",
+        "An admin broadcast reminds everyone that the next floor closes in {2d6} hours.",
+        "A huge screen shows another team failing spectacularly. The crowd laughs for a full minute.",
+        "A rumour spreads that a secret shop has opened somewhere on this floor.",
+        "Somewhere far away, a boss roars. Everyone pretends they did not hear it.",
+        "The show cuts to an ad for a soda nobody has ever tasted.",
+        "A voting poll opens: \"Which crawler deserves a prize?\" The party is on it.",
+        "A maintenance crew of tiny robots walks past, carrying a door."
+      ]
+    },
+    {
+      "id": "safe_room",
+      "name": "Safe room event",
+      "group": "Scene",
+      "rows": [
+        "The bartender is new and asks for everyone's favourite drink, then gets it wrong on purpose.",
+        "A crawler from another team sits down and asks if the party wants to trade.",
+        "The TV in the corner shows a replay of the party's last fight, with commentary.",
+        "Someone is selling \"lucky\" rocks. One of them might actually be lucky.",
+        "A fan letter arrives for the least popular character. It is a little creepy.",
+        "The shower works for once. There is a queue.",
+        "A quiet stranger pays for a round and asks about the party's next floor.",
+        "A food fight breaks out between two other teams."
+      ],
+      "scope": {
+        "scenes": [
+          "explore",
+          "npc"
+        ]
+      }
+    },
+    {
+      "id": "loot_flavor",
+      "name": "What else is in the box",
+      "group": "Loot",
+      "rows": [
+        "A note from the sponsor: \"Use it well. Or badly. Both rate well.\"",
+        "{1d20} gold coins and a stale cookie.",
+        "A trading card of the crawler who opened the box. It is not flattering.",
+        "Packing peanuts that hum quietly when nobody is looking.",
+        "A coupon for one free hug from the next monster. Probably not valid.",
+        "A tiny paper crown. Wearing it does nothing, but the audience cheers."
+      ]
+    },
+    {
+      "id": "trap_quick",
+      "name": "Quick trap",
+      "group": "Trap",
+      "rows": [
+        {
+          "range": [
+            1,
+            2
+          ],
+          "text": "A pressure plate: darts, {1d6} damage, check to notice."
+        },
+        {
+          "range": [
+            3,
+            3
+          ],
+          "text": "A net drops from the ceiling. Stuck until someone cuts it."
+        },
+        {
+          "range": [
+            4,
+            4
+          ],
+          "text": "The floor turns to slide. Everyone ends up {2d6}×5 feet further down the corridor."
+        },
+        {
+          "range": [
+            5,
+            5
+          ],
+          "text": "A fake treasure chest with teeth."
+        },
+        {
+          "range": [
+            6,
+            6
+          ],
+          "text": "A sign: \"Do not press\". There is no button. The sign is the trap."
+        }
+      ],
+      "scope": {
+        "scenes": [
+          "trap",
+          "explore"
+        ]
+      }
+    },
+    {
+      "id": "weather",
+      "name": "Dungeon mood",
+      "group": "Scene",
+      "rows": [
+        "Cold, damp, and the drip is somehow always on your neck.",
+        "Warm and sticky like a gym nobody cleaned.",
+        "Dead silent. Even footsteps sound muffled.",
+        "Windy. There should not be wind down here.",
+        "Smells of fresh bread. Suspicious.",
+        "A low hum that makes teeth itch."
+      ]
+    },
+    {
+      "id": "npc_motive",
+      "name": "NPC motive",
+      "group": "People",
+      "rows": [
+        "wants out of the dungeon and will do almost anything for a map",
+        "wants revenge on a team that left them behind",
+        "wants to be famous and keeps looking for the cameras",
+        "wants to sell something they absolutely should not have",
+        "wants a friend and is bad at showing it",
+        "wants the party to carry a package and not open it",
+        "wants to win a bet about the party",
+        "wants their stolen hat back"
+      ]
+    },
+    {
+      "id": "npc_secret",
+      "name": "NPC secret",
+      "group": "People",
+      "rows": [
+        "They are working for the show and report everything.",
+        "They know where the stairs are and lie about it.",
+        "They are much stronger than they look.",
+        "They owe money to someone dangerous.",
+        "They used to be a monster. Long story.",
+        "They have a box they cannot open alone."
+      ]
+    },
+    {
+      "id": "npc_quirk",
+      "name": "NPC quirk",
+      "group": "People",
+      "rows": [
+        "speaks only in questions",
+        "laughs before every sentence",
+        "keeps calling everyone by the wrong name",
+        "never stops eating",
+        "counts everything out loud",
+        "whispers the important parts"
+      ]
+    },
+    {
+      "id": "system_quip",
+      "name": "System line for an odd moment",
+      "group": "Show",
+      "rows": [
+        "The System has reviewed that decision and would like to file a complaint.",
+        "Achievement pending. The committee is laughing too hard to decide.",
+        "Reminder: the audience can see you. All of you. Always.",
+        "That was either genius or a cry for help. Ratings say: both.",
+        "Please do not lick the dungeon.",
+        "The System notes that this is not how doors work."
+      ]
+    },
+    {
+      "id": "montage",
+      "name": "Grind montage",
+      "group": "Scene",
+      "rows": [
+        "{1d4} hours of hunting small monsters. Everyone gains a little, someone gets bitten.",
+        "{1d6} hours of searching rooms. One good find and a lot of dust.",
+        "{1d3} hours training in a safe room. Sore muscles, one new trick.",
+        "{2d4} hours of wandering lost. Morale drops, the map improves."
+      ],
+      "scope": {
+        "scenes": [
+          "explore"
+        ]
+      }
+    },
+    {
+      "id": "quick_npc",
+      "name": "Quick NPC (one line)",
+      "group": "People",
+      "rows": [
+        "[[crowd_species]] who [[npc_motive]], and [[npc_quirk]]."
+      ]
+    },
+    {
+      "id": "crowd_species",
+      "name": "Species",
+      "group": "People",
+      "rows": [
+        {
+          "text": "human",
+          "names": "common"
+        },
+        {
+          "text": "goblin",
+          "names": "goblin"
+        },
+        {
+          "text": "dwarf",
+          "names": "common"
+        },
+        {
+          "text": "lizardfolk",
+          "names": "goblin"
+        },
+        {
+          "text": "robot",
+          "names": "robot"
+        },
+        {
+          "text": "elf",
+          "names": "common"
+        }
+      ],
+      "hidden": true
+    },
+    {
+      "id": "crowd_look",
+      "name": "Look",
+      "group": "People",
+      "rows": [
+        "{name} is a {species} in a suit two sizes too big, with a name tag that says something else",
+        "{name}, a tall {species}, has a bandaged hand and very clean boots",
+        "{name} is a cheerful {species} covered in sponsor stickers",
+        "{name} is a nervous {species} who keeps checking the exits",
+        "{name}, an old {species}, wears three hats stacked on top of each other",
+        "{name} is a {species} with a shiny new weapon and no idea how to hold it",
+        "{name}, a small {species}, carries a backpack bigger than they are",
+        "{name} is a {species} with a loud laugh and a missing front tooth"
+      ],
+      "hidden": true
+    },
+    {
+      "id": "crowd_want",
+      "name": "Want",
+      "group": "People",
+      "rows": [
+        "Right now {name} wants a drink and someone to listen to a long story",
+        "{name} is looking for a team, any team, before the floor closes",
+        "{name} wants to sell a map and keeps lowering the price",
+        "All {name} cares about is finding a lost friend from another team",
+        "{name} wants to know which of you is the famous one",
+        "{name} is trying very hard to avoid someone in this room",
+        "{name} wants to win the bet about who dies first, and it involves you",
+        "{name} needs help carrying something heavy and will pay in rumours"
+      ],
+      "hidden": true
+    },
+    {
+      "id": "crowd_hook",
+      "name": "Hook",
+      "group": "People",
+      "rows": [
+        "Secret: they saw the boss of this floor and it limps on the left",
+        "They offer a free healing potion if you take a message to the next safe room",
+        "Rumour: the shop on this floor sells one item that should not exist",
+        "Voice tip: talks fast, ends every sentence with \"you know?\"",
+        "They say: \"Don't trust the cat. Any cat. I mean it.\"",
+        "Secret: they are wanted by another team and will lie about their name",
+        "Offer: they will trade a key for something that makes them look tough",
+        "Voice tip: very slow, very polite, never blinks"
+      ],
+      "hidden": true
+    }
+  ],
+  "names": [
+    {
+      "id": "common",
+      "name": "Common",
+      "first": [
+        "Ada",
+        "Bram",
+        "Cora",
+        "Dain",
+        "Ember",
+        "Finn",
+        "Greta",
+        "Hollis",
+        "Ivo",
+        "Juno",
+        "Kit",
+        "Lark",
+        "Milo",
+        "Nell",
+        "Orrin",
+        "Pip",
+        "Quill",
+        "Rosa",
+        "Sable",
+        "Tamsin",
+        "Ulf",
+        "Vera",
+        "Wren",
+        "Yara"
+      ],
+      "last": [
+        "Ashdown",
+        "Brightwater",
+        "Copperpot",
+        "Dunmore",
+        "Fairweather",
+        "Grimsby",
+        "Hartley",
+        "Inkwell",
+        "Larkspur",
+        "Mossfield",
+        "Oakes",
+        "Pennywhistle",
+        "Quickfoot",
+        "Rook",
+        "Stormcrow",
+        "Thistle"
+      ]
+    },
+    {
+      "id": "goblin",
+      "name": "Goblin / lizard",
+      "patterns": [
+        "{first}",
+        "{first} the {last}"
+      ],
+      "first": [
+        "Skrit",
+        "Gubbo",
+        "Nix",
+        "Zagga",
+        "Plik",
+        "Mungo",
+        "Rattle",
+        "Snib",
+        "Krazz",
+        "Fizzwick",
+        "Grub",
+        "Tozzle"
+      ],
+      "last": [
+        "Sharp",
+        "Unwashed",
+        "Lucky",
+        "Loud",
+        "Second",
+        "Hungry",
+        "Brave-ish",
+        "Small"
+      ]
+    },
+    {
+      "id": "robot",
+      "name": "Robot",
+      "patterns": [
+        "{first}-{last}"
+      ],
+      "first": [
+        "UNIT",
+        "MOP",
+        "BOLT",
+        "RX",
+        "KETTLE",
+        "SPARK",
+        "DELTA",
+        "GEAR"
+      ],
+      "last": [
+        "7",
+        "12",
+        "42",
+        "99",
+        "300",
+        "X",
+        "9000",
+        "B"
+      ]
+    },
+    {
+      "id": "showbiz",
+      "name": "Show names",
+      "patterns": [
+        "{first} \"{last}\""
+      ],
+      "first": [
+        "Big",
+        "Lil",
+        "Doctor",
+        "Captain",
+        "Sir",
+        "Madame",
+        "Mister",
+        "Ultra"
+      ],
+      "last": [
+        "Thunder",
+        "Snacks",
+        "Glitter",
+        "Chaos",
+        "Danger",
+        "Buttons",
+        "Wrecker",
+        "Sunshine"
+      ]
+    }
+  ],
+  "crowd": {
+    "species": "crowd_species",
+    "look": "crowd_look",
+    "want": "crowd_want",
+    "hook": "crowd_hook",
+    "places": [
+      {
+        "id": "party",
+        "name": "A party"
+      },
+      {
+        "id": "market",
+        "name": "The market"
+      },
+      {
+        "id": "safe_room",
+        "name": "The safe room"
+      },
+      {
+        "id": "tavern",
+        "name": "A tavern"
+      }
+    ]
+  }
+}

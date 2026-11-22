@@ -30,6 +30,7 @@ import { createWhatNow } from './gm-whatnow.js';
 import { openLootAdvisor, lootPowerBlock, lootSettingsPanel } from './gm-loot.js';
 import { marksEl } from './marks.js';
 import { createAchPicker, suggestionsPanel } from './gm-ach.js';
+import { createTables } from './gm-tables.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -41,6 +42,7 @@ ext.client = client;
 document.getElementById('gm-credits').onclick = () => showCredits(view?.gm?.origins);
 createRulesSearch({ send: (a) => client.send(a), button: document.getElementById('rules-btn') });
 createAchPicker({ getView: () => view, act, button: document.getElementById('ach-btn') });
+const tables = createTables({ getView: () => view, act, button: document.getElementById('tables-btn') });
 ext.credential = null; // { key } or { token }
 
 let view = null;
@@ -163,6 +165,7 @@ function render() {
   combatSfx?.view(view);
   combat.update(view);
   npcs.update(view);
+  tables.update();
   prep?.update(view);
   maps?.update(view);
   crawlers.update(view);
@@ -1260,7 +1263,7 @@ const openSound = () => {
 };
 const combat = createCombat({ act, addPlayer: showAddPlayer, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight'), currentMap: () => scenes.currentMap() });
 $('#view-settings .settings-grid').append(sound.settingsEl);
-const npcs = createNpcs({ act, getView: () => view, openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
+const npcs = createNpcs({ act, getView: () => view, openCrowd: () => tables.open('crowd'), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
 // The campaign panel ("Previously on…", plus the hosted edition's extras) lives in Show → Desk.
 const campaignBox = $('#view-campaign');
 campaignBox.hidden = false;

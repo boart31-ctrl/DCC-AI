@@ -8,10 +8,10 @@ import { libraryOf } from './rules.js';
 import { icon, select } from './ui.js';
 import { entryArt } from './portrait.js';
 
-export function createNpcs({ act, getView, openInLibrary }) {
+export function createNpcs({ act, getView, openInLibrary, openCrowd }) {
   let view = null;
   let sig = '';
-  const st = { q: '', floor: '', sel: null, said: [] };
+  const st = { q: '', floor: '', sel: null, said: [], mine: false };
   const el = h('div.npcs');
   const npcs = () => libraryOf(view).npc || [];
   const here = () => {
@@ -27,11 +27,13 @@ export function createNpcs({ act, getView, openInLibrary }) {
     const atLoc = here();
     const floors = [...new Set(npcs().map((n) => n.floor).filter((f) => f !== '' && f != null))].sort((a, b) => Number(a) - Number(b));
     const hits = npcs()
-      .filter((n) => (!st.floor || String(n.floor) === st.floor) && (!q || `${n.name} ${n.role} ${(n.tags || []).join(' ')}`.toLowerCase().includes(q)))
+      .filter((n) => (!st.mine || n.source === 'homebrew') && (!st.floor || String(n.floor) === st.floor) && (!q || `${n.name} ${n.role} ${(n.tags || []).join(' ')}`.toLowerCase().includes(q)))
       .sort((a, b) => (atLoc.has(b.id) - atLoc.has(a.id)) || a.name.localeCompare(b.name));
     const search = h('input.inp', { type: 'search', value: st.q, placeholder: 'Search NPCs', 'aria-label': 'Search NPCs', oninput: (e) => { st.q = e.target.value; const pos = e.target.selectionStart; draw(true); const s = el.querySelector('.npc-side input[type=search]'); s?.focus(); try { s?.setSelectionRange(pos, pos); } catch {} } });
     return h('aside.npc-side',
-      h('div.npc-filters', search, floors.length > 1 ? select([{ value: '', label: 'All floors' }, ...floors.map((f) => ({ value: String(f), label: `Floor ${f}` }))], st.floor, { cls: 'inp-sm', label: 'Floor', onChange: (v) => { st.floor = v; draw(true); } }) : null),
+      h('div.npc-filters', search,
+        h('button.chip', { type: 'button', class: `chip${st.mine ? ' on' : ''}`, 'aria-pressed': String(st.mine), title: 'Only NPCs made in this campaign (crowds, scenes, Library)', onclick: () => { st.mine = !st.mine; draw(true); } }, 'This campaign'),
+        floors.length > 1 ? select([{ value: '', label: 'All floors' }, ...floors.map((f) => ({ value: String(f), label: `Floor ${f}` }))], st.floor, { cls: 'inp-sm', label: 'Floor', onChange: (v) => { st.floor = v; draw(true); } }) : null),
       h('ul.npc-list', { role: 'listbox', 'aria-label': 'NPCs' }, hits.length ? hits.map((n) => h('li', h('button.npc-row', {
         type: 'button', role: 'option', 'aria-selected': String(st.sel === n.id),
         onclick: () => { st.sel = n.id; draw(true); el.querySelector('.npc-say textarea')?.focus(); },
@@ -86,14 +88,15 @@ export function createNpcs({ act, getView, openInLibrary }) {
 
   function draw(force = false) {
     if (!view) return;
-    const s = JSON.stringify([npcs().map((n) => [n.id, n.name, n.role, n.image, n.floor]), view.scene?.kind, view.scene?.data?.npcId, view.scene?.data?.line, view.scene?.data?.locationId, st.sel]);
+    const s = JSON.stringify([st.mine, npcs().map((n) => [n.id, n.name, n.role, n.image, n.floor]), view.scene?.kind, view.scene?.data?.npcId, view.scene?.data?.line, view.scene?.data?.locationId, st.sel]);
     if (!force && s === sig) return;
     if (!force && el.contains(document.activeElement) && document.activeElement.matches('input, textarea')) return;
     sig = s;
     if (st.sel && !npcs().some((n) => n.id === st.sel)) st.sel = null;
     if (!st.sel) st.sel = onTvId() || npcs()[0]?.id || null;
     el.replaceChildren(
-      h('div.view-head', h('h1', 'NPCs'), h('span.dim', `${npcs().length} in the library`)),
+      h('div.view-head', h('h1', 'NPCs'), h('span.dim', `${npcs().length} in the library · ${npcs().filter((n) => n.source === 'homebrew').length} from this campaign`),
+        openCrowd ? h('button.btn.btn-sm', { type: 'button', onclick: openCrowd, title: 'Meet a crowd and save the ones you like (T)' }, '🎲 Meet a crowd') : null),
       h('div.npc-cols', list(), card(npcs().find((n) => n.id === st.sel))));
   }
   el.addEventListener('focusout', () => setTimeout(() => { if (!el.contains(document.activeElement)) draw(); }, 0));
