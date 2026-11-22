@@ -49,7 +49,7 @@ test('normalizeChatLines: old untagged lines still load; tags/weight validated',
   const w2 = [];
   assert.deepEqual(normalizeChatLines({}, w2), []);
   assert.match(w2[0], /must be an array/);
-  assert.equal(CHAT_TAGS.length, 32);
+  assert.equal(CHAT_TAGS.length, 38);
   for (const t of ['mob_hit', 'mob_miss', 'mob_crit', 'crawler_down', 'mob_killed', 'combat_victory', 'combat_defeat', 'combat_runaway', 'combat_truce', 'combat_special', 'combat_sponsor', 'combat_timeout', 'combat_stalemate']) assert.ok(CHAT_TAGS.includes(t), t);
 });
 
@@ -306,4 +306,23 @@ test('host: boss intro bumps viewers (audience reacts), nat1 from a secret roll 
   }
   advance(2_000);
   assert.equal(chats(tv).filter((e) => e.tag === 'nat1').length, 0);
+});
+
+test('C2: the audience reacts to real degrees, dodges, rescues and reveals (not at random)', async () => {
+  const { reactionFor, REACTIONS, CHAT_TAGS } = await import('../chat.js');
+  const roll = (vs) => reactionFor({ kind: 'roll', playerId: 'p1', vs });
+  assert.equal(roll({ deg7: 'amazing', degree: 2 }).key, 'amazing');
+  assert.equal(roll({ deg7: 'near', degree: 1 }).key, 'near_miss');
+  assert.equal(roll({ deg7: 'major', degree: 1 }).key, 'major_fail');
+  assert.equal(roll({ deg7: 'success', degree: 2 }), null, 'a plain success is no moment');
+  assert.equal(roll({ degree: 2 }), null, 'numeric D&D degrees stay quiet');
+  assert.equal(reactionFor({ kind: 'rx.evade', playerId: 'p1', degree: 'crit' }).key, 'evade');
+  assert.equal(reactionFor({ kind: 'rx.evade', playerId: 'p1', degree: 'near' }).fill.playerId, 'p1');
+  assert.equal(reactionFor({ kind: 'rx.evade', degree: 'success' }), null);
+  assert.equal(reactionFor({ kind: 'dying.saved', playerId: 'p1' }).key, 'saved');
+  assert.equal(reactionFor({ kind: 'dying.dead', playerId: 'p1' }).key, 'death');
+  assert.equal(reactionFor({ kind: 'combat.reveal', names: ['Wolf 2', 'Wolf 3'] }).fill.mob, 'Wolf');
+  for (const k of ['amazing', 'near_miss', 'major_fail', 'evade', 'saved', 'reveal']) {
+    assert.ok(REACTIONS[k] && CHAT_TAGS.includes(REACTIONS[k].tag), k);
+  }
 });

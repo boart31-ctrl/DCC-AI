@@ -832,7 +832,7 @@ function evadeRoll(st, ctx, out, a, playerId) {
     log(rx, `${nameOf(st, x)} has Advantage on the next attack against ${mobOf(st, d.mobUid).name}.`);
   }
   out.result = { die, total, degree, label: DEGREE_LABEL[degree], near: degree === 'near', free: freeEvade, receipt: actionReceipt(rx, x.uid, 0) };
-  out.emit({ kind: 'rx.evade', declId: d.id, uid: x.uid, degree, near: degree === 'near' }, 'all');
+  out.emit({ kind: 'rx.evade', declId: d.id, uid: x.uid, playerId: x.playerId ?? null, degree, near: degree === 'near' }, 'all');
 }
 
 export const REACTION_PLAYER = {
@@ -943,7 +943,7 @@ export const REACTION_PLAYER = {
       rx.advantage = [...(rx.advantage ?? []).filter((v) => !(v.uid === target.uid && v.mobUid === d.mobUid)), { uid: target.uid, mobUid: d.mobUid }].slice(-20);
     }
     out.result = { d6, degree: d.evade.degree, label: DEGREE_LABEL[d.evade.degree], receipt: actionReceipt(rx, me.uid, reserved < 0 ? 1 : 0) };
-    out.emit({ kind: 'rx.evade', declId: d.id, uid: d.targetUid, degree: d.evade.degree, helped: true }, 'all');
+    out.emit({ kind: 'rx.evade', declId: d.id, uid: d.targetUid, playerId: st.combat.combatants.find((c) => c.uid === d.targetUid)?.playerId ?? null, degree: d.evade.degree, helped: true }, 'all');
   },
 
   /** Spend a non-attack action for a move or item: `{ n? }`. */

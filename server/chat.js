@@ -18,6 +18,8 @@ export const CHAT_TAGS = [
   'combat_sponsor', 'combat_timeout', 'combat_stalemate', 'finale',
   // crawlers remaining (crawlers.js): the System's count, a big drop somewhere, a floor collapse
   'crawlers_count', 'crawlers_drop', 'floor_collapse',
+  // C2: the seven degrees and other real moments (reaction rounds, sheet rolls, reveals, rescues)
+  'amazing', 'near_miss', 'major_fail', 'evade', 'saved', 'reveal',
 ];
 const TAG_SET = new Set(CHAT_TAGS);
 const PLACEHOLDER_RE = /\{(player|boss|mob|item|count|lost)\}/g;
@@ -108,7 +110,19 @@ export const REACTIONS = {
   crawlers_count: { tag: 'crawlers_count', alt: 'crawlers_drop', burst: [1, 2], viewers: [0.01, 0.03] },
   crawlers_drop: { tag: 'crawlers_drop', alt: 'death', burst: [3, 5], viewers: [0.04, 0.09] },
   floor_collapse: { tag: 'floor_collapse', alt: 'crawlers_drop', burst: [4, 6], viewers: [0.08, 0.15] },
+  // C2: real moments, sized by how much a viewer would care
+  amazing: { tag: 'amazing', alt: 'nat20', burst: [2, 3], viewers: [0.01, 0.03] },
+  near_miss: { tag: 'near_miss', alt: 'combat', burst: [2, 3], viewers: [0.008, 0.02] },
+  major_fail: { tag: 'major_fail', alt: 'nat1', burst: [2, 3], viewers: [0.01, 0.03] },
+  evade: { tag: 'evade', alt: 'combat', burst: [1, 3], viewers: [0.006, 0.018] },
+  saved: { tag: 'saved', alt: 'combat', burst: [3, 4], viewers: [0.03, 0.06] },
+  reveal: { tag: 'reveal', alt: 'combat', burst: [2, 3], viewers: [0.02, 0.05] },
 };
+
+// Seven-degree results (outcome.js degree7 / reaction.js degreeOf) → reaction key, from the crawler's side.
+const DEGREE_REACTION = { crit: 'nat20', amazing: 'amazing', near: 'near_miss', major: 'major_fail', critfail: 'nat1' };
+// The same for an Evade roll: a great dodge is its own moment.
+const EVADE_REACTION = { crit: 'evade', amazing: 'evade', near: 'near_miss', major: 'major_fail', critfail: 'nat1' };
 
 /**
  * Which reaction an event deserves (null = none) and what it can fill placeholders with.
@@ -127,8 +141,13 @@ export function reactionFor(e) {
       if (r.playerId) fill.playerId = r.playerId;
       if (r.nat20) return { key: 'nat20', fill };
       if (r.nat1) return { key: 'nat1', fill };
-      return null;
+      const deg = isObj(r.vs) ? (r.vs.deg7 ?? r.vs.degree) : null;
+      return typeof deg === 'string' && DEGREE_REACTION[deg] ? { key: DEGREE_REACTION[deg], fill } : null;
     }
+    case 'rx.evade': return EVADE_REACTION[e.degree] ? { key: EVADE_REACTION[e.degree], fill } : null;
+    case 'dying.dead': return { key: 'death', fill };
+    case 'dying.saved': return { key: 'saved', fill };
+    case 'combat.reveal': return { key: 'reveal', fill: { ...fill, ...(Array.isArray(e.names) && e.names[0] ? { mob: String(e.names[0]).replace(/\s+\d+$/, '') } : {}) } };
     case 'boss.intro': return { key: 'boss_intro', fill: { ...fill, boss: e.name } };
     case 'boss.phase': return { key: 'boss_phase', fill }; // e.name is the phase, the boss comes from the scene
     case 'boss.defeat': return { key: 'boss_defeat', fill: { ...fill, boss: e.name } };
