@@ -1,3 +1,4 @@
+import { marksEl } from './marks.js';
 import {
   SystemClient, TransportHub, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
   prefersReducedMotion, registerSW, isHosted, ask, portraitSrc,
@@ -792,6 +793,7 @@ drawTheme();
 function render() {
   document.body.style.setProperty('--me', me.color || 'var(--c-accent)');
   document.title = `${me.sheet?.identity?.name || me.name} · ${sysName()}`;
+  { const mm = (view.players || []).find((x) => x.id === me.id)?.marks; const el = document.getElementById('my-marks'); const sig = JSON.stringify(mm ?? null); if (el && el.dataset.sig !== sig) { el.dataset.sig = sig; el.replaceChildren(...[marksEl(mm)].filter(Boolean)); } }
   $('#brand').textContent = sysName();
   $('#viewers').textContent = fmtNum(view.audience?.viewers ?? 0);
   crClock.set(view.crawlers);

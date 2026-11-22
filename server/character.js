@@ -4,7 +4,7 @@ import { ActionError, bad, notFound, forbidden } from './errors.js';
 import { computeSheet, enhanceItem, MAX_ENHANCE, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
 import { statCheckBonus } from '../web/js/rules.js';
-import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots, typedDamage, recordKillCredit } from './outcome.js';
+import { combatRules, attackOutcome, critFormula, critMultiplier, nearness, mobDefense, floorOfState, mobSlotValue, damageToSlots, typedDamage, recordKillCredit, degreeCategory } from './outcome.js';
 
 export const DICE_MODES = ['off', 'enter', 'digital'];
 export const MAX_UNDO = 30;
@@ -616,7 +616,12 @@ function pushRoll(st, rec, out, ctx) {
     out.emit({ kind: 'roll', ...publicRoll(rec) }, { roles: ['player', 'stage'] });
   } else out.emit({ kind: 'roll', ...publicRoll(rec) }, 'all');
   ctx.h?.onSheetRoll?.(st, ctx, out, rec);
-  const near = rec.vs && !rec.secret ? nearness(rec.vs, rec.natural) : null;
+  // Seven-degree rulesets (DCC): Amazing / Near Miss / Major Fail get their line (R13); D&D-style rulesets keep the
+  // old near success / near fail by margin. Natural 20 / 1 below either way.
+  const deg7 = rec.vs?.deg7;
+  const near = rec.vs && !rec.secret
+    ? (deg7 ? (['amazing', 'near', 'major'].includes(deg7) ? degreeCategory(deg7) : null) : nearness(rec.vs, rec.natural))
+    : null;
   if (near && ctx.h?.categoryLine) {
     const line = ctx.h.categoryLine(st, ctx, near, 1);
     if (line) out.lines.push(line);

@@ -833,6 +833,9 @@ function evadeRoll(st, ctx, out, a, playerId) {
   }
   out.result = { die, total, degree, label: DEGREE_LABEL[degree], near: degree === 'near', free: freeEvade, receipt: actionReceipt(rx, x.uid, 0) };
   out.emit({ kind: 'rx.evade', declId: d.id, uid: x.uid, playerId: x.playerId ?? null, degree, near: degree === 'near' }, 'all');
+  // R13: the System comments on a spectacular dodge, a hair-thin miss or a fumble (crawler's side of the roll).
+  const evCat = { crit: 'nat20', amazing: 'crit', near: 'near_fail', critfail: 'nat1' }[degree];
+  if (evCat && ctx.h?.categoryLine) { const line = ctx.h.categoryLine(st, ctx, evCat, 1); if (line) out.lines.push(line); }
 }
 
 export const REACTION_PLAYER = {

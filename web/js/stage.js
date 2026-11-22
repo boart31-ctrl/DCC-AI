@@ -1,3 +1,4 @@
+import { marksEl } from './marks.js';
 import {
   SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted, portraitSrc, onPortraits,
 } from './client.js';
@@ -291,7 +292,7 @@ function renderStrip() {
   if (!ps.length) { strip.replaceChildren(h('p.strip-empty', 'Waiting for crawlers. Scan the code to join.')); return; }
   strip.replaceChildren(...ps.map((p) => h('div.pl', { class: p.connected ? 'pl' : 'pl off', 'data-id': p.id, style: { '--pc': p.color || 'var(--cyan)' } },
     levelBadge('pl-lvl', p, p.level),
-    h('div.pl-name', p.name),
+    h('div.pl-name', p.name, marksEl(p.marks)),
     h('div.pl-ach', h('b', String(p.achievementCount ?? 0)), h('span', 'ach')),
     h('div.pl-sub', [p.title, p.klass].filter(Boolean).join(' / ') || (p.connected ? 'On air' : 'Off air')),
     h('span.dot', { class: p.connected ? 'dot on' : 'dot off' }),

@@ -150,3 +150,11 @@ export function recordKillCredit(combat, mob, before, playerId = null) {
     if (combat.lastKill?.uid === mob.uid) combat.lastKill = null;
   }
 }
+
+/**
+ * R13: the System line / sound category for a seven-degree result (DCC). Natural 20 / 1 have their own lines;
+ * Amazing → "crit", Near Miss → "near_fail" (missed by a hair), Major Fail → "fail". A plain success / fail: none.
+ */
+export function degreeCategory(deg7) {
+  return { crit: 'nat20', amazing: 'crit', near: 'near_fail', major: 'fail', critfail: 'nat1' }[deg7] ?? null;
+}

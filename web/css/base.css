@@ -340,3 +340,7 @@ textarea.field { resize: vertical; min-height: 88px; }
 .chip.r-uncommon[aria-pressed="true"] { background: var(--r-uncommon); color: #04130a; }
 .chip.r-rare[aria-pressed="true"] { background: var(--r-rare); color: #fff; }
 .chip.r-epic[aria-pressed="true"] { background: var(--r-epic); color: #fff; }
+
+/* HUD marks (marks.js): skulls, gold skulls, stars next to a name */
+.marks { display: inline-flex; gap: 3px; margin-left: 6px; font-size: .85em; letter-spacing: -.05em; white-space: nowrap; vertical-align: middle; }
+.mk-skull { color: #e5484d; } .mk-gold { color: #f5b301; text-shadow: 0 0 6px rgba(245,179,1,.6); } .mk-star { color: #4ea8de; }

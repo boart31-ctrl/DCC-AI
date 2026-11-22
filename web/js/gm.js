@@ -28,6 +28,7 @@ import { createMsgCenter } from './msgcenter.js';
 import { createRulesSearch } from './gm-rules.js';
 import { createWhatNow } from './gm-whatnow.js';
 import { openLootAdvisor, lootPowerBlock, lootSettingsPanel } from './gm-loot.js';
+import { marksEl } from './marks.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -415,7 +416,7 @@ function partyRow(p, summary) {
     h('button.prow-who', { type: 'button', 'aria-pressed': String(sel), onclick: () => selectPlayer(p.id), title: sel ? 'Close the sheet' : 'Open the sheet' },
       avatar(id.name || p.name, { color: p.color, src: M.sheet.portrait, size: 32 }),
       h('span.pw',
-        h('span.pn', h('span.cdot', { class: summary.connected ? 'cdot on' : 'cdot', 'aria-hidden': 'true' }), id.name || p.name || 'Unnamed'),
+        h('span.pn', h('span.cdot', { class: summary.connected ? 'cdot on' : 'cdot', 'aria-hidden': 'true' }), id.name || p.name || 'Unnamed', marksEl(summary.marks)),
         h('span.pl', h('span.pphone', { class: summary.connected ? 'pphone on' : 'pphone' }, summary.connected ? 'Phone on' : 'No phone'), [[id.race, id.class].filter(Boolean).join(' '), `Lv ${id.level ?? p.level ?? 1}`].filter(Boolean).join(', ')),
       ),
     ),
