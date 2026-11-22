@@ -54,7 +54,11 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
   const search = h('input.inp', { type: 'search', placeholder: 'Search the library  ( / )', 'aria-label': 'Search the library', oninput: (e) => { st.q = e.target.value.trim().toLowerCase(); drawList(true); } });
   const kindSeg = h('div.lib-kinds', { role: 'tablist', 'aria-label': 'Kind' });
   const sourceSel = select([{ value: 'all', label: 'Pack and homebrew' }, { value: 'pack', label: 'Pack only' }, { value: 'homebrew', label: 'Homebrew only' }], 'all', { cls: 'inp-sm', label: 'Source', onChange: (v) => { st.source = v; drawList(true); } });
-  const originSel = h('select.inp.inp-sm', { 'aria-label': 'Origin', onchange: () => drawList(true) });
+  let originKey = '';
+  const originSel = h('select.inp.inp-sm', { 'aria-label': 'Origin', onchange: () => {
+    try { localStorage.setItem(originKey, originSel.value); } catch {}
+    drawList(true);
+  } });
   const floorSel = h('select.inp.inp-sm', { 'aria-label': 'Floor', onchange: () => drawList(true) });
   const tagSel = h('select.inp.inp-sm', { 'aria-label': 'Tag', onchange: (e) => { st.tag = e.target.value; drawList(true); } });
   const newSel = select([{ value: '', label: 'New entry…' }, ...LIB_KINDS.map((k) => ({ value: k.id, label: `New ${k.label.toLowerCase()}` }))], '', { cls: 'inp-sm lib-new', label: 'Create', onChange: (v) => { if (v) { startNew(v); newSel.value = ''; } } });
@@ -142,7 +146,7 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
   function drawList(force = false) {
     const all = entries();
     const tags = [...new Set(all.flatMap(({ e }) => e.tags || []))].sort();
-    const sig = JSON.stringify([all.map(({ kind, e }) => [kind, e.id, e.name, e.source, e.origin, e.floor, e.tags]), st.kind, st.source, st.tag, st.q, st.sel]);
+    const sig = JSON.stringify([all.map(({ kind, e }) => [kind, e.id, e.name, e.source, e.origin, e.floor, e.tags]), st.kind, st.source, st.tag, st.q, st.sel, view?.campaign?.id, view?.gm?.origins]);
     if (!force && sig === listSig) return;
     listSig = sig;
     if (tagSel.dataset.sig !== tags.join('|')) {
@@ -151,16 +155,23 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
       tagSel.value = st.tag;
     }
     const conversions = all.some(({ e }) => e.origin === 'srd51_dcc');
-    const origin = originSel.options.length ? originSel.value : conversions ? 'campaign' : '';
+    const key = 'system.libraryOrigin.' + (view?.campaign?.id || 'default');
+    let origin = originSel.value;
+    if (originKey !== key) {
+      originKey = key;
+      try { origin = localStorage.getItem(key) || ''; } catch { origin = ''; }
+    }
     const floor = floorSel.value;
-    originSel.replaceChildren(...(conversions ? [h('option', { value: 'campaign' }, 'Campaign (without SRD conversions)')] : []), ...originOptions(view?.gm?.origins));
-    originSel.value = origin;
+    const options = originOptions(view?.gm?.origins);
+    if (conversions) options[0].textContent = 'Campaign (without SRD conversions)';
+    originSel.replaceChildren(...options);
+    originSel.value = options.some(o => o.value === origin) ? origin : '';
     const floors = [...new Set(all.map(({ e }) => e.floor).filter(f => f != null && f !== ''))].sort((a,b) => a-b);
     floorSel.replaceChildren(h('option', { value: '' }, 'All floors'), ...floors.map(f => h('option', { value: f }, 'Floor ' + f)));
     floorSel.value = floor;
     const hits = all.filter(({ kind, e }) => (st.kind === 'all' || st.kind === kind)
       && (st.source === 'all' || (e.source || 'pack') === st.source)
-      && (originSel.value === 'campaign' ? e.origin !== 'srd51_dcc' : !originSel.value || e.origin === originSel.value)
+      && (originSel.value ? e.origin === originSel.value : e.origin !== 'srd51_dcc')
       && (!floorSel.value || String(e.floor) === floorSel.value)
       && (!st.tag || (e.tags || []).includes(st.tag))
       && (!st.q || `${e.name} ${e.desc || ''} ${(e.tags || []).join(' ')}`.toLowerCase().includes(st.q)))
