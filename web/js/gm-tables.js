@@ -81,7 +81,7 @@ export function createTables({ getView, act, button }) {
     const gen = h('button.btn.btn-primary.tb-gen', { type: 'button', onclick: () => act({ t: 'crowd.gen', place: st.place, n: st.n }) }, c ? 'New crowd' : 'Meet them');
     const people = c?.people ?? [];
     const cards = people.map((p) => h('article.panel.tb-person', { class: `panel tb-person${p.npcId ? ' saved' : ''}` },
-      h('header', h('b', p.name), p.species ? h('span.dim', ` · ${p.species}`) : null),
+      h('header', p.image ? h('img.tb-face', { src: p.image, alt: '', loading: 'lazy' }) : null, h('b', p.name), p.species ? h('span.dim', ` · ${p.species}`) : null),
       h('ol.tb-lines', p.lines.map((l) => h('li', l))),
       h('div.tb-acts',
         p.npcId ? h('span.pill.pill-on', 'Saved') : h('button.btn.btn-primary', { type: 'button', onclick: () => act({ t: 'crowd.save', id: p.id }, `${p.name} saved to the campaign.`) }, 'Save'),

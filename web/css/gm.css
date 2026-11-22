@@ -567,3 +567,5 @@ dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .ev-card-scene { display: inline-flex; gap: 6px; align-items: center; background: none; border: 0; color: inherit; padding: 3px 0; cursor: pointer; text-align: left; }
 .ev-card-scene:hover span { text-decoration: underline; }
 .ev-card-acts { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
+.tb-person header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.tb-face { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }

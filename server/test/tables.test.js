@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { normalizeTables, rollTable } from '../tables.js';
+import { normalizeTables, rollTable, TABLES_GM } from '../tables.js';
 import { loadPack } from '../pack.js';
 import { createState, reduce, viewFor } from '../state.js';
 import { tmpDir, writePack } from './fixtures.js';
@@ -87,4 +87,14 @@ test('crowd: 4 at a party, each exactly 3 sentences; reroll one; save 2 → camp
   assert.throws(() => d.step({ t: 'crowd.gen', n: 7 }), /1–6/);
   d.step({ t: 'table.keep', table: 'X', text: 'kept line' });
   assert.equal(viewFor(d.state, d.pack, 'gm', d.ctx).gm.tables.kept[0].text, 'kept line');
+});
+
+test('crowd portraits: picked by species, saved onto the NPC', () => {
+  const pack = { tables: normalizeTables({ tables: [{ id: 'sp', rows: [{ text: 'goblin' }] }, { id: 'l', rows: ['{name} looks'] }],
+    names: [{ id: 'n', first: ['Gub'] }], crowd: { species: 'sp', look: 'l', portraits: [{ image: 'crowd/goblin_01.webp', species: 'goblin' }, { image: 'crowd/human_01.webp', species: 'human' }] } }) };
+  let n = 0;
+  const st = { crowd: null, library: { npc: [] } };
+  const ctx = { pack, now: 1, randInt: (k) => 0, genId: (p) => `${p}${++n}` };
+  TABLES_GM['crowd.gen'](st, { n: 1 }, ctx, {});
+  assert.equal(st.crowd.people[0].image, '/pack/images/crowd/goblin_01.webp');
 });

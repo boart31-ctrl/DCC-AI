@@ -92,6 +92,9 @@ export function normalizeTables(raw, warnings = []) {
   out.names = (Array.isArray(raw.names) ? raw.names : []).map((n) => normNames(n, warnings)).filter(Boolean);
   const c = raw.crowd && typeof raw.crowd === 'object' ? raw.crowd : {};
   for (const k of ['species', 'look', 'want', 'hook']) if (ID_RE.test(c[k] ?? '')) out.crowd[k] = c[k];
+  // Portrait pool for crowd people: [{ image: 'crowd/goblin_01.webp', species: 'goblin' }] (images/ in the pack).
+  out.crowd.portraits = (Array.isArray(c.portraits) ? c.portraits : []).filter((x) => x && /^[a-z0-9][a-z0-9_/-]{0,80}\.(webp|png|jpg)$/.test(x.image ?? '')).slice(0, 300)
+    .map((x) => ({ image: x.image, species: str(x.species, 40).toLowerCase() }));
   out.crowd.places = (Array.isArray(c.places) ? c.places : []).filter((p) => p && ID_RE.test(p.id ?? '')).slice(0, 40).map((p) => {
     const place = { id: p.id, name: str(p.name, 60) || p.id };
     for (const k of ['species', 'look', 'want', 'hook']) if (ID_RE.test(p[k] ?? '')) place[k] = p[k];
@@ -203,8 +206,13 @@ export function makePerson(st, ctx, place, taken = new Set()) {
   for (let i = 0; i < 8 && [...taken].some((t) => first(t) === first(name)); i++) name = nameFrom(st, ctx, namesId);
   const vars = { name, species: species || 'stranger', place: place?.name ?? 'here', they: name };
   const line = (k, fallback) => (tab(k) && findTable(st, ctx, tab(k)) ? sentence(rollTable(st, ctx, tab(k), vars).text) : fallback);
+  const pool = C.portraits ?? [];
+  const sp = species.toLowerCase();
+  const fit = pool.filter((x) => x.species && sp.includes(x.species));
+  const pick = (fit.length ? fit : pool.filter((x) => !x.species));
+  const image = pick.length ? `/pack/images/${pick[ctx.randInt(pick.length)].image}` : null;
   return {
-    id: ctx.genId('cp'), name, species,
+    id: ctx.genId('cp'), name, species, ...(image ? { image } : {}),
     lines: [line('look', `${name} is hard to describe.`), line('want', 'They want to be left alone.'), line('hook', 'They know something, but not for free.')],
     npcId: null,
   };
@@ -240,6 +248,7 @@ export function savePerson(st, ctx, out, GM, person, placeName) {
     ...(existing ?? {}),
     ...(existing ? { id: existing.id } : {}),
     name: person.name,
+    ...(person.image && !existing?.image ? { image: person.image } : {}),
     role: [person.species, placeName].filter(Boolean).join(' · ').slice(0, 120),
     desc: person.lines.join(' ').slice(0, 2000),
     intro: person.lines[0].slice(0, 600),
