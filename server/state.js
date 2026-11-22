@@ -26,7 +26,7 @@ import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor 
 import { RULES_GM } from './rules-search.js';
 import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
 import { originsFor } from './origins.js';
-import { BUILD_IDS, offersFor, giveWarnings, itemBuilds, crawlerBuild, crawlerRating, rewardMode, effectiveLootPolicy, normalizeLootPolicy, REWARD_MODES, SETTING_KEYS } from './loot-advisor.js';
+import { BUILD_IDS, floorRarityFor, offersFor, giveWarnings, itemBuilds, crawlerBuild, crawlerRating, rewardMode, effectiveLootPolicy, normalizeLootPolicy, REWARD_MODES, SETTING_KEYS } from './loot-advisor.js';
 import { floorOfState } from './outcome.js';
 import { ADVANCEMENT_PLAYER, advancementClockView, changeAdvancementClock, consumeAdvancementMilestone, normalizeAdvancementClock,
   normalizeLevelGrants, recordLevelGrant, snoozeAdvancementClock } from './advancement.js';
@@ -332,17 +332,22 @@ function rollGold(expr, rng) {
   return sum * Number(m[3] || 1);
 }
 
+function lootIndex(st, pack, player) {
+  return pack.ruleset.system?.family === 'dnd' ? Math.max(1, player?.level || 1) : floorOfState(st);
+}
+
 function lootOverview(st, pack) {
-  const P = effectiveLootPolicy(pack.lootPolicy, st.lootSettings);
+  const P = effectiveLootPolicy(pack.lootPolicy, st.lootSettings, pack.ruleset.system?.family);
   const lib = libraryOf(st, pack);
   const itemOf = (id) => lib.get('item', id);
   const floor = floorOfState(st);
   return {
     floor,
+    family: pack.ruleset.system?.family,
     settings: st.lootSettings ?? {},
     policy: { budget: P.budget, stretch: P.stretch, wildcard: P.wildcard, pity: P.pity, offers: P.offers, drops: P.drops, floorRarity: P.floorRarity, fragileFactor: P.fragileFactor },
     crawlers: st.players.map((p) => {
-      const rating = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf, floor, level: p.sheet?.level, prefs: p.lootPrefs });
+      const rating = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf, floor: lootIndex(st, pack, p), level: p.level, prefs: p.lootPrefs });
       return { playerId: p.id, name: p.name, rating, modeSetting: p.lootPrefs?.mode ?? 'auto', mode: rewardMode(p.lootPrefs?.mode, rating.grade),
         prefs: p.lootPrefs ?? {}, pendingBoxes: p.pendingBoxes ?? [], boxes: p.lootStats?.boxes ?? 0 };
     }),
@@ -355,13 +360,13 @@ function lootOffers(st, ctx, a) {
   const lib = libraryOf(st, ctx.pack);
   const items = lib.list ? lib.list('item') : [...(ctx.pack.itemsById?.values?.() ?? [])];
   const owned = new Set(st.players.flatMap((x) => x.inventory.map((i) => i.itemId)));
-  const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings);
+  const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings, ctx.pack.ruleset.system?.family);
   const itemOf = (id) => lib.get('item', id);
-  const floor = floorOfState(st);
-  const rating = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf, floor, level: p.sheet?.level, prefs: p.lootPrefs });
+  const floor = lootIndex(st, ctx.pack, p);
+  const rating = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf, floor, level: p.level, prefs: p.lootPrefs });
   const mode = rewardMode(p.lootPrefs?.mode, rating.grade);
   return { ...offersFor(P, { tier: a.tier, boss: a.boss === true, mode, floor, sheet: p.sheet, inventory: p.inventory,
-    prefs: p.lootPrefs, stats: p.lootStats, items, itemOf, owned, rng: ctx.rng }), rating: { score: rating.score, grade: rating.grade }, modeSetting: p.lootPrefs?.mode ?? 'auto' };
+    prefs: p.lootPrefs, stats: p.lootStats, items, itemOf, owned, rng: ctx.rng }), perLevel: !!P.perLevel, rating: { score: rating.score, grade: rating.grade }, modeSetting: p.lootPrefs?.mode ?? 'auto' };
 }
 
 function lootRoll(st, ctx, tier) {
@@ -388,7 +393,7 @@ function quipLine(st, quip, priority) {
 // ---------- reducers ----------
 
 // Phone takeovers a crawler may miss (reload, phone asleep): the feed keeps what the phone needs to replay them.
-const REPLAY_KINDS = { achievement: ['achId', 'title', 'desc', 'reward', 'group'], loot: ['tier', 'item'], sponsor: ['sponsor', 'tier', 'item'] };
+const REPLAY_KINDS = { 'item.broken': ['name'], achievement: ['achId', 'title', 'desc', 'reward', 'group'], loot: ['tier', 'item'], sponsor: ['sponsor', 'tier', 'item'] };
 function feedPush(st, ev, text) {
   const keep = REPLAY_KINDS[ev.kind];
   const replay = keep && ev.playerId ? Object.fromEntries(keep.filter((k) => ev[k] !== undefined).map((k) => [k, ev[k]])) : null;
@@ -588,18 +593,19 @@ const GM = {
    */
   'loot.box'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
-    const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings);
+    const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings, ctx.pack.ruleset.system?.family);
     if (typeof a.tier !== 'string' || !ctx.pack.tiersById.has(a.tier)) throw notFound(`unknown loot tier ${a.tier}`);
     if (!Array.isArray(a.itemIds) || !a.itemIds.length || a.itemIds.length > 8) throw bad('itemIds: 1–8 items');
     const lib = libraryOf(st, ctx.pack);
     const items = a.itemIds.map((id) => { const it = lib.get('item', id); if (!it) throw notFound(`unknown item ${id}`); return it; });
     const libR = libraryOf(st, ctx.pack);
-    const ratingR = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf: (id) => libR.get('item', id), floor: floorOfState(st), level: p.sheet?.level, prefs: p.lootPrefs });
+    const ratingR = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf: (id) => libR.get('item', id), floor: lootIndex(st, ctx.pack, p), level: p.level, prefs: p.lootPrefs });
     const lifted = a.boss === true || rewardMode(p.lootPrefs?.mode, ratingR.grade) === 'catchup';
     const reach = Object.keys(P.weights[a.tier] ?? {}).reduce((m, r) => Math.max(m, RARITY_IDX(r)), 0) + (lifted ? 1 : 0);
-    const tooRare = items.filter((it) => RARITY_IDX(it.rarity) > reach);
+    const limit = P.perLevel ? Math.min(reach, RARITY_IDX(floorRarityFor(P, lootIndex(st, ctx.pack, p)))) : reach;
+    const tooRare = items.filter((it) => RARITY_IDX(it.rarity) > limit);
     if (tooRare.length && a.force !== true) throw bad(`${tooRare.map((it) => it.name).join(', ')}: above what a ${a.tier} box holds (force to give anyway)`);
-    const floor = floorOfState(st);
+    const floor = lootIndex(st, ctx.pack, p);
     const itemOf = (id) => lib.get('item', id);
     const warnings = items.flatMap((it) => giveWarnings(P, { item: it, floor, inventory: p.inventory, itemOf, source: 'box' }));
     const gold = a.gold === undefined ? rollGold(P.gold[a.tier], ctx.rng) : int(a.gold, 'gold', 0, 1e7);
@@ -642,7 +648,7 @@ const GM = {
     const item = libraryOf(st, ctx.pack).get('item', a.itemId);
     if (!item) throw notFound(`unknown item ${a.itemId}`);
     const qty = int(a.qty, 'qty', 1, 9999, { optional: true }) ?? 1;
-    const warnings = giveWarnings(effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings), { item, floor: floorOfState(st), inventory: p.inventory, itemOf: (id) => libraryOf(st, ctx.pack).get('item', id) });
+    const warnings = giveWarnings(effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings, ctx.pack.ruleset.system?.family), { item, floor: lootIndex(st, ctx.pack, p), inventory: p.inventory, itemOf: (id) => libraryOf(st, ctx.pack).get('item', id) });
     const inv = giveItem(p, item, ctx, qty, int(a.bonus, 'bonus', 0, MAX_ENHANCE, { optional: true }) ?? 0);
     out.result = { uid: inv.uid, ...(warnings.length ? { warnings } : {}) };
   },
@@ -1416,6 +1422,12 @@ export function viewFor(state, basePack, role, opts = {}) {
   const v = common(state, pack, { ...opts, now, role });
   const q = opts.queue ?? { queue: [], pendingAuto: [], playing: null };
   const library = libraryOf(state, pack);
+  if (v.scene.kind === 'builds' && (role === 'stage' || role === 'gm')) {
+    v.scene.data.crawlers = lootOverview(state, pack).crawlers.map(({ name, rating }) => ({
+      name, grade: rating.grade, score: rating.score, builds: rating.build.steered.length ? rating.build.steered : rating.build.top,
+      items: rating.items.slice(0, 3).map(({ name, grade }) => ({ name, grade })),
+    }));
+  }
   v.rolls = rollsFor(state, role, opts.playerId);
   v.combat = combatView(state, pack, role, opts.playerId);
   if (v.combat) v.combat.rx = reactionView(state, role, pack);

@@ -382,7 +382,7 @@ export function sheetModel(view, player) {
 /** Item data for an inventory entry: library entry merged under per-copy fields. */
 export function itemOf(lib, inv) {
   const base = libGet(lib, 'item', inv?.itemId) || {};
-  return { ...base, ...pick(inv, ['name', 'desc', 'flavor', 'rarity', 'image', 'effects', 'slot', 'attack']), uid: inv?.uid, itemId: inv?.itemId };
+  return { ...base, ...pick(inv, ['name', 'desc', 'flavor', 'rarity', 'image', 'effects', 'slot', 'attack', 'fragile']), uid: inv?.uid, itemId: inv?.itemId };
 }
 function pick(o, keys) {
   const out = {};

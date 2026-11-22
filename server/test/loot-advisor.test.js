@@ -209,3 +209,73 @@ test('C1b reducer: boss drop → pending box → opened from it; achievement box
   state = reduce(state, { role: 'gm', t: 'loot.prefs', playerId, mode: 'ahead' }, ctx).state;
   assert.equal(reduce(state, { role: 'gm', t: 'loot.offers', playerId, tier: 'bronze' }, ctx).result.mode, 'ahead');
 });
+
+test('fragile inventory weapons break once and an undone strike restores its own copy', () => {
+  const { pack } = loadPack(writePack(tmpDir(), { 'items.json': [
+    { id: 'glass', name: 'Glass foil', builds: ['melee'], attack: { dice: '1d6' }, fragile: { breakOn: 'nat1', chance: 1 } },
+  ] }));
+  const ctx = { pack, now: 10, rng: seeded(52) };
+  const gm = (s, a) => reduce(s, { role: 'gm', ...a }, ctx);
+  let s = gm(createState(pack, 0), { t: 'player.add', name: 'Jo' }).state;
+  const playerId = s.players[0].id;
+  s = gm(s, { t: 'item.give', playerId, itemId: 'glass' }).state;
+  const uid = s.players[0].inventory[0].uid;
+  const strike = { t: 'roll', playerId, what: { kind: 'attack', uid } };
+  s = gm(s, { ...strike, entered: 12 }).state;
+  assert.equal(s.players[0].inventory.length, 1);
+  const broken = gm(s, { ...strike, entered: 1 });
+  assert.equal(broken.state.players[0].inventory.length, 0);
+  assert.equal(broken.state.feed.at(-1).replay.name, 'Glass foil');
+  assert.ok(broken.lines.some((line) => line.text.includes('shattered')));
+  assert.throws(() => gm(broken.state, strike), /attack/);
+  const restored = gm(broken.state, { t: 'roll.undo', playerId }).state;
+  assert.equal(restored.players[0].inventory[0].uid, uid);
+});
+
+test('stage gets the party build grades only during the chosen scene, phones receive no grades', () => {
+  const { pack } = loadPack(writePack(tmpDir()));
+  const ctx = { pack };
+  let s = reduce(createState(pack, 0), { role: 'gm', t: 'player.add', name: 'Jo' }, ctx).state;
+  assert.equal(viewFor(s, pack, 'stage').scene.data.crawlers, undefined);
+  s = reduce(s, { role: 'gm', t: 'scene.set', kind: 'builds' }, ctx).state;
+  const [row] = viewFor(s, pack, 'stage').scene.data.crawlers;
+  assert.equal(row.name, 'Jo');
+  assert.ok('SABCD'.includes(row.grade));
+  assert.equal(viewFor(s, pack, 'player', { playerId: s.players[0].id }).scene.data.crawlers, undefined);
+});
+
+test('5e budgets follow the recipient level and rarity changes at levels 5, 11 and 17', () => {
+  const { pack } = loadPack(writePack(tmpDir()));
+  let s = createState(pack, 0);
+  s.campaign.ruleset = 'dnd5e';
+  const ctx = { pack };
+  s = reduce(s, { role: 'gm', t: 'player.add', name: 'Jo' }, ctx).state;
+  for (const [lv, rarity] of [[1,'uncommon'],[5,'rare'],[11,'epic'],[17,'legendary']]) {
+    s.players[0].level = lv;
+    const loot = viewForGm(s, pack, ctx);
+    assert.equal(loot.policy.floorRarity[lv-1], rarity);
+    assert.equal(loot.crawlers[0].rating.gear.cap, loot.policy.budget[lv-1]);
+  }
+});
+
+test('a fragile weapon that breaks on a hit still deals linked damage exactly once', () => {
+  const { pack } = loadPack(writePack(tmpDir(), { 'items.json': [
+    { id: 'glass', name: 'Glass spear', attack: { dice: '1d6' }, fragile: { breakOn: 'hit', chance: 1 } },
+  ] }));
+  const ctx = { pack, now: 10, rng: seeded(52) };
+  const gm = (s, a) => reduce(s, { role: 'gm', ...a }, ctx);
+  let s = gm(createState(pack, 0), { t: 'player.add', name: 'Jo' }).state;
+  const playerId = s.players[0].id;
+  const mob = gm(s, { t: 'combat.addAdhoc', name: 'Dummy', hp: 10, evade: 0, hidden: false });
+  const target = mob.result.uids[0];
+  s = gm(mob.state, { t: 'item.give', playerId, itemId: 'glass' }).state;
+  const uid = s.players[0].inventory[0].uid;
+  const strike = { t: 'roll', playerId, target, what: { kind: 'attack', uid } };
+  const hit = gm(s, { ...strike, entered: 20 });
+  assert.equal(hit.result.hit, true);
+  assert.equal(hit.state.players[0].inventory.length, 0);
+  const damage = { ...strike, after: hit.result.rollId, what: { ...strike.what, part: 'damage' }, entered: 3 };
+  const landed = gm(hit.state, damage);
+  assert.ok(landed.state.combat.combatants.find((c) => c.uid === target).hp < 10);
+  assert.throws(() => gm(landed.state, damage), /already rolled/);
+});

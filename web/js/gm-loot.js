@@ -2,7 +2,7 @@
 // crawler's build, see the floor budget, choose one of the offers per item, open the box. Re-roll at will.
 import { h } from './client.js';
 
-const BUILDS = { melee: 'Brawler', ranged: 'Sharpshooter', defense: 'Tank', stealth: 'Sneak', magic: 'Caster', social: 'Face', support: 'Medic', crafty: 'Tinkerer', boom: 'Boomer', pet: 'Pet master' };
+const BUILDS = { melee: 'Brawler', ranged: 'Sharpshooter', defense: 'Tank', stealth: 'Sneak', magic: 'Caster', social: 'Face', support: 'Medic', crafty: 'Tinkerer', boom: 'Boomer', pet: 'Pet master', utility: 'Utility' };
 const LEAN = [['0', 'No wild cards'], ['0.3', 'Wild card sometimes'], ['0.6', 'Wild card often']];
 
 export function openLootAdvisor({ p, tier: preset, boss: presetBoss = false, pendingId = null, tiers, send, act, toast, openSheet, closeSheet, legacy }) {
@@ -48,7 +48,7 @@ export function openLootAdvisor({ p, tier: preset, boss: presetBoss = false, pen
     if (data.error) { root.replaceChildren(tierRow, buildRow, h('p.lootx-err', data.error)); return; }
     const pct = Math.min(100, Math.round((data.budget.used / data.budget.cap) * 100));
     const meter = h('div.lootx-budget', { title: 'Equipped power vs what this floor can take. Consumables don\'t count.' },
-      h('span', `Floor ${data.floor} power`), h('div.lootx-bar', h('i', { style: { width: `${pct}%` } })), h('b', `${data.budget.used} / ${data.budget.cap}`),
+      h('span', `${data.perLevel ? 'Level' : 'Floor'} ${data.floor} power`), h('div.lootx-bar', h('i', { style: { width: `${pct}%` } })), h('b', `${data.budget.used} / ${data.budget.cap}`),
       data.build.top.length ? h('span.dim', `Build: ${data.build.top.map((b) => BUILDS[b] ?? b).join(', ')}`) : null,
       data.rating ? h('span', { class: `lp-ig g-${data.rating.grade}` }, data.rating.grade) : null,
       data.mode && data.mode !== 'standard' ? h('span.lootx-pity', data.mode === 'catchup' ? 'Catch-up: better items, no wild cards' : 'Ahead: upgrades and better consumables') : null,
@@ -115,18 +115,21 @@ export function lootPowerBlock(c, { send, act, onOpenBox, tierName }) {
 export function lootSettingsPanel(loot, { act }) {
   const s = loot.settings ?? {};
   const pol = loot.policy;
-  const budget = h('input.field', { type: 'text', value: pol.budget.slice(0, 6).join(', '), 'aria-label': 'Budget per floor', size: 18 });
+  const perLevel = loot.family === 'dnd';
+  const off = s.dropsOff ?? (loot.family === 'pf2e');
+  const note = perLevel ? '5e · untested — check it' : loot.family === 'pf2e' ? 'PF2e · experimental' : '';
+  const budget = h('input.field', { type: 'text', value: pol.budget.join(', '), 'aria-label': perLevel ? 'Budget per level' : 'Budget per floor', size: 18 });
   const save = () => {
     const list = budget.value.split(/[,\s]+/).map(Number).filter((x) => Number.isFinite(x) && x > 0);
     if (list.length) act({ t: 'loot.settings', settings: { budget: list } }, 'Budget saved.');
   };
-  return h('details.panel.lp-settings', h('summary', h('b', 'Loot rules for this campaign'), h('span.dim', ` · Floor ${loot.floor}: budget ${pol.budget[loot.floor - 1] ?? pol.budget.at(-1)} (+${pol.stretch} boss / catch-up) · wild cards ${Math.round(pol.wildcard * 100)}% · mob drops ${s.dropsOff ? 'off' : 'on'}`)),
+  return h('details.panel.lp-settings', h('summary', h('b', ['Loot rules for this campaign', note].filter(Boolean).join(' · ')), h('span.dim', ` · ${perLevel ? 'Budget by character level' : `Floor ${loot.floor}: budget ${pol.budget[loot.floor - 1] ?? pol.budget.at(-1)}`} (+${pol.stretch} boss / catch-up) · wild cards ${Math.round(pol.wildcard * 100)}% · mob drops ${off ? 'off' : 'on'}`)),
     h('div.lp-set',
-      h('label', 'Power budget per floor (F1, F2, …)', budget, h('button.btn.btn-sm', { type: 'button', onclick: save }, 'Save')),
+      h('label', perLevel ? 'Power budget per level (1–20)' : 'Power budget per floor (F1, F2, …)', budget, h('button.btn.btn-sm', { type: 'button', onclick: save }, 'Save')),
       h('label', 'Wild cards', h('select.field', { onchange: (e) => act({ t: 'loot.settings', settings: { wildcard: Number(e.target.value) } }) },
         [[0, 'None'], [0.15, 'Rare'], [0.3, 'Sometimes'], [0.5, 'Often']].map(([v, l]) => h('option', { value: v, selected: Math.abs(v - pol.wildcard) < 0.03 }, l)))),
       h('label', 'Mob drops', h('select.field', { onchange: (e) => act({ t: 'loot.settings', settings: { dropsOff: e.target.value === 'off' } }) },
-        h('option', { value: 'on', selected: !s.dropsOff }, 'On (pack odds)'), h('option', { value: 'off', selected: !!s.dropsOff }, 'Off'))),
+        h('option', { value: 'on', selected: !off }, 'On (pack odds)'), h('option', { value: 'off', selected: !!off }, 'Off'))),
       h('p.dim', `Ordinary mob drop odds: ${Object.entries(pol.drops?.mob ?? {}).map(([k, n]) => `${k} ${n}`).join(' · ')}. Elite: ${Object.entries(pol.drops?.elite ?? {}).map(([k, n]) => `${k} ${n}`).join(' · ')}.`),
       Object.keys(s).length ? h('button.btn.btn-quiet.btn-sm', { type: 'button', onclick: () => act({ t: 'loot.settings', settings: null }, 'Back to the pack defaults.') }, 'Reset to pack defaults') : null));
 }

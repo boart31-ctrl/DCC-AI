@@ -418,6 +418,8 @@ function loadItems(io, raw, warnings, icons = loadIcons(undefined, [])) {
       rarity,
       image: itemImage(io, it, icons, warnings),
       tags: extra.tags ?? [],
+      ...(extra.builds ? { builds: extra.builds } : {}),
+      ...(extra.fragile ? { fragile: extra.fragile } : {}),
       slot: extra.slot ?? null,
       stackable: !!extra.stackable,
       effects: extra.effects ?? [],

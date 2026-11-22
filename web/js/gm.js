@@ -703,11 +703,11 @@ function createRewards() {
     const s = JSON.stringify([list.map((p) => [p.id, p.name, p.color, p.connected, fullPlayer(p.id)?.gold, fullPlayer(p.id)?.sheet?.portrait ? 1 : 0]), recent.map((e) => e.id || e.at), v.gm?.loot]);
     if (s === sig) return;
     sig = s;
+    const btn = (ic, label, fn, cls = '') => h(`button.btn.rw-btn${cls}`, { type: 'button', onclick: () => { buzz(10); fn(); } }, icon(ic, { size: 16 }), label);
     const card = (sum) => {
       const p = fullPlayer(sum.id);
       const M = sheetModel(v, p);
       const id = M.sheet.identity || {};
-      const btn = (ic, label, fn, cls = '') => h(`button.btn.rw-btn${cls}`, { type: 'button', onclick: () => { buzz(10); fn(); } }, icon(ic, { size: 16 }), label);
       return h('article.rw-card', { style: { '--pc': p.color || 'var(--c-accent)' } },
         h('header.rw-who',
           avatar(id.name || p.name, { color: p.color, src: M.sheet.portrait, size: 40 }),
@@ -726,6 +726,7 @@ function createRewards() {
     const kindText = { achievement: 'Achievement', loot: 'Loot', sponsor: 'Sponsor' };
     el.replaceChildren(
       h('div.view-head', h('h1', 'Loot & Rewards'), h('span.dim', 'Power of each crawler, boxes waiting, the System\'s offers, achievements and gifts')),
+      list.length ? btn('tv', 'Show builds on TV', () => act({ t: 'scene.set', kind: 'builds' }, 'Build analysis on TV.')) : null,
       v.gm?.loot ? lootSettingsPanel(v.gm.loot, { act }) : null,
       list.length ? h('div.rw-grid', list.map(card)) : h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add them on Party first.')),
       h('section.panel.rw-recent',

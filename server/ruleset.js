@@ -18,7 +18,7 @@ export function enhanceItem(def, bonus) {
   if (!def || !n) return def;
   const rarity = RARITIES[Math.max(RARITIES.indexOf(def.rarity), n)] ?? def.rarity;
   const out = { ...def, name: `${def.name} +${n}`, rarity, bonus: n };
-  if (def.attack) out.attack = { ...def.attack, bonus: n };
+  if (def.attack) out.attack = { ...def.attack, bonus: (def.attack.bonus ?? 0) + n };
   const armor = (def.effects ?? []).find((e) => e.target === 'armor' && e.op === 'add');
   if (armor) out.effects = [...def.effects, { target: 'armor', op: 'add', value: n, when: armor.when || 'equipped', label: `${def.name} +${n}` }];
   return out;
@@ -107,7 +107,7 @@ function normalizeAttackDef(raw, ctx, where) {
   }
   const dice = text(raw.dice, 60);
   if (dice && !formulaOk(dice, ctx, `${where} attack.dice`, { dice: true })) return null;
-  return { skill: safeId(raw.skill) ? raw.skill : null, stat: safeId(raw.stat) ? raw.stat : null, dice, effects: text(raw.effects, 300) };
+  return { ...(Number.isInteger(raw.bonus) && raw.bonus > 0 && raw.bonus <= 10 ? { bonus: raw.bonus } : {}), skill: safeId(raw.skill) ? raw.skill : null, stat: safeId(raw.stat) ? raw.stat : null, dice, effects: text(raw.effects, 300) };
 }
 
 function idList(raw, max = 50) {
@@ -154,6 +154,12 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
     if (!RARITIES.includes(rarity)) {
       problem(ctx, `${ctx.where}: unknown rarity "${rarity}", using common`);
       rarity = 'common';
+    }
+    if (Array.isArray(raw.builds)) e.builds = idList(raw.builds, 11);
+    if (isObj(raw.fragile)) {
+      const { breakOn, chance } = raw.fragile;
+      if (['nat1', 'hit'].includes(breakOn) && Number.isFinite(chance) && chance >= 0 && chance <= 1) e.fragile = { breakOn, chance };
+      else problem(ctx, `${ctx.where}: invalid fragile trigger or probability`);
     }
     Object.assign(e, {
       rarity,
@@ -1229,6 +1235,10 @@ export function computeSheet(ch, ruleset, library) {
     const stat = k.stat && statById.has(k.stat) ? k.stat : '';
     const zeroBuff = (p) => !(p.source?.startsWith('buff.') && p.value === 0 && !p.parts?.length);
     const th = evaluate(tmpl(ruleset.attack.toHit, stat, ''), (n) => resolveFull(n, extra));
+    if (k.item && k.bonus) {
+      th.value += k.bonus;
+      th.parts.push({ label: k.name, value: k.bonus, source: 'item' });
+    }
     // dmgStat: the stat the damage adds when it differs from the to-hit stat ('none' = no stat), e.g. a dagger.
     const dStat = k.dmgStat === 'none' ? '' : k.dmgStat && statById.has(k.dmgStat) ? k.dmgStat : stat;
     const dmg = diceText(tmpl(ruleset.attack.damage, dStat, damageDice), (n) => resolveFull(n, extra));

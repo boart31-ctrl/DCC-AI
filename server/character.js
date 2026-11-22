@@ -267,6 +267,14 @@ export function characterOf(p, ruleset) {
 
 export function computeFor(p, pack, library) {
   const ch = characterOf(p, pack.ruleset);
+  const weapons = p.inventory.flatMap((inv) => {
+    const def = enhanceItem(library.get('item', inv.itemId), inv.bonus);
+    if (!def?.fragile || !def.attack) return [];
+    const { stat, dice, skill, effects, bonus } = def.attack;
+    return [{ uid: inv.uid, name: def.name, stat, dice: bonus ? `${dice}+${bonus}` : dice, effects, item: true,
+      skillUid: p.sheet.skills.find((s) => s.skillId === skill)?.uid, bonus: bonus || 0 }];
+  });
+  if (weapons.length) ch.attacks = [...ch.attacks, ...weapons];
   return { ch, computed: computeSheet(ch, pack.ruleset, library) };
 }
 
@@ -327,6 +335,7 @@ export function enrichInventory(inv, library) {
     return {
       ...i,
       name: def.name, desc: def.desc, flavor: def.flavor ?? '', rarity: def.rarity, image: def.image ?? i.image ?? null,
+      ...(def.fragile ? { fragile: def.fragile } : {}),
       container: isContainer(def), slot: def.slot ?? null, stackable: !!def.stackable, effects: def.effects ?? [], attack: def.attack ?? null, use: def.use ?? null, tags: def.tags ?? [], source: def.source,
     };
   });
@@ -601,7 +610,7 @@ function payForSpell(st, p, library, computed, spell, ctx, out) {
 
 /** What players and the TV may see of a roll: never the target's defence or the margin. */
 export function publicRoll(rec) {
-  const { actionReceipt, spellPayment, evadeAdvantage, weaponHitId, ...visible } = rec;
+  const { actionReceipt, spellPayment, evadeAdvantage, weaponHitId, broken, breakChecked, ...visible } = rec;
   if (!rec.vs) return visible;
   const { defense, margin, ...vs } = rec.vs;
   return { ...visible, vs };
@@ -750,6 +759,28 @@ function rollOf(st, id) {
 }
 const hasResolvedDamage = (st, id) => st.rolls.some((r) => !r.void && (r.spellHitId === id || r.weaponHitId === id));
 /** Works out a changed roll (AI Favor, Intervene) against its target again. */
+function checkWeaponBreak(st, ctx, out, rec) {
+  if (rec.what !== 'attack' || rec.part !== 'hit' || rec.breakChecked) return;
+  const p = st.players.find((player) => player.id === rec.playerId);
+  const index = p?.inventory.findIndex((i) => i.uid === rec.whatId);
+  if (!(index >= 0)) return;
+  const inv = p.inventory[index];
+  const library = libraryOf(st, ctx.pack);
+  const fragile = library.get('item', inv.itemId)?.fragile;
+  if (!fragile || !(fragile.breakOn === 'nat1' ? rec.natural === 1 : rec.vs?.hit)) return;
+  rec.breakChecked = true;
+  if (ctx.rng() >= fragile.chance) return;
+  const { ch, computed } = computeFor(p, ctx.pack, library);
+  rec.broken = { inv: { ...inv, qty: 1 }, index, hot: p.sheet.hotlist.indexOf(inv.uid),
+    attack: ch.attacks.find((k) => k.uid === inv.uid), profile: computed.attacks.find((k) => k.uid === inv.uid) };
+  if (inv.qty > 1) inv.qty--;
+  else removeInv(p, inv.uid);
+  const ev = out.emit({ kind: 'item.broken', playerId: p.id, name: inv.name }, 'all');
+  const text = `${p.name}'s ${inv.name} shattered.`;
+  ctx.h.feedPush(st, ev, text);
+  out.lines.push({ priority: 1, text, quipId: null, crit: false });
+}
+
 function rescore(st, ctx, rec) {
   if (!rec.vs || rec.vs.defense == null || rec.vs.damage !== undefined) return;
   const res = attackOutcome(combatRules(ctx.pack, st.combat?.settings), { d20: rec.natural, total: rec.total, target: rec.vs.defense });
@@ -821,6 +852,19 @@ export function voidRoll(st, ctx, out, rec, by) {
   const refunded = adjustActionReceipt(st, rec, 1);
   adjustEvadeAdvantage(st, rec, true);
   adjustSpellPayment(st, ctx, out, rec, true);
+  if (rec.broken) {
+    const p = st.players.find((x) => x.id === rec.playerId);
+    const { inv, index, hot } = rec.broken;
+    const existing = p?.inventory.find((i) => i.uid === inv.uid);
+    if (existing) existing.qty++;
+    else if (p) {
+      const restored = { ...inv };
+      const slot = ctx.pack.ruleset.slots.find((s) => s.id === restored.equippedSlot);
+      if (slot && p.inventory.filter((i) => i.equippedSlot === slot.id).length >= slot.max) restored.equippedSlot = null;
+      p.inventory.splice(index, 0, restored);
+      if (hot >= 0 && !p.sheet.hotlist[hot]) p.sheet.hotlist[hot] = inv.uid;
+    }
+  }
   rec.void = { by, at: ctx.now };
   if (rec.applied) {
     const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
@@ -858,6 +902,13 @@ function unvoidRoll(st, ctx, out, rec) {
   adjustActionReceipt(st, rec, -1);
   adjustEvadeAdvantage(st, rec, false);
   adjustSpellPayment(st, ctx, out, rec, false);
+  if (rec.broken) {
+    const p = st.players.find((x) => x.id === rec.playerId);
+    const i = p?.inventory.findIndex((entry) => entry.uid === rec.broken.inv.uid);
+    if (!(i >= 0)) throw bad('the restored weapon is no longer in this inventory');
+    if (p.inventory[i].qty > 1) p.inventory[i].qty--;
+    else removeInv(p, rec.broken.inv.uid);
+  }
   rec.void = null;
   if (rec.applied) {
     const m = (st.combat?.combatants ?? []).find((x) => x.uid === rec.applied.uid);
@@ -1343,6 +1394,7 @@ export const SHEET = {
     rec.favored = { from: old };
     rec.breakdown = { ...rec.breakdown, value: rec.total };
     rescore(st, ctx, rec);
+    checkWeaponBreak(st, ctx, out, rec);
     out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: p.id, name: p.name, why: 'favor', from: old, to: die }, 'all');
     const shown = publicRoll(rec);
     out.result = { natural: die, total: rec.total, vs: shown.vs ?? null, roll: shown };
@@ -1380,6 +1432,7 @@ export const SHEET = {
     rec.intervened = { by: me?.id ?? 'gm', name: me?.name ?? 'GM', d6 };
     rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown?.parts ?? []), { label: `Intervene (${me?.name ?? 'GM'})`, value: d6, source: 'intervene' }] };
     rescore(st, ctx, rec);
+    checkWeaponBreak(st, ctx, out, rec);
     out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: rec.playerId, why: 'intervene', by: me?.name ?? 'GM', d6, hit: !!rec.vs.hit }, 'all');
     out.result = { d6, total: rec.total, hit: !!rec.vs.hit, ...(receipt ? { receipt } : {}) };
   },
@@ -1483,7 +1536,11 @@ export const SHEET = {
     const p = spellPlayer ?? attackPlayer ?? targetOf(st, a, ctx, 'play');
     const library = libraryOf(st, ctx.pack);
     const { ch, computed } = computeFor(p, ctx.pack, library);
-    const attackProfile = w.kind === 'attack' ? computed.attacks.find((x) => x.uid === w.uid) : null;
+    const prior = w.kind === 'attack' && w.part === 'damage' && a.after
+      ? st.rolls.find((r) => r.id === a.after && r.playerId === p.id && r.whatId === w.uid && !r.void && r.vs?.hit && r.vs.uid === a.target)
+      : null;
+    if (prior?.broken && hasResolvedDamage(st, prior.id)) throw bad('damage already rolled');
+    const attackProfile = prior?.broken?.profile ?? (w.kind === 'attack' ? computed.attacks.find((x) => x.uid === w.uid) : null);
     let r;
     let formula;
     let label;
@@ -1524,7 +1581,7 @@ export const SHEET = {
       ({ r, formula } = rollWith(rs.skills.check.roll || rs.dice, computed.skills.find((x) => x.uid === s.uid).total, s.name, ctx, `skill:${s.uid}`));
       if (rs.skills.usedTracking && w.markUsed !== false) s.used = true;
     } else if (w.kind === 'attack') {
-      const k = findUid(p.sheet.attacks, w.uid, 'attack');
+      const k = prior?.broken?.attack ?? findUid(ch.attacks, w.uid, 'attack');
       if (w.part === 'damage') {
         if (!k.dice) throw bad(`${k.name} has no damage dice`);
         const sk = k.skillUid ? p.sheet.skills.find((s) => s.uid === k.skillUid) : null;
@@ -1566,6 +1623,8 @@ export const SHEET = {
       rec.spellPayment = payment;
     }
     resolveAgainst(st, ctx0, a, rec, p, out, earned, attackProfile);
+    if (prior?.broken) rec.weaponHitId = prior.id;
+    checkWeaponBreak(st, ctx, out, rec);
     pushRoll(st, rec, out, ctx0);
     const shown = ctx0.actor.role === 'gm' ? rec : publicRoll(rec);
     out.result = { rollId: rec.id, total: rec.total, roll: shown, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, typed: rec.vs.typed ?? null, advantage: !!rec.vs.advantage, applied: rec.applied ?? null } : {}) };

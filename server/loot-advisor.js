@@ -121,18 +121,18 @@ export function parsedPower(it) {
     else if (t === 'tohit' || t === 'damage' || t === 'check') p += v;
     else p += 0.5 * Math.abs(v);
   }
-  if (it.attack) p += Math.max(0, (diceAvg(it.attack.dice) - 3.5) / 2);
+  if (it.attack) p += (it.attack.bonus || 0) + Math.max(0, (diceAvg(it.attack.dice) - 3.5) / 2);
   return Math.round(p * 100) / 100;
 }
 
 /** { power, implied, underrated } — power never below the rarity floor (text-only abilities count by rarity). */
-export function itemPower(it) {
+export function itemPower(it, policy = DEFAULT_LOOT_POLICY) {
   const parsed = parsedPower(it);
   const rarity = RARITY_ORDER.includes(it.rarity) ? it.rarity : 'common';
   const full = Math.max(parsed, RARITY_MIN[rarity]);
   const implied = RARITY_ORDER.find((r) => full <= RARITY_TOP[r]) ?? 'legendary';
   // A fragile item (it can break) is cool now and gone later: only part of its power counts against the budget.
-  const power = it.fragile ? Math.round(full * (DEFAULT_LOOT_POLICY.fragileFactor) * 100) / 100 : full;
+  const power = it.fragile ? Math.round(full * (policy.fragileFactor ?? DEFAULT_LOOT_POLICY.fragileFactor) * 100) / 100 : full;
   return { power, full, parsed, implied, fragile: !!it.fragile, underrated: !it.fragile && rIndex(implied) > rIndex(rarity) };
 }
 
@@ -197,14 +197,14 @@ export function crawlerBuild(sheet, prefs = {}) {
 }
 
 /** Equipped power (consumables and unequipped items don't count) and per-slot best power. */
-export function carriedPower(inventory, itemOf) {
+export function carriedPower(inventory, itemOf, policy) {
   let used = 0;
   const bySlot = {};
   for (const inv of inventory ?? []) {
     if (!inv.equippedSlot) continue;
     const it = itemOf(inv.itemId);
     if (!it || isConsumable(it)) continue;
-    const { power } = itemPower({ ...it, rarity: inv.rarity ?? it.rarity });
+    const { power } = itemPower({ ...it, rarity: inv.rarity ?? it.rarity }, policy);
     used += power;
     bySlot[inv.equippedSlot] = Math.max(bySlot[inv.equippedSlot] ?? 0, power);
   }
@@ -237,7 +237,7 @@ export function offersFor(policy, input) {
   const mode = REWARD_MODES.includes(input.mode) && input.mode !== 'auto' ? input.mode : 'standard';
   // Boss boxes and catch-up may stretch the budget a little (David: "4, sometimes 5").
   const cap = budgetFor(P, floor) + (input.boss || mode === 'catchup' ? P.stretch ?? 0 : 0);
-  const carried = carriedPower(input.inventory, input.itemOf);
+  const carried = carriedPower(input.inventory, input.itemOf, P);
   let { used } = carried;
   const bySlot = { ...carried.bySlot };
   const usedBefore = used;
@@ -259,6 +259,7 @@ export function offersFor(policy, input) {
     // The best item of a boss box is one step better; nothing else may pass the floor's normal ceiling.
     if ((input.boss || mode === 'catchup') && i === 0) rarity = RARITY_ORDER[Math.min(RARITY_ORDER.length - 1, rIndex(rarity) + 1)];
     else if (rIndex(rarity) > maxNormal + (input.boss ? 1 : 0)) rarity = RARITY_ORDER[maxNormal];
+    if (P.perLevel && rIndex(rarity) > maxNormal) rarity = RARITY_ORDER[maxNormal];
     // On-build = the GM's steering if any, else what the sheet shows.
     const wanted = new Set(build.steered.length ? build.steered : build.top);
     const onBuild = (it) => itemBuilds(it).some((b) => wanted.has(b));
@@ -273,13 +274,13 @@ export function offersFor(policy, input) {
     for (let step = rIndex(rarity) - 1; !cands.length && step >= 0; step--) cands = pool.filter((it) => it.rarity === RARITY_ORDER[step] && !taken.has(it.id));
     const scored = [];
     for (const it of cands) {
-      const { power } = itemPower(it);
+      const { power } = itemPower(it, P);
       const builds = itemBuilds(it);
       const consumable = isConsumable(it);
       const slot = slotOf(it);
       const replaces = slot ? bySlot[slot] ?? 0 : 0;
       if (!consumable && used - replaces + power > cap + 1e-9) {
-        held.set(it.id, { itemId: it.id, name: it.name, reason: `over the Floor ${floor} budget (${Math.round((used - replaces + power) * 10) / 10} / ${cap})` });
+        held.set(it.id, { itemId: it.id, name: it.name, reason: `over the ${P.perLevel ? 'Level' : 'Floor'} ${floor} budget (${Math.round((used - replaces + power) * 10) / 10} / ${cap})` });
         continue;
       }
       const why = [];
@@ -332,14 +333,14 @@ export function offersFor(policy, input) {
 export function giveWarnings(policy, { item, floor, inventory, itemOf, source = 'gift' }) {
   const P = policy ?? DEFAULT_LOOT_POLICY;
   const out = [];
-  const { power, underrated, implied } = itemPower(item);
+  const { power, underrated, implied } = itemPower(item, P);
   if (underrated) out.push(`${item.name} is stronger than its rarity (power ${power} ≈ ${implied}).`);
   const max = source === 'mob' || source === 'elite' ? rIndex(P.dropRarity[source]) : rIndex(floorRarityFor(P, floor));
-  if (rIndex(item.rarity) > max) out.push(`${item.rarity} is above the usual ${source === 'gift' ? `Floor ${floor}` : source} ceiling (${RARITY_ORDER[max]}).`);
+  if (rIndex(item.rarity) > max) out.push(`${item.rarity} is above the usual ${source === 'gift' ? `${P.perLevel ? 'Level' : 'Floor'} ${floor}` : source} ceiling (${RARITY_ORDER[max]}).`);
   if (!isConsumable(item)) {
-    const { used } = carriedPower(inventory, itemOf);
+    const { used } = carriedPower(inventory, itemOf, P);
     const cap = budgetFor(P, floor);
-    if (used + power > cap) out.push(`Equipped it would put the crawler at ${Math.round((used + power) * 10) / 10} / ${cap} power for Floor ${floor}.`);
+    if (used + power > cap) out.push(`Equipped it would put the crawler at ${Math.round((used + power) * 10) / 10} / ${cap} power for ${P.perLevel ? 'Level' : 'Floor'} ${floor}.`);
   }
   return out;
 }
@@ -375,7 +376,7 @@ export function crawlerRating(policy, { sheet, inventory, itemOf, floor, level, 
     const it = itemOf(inv.itemId) ?? inv;
     if (!it || isConsumable(it)) continue;
     const full = { ...it, rarity: inv.rarity ?? it.rarity, fragile: inv.fragile ?? it.fragile };
-    const { power } = itemPower(full);
+    const { power } = itemPower(full, P);
     const on = itemBuilds(full).some((b) => wanted.has(b));
     used += power;
     if (on) onBuild += power;
@@ -383,7 +384,7 @@ export function crawlerRating(policy, { sheet, inventory, itemOf, floor, level, 
   }
   const gear = used / cap;
   const coherence = used ? onBuild / used : 0.5;
-  const exp = expectedLevel(floor);
+  const exp = policy?.perLevel ? floor : expectedLevel(floor);
   const lv = Number(level) || 1;
   const score = Math.round(55 * Math.min(gear, 1.2) / 1.2 + 25 * coherence + 20 * Math.min(lv / exp, 1.2) / 1.2);
   const grade = score >= 85 ? 'S' : score >= 70 ? 'A' : score >= 50 ? 'B' : score >= 30 ? 'C' : 'D';
@@ -414,12 +415,20 @@ export function rollDrop(policy, role, rng = Math.random) {
 export const SETTING_KEYS = ['budget', 'stretch', 'wildcard', 'pity', 'offers', 'drops', 'fragileFactor'];
 const effCache = new Map();
 /** pack.lootPolicy with the campaign's GM settings (st.lootSettings) on top. */
-export function effectiveLootPolicy(packPolicy, settings) {
-  if (!settings || !Object.keys(settings).length) return packPolicy ?? DEFAULT_LOOT_POLICY;
+const LEVEL_POLICY = normalizeLootPolicy({
+  budget: Array.from({ length: 20 }, (_, i) => 4 + i * 2),
+  floorRarity: Array.from({ length: 20 }, (_, i) => i >= 16 ? 'legendary' : i >= 10 ? 'epic' : i >= 4 ? 'rare' : 'uncommon'),
+});
+LEVEL_POLICY.perLevel = true;
+export function effectiveLootPolicy(packPolicy, settings, family) {
+  if (family === 'dnd') packPolicy = LEVEL_POLICY;
+  const base = packPolicy ?? DEFAULT_LOOT_POLICY;
+  if (!settings || !Object.keys(settings).length) return base;
   const key = JSON.stringify(settings);
   let hit = effCache.get(key);
   if (!hit || hit.base !== packPolicy) {
     hit = { base: packPolicy, value: normalizeLootPolicy({ ...(packPolicy ?? DEFAULT_LOOT_POLICY), ...settings }) };
+    if (base.perLevel) hit.value.perLevel = true;
     if (effCache.size > 50) effCache.clear();
     effCache.set(key, hit);
   }

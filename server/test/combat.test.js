@@ -21,7 +21,7 @@ const NPCS = [{
   personality: 'Polite.', intro: 'Please welcome our floor clerk.', voice: 'SECRET VOICE', hooks: ['SECRET HOOK'], secrets: ['SECRET SECRET'],
 }];
 const LOCS = [{ id: 'lobby', name: 'Lobby', floor: 1, readAloud: 'Marble.', features: ['SECRET FEATURE'], monsters: ['goblin', 'rat'], npcs: ['quill'], bosses: ['porter'] }];
-const BOSSES = [{ id: 'porter', name: 'Porter Grim', hpSlots: 20, evade: 2, dr: 2, attacks: [{ name: 'Hurl', toHit: 4, damage: '1d6' }], tactics: 'SECRET BOSS TACTICS' }];
+const BOSSES = [{ id: 'porter', name: 'Porter Grim', rank: 'City Boss', hpSlots: 20, evade: 2, dr: 2, attacks: [{ name: 'Hurl', toHit: 4, damage: '1d6' }], tactics: 'SECRET BOSS TACTICS' }];
 const BUFFS = [{ id: 'bleeding', name: 'Bleeding', tags: ['debuff'], effects: [] }, { id: 'prone', name: 'Prone' }];
 
 const dir = writePack(tmpDir(), { 'monsters.json': MONSTERS, 'npcs.json': NPCS, 'locations.json': LOCS, 'bosses.json': BOSSES, 'buffs.json': BUFFS });
@@ -630,4 +630,21 @@ test('manual lethal hits preview without broadcasts, reject stale confirmation a
   assert.deepEqual(s.combat.stats.downs, {});
   assert.deepEqual(s.combat.stats.taken, {});
   assert.equal(viewFor(s, guarded, 'gm').combat.combatants.find((x) => x.uid === hero.uid).hp, preview.result.amount);
+});
+
+test('a downed City Boss drops a gold boss box that waits on its recipient', () => {
+  let { s, pid } = base();
+  const boss = gm(s, { t: 'combat.addMob', sourceKind: 'boss', sourceId: 'porter', hidden: false });
+  const uid = boss.result.uids[0];
+  s = gm(boss.state, { t: 'combat.start' }).state;
+  s = gm(s, { t: 'combat.damage', uid, amount: 100 }).state;
+  if (!s.drops?.some((d) => d.from.uid === uid)) s = gm(s, { t: 'loot.corpse', uid }).state;
+  const drop = s.drops.find((d) => d.from.uid === uid);
+  const box = drop.items.find((it) => it.box);
+  assert.equal(box.box, 'gold');
+  assert.equal(box.boss, true);
+  const take = { t: 'loot.take', playerId: pid, dropId: drop.id, key: box.key };
+  s = gm(s, take).state;
+  assert.deepEqual(s.players[0].pendingBoxes.map((b) => [b.tier, b.boss]), [['gold', true]]);
+  assert.throws(() => gm(s, take), /already taken/);
 });

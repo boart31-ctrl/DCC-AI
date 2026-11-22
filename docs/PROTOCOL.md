@@ -868,3 +868,6 @@ Solo map tokens may specify `sourceKind` and `sourceId` in `map.token.add` for m
 | `loot.prefs` | … `mode?` auto / catchup / standard / ahead | Reward mode per crawler (auto: C/D grade → catch-up, S → ahead). |
 | `loot.box` | … `pendingId?` | Opening a waiting box (boss drop, achievement) removes it from `player.pendingBoxes`. |
 GM view `gm.loot` = { floor, settings, policy, crawlers: [{ playerId, name, rating {score, grade, gear, coherence, level, items[{name, grade, power, onBuild, fragile}]}, mode, modeSetting, prefs, pendingBoxes }] }. Mob corpses roll `policy.drops` (pack-enabled); bosses drop a Boss box item that becomes a pending box when taken.
+
+Inventory weapons with `fragile: {breakOn: "nat1"|"hit", chance: 0..1}` use their inventory UID in `roll.what.kind="attack"`. A qualifying strike tests the chance once. A break removes that copy and emits `item.broken` with the owner and item name for the feed, voice and phone. Undo restores the copy. A hit that breaks a weapon still permits its linked damage roll.
+GM `scene.set` with `kind:"builds"` puts the party build analysis on stage. Only the stage and GM projections include the crawler scores, grades and top equipped items.

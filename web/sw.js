@@ -75,6 +75,7 @@ const SHELL = [
   '/js/scenes/countdown.js',
   '/js/scenes/roll.js',
   '/js/scenes/recap.js',
+  '/js/scenes/builds.js',
   '/js/scenes/blank.js',
   '/js/scenes/combat.js',
   '/js/scenes/finale.js',

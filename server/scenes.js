@@ -11,7 +11,7 @@ import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
 import { combatRules, mobHealthSlot, rolledDamage, recordKillCredit } from './outcome.js';
 
-export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map'];
+export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map', 'builds'];
 // combat-auto.js OUTCOMES (kept here too: scenes.js must not import combat-auto.js, which imports combat.js → scenes.js).
 export const FINALE_OUTCOMES = ['victory', 'defeat', 'runaway', 'truce', 'special', 'sponsor', 'timeout', 'stalemate'];
 export const AUDIO_DEVICES = ['gm', 'stage'];
@@ -75,6 +75,7 @@ const T = {
 
 /** Plain per-kind fields: key → validator. Boss / countdown / loot / roll have extra logic below. */
 const PLAIN = {
+  builds: {},
   lobby: { title: T.title, subtitle: T.subtitle, showQr: T.showQr },
   explore: { location: T.location, floor: T.floor, image: T.image, text: T.text1200, showFeed: T.showFeed, locationId: (v) => v },
   recap: { title: T.title, text: T.text4000 },
@@ -86,6 +87,7 @@ const PLAIN = {
 };
 
 const DEFAULTS = {
+  builds: () => ({}),
   lobby: () => ({ title: '', subtitle: '', showQr: true }),
   explore: () => ({ locationId: null, location: '', floor: '', image: null, text: '', showFeed: true }),
   recap: () => ({ title: '', text: '' }),

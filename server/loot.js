@@ -63,8 +63,8 @@ function stock(lib, entryIds, ctx) {
 // ~1 in 50 rare), elites more and better, bosses a Boss box of their rank. Smart-loot: 60% of item drops lean to the
 // build of the crawler who made the kill. Off when the campaign sets lootSettings.dropsOff.
 function rolledDrop(st, ctx, mob, lib) {
-  if (st.lootSettings?.dropsOff) return [];
-  const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings);
+  if (st.lootSettings?.dropsOff ?? (ctx.pack.ruleset.system?.family === 'pf2e')) return [];
+  const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings, ctx.pack.ruleset.system?.family);
   const src = mob.sourceKind && mob.sourceId ? lib.get(mob.sourceKind, mob.sourceId) : null;
   if (mob.sourceKind === 'boss' || mob.role === 'boss') {
     const tier = bossBoxTier(P, src?.rank ?? src?.tier);

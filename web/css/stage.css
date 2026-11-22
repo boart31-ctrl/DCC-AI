@@ -698,3 +698,8 @@ body.has-crawlers .hype { width: 20rem; }
 .hold-in b { font: 900 7rem/1 var(--f-ui, sans-serif); text-transform: uppercase; letter-spacing: 0.08em; }
 .hold-in span { font: 600 2.4rem var(--f-ui, sans-serif); opacity: 0.7; }
 .cr-floor { white-space: nowrap; }
+
+.build-analysis { margin: auto; text-align: center; padding: 4vh 6vw; font-size: clamp(1.1rem, 3vh, 3rem); }
+.build-analysis h1 { color: var(--cyan); font-size: 1em; text-transform: uppercase; letter-spacing: .12em; }
+.build-analysis h2 { margin: .25em 0; font-size: 2.5em; }
+.build-analysis strong { color: var(--acid); font-size: 2em; }

@@ -491,7 +491,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         h('div.atk-hit', h('span.mini-l', 'To hit'), num(c.toHit || { value: 0, parts: [] }, { title: `${a.name} to hit`, prefix: ' ', text: signed(c.toHit?.value), roll: { kind: 'attack', uid: a.uid } })),
         h('div.atk-dmg', h('span.mini-l', 'Damage'), num(dmgBreakdown(c, a), { title: `${a.name} damage`, text: dmgText, roll: M.local ? { kind: 'custom', formula: String(c.damage || a.dice || '0').replace(/−/g, '-'), label: `${a.name} damage` } : { kind: 'attack', uid: a.uid, part: 'damage' }, note: 'Dice plus these modifiers. Tap to roll damage.' })),
         a.effects ? h('p.atk-fx', a.effects) : null,
-        ok && ui.editing ? h('div.atk-edit',
+        ok && ui.editing && !a.item ? h('div.atk-edit',
           field(a.name, { onCommit: (v) => act({ t: 'attack.update', uid: a.uid, name: v }), attrs: { 'aria-label': 'Attack name' } }),
           select([{ value: '', label: 'No skill' }, ...M.sheet.skills.map((s) => ({ value: s.uid, label: s.name }))], a.skillUid || '', { label: 'Skill', onChange: (v) => act({ t: 'attack.update', uid: a.uid, skillUid: v || null }) }),
           select(M.rs.stats.map((s) => ({ value: s.id, label: s.abbr })), a.stat, { label: 'Stat', onChange: (v) => act({ t: 'attack.update', uid: a.uid, stat: v }) }),
@@ -684,7 +684,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         const on = i.equippedSlot === sl.id;
         return h('li.pick-row', { class: on ? 'pick-row on' : 'pick-row' }, itemArt(it, 'inv-ico'),
           h('div.pick-txt', h('b', it.name, (i.qty ?? 1) > 1 ? h('span.dim', ` ×${i.qty}`) : null), h('span.dim.pick-line', itemLine(it, i) || humanize(rarityOf(it.rarity)))),
-          it.attack ? h('div.pick-nums', weaponNums(it)) : null,
+          it.attack ? h('div.pick-nums', weaponNums(it, i.uid)) : null,
           on ? h('button.btn.btn-sm', { type: 'button', onclick: async () => { await act({ t: 'item.equip', uid: i.uid, slot: null }); refresh(); } }, 'Unequip')
             : h('button.btn.btn-sm.btn-primary', { type: 'button', onclick: async () => {
               if (full && eq[0]) await act({ t: 'item.equip', uid: eq[0].uid, slot: null }, null);
@@ -737,11 +737,11 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return { toHit, dmg, dmgText };
   }
   /** To hit + damage chips that roll on tap (inline rows and the item drawer). */
-  function weaponNums(it) {
+  function weaponNums(it, uid) {
     const { toHit, dmg, dmgText } = weaponMath(it);
     return [
-      h('div.atk-hit', h('span.mini-l', 'To hit'), num(toHit, { title: `${it.name} to hit`, prefix: ' ', text: signed(toHit.value), roll: { kind: 'custom', formula: `${M.rs.dice}+${toHit.value}`, label: `${it.name} to hit` } })),
-      h('div.atk-dmg', h('span.mini-l', 'Damage'), num(dmg, { title: `${it.name} damage`, text: minus(dmgText), roll: { kind: 'custom', formula: dmgText.replace(/−/g, '-'), label: `${it.name} damage` } })),
+      h('div.atk-hit', h('span.mini-l', 'To hit'), num(toHit, { title: `${it.name} to hit`, prefix: ' ', text: signed(toHit.value), roll: it.fragile && !M.local ? { kind: 'attack', uid, part: 'toHit' } : { kind: 'custom', formula: `${M.rs.dice}+${toHit.value}`, label: `${it.name} to hit` } })),
+      h('div.atk-dmg', h('span.mini-l', 'Damage'), num(dmg, { title: `${it.name} damage`, text: minus(dmgText), roll: it.fragile && !M.local ? { kind: 'attack', uid, part: 'damage' } : { kind: 'custom', formula: dmgText.replace(/−/g, '-'), label: `${it.name} damage` } })),
     ];
   }
   /** One short line about an item: attack dice, use, slot. */
@@ -784,7 +784,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       if (M.rs.hotlist?.combat && it.tags?.includes('potion')) actions.push(h('button.btn', { type: 'button', onclick: () => choosePotionRecipient(uid) }, 'Give to ally'));
     }
     const atk = it.attack;
-    const atkLine = atk ? h('div.item-atk', h('h3.sub-t', 'Attack'), h('div.atk-inline2', weaponNums(it)), atk.effects ? h('p.atk-fx', atk.effects) : null) : null;
+    const atkLine = atk ? h('div.item-atk', h('h3.sub-t', 'Attack'), h('div.atk-inline2', weaponNums(it, uid)), atk.effects ? h('p.atk-fx', atk.effects) : null) : null;
     const body = [
       h('div.item-head', itemArt(it, 'item-art'), h('div.item-tags', h('span.pill', { class: `pill rar-${r}` }, r), slot ? h('span.pill', slot.label) : h('span.pill', 'No slot'), inv.equippedSlot ? h('span.pill.pill-on', 'Equipped') : null, (it.tags || []).map((t) => h('span.pill.pill-tag', t)))),
       it.desc ? h('p.desc', it.desc) : null,
@@ -1058,7 +1058,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
         itemArt(it, 'inv-ico'),
         h('button.wpn-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name),
           h('span.inv-note', [i.equippedSlot ? 'In hand' : 'Carried', it.attack.effects].filter(Boolean).join(' · '))),
-        ...weaponNums(it));
+        ...weaponNums(it, i.uid));
     };
     const uRow = (i) => {
       const it = itemOf(M.lib, i);

@@ -331,7 +331,7 @@ client.on('event', (e) => {
     return;
   }
   if (e.playerId !== me.id) return;
-  if (['achievement', 'loot', 'sponsor'].includes(e.kind)) {
+  if (['achievement', 'loot', 'sponsor', 'item.broken'].includes(e.kind)) {
     if (e.id && seenLoad()?.has(e.id)) return; // the view got here first and already played it
     receiveTakeover(e);
   }
@@ -374,7 +374,7 @@ function receiveTakeover(e) {
 }
 function replayMissed(v) {
   if (!me) return;
-  const mine = (v.feed || []).filter((f) => f.playerId === me.id && f.replay && ['achievement', 'loot', 'sponsor'].includes(f.kind));
+  const mine = (v.feed || []).filter((f) => f.playerId === me.id && f.replay && ['achievement', 'loot', 'sponsor', 'item.broken'].includes(f.kind));
   if (!seenLoad()) { for (const f of mine) markSeen(f.id); if (!mine.length) markSeen('_init'); return; }
   const now = v.now || Date.now();
   for (const f of mine) {
@@ -1106,7 +1106,11 @@ function nextTakeover() {
     nextTakeover();
   };
 
-  if (e.kind === 'achievement') {
+  if (e.kind === 'item.broken') {
+    buzz([80, 40, 100]);
+    el.replaceChildren(h('div.to-inner', h('h2', `Your ${e.name} shattered`)));
+    dismissable(200);
+  } else if (e.kind === 'achievement') {
     buzz([60, 40, 60, 40, 200]);
     el.style.setProperty('--glow', 'var(--cyan)');
     el.replaceChildren(h('div.to-inner.to-ach',
