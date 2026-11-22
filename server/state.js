@@ -25,7 +25,7 @@ import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventur
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { RULES_GM } from './rules-search.js';
 import { originsFor } from './origins.js';
-import { BUILD_IDS, offersFor, giveWarnings, itemBuilds, crawlerBuild } from './loot-advisor.js';
+import { BUILD_IDS, offersFor, giveWarnings, itemBuilds, crawlerBuild, crawlerRating, rewardMode, effectiveLootPolicy, normalizeLootPolicy, REWARD_MODES, SETTING_KEYS } from './loot-advisor.js';
 import { floorOfState } from './outcome.js';
 import { ADVANCEMENT_PLAYER, advancementClockView, changeAdvancementClock, consumeAdvancementMilestone, normalizeAdvancementClock,
   normalizeLevelGrants, recordLevelGrant, snoozeAdvancementClock } from './advancement.js';
@@ -331,14 +331,36 @@ function rollGold(expr, rng) {
   return sum * Number(m[3] || 1);
 }
 
+function lootOverview(st, pack) {
+  const P = effectiveLootPolicy(pack.lootPolicy, st.lootSettings);
+  const lib = libraryOf(st, pack);
+  const itemOf = (id) => lib.get('item', id);
+  const floor = floorOfState(st);
+  return {
+    floor,
+    settings: st.lootSettings ?? {},
+    policy: { budget: P.budget, stretch: P.stretch, wildcard: P.wildcard, pity: P.pity, offers: P.offers, drops: P.drops, floorRarity: P.floorRarity, fragileFactor: P.fragileFactor },
+    crawlers: st.players.map((p) => {
+      const rating = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf, floor, level: p.sheet?.level, prefs: p.lootPrefs });
+      return { playerId: p.id, name: p.name, rating, modeSetting: p.lootPrefs?.mode ?? 'auto', mode: rewardMode(p.lootPrefs?.mode, rating.grade),
+        prefs: p.lootPrefs ?? {}, pendingBoxes: p.pendingBoxes ?? [], boxes: p.lootStats?.boxes ?? 0 };
+    }),
+  };
+}
+
 function lootOffers(st, ctx, a) {
   const p = playerOf(st, a.playerId);
   if (typeof a.tier !== 'string' || !ctx.pack.tiersById.has(a.tier)) throw notFound(`unknown loot tier ${a.tier}`);
   const lib = libraryOf(st, ctx.pack);
   const items = lib.list ? lib.list('item') : [...(ctx.pack.itemsById?.values?.() ?? [])];
   const owned = new Set(st.players.flatMap((x) => x.inventory.map((i) => i.itemId)));
-  return offersFor(ctx.pack.lootPolicy, { tier: a.tier, boss: a.boss === true, floor: floorOfState(st), sheet: p.sheet, inventory: p.inventory,
-    prefs: p.lootPrefs, stats: p.lootStats, items, itemOf: (id) => lib.get('item', id), owned, rng: ctx.rng });
+  const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings);
+  const itemOf = (id) => lib.get('item', id);
+  const floor = floorOfState(st);
+  const rating = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf, floor, level: p.sheet?.level, prefs: p.lootPrefs });
+  const mode = rewardMode(p.lootPrefs?.mode, rating.grade);
+  return { ...offersFor(P, { tier: a.tier, boss: a.boss === true, mode, floor, sheet: p.sheet, inventory: p.inventory,
+    prefs: p.lootPrefs, stats: p.lootStats, items, itemOf, owned, rng: ctx.rng }), rating: { score: rating.score, grade: rating.grade }, modeSetting: p.lootPrefs?.mode ?? 'auto' };
 }
 
 function lootRoll(st, ctx, tier) {
@@ -471,6 +493,8 @@ const GM = {
       'all',
     );
     feedPush(st, ev, `${p.name} earned "${ach.title}"`);
+    // Its box waits on the crawler until the GM opens it with the System's offers (C1b).
+    if (ach.box && ctx.pack.tiersById.has(ach.box)) p.pendingBoxes = [...(p.pendingBoxes ?? []), { id: ctx.genId('pb'), tier: ach.box, boss: false, from: ach.title, at: ctx.now }].slice(-20);
     out.emit(bumpPct(st, ctx, randRange(ctx.rng, 0.05, 0.15)));
     const voiced = ach.voice && ctx.pack.quipsById.get(ach.voice);
     const line = voiced
@@ -515,6 +539,22 @@ const GM = {
     out.changed = false;
   },
 
+  /** Campaign loot settings over the pack policy: a: { settings: { budget?, stretch?, wildcard?, pity?, offers?, drops?, fragileFactor?, dropsOff? } | null }. */
+  'loot.settings'(st, a) {
+    if (a.settings === null) { delete st.lootSettings; return; }
+    if (!a.settings || typeof a.settings !== 'object' || Array.isArray(a.settings)) throw bad('settings must be an object');
+    const next = { ...(st.lootSettings ?? {}) };
+    for (const [k, v] of Object.entries(a.settings)) {
+      if (k === 'dropsOff') { if (typeof v !== 'boolean') throw bad('dropsOff must be true/false'); next.dropsOff = v; continue; }
+      if (!SETTING_KEYS.includes(k)) throw bad(`unknown loot setting ${k}`);
+      if (v === null) { delete next[k]; continue; }
+      const probe = normalizeLootPolicy({ [k]: v });
+      if (JSON.stringify(probe[k]) === JSON.stringify(normalizeLootPolicy(null)[k]) && JSON.stringify(v) !== JSON.stringify(normalizeLootPolicy(null)[k])) throw bad(`${k}: not a valid value`);
+      next[k] = v;
+    }
+    st.lootSettings = next;
+  },
+
   /** GM steering for one crawler: a: { playerId, builds?: [build], lean?: 0..1 (wild-card chance), block?: [itemId] }. */
   'loot.prefs'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
@@ -527,6 +567,10 @@ const GM = {
     if (a.lean !== undefined) {
       if (typeof a.lean !== 'number' || !(a.lean >= 0 && a.lean <= 1)) throw bad('lean must be 0..1');
       next.lean = Math.round(a.lean * 100) / 100;
+    }
+    if (a.mode !== undefined) {
+      if (!REWARD_MODES.includes(a.mode)) throw bad(`mode: ${REWARD_MODES.join(', ')}`);
+      next.mode = a.mode;
     }
     if (a.block !== undefined) {
       if (!Array.isArray(a.block) || a.block.some((x) => typeof x !== 'string')) throw bad('block must be item ids');
@@ -543,12 +587,15 @@ const GM = {
    */
   'loot.box'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
-    const P = ctx.pack.lootPolicy;
+    const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings);
     if (typeof a.tier !== 'string' || !ctx.pack.tiersById.has(a.tier)) throw notFound(`unknown loot tier ${a.tier}`);
     if (!Array.isArray(a.itemIds) || !a.itemIds.length || a.itemIds.length > 8) throw bad('itemIds: 1–8 items');
     const lib = libraryOf(st, ctx.pack);
     const items = a.itemIds.map((id) => { const it = lib.get('item', id); if (!it) throw notFound(`unknown item ${id}`); return it; });
-    const reach = Object.keys(P.weights[a.tier] ?? {}).reduce((m, r) => Math.max(m, RARITY_IDX(r)), 0) + (a.boss ? 1 : 0);
+    const libR = libraryOf(st, ctx.pack);
+    const ratingR = crawlerRating(P, { sheet: p.sheet, inventory: p.inventory, itemOf: (id) => libR.get('item', id), floor: floorOfState(st), level: p.sheet?.level, prefs: p.lootPrefs });
+    const lifted = a.boss === true || rewardMode(p.lootPrefs?.mode, ratingR.grade) === 'catchup';
+    const reach = Object.keys(P.weights[a.tier] ?? {}).reduce((m, r) => Math.max(m, RARITY_IDX(r)), 0) + (lifted ? 1 : 0);
     const tooRare = items.filter((it) => RARITY_IDX(it.rarity) > reach);
     if (tooRare.length && a.force !== true) throw bad(`${tooRare.map((it) => it.name).join(', ')}: above what a ${a.tier} box holds (force to give anyway)`);
     const floor = floorOfState(st);
@@ -562,6 +609,7 @@ const GM = {
     const wanted = new Set(build.steered.length ? build.steered : build.top);
     const fit = items.some((it) => itemBuilds(it).some((b) => wanted.has(b)));
     p.lootStats = { boxes: (p.lootStats?.boxes ?? 0) + 1, noFit: fit ? 0 : (p.lootStats?.noFit ?? 0) + 1 };
+    if (typeof a.pendingId === 'string') p.pendingBoxes = (p.pendingBoxes ?? []).filter((b) => b.id !== a.pendingId);
     const best = given.reduce((b, x) => (RARITY_IDX(x.rarity) > RARITY_IDX(b.rarity) ? x : b), given[0]);
     const { name, desc, flavor, rarity, image } = best;
     setScene(st, ctx, 'loot', { playerId: p.id, tier: a.tier, opened: { name, desc, flavor, rarity, image } });
@@ -593,7 +641,7 @@ const GM = {
     const item = libraryOf(st, ctx.pack).get('item', a.itemId);
     if (!item) throw notFound(`unknown item ${a.itemId}`);
     const qty = int(a.qty, 'qty', 1, 9999, { optional: true }) ?? 1;
-    const warnings = giveWarnings(ctx.pack.lootPolicy, { item, floor: floorOfState(st), inventory: p.inventory, itemOf: (id) => libraryOf(st, ctx.pack).get('item', id) });
+    const warnings = giveWarnings(effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings), { item, floor: floorOfState(st), inventory: p.inventory, itemOf: (id) => libraryOf(st, ctx.pack).get('item', id) });
     const inv = giveItem(p, item, ctx, qty, int(a.bonus, 'bonus', 0, MAX_ENHANCE, { optional: true }) ?? 0);
     out.result = { uid: inv.uid, ...(warnings.length ? { warnings } : {}) };
   },
@@ -1381,6 +1429,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   } else if (role === 'gm') {
     const cats = [...new Set([...STANDARD_CATEGORIES, ...pack.quipsByCategory.keys()])];
     v.gm = {
+      loot: lootOverview(state, pack), // C1b: Loot tab (ratings, modes, pending boxes, policy, campaign settings)
       origins: originsFor(pack), // content source badges (Library, Prep picker, mob cards)
       // Level-up reminder (gm.js): minutes of play, since the last party level-up, snoozed until.
       playClock: { playMin: Math.floor((state.session.playMs ?? 0) / 60_000), sinceLevelMin: Math.floor(((state.session.playMs ?? 0) - (state.session.levelAtMs ?? 0)) / 60_000), snoozeMin: state.session.levelSnoozeMs != null ? Math.ceil(state.session.levelSnoozeMs / 60_000) : null },

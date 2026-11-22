@@ -34,17 +34,29 @@ export const DEFAULT_LOOT_POLICY = Object.freeze({
   items: { bronze: 2, silver: 2, gold: 3, platinum: 3, legendary: 3, celestial: 4, sponsor: 1 },
   gold: { bronze: '1d10', silver: '1d10*100', gold: '2d10*100', platinum: '5d10*100', legendary: '1d10*1000', celestial: '5d10*1000', sponsor: '' },
   // Equipped power a crawler may carry, per floor (index 0 = Floor 1). Consumables don't count.
-  budget: [3, 6, 10, 15, 21, 28, 36, 45, 55],
+  // David 22 Nov: generous — 4 on Floor 1, and `stretch` more when a boss box or catch-up mode allows it.
+  budget: [4, 7, 11, 16, 22, 29, 37, 46, 56],
+  stretch: 1,
   // Highest rarity a normal (non-boss) reward should hold, per floor.
   floorRarity: ['uncommon', 'rare', 'epic', 'epic', 'legendary', 'legendary', 'legendary', 'legendary', 'legendary'],
   // Boss box by boss tier (book: Neighborhood Bronze … Floor Celestial).
   bossBox: { neighborhood: 'bronze', borough: 'silver', city: 'gold', province: 'platinum', country: 'legendary', floor: 'celestial' },
-  // Ordinary drops: highest rarity from a mob / an elite (David: "a new ordinary weapon at most uncommon").
+  // Ordinary drops (normal rewards from a gift): highest rarity a mob / an elite usually gives.
   dropRarity: { mob: 'common', elite: 'uncommon' },
+  // What a downed mob drops by itself (per body, weights incl. "none" and "junk"). David 22 Nov: an ordinary mob
+  // gives something now and then, ~1 in 10 uncommon, ~1 in 50 rare; elites more and better; bosses pay a box.
+  // Engine default: off (a pack turns it on; the DCC pack uses mob {none 28, junk 30, common 30, uncommon 10, rare 2},
+  // elite {none 5, junk 15, common 40, uncommon 30, rare 9, epic 1}).
+  drops: { mob: { none: 1 }, elite: { none: 1 } },
   offers: 3,
   wildcard: 0.3,
   pity: 2,
+  // Fragile items (glass sword +4: may break) count this share of their power against the budget.
+  fragileFactor: 0.5,
 });
+
+export const REWARD_MODES = ['auto', 'catchup', 'standard', 'ahead'];
+export const GRADES = ['S', 'A', 'B', 'C', 'D'];
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const rIndex = (r) => Math.max(0, RARITY_ORDER.indexOf(r));
@@ -63,7 +75,16 @@ export function normalizeLootPolicy(raw, warnings = []) {
   out.dropRarity = obj('dropRarity');
   if (Array.isArray(raw.budget) && raw.budget.every((x) => Number.isFinite(x) && x > 0)) out.budget = raw.budget.slice(0, 20);
   if (Array.isArray(raw.floorRarity) && raw.floorRarity.every((x) => RARITY_ORDER.includes(x))) out.floorRarity = raw.floorRarity.slice(0, 20);
-  for (const k of ['offers', 'pity']) if (Number.isInteger(raw[k]) && raw[k] >= 0 && raw[k] <= 6) out[k] = raw[k];
+  for (const k of ['offers', 'pity', 'stretch']) if (Number.isInteger(raw[k]) && raw[k] >= 0 && raw[k] <= 6) out[k] = raw[k];
+  if (Number.isFinite(raw.fragileFactor) && raw.fragileFactor >= 0 && raw.fragileFactor <= 1) out.fragileFactor = raw.fragileFactor;
+  if (isObj(raw.drops)) {
+    out.drops = { ...d.drops };
+    for (const [k, w] of Object.entries(raw.drops)) {
+      if (!['mob', 'elite'].includes(k) || !isObj(w)) continue;
+      const clean = Object.fromEntries(Object.entries(w).filter(([r, n]) => (r === 'none' || r === 'junk' || RARITY_ORDER.includes(r)) && Number.isFinite(n) && n >= 0 && n <= 1000));
+      if (Object.values(clean).some((n) => n > 0)) out.drops[k] = clean;
+    }
+  }
   if (Number.isFinite(raw.wildcard) && raw.wildcard >= 0 && raw.wildcard <= 1) out.wildcard = raw.wildcard;
   return out;
 }
@@ -108,9 +129,11 @@ export function parsedPower(it) {
 export function itemPower(it) {
   const parsed = parsedPower(it);
   const rarity = RARITY_ORDER.includes(it.rarity) ? it.rarity : 'common';
-  const power = Math.max(parsed, RARITY_MIN[rarity]);
-  const implied = RARITY_ORDER.find((r) => power <= RARITY_TOP[r]) ?? 'legendary';
-  return { power, parsed, implied, underrated: rIndex(implied) > rIndex(rarity) };
+  const full = Math.max(parsed, RARITY_MIN[rarity]);
+  const implied = RARITY_ORDER.find((r) => full <= RARITY_TOP[r]) ?? 'legendary';
+  // A fragile item (it can break) is cool now and gone later: only part of its power counts against the budget.
+  const power = it.fragile ? Math.round(full * (DEFAULT_LOOT_POLICY.fragileFactor) * 100) / 100 : full;
+  return { power, full, parsed, implied, fragile: !!it.fragile, underrated: !it.fragile && rIndex(implied) > rIndex(rarity) };
 }
 
 const KW = [
@@ -211,7 +234,9 @@ export function offersFor(policy, input) {
   const P = policy ?? DEFAULT_LOOT_POLICY;
   const rng = input.rng ?? Math.random;
   const floor = input.floor || 1;
-  const cap = budgetFor(P, floor);
+  const mode = REWARD_MODES.includes(input.mode) && input.mode !== 'auto' ? input.mode : 'standard';
+  // Boss boxes and catch-up may stretch the budget a little (David: "4, sometimes 5").
+  const cap = budgetFor(P, floor) + (input.boss || mode === 'catchup' ? P.stretch ?? 0 : 0);
   const carried = carriedPower(input.inventory, input.itemOf);
   let { used } = carried;
   const bySlot = { ...carried.bySlot };
@@ -221,7 +246,7 @@ export function offersFor(policy, input) {
   const block = new Set(input.prefs?.block ?? []);
   const weights = P.weights[input.tier] ?? P.weights.bronze;
   const count = Math.max(1, P.items[input.tier] ?? 1);
-  const pity = (input.stats?.noFit ?? 0) >= P.pity;
+  const pity = (input.stats?.noFit ?? 0) >= P.pity || mode === 'catchup';
   const lean = Number.isFinite(input.prefs?.lean) ? input.prefs.lean : P.wildcard;
   const maxNormal = rIndex(floorRarityFor(P, floor));
   const pool = (input.items ?? []).filter((it) => isLootable(it) && !block.has(it.id) && !(it.unique && input.owned?.has(it.id)));
@@ -232,7 +257,7 @@ export function offersFor(policy, input) {
   for (let i = 0; i < count; i++) {
     let rarity = pickWeighted(rng, weights);
     // The best item of a boss box is one step better; nothing else may pass the floor's normal ceiling.
-    if (input.boss && i === 0) rarity = RARITY_ORDER[Math.min(RARITY_ORDER.length - 1, rIndex(rarity) + 1)];
+    if ((input.boss || mode === 'catchup') && i === 0) rarity = RARITY_ORDER[Math.min(RARITY_ORDER.length - 1, rIndex(rarity) + 1)];
     else if (rIndex(rarity) > maxNormal + (input.boss ? 1 : 0)) rarity = RARITY_ORDER[maxNormal];
     // On-build = the GM's steering if any, else what the sheet shows.
     const wanted = new Set(build.steered.length ? build.steered : build.top);
@@ -265,7 +290,10 @@ export function offersFor(policy, input) {
       }
       if (slot && !bySlot[slot] && !consumable) { fit += 1.5; why.push(`empty ${slot}`); }
       else if (slot && power > replaces && !consumable) { fit += 1; why.push('upgrade'); }
-      if (consumable) fit += 0.5;
+      if (consumable) fit += mode === 'ahead' ? 3 : 0.5;
+      if (it.fragile && mode === 'ahead') fit += 2;
+      // Already ahead: gear only as a real upgrade, the rest of the box leans to better consumables.
+      if (mode === 'ahead' && !consumable && !it.fragile && slot && power <= replaces) continue;
       scored.push({ it, power, builds, fit, why, on: builds.some((b) => wanted.has(b)) });
     }
     scored.sort((a, b) => Number(b.on) - Number(a.on) || b.fit - a.fit || a.it.name.localeCompare(b.it.name));
@@ -296,7 +324,7 @@ export function offersFor(policy, input) {
     slots.push({ rarity: offers[0]?.it.rarity ?? rarity, offers: offers.map((o) => ({ itemId: o.it.id, name: o.it.name, rarity: o.it.rarity, image: o.it.image ?? null, desc: o.it.desc ?? '',
       power: o.power, builds: o.builds, fit: Math.round(o.fit * 10) / 10, wild: o.wild, why: o.wild ? ['wild card'] : o.why.slice(0, 3) })) });
   }
-  return { tier: input.tier, boss: !!input.boss, floor, budget: { cap, used: usedBefore }, build: { top: build.top, steered: build.steered }, pity,
+  return { tier: input.tier, boss: !!input.boss, mode, floor, budget: { cap, used: usedBefore }, build: { top: build.top, steered: build.steered }, pity,
     slots, held: [...held.values()].slice(0, 8) };
 }
 
@@ -315,3 +343,96 @@ export function giveWarnings(policy, { item, floor, inventory, itemOf, source = 
   }
   return out;
 }
+
+// ---------- grades and the crawler's power rating (GM-side; the TV show can use it) ----------
+
+const CONSUMABLE_GRADE = { common: 'C', uncommon: 'B', rare: 'A', epic: 'S', legendary: 'S' };
+
+/** S–D for an item on this floor: its full power against a quarter of the floor budget (≈ one gear slot). */
+export function itemGrade(policy, it, floor) {
+  if (isConsumable(it)) return CONSUMABLE_GRADE[it.rarity] ?? 'C';
+  const ratio = itemPower(it).full / (budgetFor(policy ?? DEFAULT_LOOT_POLICY, floor) / 4);
+  return ratio >= 1.5 ? 'S' : ratio >= 1.1 ? 'A' : ratio >= 0.75 ? 'B' : ratio >= 0.4 ? 'C' : 'D';
+}
+
+export const expectedLevel = (floor) => Math.max(1, (floor || 1) * 5 - 2);
+
+/**
+ * How strong is this crawler for where the party is? 0–100 and S–D from three parts:
+ *   gear 55 (equipped power vs the floor budget), build 25 (share of that power on the crawler's build),
+ *   level 20 (level vs ~2 levels per session, 5 per floor). Also every equipped item with its grade.
+ */
+export function crawlerRating(policy, { sheet, inventory, itemOf, floor, level, prefs }) {
+  const P = policy ?? DEFAULT_LOOT_POLICY;
+  const cap = budgetFor(P, floor);
+  const build = crawlerBuild(sheet, prefs);
+  const wanted = new Set(build.steered.length ? build.steered : build.top);
+  const items = [];
+  let used = 0;
+  let onBuild = 0;
+  for (const inv of inventory ?? []) {
+    if (!inv.equippedSlot) continue;
+    const it = itemOf(inv.itemId) ?? inv;
+    if (!it || isConsumable(it)) continue;
+    const full = { ...it, rarity: inv.rarity ?? it.rarity, fragile: inv.fragile ?? it.fragile };
+    const { power } = itemPower(full);
+    const on = itemBuilds(full).some((b) => wanted.has(b));
+    used += power;
+    if (on) onBuild += power;
+    items.push({ uid: inv.uid ?? null, name: inv.name ?? it.name, rarity: full.rarity, power, grade: itemGrade(P, full, floor), onBuild: on, fragile: !!full.fragile, slot: inv.equippedSlot });
+  }
+  const gear = used / cap;
+  const coherence = used ? onBuild / used : 0.5;
+  const exp = expectedLevel(floor);
+  const lv = Number(level) || 1;
+  const score = Math.round(55 * Math.min(gear, 1.2) / 1.2 + 25 * coherence + 20 * Math.min(lv / exp, 1.2) / 1.2);
+  const grade = score >= 85 ? 'S' : score >= 70 ? 'A' : score >= 50 ? 'B' : score >= 30 ? 'C' : 'D';
+  return { score, grade, floor, gear: { used: Math.round(used * 100) / 100, cap, ratio: Math.round(gear * 100) / 100 },
+    coherence: Math.round(coherence * 100) / 100, level: { level: lv, expected: exp }, build: { top: build.top, steered: build.steered },
+    items: items.sort((a, b) => GRADES.indexOf(a.grade) - GRADES.indexOf(b.grade)) };
+}
+
+/** auto → catch-up for C/D crawlers, "ahead" for S (they get better consumables instead of more power). */
+export function rewardMode(mode, grade) {
+  if (mode && mode !== 'auto' && REWARD_MODES.includes(mode)) return mode;
+  return grade === 'D' || grade === 'C' ? 'catchup' : grade === 'S' ? 'ahead' : 'standard';
+}
+
+/** A downed mob's own drop: 'none' | 'junk' | rarity, from policy.drops[role]. */
+export function rollDrop(policy, role, rng = Math.random) {
+  const w = (policy ?? DEFAULT_LOOT_POLICY).drops?.[role === 'elite' ? 'elite' : 'mob'] ?? {};
+  const entries = Object.entries(w).filter(([, n]) => n > 0);
+  const total = entries.reduce((n, [, x]) => n + x, 0);
+  if (!total) return 'none';
+  let x = rng() * total;
+  for (const [k, n] of entries) { x -= n; if (x < 0) return k; }
+  return entries.at(-1)[0];
+}
+
+// ---------- the campaign's own settings over the pack policy ----------
+
+export const SETTING_KEYS = ['budget', 'stretch', 'wildcard', 'pity', 'offers', 'drops', 'fragileFactor'];
+const effCache = new Map();
+/** pack.lootPolicy with the campaign's GM settings (st.lootSettings) on top. */
+export function effectiveLootPolicy(packPolicy, settings) {
+  if (!settings || !Object.keys(settings).length) return packPolicy ?? DEFAULT_LOOT_POLICY;
+  const key = JSON.stringify(settings);
+  let hit = effCache.get(key);
+  if (!hit || hit.base !== packPolicy) {
+    hit = { base: packPolicy, value: normalizeLootPolicy({ ...(packPolicy ?? DEFAULT_LOOT_POLICY), ...settings }) };
+    if (effCache.size > 50) effCache.clear();
+    effCache.set(key, hit);
+  }
+  return hit.value;
+}
+
+/** Boss rank text ("Neighborhood Boss", "City Boss", or a tier id) → box tier id via policy.bossBox. */
+export function bossBoxTier(policy, rank) {
+  const r = String(rank ?? '').toLowerCase();
+  const map = (policy ?? DEFAULT_LOOT_POLICY).bossBox;
+  const key = Object.keys(map).find((k) => r.includes(k));
+  return map[key ?? 'neighborhood'];
+}
+
+/** junk = tagged junk, or plain common gear that does nothing. */
+export const isJunk = (it) => (it.tags ?? []).includes('junk') || (it.rarity === 'common' && !it.attack && !(it.effects ?? []).length && !isConsumable(it) && !it.slot);

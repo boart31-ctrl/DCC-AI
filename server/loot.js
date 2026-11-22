@@ -10,6 +10,7 @@ import { bad, notFound } from './errors.js';
 import { libraryOf, giveItem } from './character.js';
 import { combatantOf } from './combat.js';
 import { floorOfState } from './outcome.js';
+import { effectiveLootPolicy, rollDrop, isLootable, isJunk, itemBuilds, crawlerBuild, bossBoxTier } from './loot-advisor.js';
 
 export const MAX_DROPS = 128;
 export const MAX_DROP_ITEMS = 40;
@@ -37,6 +38,7 @@ export function normalizeDrops(raw) {
       image: typeof x.image === 'string' ? x.image : null,
       qty: Number.isInteger(x.qty) && x.qty > 0 ? x.qty : 1,
       ...(x.currency === 'gold' ? { currency: 'gold' } : {}),
+      ...(typeof x.box === 'string' ? { box: x.box, boss: x.boss === true } : {}),
       ...(typeof x.invUid === 'string' ? { invUid: x.invUid } : {}),
       takenBy: typeof x.takenBy === 'string' ? x.takenBy : null,
     })),
@@ -57,8 +59,37 @@ function stock(lib, entryIds, ctx) {
   });
 }
 
-function corpseItems(st, ctx, mob, ids, lib) {
-  const items = stock(lib, ids.map((id) => ({ id, qty: 1 })), ctx);
+// A downed mob's own drop (C1b, loot-advisor.js policy.drops): ordinary mobs now and then (~1 in 10 uncommon,
+// ~1 in 50 rare), elites more and better, bosses a Boss box of their rank. Smart-loot: 60% of item drops lean to the
+// build of the crawler who made the kill. Off when the campaign sets lootSettings.dropsOff.
+function rolledDrop(st, ctx, mob, lib) {
+  if (st.lootSettings?.dropsOff) return [];
+  const P = effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings);
+  const src = mob.sourceKind && mob.sourceId ? lib.get(mob.sourceKind, mob.sourceId) : null;
+  if (mob.sourceKind === 'boss' || mob.role === 'boss') {
+    const tier = bossBoxTier(P, src?.rank ?? src?.tier);
+    const name = `${ctx.pack.tiersById?.get(tier)?.name ?? tier} (Boss Box)`;
+    return [{ key: ctx.genId('lk'), itemId: null, name, rarity: null, image: null, qty: 1, box: tier, boss: true, takenBy: null }];
+  }
+  const rng = ctx.rng ?? Math.random;
+  const got = rollDrop(P, mob.role === 'elite' ? 'elite' : 'mob', rng);
+  if (got === 'none') return [];
+  const all = lib.list('item').filter(isLootable);
+  let pool = got === 'junk' ? all.filter(isJunk) : all.filter((it) => it.rarity === got && !isJunk(it));
+  if (!pool.length) return [];
+  const killer = st.players.find((p) => p.id === mob.killedBy);
+  if (killer && got !== 'junk' && rng() < 0.6) {
+    const b = crawlerBuild(killer.sheet, killer.lootPrefs);
+    const want = new Set(b.steered.length ? b.steered : b.top);
+    const on = pool.filter((it) => itemBuilds(it).some((x) => want.has(x)));
+    if (on.length) pool = on;
+  }
+  const def = pool[Math.floor(rng() * pool.length) % pool.length];
+  return [{ key: ctx.genId('lk'), itemId: def.id, name: def.name, rarity: def.rarity ?? null, image: def.image ?? null, qty: 1, takenBy: null }];
+}
+
+function corpseItems(st, ctx, mob, ids, lib, roll = true) {
+  const items = [...stock(lib, ids.map((id) => ({ id, qty: 1 })), ctx), ...(roll ? rolledDrop(st, ctx, mob, lib) : [])];
   const sides = ctx.pack.ruleset.loot?.corpseGold?.[floorOfState(st)];
   if (sides && items.length < MAX_DROP_ITEMS && mob.sourceKind !== 'boss' && mob.role !== 'boss') {
     const qty = (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(sides) + 1;
@@ -127,7 +158,7 @@ export const LOOT_GM = {
         const src = x.sourceKind && x.sourceId ? lib.get(x.sourceKind, x.sourceId) : null;
         ids = src?.lootItems ?? [];
       }
-      items = corpseItems(st, ctx, x, ids, lib);
+      items = corpseItems(st, ctx, x, ids, lib, a.itemIds === undefined);
       from = { type: 'mob', uid: x.uid, name: x.name, image: x.image ?? null };
     } else {
       if (ctx.pack.ruleset.combat?.dyingRounds && !x.dead) throw bad('that crawler is still alive');
@@ -167,7 +198,10 @@ export const LOOT_GM = {
     if (it.takenBy) throw bad(`${it.name} is already taken`);
     const p = playerOf(st, a.playerId);
     let inv;
-    if (it.currency === 'gold') {
+    if (it.box) {
+      // A Boss box waits on the crawler until the GM opens it (Loot tab, with the System's offers).
+      p.pendingBoxes = [...(p.pendingBoxes ?? []), { id: ctx.genId('pb'), tier: it.box, boss: !!it.boss, from: d.from.name, at: ctx.now }].slice(-20);
+    } else if (it.currency === 'gold') {
       p.gold = (p.gold ?? 0) + it.qty;
     } else if (it.invUid) {
       const owner = st.players.find((x) => x.id === d.from.playerId);
@@ -189,7 +223,7 @@ export const LOOT_GM = {
     it.takenBy = p.id;
     const ev = out.emit({ kind: 'loot.take', dropId: d.id, playerId: p.id, name: p.name, item: pub(it), from: d.from.name }, 'all');
     ctx.h.feedPush?.(st, ev, `${p.name} took ${it.name} from ${d.from.name}`);
-    out.result = inv ? { uid: inv.uid } : { gold: p.gold };
+    out.result = inv ? { uid: inv.uid } : it.box ? { pendingBox: it.box } : { gold: p.gold };
   },
 
   /** Forget a pile (what is left stays where it was: a dead crawler keeps their untaken items). */

@@ -468,3 +468,22 @@ body.on-hold .topbar { box-shadow: inset 0 -3px 0 #c0392b; }
 .lootx-go { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
 dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .lootx { min-width: 0; }
+
+/* Loot & Rewards: power card + settings (gm-loot.js) */
+.lp { display: grid; gap: 8px; margin: 8px 0; }
+.lp-top { display: flex; align-items: center; gap: 10px; }
+.lp-grade { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 10px; font-size: 24px; font-weight: 800; border: 2px solid currentColor; flex: none; }
+.lp-nums { flex: 1; display: grid; gap: 4px; font-size: 12px; opacity: .9; min-width: 0; }
+.lp-bar { height: 8px; border-radius: 4px; background: var(--c-line); overflow: hidden; }
+.lp-bar i { display: block; height: 100%; background: var(--c-accent, #f5b301); }
+.lp-mode { max-width: 150px; font-size: 13px; padding: 4px 6px; }
+.lp-pending { display: flex; flex-wrap: wrap; gap: 6px; }
+.lp-items { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; font-size: 13px; }
+.lp-items li.on span:nth-child(2) { font-weight: 600; }
+.lp-ig { display: inline-grid; place-items: center; min-width: 20px; height: 20px; border-radius: 5px; font-size: 12px; font-weight: 800; margin-right: 6px; border: 1px solid currentColor; }
+.g-S { color: #ff9f1c; } .g-A { color: #c77dff; } .g-B { color: #4ea8de; } .g-C { color: #2fbf71; } .g-D { color: #9aa0a6; }
+.lp-none { margin: 0; font-size: 13px; }
+.lp-settings { margin-bottom: 12px; }
+.lp-settings summary { cursor: pointer; }
+.lp-set { display: grid; gap: 10px; margin-top: 10px; }
+.lp-set label { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }

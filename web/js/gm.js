@@ -27,7 +27,7 @@ import { createCrawlers } from './gm-crawlers.js';
 import { createMsgCenter } from './msgcenter.js';
 import { createRulesSearch } from './gm-rules.js';
 import { createWhatNow } from './gm-whatnow.js';
-import { openLootAdvisor } from './gm-loot.js';
+import { openLootAdvisor, lootPowerBlock, lootSettingsPanel } from './gm-loot.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -699,7 +699,7 @@ function createRewards() {
   function update(v) {
     const list = v.players || [];
     const recent = [...(v.feed || [])].filter((e) => ['achievement', 'loot', 'sponsor'].includes(e.kind)).reverse().slice(0, 12);
-    const s = JSON.stringify([list.map((p) => [p.id, p.name, p.color, p.connected, fullPlayer(p.id)?.gold, fullPlayer(p.id)?.sheet?.portrait ? 1 : 0]), recent.map((e) => e.id || e.at)]);
+    const s = JSON.stringify([list.map((p) => [p.id, p.name, p.color, p.connected, fullPlayer(p.id)?.gold, fullPlayer(p.id)?.sheet?.portrait ? 1 : 0]), recent.map((e) => e.id || e.at), v.gm?.loot]);
     if (s === sig) return;
     sig = s;
     const card = (sum) => {
@@ -711,6 +711,11 @@ function createRewards() {
         h('header.rw-who',
           avatar(id.name || p.name, { color: p.color, src: M.sheet.portrait, size: 40 }),
           h('div', h('b', id.name || p.name), h('span.dim', [[id.race, id.class].filter(Boolean).join(' '), `Lv ${id.level ?? p.level ?? 1}`, `${p.gold ?? 0} gold`].filter(Boolean).join(' · ')))),
+        lootPowerBlock(v.gm?.loot?.crawlers?.find((c) => c.playerId === p.id), {
+          send: (a) => client.send(a), act,
+          tierName: (t) => view.pack?.lootTiers?.find((x) => x.id === t)?.name || t,
+          onOpenBox: (b) => openLootAdvisor({ p, tier: b.tier, boss: b.boss, pendingId: b.id, tiers: view.pack?.lootTiers || [], send: (a) => client.send(a), act, toast, openSheet, closeSheet }),
+        }),
         h('div.rw-acts',
           btn('gift', 'Loot box', () => openLootAdvisor({ p, tiers: view.pack?.lootTiers || [], send: (a) => client.send(a), act, toast, openSheet, closeSheet, legacy: () => lootSheet(p, false) }), '.btn-primary'),
           btn('star', 'Sponsor box', () => lootSheet(p, true)),
@@ -719,7 +724,8 @@ function createRewards() {
     };
     const kindText = { achievement: 'Achievement', loot: 'Loot', sponsor: 'Sponsor' };
     el.replaceChildren(
-      h('div.view-head', h('h1', 'Rewards'), h('span.dim', 'Loot boxes, sponsor boxes, gifts and achievements')),
+      h('div.view-head', h('h1', 'Loot & Rewards'), h('span.dim', 'Power of each crawler, boxes waiting, the System\'s offers, achievements and gifts')),
+      v.gm?.loot ? lootSettingsPanel(v.gm.loot, { act }) : null,
       list.length ? h('div.rw-grid', list.map(card)) : h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add them on Party first.')),
       h('section.panel.rw-recent',
         h('h2', 'Handed out lately'),
