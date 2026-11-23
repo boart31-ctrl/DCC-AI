@@ -484,7 +484,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     }, s.label))) : null, visible.map((s) => section(d, s)), hiddenRow(d)));
   }
 
-  const SCENE_ICON = { fight: 'swords', explore: 'map', talk: 'chat', trap: 'warn', boss: 'skull' };
+  const SCENE_ICON = { fight: 'swords', explore: 'map', talk: 'chat', trap: 'warn', boss: 'skull', chase: 'bolt' };
   const evenings = () => docs().filter((d) => d.evening).slice().reverse();
   const mins = (d) => d.evening.scenes.reduce((n, s) => n + (s.minutes || 0), 0);
   const fmt = (m) => (m < 60 ? `${m} min` : `${Math.floor(m / 60)} h${m % 60 ? ` ${m % 60} min` : ''}`);

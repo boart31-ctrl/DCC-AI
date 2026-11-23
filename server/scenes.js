@@ -9,9 +9,10 @@
 // Players never get any of these (they are not in the PLAYER table → bad_request).
 import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
+import { chaseDefaults, startChase } from './chase.js';
 import { combatRules, mobHealthSlot, rolledDamage, recordKillCredit } from './outcome.js';
 
-export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map', 'builds'];
+export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map', 'builds', 'chase'];
 // combat-auto.js OUTCOMES (kept here too: scenes.js must not import combat-auto.js, which imports combat.js → scenes.js).
 export const FINALE_OUTCOMES = ['victory', 'defeat', 'runaway', 'truce', 'special', 'sponsor', 'timeout', 'stalemate'];
 export const AUDIO_DEVICES = ['gm', 'stage'];
@@ -100,6 +101,7 @@ const DEFAULTS = {
   countdown: () => ({ label: '', totalMs: 300_000, remainingMs: 300_000, startedAt: null }),
   boss: () => ({ bossId: null, boss: null, phase: 0, hp: 0, revealed: false, defeated: false, lootHint: '' }),
   map: () => ({ mapId: null, showFeed: false }),
+  chase: chaseDefaults,
 };
 
 function plainMerge(kind, prev, patch) {
@@ -384,6 +386,10 @@ function mergeData(st, ctx, kind, prev, patch, fresh) {
   if (kind === 'roll') return rollMerge(st, prev, patch, fresh);
   if (kind === 'npc') return npcMerge(st, ctx, prev, patch);
   if (kind === 'finale') return finaleMerge(prev, patch, ctx);
+  if (kind === 'chase') {
+    if (!fresh) throw bad('a running chase changes with chase.leg / chase.adjust');
+    return startChase(st, ctx, patch);
+  }
   throw bad(`unknown scene kind ${kind}`);
 }
 

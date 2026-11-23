@@ -34,14 +34,15 @@ export const MAX_SECTIONS = 30;
 export const MAX_ITEMS = 200;
 export const MAX_TEXT = 6000;
 export const MAX_TITLE = 120;
-export const SCENE_TYPES = ['fight', 'explore', 'talk', 'trap', 'boss'];
-const SCENE_MINUTES = { fight: 30, explore: 25, talk: 15, trap: 15, boss: 45 };
+export const SCENE_TYPES = ['fight', 'explore', 'talk', 'trap', 'boss', 'chase'];
+const SCENE_MINUTES = { fight: 30, explore: 25, talk: 15, trap: 15, boss: 45, chase: 15 };
 const SCENE_GOALS = {
   fight: 'Secure the objective, drive off the opposition, or make a safe retreat.',
   explore: 'Find a route forward or uncover something that changes the plan.',
   talk: 'Learn what the other side wants and decide what to offer.',
   trap: 'Spot the danger and decide how to cross, disable, or avoid it.',
   boss: 'Settle what is at stake and decide how the fight changes when the foe is pressed.',
+  chase: 'Catch it before it is gone (or win the race). Every leg is one roll.',
 };
 const SCENE_CHECKS = {
   explore: { label: 'Spot a useful detail', stat: ['wis', 'int'], dcType: 'unopposed', dc: 10 },
@@ -196,6 +197,24 @@ function uniqueRows(list, normalizer, max, key = 'id') {
   return [...new Map(rows.map((row) => [row[key], row])).values()];
 }
 
+/** Prep chase config (validated for real when the scene runs, see chase.js startChase). */
+function normalizePrepChase(c) {
+  const o = isObj(c) ? c : {};
+  const num = (v) => (Number.isInteger(v) && v >= 1 && v <= 60 ? v : null);
+  const legs = (Array.isArray(o.legs) ? o.legs : []).filter(isObj).slice(0, 8).map((l, i) => {
+    const skillId = validId(l.skillId), statId = validId(l.statId);
+    return { label: optionalText(l.label, 60) || `Leg ${i + 1}`, ...(skillId ? { skillId } : statId ? { statId } : { skillId: 'running' }),
+      ...(num(l.value) ? { value: l.value } : {}), ...(isStr(l.hazard) ? { hazard: cleanText(l.hazard, 300) } : {}) };
+  });
+  const q = isObj(o.quarry) ? o.quarry : {};
+  return {
+    mode: o.mode === 'race' ? 'race' : 'chase',
+    quarry: { name: optionalText(q.name, 60), ...(isStr(q.image) ? { image: String(q.image).slice(0, 300) } : {}), ...(num(q.value) ? { value: q.value } : {}) },
+    legs: legs.length ? legs : [{ label: 'Running', skillId: 'running' }, { label: 'Jumping', skillId: 'jumping' }, { label: 'Climbing', skillId: 'climbing' }],
+    npcs: (Array.isArray(o.npcs) ? o.npcs : []).filter((n) => isObj(n) && isStr(n.name)).slice(0, 6).map((n) => ({ name: optionalText(n.name, 60), value: num(n.value) ?? 12 })),
+  };
+}
+
 function normalizeEveningScene(s, index = 0) {
   if (!isObj(s)) return null;
   const type = SCENE_TYPES.includes(s.type) ? s.type : 'explore';
@@ -215,6 +234,7 @@ function normalizeEveningScene(s, index = 0) {
     minutes: numeric(s.minutes, 0, 1440, SCENE_MINUTES[type]), goal: cleanText(s.goal, 600),
     readAloud: cleanText(s.readAloud, 4000), notes: cleanText(s.notes), checks,
     encounterId: validId(s.encounterId), mapId: validId(s.mapId), npcs: refIds(s.npcs), items: refIds(s.items), secrets,
+    ...(type === 'chase' ? { chase: normalizePrepChase(s.chase) } : {}),
     played: s.played === true, ...(validId(s.lastCombatId) ? { lastCombatId: s.lastCombatId } : {}),
     ...(validId(s.lastEncounterId) ? { lastEncounterId: s.lastEncounterId } : {}),
   };
@@ -649,7 +669,7 @@ export function planEvening(st, a, ctx, out, GM) {
 // ---------- a new evening from scratch, with suggestions ----------
 
 /** Recipe steps the GM can pick ("hook" and "check" are flavours of talk / explore). */
-export const RECIPE_STEPS = ['hook', 'explore', 'check', 'fight', 'talk', 'trap', 'boss'];
+export const RECIPE_STEPS = ['hook', 'explore', 'check', 'fight', 'talk', 'trap', 'boss', 'chase'];
 const STEP_TYPE = { hook: 'talk', check: 'explore' };
 
 function pickMobs(st, ctx, kind, n) {
@@ -770,10 +790,13 @@ export function runPrepScene(st, a, ctx, out, GM) {
   // title and read-aloud text. `tv: false` keeps the TV as it is.
   if (a.tv !== false) {
     const fight = !!(result.combatId && st.combat?.active);
+    const chase = scene.type === 'chase' && !fight;
     const tv = fight ? { kind: 'combat', data: { title: String(scene.title ?? '').slice(0, 80) } }
+      : chase ? { kind: 'chase', data: { ...structuredClone(scene.chase ?? normalizePrepChase(null)), title: String(scene.title ?? '').slice(0, 80), source: scene.id } }
       : mapId ? { kind: 'map', data: { mapId } }
         : { kind: 'explore', data: { location: String(scene.title ?? '').slice(0, 80), text: String(scene.readAloud || scene.goal || '').slice(0, 1200) } };
     const same = st.scene?.kind === tv.kind && (tv.kind !== 'map' || st.scene?.data?.mapId === mapId)
+      && (tv.kind !== 'chase' || st.scene?.data?.source === scene.id)
       && (tv.kind !== 'explore' || st.scene?.data?.location === tv.data.location);
     if (!same) {
       GM['scene.set'](st, tv, ctx, out);
@@ -886,6 +909,10 @@ export const PREP_GM = {
       if (!Array.isArray(p[field]) || p[field].length > MAX_SCENE_ROWS) throw bad(`${field} must have 0..${MAX_SCENE_ROWS} entries`);
       if (kind && p[field].some((id) => !validId(id) || !lib.get(kind, id))) throw bad(`${field} must reference library entries`);
       next[field] = p[field];
+    }
+    if (p.chase !== undefined) {
+      if (!isObj(p.chase)) throw bad('chase must be an object');
+      next.chase = p.chase;
     }
     if (p.played !== undefined) {
       if (typeof p.played !== 'boolean') throw bad('played must be true or false');

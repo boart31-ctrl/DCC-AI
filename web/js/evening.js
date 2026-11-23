@@ -3,7 +3,7 @@ import { closeDrawer, field, icon, openDrawer, select } from './ui.js';
 import { addEveningMob, eveningScene } from './evening-scene.js';
 import { eveningTools } from './evening-tools.js';
 
-const TYPES = { fight: ['Fight', 'swords'], explore: ['Explore', 'map'], talk: ['Talk', 'user'], trap: ['Trap', 'warn'], boss: ['Boss', 'skull'] };
+const TYPES = { fight: ['Fight', 'swords'], explore: ['Explore', 'map'], talk: ['Talk', 'user'], trap: ['Trap', 'warn'], boss: ['Boss', 'skull'], chase: ['Chase', 'bolt'] };
 const MOVE_TYPE = 'application/x-evening-scene';
 const COACH_KEY = 'system.prep.eveningCoach';
 const COACH = [
@@ -68,7 +68,7 @@ export function createEvening({ act, redraw, onPlan, onSelect, onRun, onShow, op
     redraw();
   }
 
-  const STEPS = { hook: ['Hook', 'flag', 15], explore: ['Explore', 'map', 25], check: ['Check', 'dice', 15], fight: ['Fight', 'swords', 30], talk: ['Talk', 'chat', 15], trap: ['Trap', 'warn', 15], boss: ['Boss', 'skull', 45] };
+  const STEPS = { hook: ['Hook', 'flag', 15], explore: ['Explore', 'map', 25], check: ['Check', 'dice', 15], fight: ['Fight', 'swords', 30], talk: ['Talk', 'chat', 15], trap: ['Trap', 'warn', 15], boss: ['Boss', 'skull', 45], chase: ['Chase', 'bolt', 15] };
   const RECIPES = [
     ['Classic', ['hook', 'explore', 'check', 'fight', 'talk', 'fight']],
     ['Big fight night', ['hook', 'fight', 'trap', 'fight', 'boss']],

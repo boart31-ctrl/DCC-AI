@@ -24,6 +24,7 @@ const SCENES = [
   { kind: 'loot', label: 'Loot', key: 'F4', hint: 'A box for one crawler' },
   { kind: 'countdown', label: 'Countdown', key: 'F5', hint: 'Floor collapse timer' },
   { kind: 'roll', label: 'Big roll', key: 'F6', hint: 'Dice on the TV' },
+  { kind: 'chase', label: 'Chase / race', key: '', hint: 'Legs, Ground, the quarry runs' },
   { kind: 'recap', label: 'Recap', key: 'F7', hint: 'Previously on…' },
 ];
 const TOOLS = [
@@ -295,6 +296,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       return out;
     }
     if (kind === 'lobby') return { title: d.title || '', subtitle: d.subtitle || '', showQr: d.showQr !== false };
+    if (kind === 'chase') return chaseData(d);
     if (kind === 'recap') return { title: d.title || '', text: d.text ?? (v.recap || '') };
     if (kind === 'combat') return { title: D('fight').title || '' };
     if (kind === 'npc') {
@@ -510,6 +512,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     clearInterval(cdTimer);
     if (kind === 'boss') return bossLive(sc);
     if (kind === 'countdown') return countdownControls(sc);
+    if (kind === 'chase') return chaseControls(sc);
     if (kind === 'loot') return lootControls(sc);
     if (kind === 'roll' && scoredRolls()) {
       const { dc, check, label, total, name } = sc.data;
@@ -888,6 +891,80 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
 
   function rollMode() { return scoredRolls() ? D('roll').mode || 'single' : 'free'; }
 
+  /* ---------- chase / race ---------- */
+  const CHASE_DEG = { crit: 'Critical', amazing: 'Amazing', success: 'Success', near: 'Near miss', fail: 'Fail', major: 'Major fail', critfail: 'Wipe-out' };
+  function chaseLegs(d) {
+    d.legs ||= [{ label: 'Running', ability: 'skill:running' }, { label: 'Jumping', ability: 'skill:jumping' }, { label: 'Climbing', ability: 'skill:climbing' }];
+    return d.legs;
+  }
+  function chaseData(d) {
+    const legs = chaseLegs(d).map((l) => {
+      const [k, id] = String(l.ability || '').split(':');
+      return { label: l.label || '', ...(k === 'stat' ? { statId: id } : { skillId: id }), ...(Number(l.value) ? { value: Number(l.value) } : {}) };
+    });
+    const mode = d.mode === 'race' ? 'race' : 'chase';
+    return { mode, title: d.title || '', legs, ...(mode === 'chase' ? { quarry: { name: d.quarry || '', ...(Number(d.value) ? { value: Number(d.value) } : {}) } } : {}),
+      ...(d.npcName ? { npcs: [{ name: d.npcName, value: Number(d.npcValue) || 12 }] } : {}) };
+  }
+  function chaseForm() {
+    const d = D('chase');
+    const legs = chaseLegs(d);
+    const opts = [...rollSkills().map((x) => ({ value: `skill:${x.id}`, label: x.name })), ...(view().pack?.ruleset?.stats ?? []).map((x) => ({ value: `stat:${x.id}`, label: `${x.label} (stat)` }))];
+    const redraw = () => { saveDraft(); drawBody(); changed(); };
+    const floor = view().crawlers?.floor || 1;
+    return [
+      h('div.seg.seg-sm.span-all', { 'aria-label': 'Contest' }, [['chase', 'Chase (catch the quarry)'], ['race', 'Race (first to the finish)']].map(([id, label]) =>
+        h('button', { type: 'button', 'aria-pressed': String((d.mode || 'chase') === id), onclick: () => { d.mode = id; redraw(); } }, label))),
+      txt('chase', 'title', 'Title on TV', { placeholder: (d.mode || 'chase') === 'race' ? 'Stairwell dash' : 'Catch the dragonling!', max: 80 }),
+      (d.mode || 'chase') === 'chase' ? txt('chase', 'quarry', 'Quarry', { placeholder: 'What runs away', max: 60 }) : null,
+      (d.mode || 'chase') === 'chase' ? txt('chase', 'value', 'Quarry rolls (every leg)', { placeholder: `${12 + floor} (10 + stat + floor + Move)`, max: 3 }) : null,
+      h('div.span-all.sc-chase-legs', legs.map((l, i) => h('div.sc-chase-leg',
+        h('span.dim', `Leg ${i + 1}`),
+        field(l.label ?? '', { placeholder: 'Over the market stalls', attrs: { maxlength: 60 }, onCommit: (v) => { l.label = v; saveDraft(); changed(); } }),
+        select(opts, l.ability || opts[0]?.value, { label: `Leg ${i + 1} check`, onChange: (v) => { l.ability = v; saveDraft(); changed(); } }),
+        field(l.value ?? '', { type: 'number', placeholder: 'Quarry', attrs: { min: 1, max: 60, 'aria-label': `Leg ${i + 1} quarry number` }, onCommit: (v) => { l.value = v; saveDraft(); changed(); } }),
+        h('button.icon-btn', { type: 'button', 'aria-label': `Remove leg ${i + 1}`, disabled: legs.length <= 1, onclick: () => { legs.splice(i, 1); redraw(); } }, '✕'))),
+        legs.length < 8 ? h('button.btn.btn-sm', { type: 'button', onclick: () => { legs.push({ label: '', ability: legs.at(-1)?.ability }); redraw(); } }, '+ Leg') : null),
+      txt('chase', 'npcName', (d.mode || 'chase') === 'race' ? 'NPC racer (optional)' : 'NPC chaser (optional)', { placeholder: 'Raul the Crab', max: 60 }),
+      d.npcName ? txt('chase', 'npcValue', 'NPC result every leg', { placeholder: '12', max: 3 }) : null,
+      h('p.dim.span-all', (d.mode || 'chase') === 'race'
+        ? 'Every leg each crawler rolls + Move/10. Places 1st, 2nd… add up; lowest total wins.'
+        : 'Every leg each crawler rolls + Move/10 against the quarry. Amazing +2 Ground, Success +1, Near 0, Fail −1, Major −2, Critical fail = out. 4 Ground = caught; after the last leg 1+ catches it.')];
+  }
+  function chaseControls(sc) {
+    const d = sc.data;
+    const leg = d.legs?.[d.leg];
+    const physical = D('chase').dice === 'physical';
+    const entered = (D('chase').entered ||= {});
+    const runners = d.runners ?? [];
+    const rollers = runners.filter((r) => !r.npc && !r.out && !(d.mode === 'chase' && r.caught));
+    const last = new Map((d.last?.results ?? []).map((r) => [r.runnerId, r]));
+    const rows = runners.map((r) => {
+      const res = last.get(r.id);
+      return h('li.sc-chase-runner', { class: `sc-chase-runner${r.out ? ' out' : ''}${r.caught ? ' caught' : ''}` },
+        h('b', r.name), r.npc ? h('span.dim', ` NPC ${r.value}`) : r.mod ? h('span.dim', ` Move +${r.mod}`) : null,
+        h('span.sc-chase-g', d.mode === 'race' ? `Places ${r.places.join('·') || '—'}` : r.out ? 'Out' : r.caught ? 'Caught' : `Ground ${r.ground > 0 ? '+' : ''}${r.ground}`),
+        res ? h('span.dim', ` last: ${res.total}${res.degree ? ` ${CHASE_DEG[res.degree]}` : ''}${res.place ? ` #${res.place}` : ''}`) : null,
+        d.mode === 'chase' && !d.done ? h('span.sc-chase-adj',
+          h('button.btn.btn-sm', { type: 'button', title: 'Ground −1', onclick: () => act({ t: 'chase.adjust', runnerId: r.id, ground: -1 }) }, '−'),
+          h('button.btn.btn-sm', { type: 'button', title: 'Ground +1 (clever idea)', onclick: () => act({ t: 'chase.adjust', runnerId: r.id, ground: 1 }) }, '+')) : null,
+        physical && !d.done && rollers.includes(r) ? h('input.inp.sc-chase-die', { type: 'number', min: 1, max: 20, inputmode: 'numeric', 'aria-label': `${r.name} d20`, value: entered[r.playerId] ?? '',
+          oninput: (e) => { entered[r.playerId] = e.target.value; } }) : null);
+    });
+    const go = async () => {
+      const entries = physical ? rollers.map((r) => ({ playerId: r.playerId, entered: Number(entered[r.playerId]) })).filter((e) => e.entered >= 1 && e.entered <= 20) : [];
+      if (physical && entries.length !== rollers.length) { toast('Enter every d20 first.'); return; }
+      if (await act({ t: 'chase.leg', ...(entries.length ? { entries } : {}) }, null)) D('chase').entered = {};
+    };
+    return h('div.sc-chase-live',
+      h('p.sc-line', d.done ? h('b', 'Finished') : h('b', `Leg ${d.leg + 1}/${d.legs.length}: ${leg?.label}`), !d.done && d.mode === 'chase' ? ` · quarry ${leg?.value}` : ''),
+      h('ul.sc-chase-runners', rows),
+      d.done ? null : h('div.sc-chase-go',
+        h('label.chk', h('input', { type: 'checkbox', checked: physical, onchange: (e) => { D('chase').dice = e.target.checked ? 'physical' : 'digital'; saveDraft(); drawBody(); } }), h('span', 'Physical d20s')),
+        h('button.btn.btn-primary.sc-big', { type: 'button', onclick: go }, `Roll leg ${d.leg + 1}`),
+        h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => act({ t: 'chase.finish' }, 'Called it.') }, 'End now')));
+  }
+
   function rollSkills() {
     return (view().library?.skill || []).filter((s) => !['passive', 'evade'].includes(s.checkType?.toLowerCase()) && !s.tags?.includes('legacy'))
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -963,6 +1040,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     if (kind === 'lobby') return [txt('lobby', 'title', 'Title', { placeholder: v.pack?.systemName || 'The System', max: 80 }), txt('lobby', 'subtitle', 'Subtitle', { placeholder: 'Grab your phone. The show starts soon.', max: 160, cls: 'span-2' }), chk('lobby', 'showQr', 'Show the join QR')];
     if (kind === 'explore') return [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Text on screen (read-aloud)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showFeed', 'Show the event feed')];
     if (kind === 'boss') return bossPicker();
+    if (kind === 'chase') return chaseForm();
     if (kind === 'loot') return lootForm();
     if (kind === 'countdown') {
       return [txt('countdown', 'label', 'Label', { placeholder: 'Floor collapse in', max: 80, cls: 'span-2' }),

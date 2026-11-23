@@ -569,3 +569,20 @@ dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .ev-card-acts { display: flex; gap: 6px; align-items: center; margin-top: 4px; }
 .tb-person header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .tb-face { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; flex: none; }
+
+/* Show: chase / race (gm-scenes.js chaseForm / chaseControls) */
+.sc-chase-legs { display: grid; gap: 6px; }
+.sc-chase-leg { display: grid; grid-template-columns: 50px 1fr 1fr 80px 32px; gap: 6px; align-items: center; }
+.sc-chase-live { display: grid; gap: 8px; }
+.sc-chase-runners { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.sc-chase-runner { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 6px 8px; border: 1px solid var(--c-line); border-radius: 8px; }
+.sc-chase-runner.out { opacity: .5; }
+.sc-chase-runner.caught { border-color: var(--c-accent); }
+.sc-chase-g { font-weight: 700; margin-left: auto; }
+.sc-chase-adj { display: inline-flex; gap: 4px; }
+.sc-chase-die { width: 64px; }
+.sc-chase-go { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.ev-chase { display: grid; gap: 8px; }
+.ev-chase-top { display: flex; flex-wrap: wrap; gap: 6px; }
+.ev-chase-legs { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
+.ev-chase-legs li { display: grid; grid-template-columns: 1fr 1fr 80px 1.4fr 32px; gap: 6px; align-items: center; }

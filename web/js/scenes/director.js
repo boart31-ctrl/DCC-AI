@@ -16,8 +16,9 @@ import combat from './combat.js';
 import npc from './npc.js';
 import finale from './finale.js';
 import map from './map.js';
+import chase from './chase.js';
 
-const KINDS = { builds, lobby, explore, boss, loot, countdown, roll, recap, blank, combat, npc, finale, map };
+const KINDS = { builds, lobby, explore, boss, loot, countdown, roll, recap, blank, combat, npc, finale, map, chase };
 const WIPE_MS = 760;
 
 export function createDirector(layer, opts = {}) {

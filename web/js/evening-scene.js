@@ -6,7 +6,7 @@ import { mobsOf, prepDanger } from './prep-danger.js';
 import { privateChecks } from './prep-checks.js';
 
 export const EVENING_MOB_TYPE = 'application/x-evening-mob';
-const TYPES = ['Fight', 'Explore', 'Talk', 'Trap', 'Boss'];
+const TYPES = ['Fight', 'Explore', 'Talk', 'Trap', 'Boss', 'Chase'];
 const HELP = {
   goal: 'What can the party accomplish here?',
   readAloud: 'Read this at the table or send it to the TV.',
@@ -14,8 +14,9 @@ const HELP = {
   encounter: 'Prepare opponents and a battle map for this scene.',
   people: 'Keep NPCs, loot and clues within reach.',
   notes: 'Private reminders for running this scene.',
+  chase: 'Legs, the check for each and what the quarry rolls. Run puts it on the TV.',
 };
-const LABELS = { goal: 'Goal', readAloud: 'Read aloud', checks: 'Checks', encounter: 'Encounter', people: 'People and things', notes: 'My notes' };
+const LABELS = { chase: 'Chase / race', goal: 'Goal', readAloud: 'Read aloud', checks: 'Checks', encounter: 'Encounter', people: 'People and things', notes: 'My notes' };
 
 const updateScene = (act, doc, scene, patch) => act({ t: 'prep.scene.update', id: doc.id, sceneId: scene.id, patch }, null);
 const cards = (view) => (view?.gm?.prepCards ?? []).filter((c) => c.kind === 'encounter');
@@ -137,6 +138,29 @@ function encounterBody({ view, act, doc, scene, patch, encounter, mapId, run }) 
     rows.length ? h('button.btn.btn-sm', { type: 'button', onclick: () => run({ fight: true }) }, icon('play', { size: 14 }), 'Run encounter') : null);
 }
 
+/** Chase / race set-up: what runs, each leg (label, skill, the quarry's number, a hazard line for the TV). */
+function chaseBody({ view, scene, patch }) {
+  const c = structuredClone(scene.chase ?? { mode: 'chase', quarry: { name: '' }, legs: [], npcs: [] });
+  const save = () => patch({ chase: c });
+  const skills = (view.library?.skill ?? []).filter((x) => !['passive', 'evade'].includes(x.checkType?.toLowerCase()) && !x.tags?.includes('legacy')).sort((a, b) => a.name.localeCompare(b.name));
+  const opts = [...skills.map((x) => ({ value: `skill:${x.id}`, label: x.name })), ...(view.pack?.ruleset?.stats ?? []).map((x) => ({ value: `stat:${x.id}`, label: `${x.label} (stat)` }))];
+  const floor = view.crawlers?.floor || 1;
+  return h('div.ev-chase',
+    h('div.ev-chase-top',
+      select([{ value: 'chase', label: 'Chase: catch the quarry' }, { value: 'race', label: 'Race: first to the finish' }], c.mode, { cls: 'inp-sm', label: 'Contest', onChange: (mode) => { c.mode = mode; save(); } }),
+      c.mode === 'chase' ? field(c.quarry?.name ?? '', { cls: 'inp-sm', placeholder: 'What runs away', attrs: { maxlength: 60, 'aria-label': 'Quarry' }, onCommit: (name) => { c.quarry = { ...c.quarry, name }; save(); } }) : null,
+      c.mode === 'chase' ? field(c.quarry?.value ?? '', { type: 'number', cls: 'inp-sm', placeholder: `rolls ${12 + floor}`, attrs: { min: 1, max: 60, 'aria-label': 'Quarry number every leg' }, onCommit: (v) => { c.quarry = { ...c.quarry }; if (Number(v)) c.quarry.value = Math.round(Number(v)); else delete c.quarry.value; save(); } }) : null),
+    h('ol.ev-chase-legs', c.legs.map((l, i) => h('li',
+      field(l.label, { cls: 'inp-sm', attrs: { maxlength: 60, 'aria-label': `Leg ${i + 1}` }, onCommit: (label) => { l.label = label; save(); } }),
+      select(opts, l.skillId ? `skill:${l.skillId}` : `stat:${l.statId}`, { cls: 'inp-sm', label: `Leg ${i + 1} check`, onChange: (v) => { const [k, id] = v.split(':'); delete l.skillId; delete l.statId; l[k === 'stat' ? 'statId' : 'skillId'] = id; save(); } }),
+      field(l.value ?? '', { type: 'number', cls: 'inp-sm', placeholder: 'quarry', attrs: { min: 1, max: 60, 'aria-label': `Leg ${i + 1} quarry number` }, onCommit: (v) => { if (Number(v)) l.value = Math.round(Number(v)); else delete l.value; save(); } }),
+      field(l.hazard ?? '', { cls: 'inp-sm', placeholder: 'Hazard on the TV (optional)', attrs: { maxlength: 300, 'aria-label': `Leg ${i + 1} hazard` }, onCommit: (hazard) => { if (hazard.trim()) l.hazard = hazard; else delete l.hazard; save(); } }),
+      h('button.icon-btn', { type: 'button', 'aria-label': `Remove leg ${i + 1}`, disabled: c.legs.length <= 1, onclick: () => { c.legs.splice(i, 1); save(); } }, '✕')))),
+    c.legs.length < 8 ? h('button.btn.btn-sm', { type: 'button', onclick: () => { c.legs.push({ label: `Leg ${c.legs.length + 1}`, skillId: 'running' }); save(); } }, '+ Leg') : null,
+    h('p.dim', c.mode === 'race' ? 'Run puts the race on the TV. Each leg: crawlers roll + Move/10, places add up, lowest wins.'
+      : 'Run puts the chase on the TV. Each leg: roll + Move/10 vs the quarry. Amazing +2, Success +1, Near 0, Fail −1, Major −2, Critical fail = out. 4 Ground catches it; after the last leg 1+ does.'));
+}
+
 function peopleBody({ scene, view, npcEntries, itemEntries, act, patch }) {
   const lib = libraryOf(view);
   const party = view.players ?? [];
@@ -227,6 +251,7 @@ export function eveningScene({ view, act, doc, scene, selectBlock, addMob, showO
       section(blockState, 'goal', scene.goal || 'Add a goal', prose(scene.goal, 'Goal', (goal) => patch({ goal }), { placeholder: 'What can the party achieve?', maxLength: 600 })),
       section(blockState, 'readAloud', sentences ? `${sentences} sentence${sentences === 1 ? '' : 's'}` : 'No read-aloud text',
         prose(scene.readAloud, 'Read aloud', (readAloud) => patch({ readAloud }), { placeholder: 'What should the players hear or see?', rows: 4, maxLength: 4000 })),
+      scene.type === 'chase' ? section(blockState, 'chase', `${scene.chase?.mode === 'race' ? 'Race' : 'Chase'} · ${scene.chase?.legs?.length ?? 0} legs`, chaseBody({ view, scene, patch })) : null,
       section(blockState, 'checks', scene.checks?.length ? `${scene.checks.length} prepared` : 'No checks', privateChecks({ view, act, doc, scene, patch, redraw, blockState })),
       section(blockState, 'encounter', count ? `${count} opponent${count === 1 ? '' : 's'}` : 'No opponents', encounterBody({ view, act, doc, scene, patch, encounter, mapId, run: runScene })),
       section(blockState, 'people', [scene.npcs?.length ? `${scene.npcs.length} NPCs` : '', scene.items?.length ? `${scene.items.length} items` : '', scene.secrets?.length ? `${scene.secrets.length} clues` : ''].filter(Boolean).join(' · '),
