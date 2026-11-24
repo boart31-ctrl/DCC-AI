@@ -294,6 +294,7 @@ function rollMerge(st, prev, patch, fresh) {
     } else if (k === 'name') out.name = txt(v, 'name', 40);
     else if (k === 'label') out.label = T.label(v);
     else if (k === 'dc' && fresh) out.dc = intIn(v, 'dc', -10, 99);
+    else if (k === 'scored' && fresh) out.scored = flag(v, 'scored');
     else throw bad(`unknown field ${k} for scene roll (use scene.roll to roll)`);
   }
   return out;
@@ -598,6 +599,8 @@ export const SCENE_GM = {
     const stat = !skill && !party ? rs.stats.find((s) => s.id === a.statId) : null;
     if (!skill && !stat) throw bad(party ? 'choose a skill for the party check' : 'choose a skill or stat');
     const label = a.label == null ? '' : T.label(a.label);
+    if (a.adv != null && !['adv', 'dis'].includes(a.adv)) throw bad('adv must be adv or dis');
+    if (a.hideDc !== undefined) flag(a.hideDc, 'hideDc');
     const seen = new Set();
     const results = a.entries.map((entry) => {
       if (!isObj(entry) || typeof entry.playerId !== 'string' || seen.has(entry.playerId)) throw bad('each crawler can roll once');
@@ -608,7 +611,7 @@ export const SCENE_GM = {
       const what = stat ? { kind: 'stat', id: stat.id }
         : trained ? { kind: 'skill', uid: trained.uid } : { kind: 'untrained', skillId: skill.id };
       const sub = { ...out, result: undefined };
-      SHEET.roll(st, { t: 'roll', what, playerId: p.id, dc, entered: entry.entered }, { ...ctx, partyCheck: party }, sub);
+      SHEET.roll(st, { t: 'roll', what, playerId: p.id, dc, entered: entry.entered, ...(a.adv ? { adv: a.adv } : {}) }, { ...ctx, partyCheck: party }, sub);
       const { roll } = sub.result;
       return {
         rollId: roll.id, playerId: p.id, name: p.name, color: p.color, total: roll.total, natural: roll.natural,
@@ -628,7 +631,8 @@ export const SCENE_GM = {
       const required = Math.ceil(results.length / 2);
       verdict = { passed, required, success: passed >= required };
     }
-    const data = { ...DEFAULTS.roll(), dc, label: label || skill?.name || `${stat?.label} check`, check: { verdict, results }, at: ctx.now };
+    // hideDc: the TV shows degrees only (DCC: the GM never tells the Difficulty); the GM keeps it in gm.showCheck.
+    const data = { ...DEFAULTS.roll(), scored: true, ...(a.hideDc ? { hideDc: true } : { dc }), label: label || skill?.name || `${stat?.label} check`, check: { verdict, results }, at: ctx.now };
     setScene(st, ctx, 'roll', data);
     out.result = { ...data.check, sceneId: st.scene.id };
   },

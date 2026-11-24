@@ -586,3 +586,17 @@ dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .ev-chase-top { display: flex; flex-wrap: wrap; gap: 6px; }
 .ev-chase-legs { margin: 0; padding-left: 20px; display: grid; gap: 6px; }
 .ev-chase-legs li { display: grid; grid-template-columns: 1fr 1fr 80px 1.4fr 32px; gap: 6px; align-items: center; }
+
+/* Show → Big roll held for the GM's reveal */
+.sc-dc-types small { font-size: .7em; }
+.sc-dc-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: .35rem .6rem; padding: .5rem .7rem; border: 1px solid var(--line); }
+.sc-dc-result > b { font-size: 1.35rem; }
+.sc-dc-help ul { margin: .3rem 0; padding-left: 1.1rem; }
+.sc-held-rows { list-style: none; margin: .4rem 0; padding: 0; display: grid; gap: .35rem; }
+.sc-held-row { display: flex; flex-wrap: wrap; align-items: center; gap: .35rem .6rem; padding: .45rem .6rem; border: 1px solid var(--line); border-left: .25rem solid var(--line); }
+.sc-held-row[data-degree="crit"], .sc-held-row[data-degree="amazing"], .sc-held-row[data-degree="success"] { border-left-color: var(--acid, #b6ff3b); }
+.sc-held-row[data-degree="near"] { border-left-color: #ffcc33; }
+.sc-held-row[data-degree="fail"], .sc-held-row[data-degree="major"], .sc-held-row[data-degree="critfail"] { border-left-color: var(--alarm, #ff3355); }
+.sc-held-wait { display: inline-flex; align-items: center; gap: .35rem; color: var(--ink-dim, #999); }
+.sc-held-go { display: flex; justify-content: flex-end; }
+.sc-held-row .sc-held-fix { width: 4.5rem; flex: none; }

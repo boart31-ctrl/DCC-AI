@@ -30,7 +30,7 @@ function checkAbility(rs, lib, check) {
   return stat;
 }
 
-function checkModifier(p, st, pack, check) {
+export function checkModifier(p, st, pack, check) {
   const rs = pack.ruleset;
   const lib = libraryOf(st, pack);
   const ability = checkAbility(rs, lib, check);

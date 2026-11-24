@@ -852,8 +852,25 @@ function renderPrivateChecks() {
   const el = $('#prep-prompts');
   if (checkDrawer?.open && !prompts.some((p) => p.id === openCheck)) closeDrawer();
   el.hidden = !prompts.length;
-  el.replaceChildren(...prompts.map((p) => h('div.panel.prep-prompt', h('span.prep-prompt-k', 'The GM asks for a roll'), h('b', p.label || 'Private check'),
-    h('button.btn.btn-primary', { type: 'button', onclick: () => openPrivateCheck(p) }, icon('dice', { size: 18 }), `Roll ${p.ability}`))));
+  el.replaceChildren(...prompts.map((p) => {
+    if (p.kind === 'show' && p.rolled) {
+      const r = p.rolled;
+      return h('div.panel.prep-prompt', h('span.prep-prompt-k', 'Rolled · the GM reveals it on the TV'), h('b', p.label),
+        h('span', `${r.die} ${r.modifier < 0 ? '−' : '+'} ${Math.abs(r.modifier)} = `, h('b', String(r.total)), r.favored ? ' (rerolled)' : ''),
+        p.canFavor ? h('button.btn', { type: 'button', onclick: () => favorShowCheck(p) }, icon('dice', { size: 16 }), 'Reroll for 1 AI Favor') : null);
+    }
+    return h('div.panel.prep-prompt', h('span.prep-prompt-k', p.kind === 'show' ? 'The GM asks for a roll · on the TV' : 'The GM asks for a roll'), h('b', p.label || 'Private check'),
+      h('button.btn.btn-primary', { type: 'button', onclick: () => openPrivateCheck(p) }, icon('dice', { size: 18 }), `Roll ${p.ability}`));
+  }));
+}
+
+async function favorShowCheck(p) {
+  try {
+    const r = (await client.send({ t: 'scene.check.favor', id: p.id }))?.result ?? {};
+    showLastRoll({ title: `${p.ability} · ${p.label} (AI Favor)`, die: r.die, modifier: r.modifier, total: r.total, note: 'Rerolled. The GM reveals the result on the TV.' });
+  } catch (error) {
+    toast(error.message || 'Reroll failed.', { error: true });
+  }
 }
 
 function openPrivateCheck(p) {
@@ -864,10 +881,11 @@ function openPrivateCheck(p) {
     if (buttons.some((b) => b.disabled)) return;
     buttons.forEach((b) => { b.disabled = true; });
     try {
-      const res = await client.send({ t: 'prep.check.reply', id: p.id, ...(entered === undefined ? {} : { entered }) });
+      const res = await client.send({ t: p.kind === 'show' ? 'scene.check.reply' : 'prep.check.reply', id: p.id, ...(entered === undefined ? {} : { entered }) });
       if (dialog.open) closeDrawer();
       const r = res?.result ?? {};
-      showLastRoll({ title: `${r.ability || p.ability} · ${r.label || p.label || 'Check'}`, die: r.die, modifier: r.modifier, total: r.total, degree: r.degree, adv: r.advantage, note: 'The GM sees your result.' });
+      showLastRoll({ title: `${r.ability || p.ability} · ${r.label || p.label || 'Check'}`, die: r.die, modifier: r.modifier, total: r.total, degree: r.degree, adv: r.advantage,
+        note: p.kind === 'show' ? 'Sent. The GM reveals the result on the TV.' : 'The GM sees your result.' });
     } catch (error) {
       buttons.forEach((b) => { b.disabled = false; });
       toast(error.message || 'The check could not be sent.', { error: true });

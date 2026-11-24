@@ -532,6 +532,10 @@ body.preview { cursor: default; }
 .rq-result { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem .45rem; color: var(--result); font: italic 800 1.48rem/1 var(--f-show); text-transform: uppercase; }
 .rq-result small { color: var(--ink); text-transform: none; }
 .sc-check:not(.rq-party) .rq-card { padding: 1.4rem 2rem; }
+.rq-pending { --result: var(--ink-dim); transition: border-color .3s, opacity .3s; opacity: .62; }
+.rq-pending[data-ready="true"] { --result: var(--acid); opacity: 1; border-color: var(--acid); }
+.rq-pending[data-ready="false"] .rq-number b { animation: rqpulse 1.1s ease-in-out infinite; }
+@keyframes rqpulse { 50% { opacity: .25; } }
 .sc-check:not(.rq-party) .rq-number b { font-size: 8rem; }
 .sc-check:not(.rq-party) .rq-result { font-size: 2.5rem; }
 .rq-verdict { display: flex; justify-content: center; align-items: baseline; gap: 1rem; font: 1rem var(--f-mono); color: var(--ink); }

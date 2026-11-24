@@ -11,6 +11,7 @@
 // Mounted from gm.js: createScenes({ client, act, getView }) → { update, mountInto(section, parts) }.
 import { h, toast, itemArt, onPortraits, portraitSrc } from './client.js';
 import { icon, field, select, labeled } from './ui.js';
+import { checkDC } from './check-dc.js';
 import { createGmAudio } from './gm-audio.js';
 import { uiOf, uiAsset } from './ui-art.js';
 
@@ -287,7 +288,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     }
     if (kind === 'roll') {
       const check = rollCheck();
-      if (check) return { dc: check.dc, label: check.label };
+      if (check) return { scored: true, label: check.label, ...(check.showDc && check.dc != null ? { dc: check.dc } : {}) };
       return d.playerId ? { playerId: d.playerId, label: d.label || '' } : { label: d.label || '' };
     }
     if (kind === 'explore') {
@@ -515,7 +516,10 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     if (kind === 'chase') return chaseControls(sc);
     if (kind === 'loot') return lootControls(sc);
     if (kind === 'roll' && scoredRolls()) {
-      const { dc, check, label, total, name } = sc.data;
+      const { check, label, total, name } = sc.data;
+      const q = view().gm?.showCheck;
+      const dc = sc.data.dc ?? (q?.sceneId === sc.id ? q.dc : null);
+      if (sc.data.pending) return h('p.sc-line', h('b', label), ' · waiting for dice. Reveal from the form below.');
       if (dc == null) return total != null ? h('p.sc-line', `${name} rolled ${total}.`) : null;
       const verdict = check?.verdict;
       return h('p.sc-line', h('b', `${label} · DC ${dc}`), verdict ? ` · Party ${verdict.success ? 'succeeds' : 'fails'} (${verdict.passed}/${check.results.length})`
@@ -970,12 +974,34 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       .sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  const DC_TYPES = [
+    ['stat', 'Stat', 'Raw stat, no skill: force a stuck door, shrug off booze or poison, see through an illusion.', (f) => `10 + floor ${f}`],
+    ['unopposed', 'Unopposed', 'Skill vs the world: climb, pick a lock, scavenge, navigate. Nothing alive is pushing back.', (f) => `10 + 2 × floor ${f}`],
+    ['opposed', 'Opposed', 'Skill vs someone with a stat block: lie to a guard (his Int/Cha), sneak past a patrol (Int), hold a door a goblin pushes (Str).', (f, m) => `10 + ${m ?? 'their mod'} + floor ${f}`],
+    ['fixed', 'Fixed', 'Your own number (a printed Difficulty, or a judgement call).', () => 'your number'],
+  ];
+  const DEG_NAME = { crit: 'Critical hit', amazing: 'Amazing', success: 'Success', near: 'Near miss', fail: 'Fail', major: 'Major fail', critfail: 'Critical fail' };
+  const DEG_HINT = { crit: 'perfect, extra effect', amazing: 'faster, quieter, impresses', success: 'it works', near: 'announce "Near miss"', fail: 'fail, or fail forward', major: 'fail + a cost (tool, time, face)', critfail: 'disaster, viewers will talk' };
+
+  /** Library monsters/bosses with a stat block, plus mobs in the fight: opponents for an Opposed check. */
+  function opponents(floor) {
+    const lib = view().library ?? {};
+    const mobs = (view().combat?.combatants ?? []).filter((c) => c.type === 'mob' && !c.dead && c.sourceId);
+    const entryOf = (kind, id) => (lib[kind] ?? []).find((x) => x.id === id);
+    const inFight = mobs.map((m) => ({ value: `mob:${m.uid}`, label: m.name, stats: entryOf(m.sourceKind === 'boss' ? 'boss' : 'monster', m.sourceId)?.stats }))
+      .filter((o) => o.stats);
+    const byFloor = (kind) => (lib[kind] ?? []).filter((x) => x.stats && (!x.floor || Math.abs(x.floor - floor) <= 1)).sort((a, b) => a.name.localeCompare(b.name))
+      .map((x) => ({ value: `${kind}:${x.id}`, label: x.name, stats: x.stats }));
+    return { inFight, bosses: byFloor('boss'), monsters: byFloor('monster') };
+  }
+
   function rollCheck() {
     const mode = rollMode();
     if (mode === 'free') return null;
     const d = D('roll');
     const skills = rollSkills();
-    const stats = view().pack?.ruleset?.stats ?? [];
+    const rs = view().pack?.ruleset;
+    const stats = rs?.stats ?? [];
     const selection = mode === 'party' ? d.partyCheck : d.check;
     const stat = mode === 'single' && stats.find((s) => `stat:${s.id}` === selection);
     const skill = !stat && (skills.find((s) => `skill:${s.id}` === selection) ?? skills.find((s) => s.id === 'stealth') ?? skills[0]);
@@ -984,8 +1010,46 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const participants = mode === 'party' ? players.filter((p) => !d.excluded?.includes(p.id))
       : [players.find((p) => p.id === d.checkPlayerId) ?? players[0]].filter(Boolean);
     const floor = view().crawlers?.floor || 1;
-    const baseDc = 10 + floor * (skill?.checkType?.toLowerCase() === 'unopposed' ? 2 : 1);
-    return { mode, stats, skills, ability, skill, stat, participants, dc: d.dc ?? baseDc, label: ability ? skill ? skill.name : `${stat.label} check` : 'Skill check' };
+    // The book's check type is the default; the GM may switch it (an Unopposed climb becomes Opposed when someone shakes the rope).
+    const bookType = stat ? 'stat' : skill?.checkType?.toLowerCase() === 'opposed' ? 'opposed' : 'unopposed';
+    const key = ability ? `${stat ? 'stat' : 'skill'}:${ability.id}` : '';
+    const dcType = d.dcTypeFor === key && d.dcType ? d.dcType : bookType;
+    const opp = opponents(floor);
+    const oppStat = d.oppStat || skill?.stat || stat?.id || stats[0]?.id;
+    const picked = d.against ? [...opp.inFight, ...opp.bosses, ...opp.monsters].find((o) => o.value === d.against) : null;
+    const mod = picked ? picked.stats?.[oppStat]?.mod ?? null : Number.isInteger(d.mod) ? d.mod : 0;
+    const fixed = Number.isInteger(d.fixedDc) ? d.fixedDc : 10 + 2 * floor;
+    const dc = checkDC({ dcType, mod: mod ?? 0, dc: fixed }, rs, { floor });
+    const label = ability ? skill ? skill.name : `${stat.label} check` : 'Skill check';
+    return { mode, stats, skills, ability, skill, stat, participants, floor, dcType, bookType, key, opp, oppStat, picked, mod, fixed, dc, label,
+      dice: d.dice || 'phone', adv: d.adv || '', showDc: d.showDc === true };
+  }
+
+  const heldCheck = () => { const q = view().gm?.showCheck; return q && !q.revealed ? q : null; };
+
+  function heldPanel(q) {
+    const enter = (playerId, value) => act({ t: 'scene.check.enter', playerId, ...(value === undefined ? {} : { entered: value }) }, null);
+    return h('div.span-all.sc-held',
+      h('p.sc-line', h('b', `${q.label} · DC ${q.dc}`), h('span.dim', ` (${DC_TYPES.find((t) => t[0] === q.dcType)?.[1] ?? q.dcType}, floor ${q.floor}${q.against ? `, vs ${q.against.name} ${q.against.stat} ${q.mod >= 0 ? '+' : ''}${q.mod}` : ''}) · only you see this`)),
+      h('ul.sc-held-rows', q.entries.map((e) => h('li.sc-held-row', { 'data-degree': e.degree || '' },
+        h('b', e.name),
+        e.die == null
+          ? h('span.sc-held-wait', q.dice === 'phone' ? 'waiting for the phone… ' : 'no die yet ',
+            h('input.inp.sc-held-fix', { type: 'number', min: 1, max: 20, inputmode: 'numeric', 'aria-label': `${e.name} d20`, placeholder: 'd20',
+              onchange: (ev) => { const n = ev.target.valueAsNumber; if (n >= 1 && n <= 20) enter(e.playerId, n); } }),
+            h('button.btn.btn-sm', { type: 'button', onclick: () => enter(e.playerId) }, 'App rolls'))
+          : h('span', `${e.die}${e.otherDie != null ? ` (other ${e.otherDie})` : ''} ${e.modifier < 0 ? '−' : '+'} ${Math.abs(e.modifier)} = `, h('b', String(e.total)), ' → ',
+            h('b.sc-held-deg', DEG_NAME[e.degree]), h('span.dim', ` · ${DEG_HINT[e.degree]}`), e.favored ? h('span.dim', ` · rerolled with AI Favor (was ${e.favored.from})`) : null),
+        e.advantage ? h('span.dim', e.advantage === 'dis' ? ' · Disadvantage' : ' · Advantage') : null,
+        e.die != null && !e.favored && e.die !== 1 && e.aiFavor > 0
+          ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Before you reveal: the crawler spends 1 AI Favor to reroll the d20', onclick: () => act({ t: 'scene.check.favor', playerId: e.playerId }, 'Rerolled with AI Favor.') }, `AI Favor reroll (${e.aiFavor})`)
+          : null,
+        e.die != null ? h('input.inp.sc-held-fix', { type: 'number', min: 1, max: 20, inputmode: 'numeric', 'aria-label': `Fix ${e.name}'s d20`, title: 'Wrong die? Type the right one', placeholder: 'fix',
+          onchange: (ev) => { const n = ev.target.valueAsNumber; if (n >= 1 && n <= 20) enter(e.playerId, n); } }) : null))),
+      h('p.dim', q.mode === 'party' ? `Party: ${Math.ceil(q.entries.length / 2)} of ${q.entries.length} must succeed; Amazing+ flips a failure, Major fail− flips a success. ` : '',
+        'Players may spend AI Favor until you reveal. Crawlers without a die are left out of the reveal.'),
+      h('div.sc-held-go',
+        h('button.btn.btn-quiet', { type: 'button', onclick: () => act({ t: 'scene.check.cancel' }, 'Check called off.') }, 'Call it off')));
   }
 
   function rollForm() {
@@ -993,6 +1057,8 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const check = rollCheck();
     const mode = rollMode();
     const update = (key, value) => { d[key] = value; saveDraft(); drawBody(); changed(); };
+    const held = scoredRolls() ? heldCheck() : null;
+    if (held) return [heldPanel(held)];
     const modes = scoredRolls() ? h('div.seg.seg-sm.span-all.sc-roll-modes', { 'aria-label': 'Roll type' },
       [['single', 'Single check'], ['party', 'Party check'], ['free', 'Free roll']].map(([id, label]) => h('button', {
         type: 'button', 'aria-pressed': String(mode === id), onclick: () => { enteredDice.clear(); update('mode', id); },
@@ -1000,20 +1066,20 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     if (!check) return [modes, crawlerSelect('roll', { allowNone: true }), txt('roll', 'formula', 'Dice', { placeholder: 'd20', max: 60 }), txt('roll', 'label', 'What for', { placeholder: 'Save vs. the jukebox', max: 80 })];
     const players = view().players || [];
     const isParty = mode === 'party';
-    const opts = [{ label: 'Skills', options: check.skills.map((s) => ({ value: `skill:${s.id}`, label: s.name })) }];
+    const opts = [{ label: 'Skills', options: check.skills.map((s) => ({ value: `skill:${s.id}`, label: `${s.name} · ${s.checkType || ''}` })) }];
     if (!isParty) opts.unshift({ label: 'Stats', options: check.stats.map((s) => ({ value: `stat:${s.id}`, label: s.label })) });
     const required = Math.ceil(check.participants.length / 2);
+    const type = DC_TYPES.find((t) => t[0] === check.dcType);
+    const statOpts = check.stats.map((s) => ({ value: s.id, label: s.label }));
+    const floorSel = select(Array.from({ length: 18 }, (_, i) => ({ value: String(i + 1), label: `Floor ${i + 1}` })), String(check.floor), {
+      label: 'Floor', onChange: (v) => act({ t: 'crawlers.set', floor: Number(v) }, `The world is on floor ${v} now.`) });
+    const oppGroups = [{ value: '', label: 'Type the modifier' },
+      ...(check.opp.inFight.length ? [{ label: 'In the fight', options: check.opp.inFight }] : []),
+      ...(check.opp.bosses.length ? [{ label: `Bosses (floor ${check.floor} ±1)`, options: check.opp.bosses }] : []),
+      ...(check.opp.monsters.length ? [{ label: `Monsters (floor ${check.floor} ±1)`, options: check.opp.monsters }] : [])];
+    const formula = type[3](check.floor, check.dcType === 'opposed' && check.mod != null ? `${check.mod}` : null);
     return [modes,
-      labeled('Check', select(opts, check.ability ? `${check.skill ? 'skill' : 'stat'}:${check.ability.id}` : '', { label: 'Check', onChange: (value) => update(isParty ? 'partyCheck' : 'check', value) })),
-      labeled('Target DC', h('input.inp', { type: 'number', min: -10, max: 99, value: check.dc,
-        oninput: (e) => {
-          const n = e.target.valueAsNumber;
-          if (!Number.isInteger(n) || n < -10 || n > 99) return;
-          d.dc = n;
-          saveDraft(); changed();
-        },
-        onblur: (e) => { e.target.value = rollCheck().dc; },
-      })),
+      labeled('Check', select(opts, check.key, { label: 'Check', onChange: (value) => update(isParty ? 'partyCheck' : 'check', value) })),
       isParty ? h('div.span-all.sc-check-party',
         h('div.sc-check-people', players.map((p) => h('label.chk', h('input', { type: 'checkbox', checked: !d.excluded?.includes(p.id), onchange: (e) => {
           const excluded = new Set(d.excluded);
@@ -1022,17 +1088,38 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
         } }), h('span', p.name)))),
         players.length ? h('p.dim', required ? `${required} of ${check.participants.length} need to succeed. Exceptional rolls can swing a teammate’s result.` : 'Select crawlers for this check.') : null)
         : labeled('Crawler', select(players.map((p) => ({ value: p.id, label: p.name })), check.participants[0]?.id, { label: 'Crawler', onChange: (id) => update('checkPlayerId', id) })),
+      h('div.span-all.seg.seg-sm.sc-dc-types', { 'aria-label': 'Difficulty' }, DC_TYPES.map(([id, label]) => h('button', {
+        type: 'button', 'aria-pressed': String(check.dcType === id), title: DC_TYPES.find((t) => t[0] === id)[2],
+        onclick: () => { d.dcTypeFor = check.key; update('dcType', id); },
+      }, label, id === check.bookType ? h('small.dim', ' book') : null))),
+      h('p.dim.span-all.sc-dc-hint', type[2], check.dcType !== check.bookType ? h('b', ` The book lists this as ${check.bookType}.`) : null),
+      labeled('Floor', floorSel, { hint: 'The world floor (also the collapse clock).' }),
+      check.dcType === 'opposed' ? labeled('Against', select(oppGroups, d.against || '', { label: 'Against', onChange: (v) => update('against', v) }), { hint: 'Their stat block gives the modifier.' }) : null,
+      check.dcType === 'opposed' ? labeled('They resist with', select(statOpts, check.oppStat, { label: 'Resisting stat', onChange: (v) => update('oppStat', v) }),
+        { hint: check.picked && check.mod == null ? 'No such stat in its block: type the modifier.' : 'Usually the stat that notices or resists.' }) : null,
+      check.dcType === 'opposed' && (!check.picked || check.mod == null) ? labeled('Their modifier', h('input.inp', { type: 'number', min: -20, max: 20, value: Number.isInteger(d.mod) ? d.mod : 0,
+        onchange: (e) => { const n = e.target.valueAsNumber; if (Number.isInteger(n)) update('mod', n); } })) : null,
+      check.dcType === 'fixed' ? labeled('DC', h('input.inp', { type: 'number', min: -10, max: 99, value: check.fixed,
+        onchange: (e) => { const n = e.target.valueAsNumber; if (Number.isInteger(n) && n >= -10 && n <= 99) update('fixedDc', n); } })) : null,
+      h('div.span-all.sc-dc-result', h('span.dim', 'Difficulty '), h('b', `DC ${check.dc ?? '?'}`), h('span.dim', ` = ${formula}`),
+        h('label.chk', h('input', { type: 'checkbox', checked: check.showDc, onchange: (e) => update('showDc', e.target.checked) }), h('span', 'Show the DC on the TV')),
+        h('span.dim', check.showDc ? '' : ' (book: players hear the degree, never the DC)')),
+      labeled('Situation', select([{ value: '', label: 'Normal' }, { value: 'adv', label: 'Advantage (2d20, higher)' }, { value: 'dis', label: 'Disadvantage (2d20, lower)' }], check.adv, { label: 'Situation', onChange: (v) => update('adv', v) }),
+        { hint: 'Untrained skills get Disadvantage by themselves; one of each cancels.' }),
+      players.length ? labeled('Dice', select([{ value: 'phone', label: 'Each phone (roll or type the die)' }, { value: 'physical', label: 'I type the physical d20' }, { value: 'digital', label: 'App rolls for everyone' }], check.dice, { label: 'Dice', onChange: (value) => update('dice', value) })) : null,
       !players.length ? h('p.dim.span-all', 'Add a crawler to roll a check.') : null,
-      players.length ? labeled('Dice', select([{ value: 'digital', label: 'Digital d20' }, { value: 'physical', label: 'Enter physical d20' }], d.dice || 'digital', { label: 'Dice', onChange: (value) => update('dice', value) })) : null,
-      d.dice === 'physical' && check.participants.length ? h('div.span-all.sc-check-dice',
+      check.dice === 'physical' && check.participants.length ? h('div.span-all.sc-check-dice',
         check.participants.map((p) => labeled(`${p.name} · d20`, h('input.inp', {
           type: 'number', min: 1, max: 20, inputmode: 'numeric', value: enteredDice.get(p.id) || '',
           oninput: (e) => { enteredDice.set(p.id, e.target.value); drawGoLive(); },
-        }))), h('p.dim', check.skill ? 'Enter the kept die before adding modifiers. For an untrained skill, roll with Disadvantage.' : 'Enter the die before adding modifiers.')) : null];
+        }))), h('p.dim', 'The kept die, before modifiers (Disadvantage: the lower one). Leave one empty to fill it in later.')) : null,
+      h('details.span-all.sc-dc-help', h('summary', 'How results work'),
+        h('ul', Object.entries(DEG_NAME).map(([k, name]) => h('li', h('b', name), ` · ${{ crit: 'natural 20', amazing: 'beat by 10+', success: 'beat by 0–9 (a tie succeeds)', near: 'missed by 1–2', fail: 'missed by 3–9', major: 'missed by 10+', critfail: 'natural 1' }[k]}: ${DEG_HINT[k]}`))),
+        h('p.dim', 'Help outside combat: a helper adds +1d2 (untrained) or +1d6 (has Ranks) before the roll; no help on stat checks. You see every result first and reveal it on the TV.'))];
   }
 
   function readyCheck(check) {
-    return check.ability && check.participants.length && (D('roll').dice !== 'physical' || check.participants.every((p) => /^(?:[1-9]|1[0-9]|20)$/.test(enteredDice.get(p.id))));
+    return check.ability && check.participants.length && check.dc != null && !(check.dcType === 'opposed' && check.picked && check.mod == null);
   }
 
   function formBody(kind) {
@@ -1079,12 +1166,18 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     golive.hidden = false;
     if (id === 'roll' && scoredRolls()) {
       const check = rollCheck();
+      const held = heldCheck();
       golive.classList.toggle('is-live', live);
-      golive.replaceChildren(h('span.grow'), ...[
-        check ? h('button.btn', { type: 'button', disabled: rolling, onclick: () => goLive('roll') }, icon('tv', { size: 14 }), `Show DC ${check.dc}`) : null,
+      if (held) {
+        const ready = held.entries.filter((e) => e.die != null).length;
+        golive.replaceChildren(h('span.sh-golive-h.dim', `${ready}/${held.entries.length} dice in`), h('span.grow'),
+          h('button.btn.btn-primary.sh-golive-btn', { type: 'button', disabled: rolling || !ready, onclick: revealCheck },
+            icon('tv', { size: 16 }), ready < held.entries.length ? `Reveal ${ready} on TV` : 'Reveal on TV', h('kbd', 'F6')));
+        return;
+      }
+      golive.replaceChildren(h('span.sh-golive-h.dim', check?.dice === 'phone' ? 'Phones get the roll; you reveal it.' : 'You see the result first, then reveal it.'), h('span.grow'),
         h('button.btn.btn-primary.sh-golive-btn', { type: 'button', disabled: rolling || !!(check && !readyCheck(check)), onclick: rollOnTv },
-          icon('dice', { size: 16 }), check?.mode === 'party' ? 'Roll party check' : 'Roll on TV', h('kbd', 'F6')),
-      ].filter(Boolean));
+          icon('dice', { size: 16 }), check?.dice === 'phone' ? 'Send to phones' : check?.mode === 'party' ? 'Roll party check' : 'Roll', h('kbd', 'F6')));
       return;
     }
     const meta = sceneOf(id);
@@ -1162,16 +1255,32 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     pvRefresh();
   }
 
+  async function revealCheck() {
+    if (rolling || !heldCheck()) return;
+    rolling = true;
+    drawGoLive();
+    try { await act({ t: 'scene.check.reveal' }, null); } finally { rolling = false; if (tab === 'roll') { drawBody(); drawGoLive(); } }
+  }
+
   async function rollOnTv() {
     const d = D('roll');
+    if (scoredRolls() && heldCheck()) return revealCheck();
     const check = rollCheck();
     if (check) {
       if (rolling || !readyCheck(check)) return;
       rolling = true;
       drawGoLive();
-      const entries = check.participants.map((p) => ({ playerId: p.id, ...(d.dice === 'physical' ? { entered: Number(enteredDice.get(p.id)) } : {}) }));
+      const entered = {};
+      if (check.dice === 'physical') for (const p of check.participants) { const n = Number(enteredDice.get(p.id)); if (n >= 1 && n <= 20) entered[p.id] = n; }
+      const rule = check.dcType === 'opposed'
+        ? (check.picked && check.mod != null
+          ? { against: check.picked.value.startsWith('mob:') ? { kind: 'mob', uid: check.picked.value.slice(4), stat: check.oppStat } : { kind: check.picked.value.split(':')[0], id: check.picked.value.split(':')[1], stat: check.oppStat } }
+          : { mod: check.mod ?? 0 })
+        : check.dcType === 'fixed' ? { dc: check.fixed } : {};
       try {
-        if (await act({ t: 'scene.check', mode: check.mode, dc: check.dc, entries, ...(check.skill ? { skillId: check.skill.id } : { statId: check.stat.id }) }, null)) enteredDice.clear();
+        if (await act({ t: 'scene.check.start', mode: check.mode, dcType: check.dcType, ...rule, playerIds: check.participants.map((p) => p.id), dice: check.dice,
+          ...(check.dice === 'physical' ? { entered } : {}), ...(check.adv ? { adv: check.adv } : {}), showDc: check.showDc,
+          ...(check.skill ? { skillId: check.skill.id } : { statId: check.stat.id }) }, null)) enteredDice.clear();
       } finally {
         rolling = false;
         if (tab === 'roll') { drawBody(); drawGoLive(); }
@@ -1211,7 +1320,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     audio.update(v);
     drawAudio();
     const c = v.combat || {};
-    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, tab, v.players, v.campaign?.ruleset, v.crawlers?.floor, v.library?.skill?.length, v.library?.boss?.length, v.library?.monster?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show, v.maps?.map((m) => m.id), c.mapId,
+    const s = JSON.stringify([v.scene && { ...v.scene, now: 0, party: null }, tab, v.players, v.campaign?.ruleset, v.crawlers?.floor, v.library?.skill?.length, v.library?.boss?.length, v.library?.monster?.length, v.library?.location?.length, v.library?.npc?.length, v.pack?.lootTiers, v.show, v.gm?.showCheck, v.maps?.map((m) => m.id), c.mapId,
       [c.active, c.round, c.phase, (c.combatants || []).map((x) => [x.uid, x.hp, x.hidden, x.down, x.name, x.type === 'crawler' ? x.hpMax : x.attacks?.length])]]);
     if (s !== sig) { sig = s; drawAll(); } else pvPost();
   }

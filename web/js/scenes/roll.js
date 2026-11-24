@@ -28,13 +28,28 @@ function scoredRoll(root, sc, env) {
   function update(scene, view) {
     const d = scene.data;
     heading.textContent = d.label || 'Skill check';
-    dc.textContent = d.dc;
+    // DCC: the Difficulty stays with the GM (hideDc); the TV shows who is rolling, then the degrees.
+    target.hidden = d.dc == null;
+    dc.textContent = d.dc ?? '';
     const check = d.check;
     if (!check) {
       root.classList.add('rq-waiting');
-      verdict.textContent = 'Roll to meet or beat the DC';
+      shown = null;
+      verdict.hidden = false;
+      delete verdict.dataset.result;
+      root.classList.toggle('rq-party', (d.people?.length ?? 0) > 1);
+      if (d.cancelled) { cards.replaceChildren(); verdict.textContent = 'Called off'; return; }
+      cards.replaceChildren(...(d.people ?? []).map((person, i) => {
+        const p = view.players?.find((x) => x.id === person.playerId);
+        return h('article.rq-card.rq-pending', { 'data-ready': String(!!person.ready), style: { '--pc': person.color || '#2ef2ff', '--delay': `${i * 55}ms` } },
+          h('div.rq-player', portraitTile('rq-portrait', p, { name: person.name }), h('div', h('b.rq-name', person.name))),
+          h('div.rq-number', h('b', person.ready ? '✓' : '…')),
+          h('div.rq-result', h('b', person.ready ? 'Rolled' : person.phone ? 'Rolling on the phone' : 'Rolling')));
+      }));
+      verdict.textContent = d.people?.length ? (d.people.every((x) => x.ready) ? 'The System is judging…' : 'Roll your d20') : d.dc != null ? 'Roll to meet or beat the DC' : 'Roll your d20';
       return;
     }
+    root.classList.remove('rq-waiting');
     if (shown === check.results[0]?.rollId) return;
     shown = check.results[0]?.rollId;
     root.classList.toggle('rq-party', !!check.verdict);
@@ -43,12 +58,12 @@ function scoredRoll(root, sc, env) {
     root.classList.toggle('rq-reveal', animate);
     cards.replaceChildren(...check.results.map((r, i) => {
       const p = view.players?.find((x) => x.id === r.playerId);
-      const naturalNeeded = Math.max(2, d.dc - r.modifier);
-      const needs = naturalNeeded >= 20 ? 'Needs natural 20' : `Needs ${naturalNeeded}+ on d20`;
+      const naturalNeeded = d.dc == null ? null : Math.max(2, d.dc - r.modifier);
+      const needs = naturalNeeded == null ? '' : naturalNeeded >= 20 ? 'Needs natural 20' : `Needs ${naturalNeeded}+ on d20`;
       const netSuccess = r.shift ? r.shift === 'helped' : r.success;
       const arithmetic = `${r.natural} ${r.modifier < 0 ? '−' : '+'} ${Math.abs(r.modifier)}`;
       return h('article.rq-card', { 'data-result': netSuccess ? 'pass' : 'fail', 'data-degree': r.degree, style: { '--pc': r.color || '#2ef2ff', '--delay': `${520 + i * 55}ms` } },
-        h('div.rq-player', portraitTile('rq-portrait', p, { name: r.name }), h('div', h('b.rq-name', r.name), h('small', needs))),
+        h('div.rq-player', portraitTile('rq-portrait', p, { name: r.name }), h('div', h('b.rq-name', r.name), needs ? h('small', needs) : null)),
         h('div.rq-number', h('b', String(r.total)), h('div', h('span', arithmetic), r.untrained ? h('small', r.otherDie == null ? 'Untrained' : `Untrained · other d20 ${r.otherDie}`) : null)),
         h('div.rq-result', h('b', CHECK_DEGREES[r.degree]), r.shift ? h('small', r.shift === 'helped' ? 'Team help → Success' : 'Team setback → Failure') : null));
     }));
@@ -65,7 +80,7 @@ function scoredRoll(root, sc, env) {
 }
 
 export default function roll(root, sc, env) {
-  if (sc.data?.dc != null) return scoredRoll(root, sc, env);
+  if (sc.data?.dc != null || sc.data?.scored) return scoredRoll(root, sc, env);
   const who = h('div.rl-who');
   const label = h('p.rl-label');
   const face = h('b.rl-face');

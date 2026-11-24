@@ -23,6 +23,7 @@ import {
 import { enhanceItem, MAX_ENHANCE } from './ruleset.js';
 import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventure, normalizePrep, planEvening, buildEvening, prepView, runPrepScene, upgradePreparedMaps } from './prep.js';
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
+import { SHOW_CHECK_GM, SHOW_CHECK_PLAYER, normalizeShowCheck, showCheckGmView, showCheckPrompts } from './show-check.js';
 import { RULES_GM } from './rules-search.js';
 import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
 import { ACH_SUGGEST_GM, suggestAchievements } from './ach-triggers.js';
@@ -128,6 +129,7 @@ export function createState(basePack, now = Date.now(), campaign = {}) {
     messages: [],
     prepCards: [],
     prepChecks: [],
+    showCheck: null, // show-check.js: Big roll held for the GM's reveal
     prep: initPrep(), // prep.js: adventures + session plans (GM only)
     maps: initMaps(), // maps.js: images + zones + fog (+ tokens for online play)
     library: emptyHomebrew(),
@@ -169,6 +171,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.prepCards = Array.isArray(raw.prepCards) ? raw.prepCards : [];
   s.prep = normalizePrep(raw.prep);
   s.prepChecks = normalizePrepChecks(raw.prepChecks);
+  s.showCheck = normalizeShowCheck(raw.showCheck);
   s.maps = normalizeMaps(raw.maps);
   upgradePreparedMaps(s, pack);
   if (typeof s.session.recap !== 'string') s.session.recap = '';
@@ -906,6 +909,7 @@ const GM = {
     st.feed = [];
     st.rolls = [];
     st.prepChecks = [];
+    st.showCheck = null;
     st.combatLog = [];
     st.drops = [];
     st.audience.bumps = [];
@@ -1024,7 +1028,7 @@ const PLAYER = {
 // v2 sheet actions: GM gets all; players get the SHEET table (permission-checked per action).
 Object.assign(GM, SHEET, SHEET_GM, SCENE_GM, COMBAT_GM, INIT_GM, AUTO_GM, LOOT_GM, CRAWLERS_GM, PREP_GM, MAPS_GM, REACTION_GM);
 Object.assign(GM, makeEncounterGM(GM));
-Object.assign(GM, PREP_CHECKS_GM);
+Object.assign(GM, PREP_CHECKS_GM, SHOW_CHECK_GM);
 Object.assign(GM, RULES_GM);
 Object.assign(GM, MARKS_GM);
 Object.assign(GM, {
@@ -1046,7 +1050,7 @@ Object.assign(GM, CREATION.player, CREATION.gm);
 for (const [k, fn] of Object.entries(SHEET)) PLAYER[k] = fn;
 Object.assign(PLAYER, CREATION.player);
 Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER, REACTION_PLAYER);
-Object.assign(PLAYER, PREP_CHECKS_PLAYER);
+Object.assign(PLAYER, PREP_CHECKS_PLAYER, SHOW_CHECK_PLAYER);
 Object.assign(PLAYER, ADVANCEMENT_PLAYER);
 
 function requireCombatHotlist(st, ctx, uid) {
@@ -1450,7 +1454,7 @@ export function viewFor(state, basePack, role, opts = {}) {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;
     v.combat.history = p ? combatHistoryFor(state, p.id) : [];
-    v.checkPrompts = p ? prepChecksFor(state, p.id) : [];
+    v.checkPrompts = p ? [...prepChecksFor(state, p.id), ...showCheckPrompts(state, p.id, pack)] : [];
     v.library = playerLibrary(state, pack, library, p ?? null);
   } else if (role === 'stage') {
     v.library = playerLibrary(state, pack, library, null);
@@ -1471,6 +1475,7 @@ export function viewFor(state, basePack, role, opts = {}) {
       playersFull: state.players.map((p) => ({ ...fullPlayer(state, p, pack, library), userId: p.userId ?? null })),
       prepCards: state.prepCards,
       prepChecks: (state.prepChecks ?? []).filter((q) => q.sessionId === state.session.id),
+      showCheck: showCheckGmView(state, pack),
       prep: prepView(state, pack),
       sceneBeforeFight: state.sceneBeforeFight ?? null,
       messages: state.messages.slice(-GM_MESSAGES).map((m) => ({
