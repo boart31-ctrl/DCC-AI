@@ -4,6 +4,7 @@
 import { h, ask, timeAgo, toast } from './client.js';
 import { icon } from './ui.js';
 import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
+import { createGrind } from './gm-grind.js';
 
 const REASON = { collapse: 'Floor collapse', announce: 'Count announced', death: 'Death at the table', drop: 'Casualties' };
 const pctText = (e) => {
@@ -16,6 +17,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
   const clock = crawlerClock();
   let sig = '';
   let deathPick = '';
+  const grind = createGrind({ act });
 
   /* ---------- Show bar badge: always visible while the GM runs the show ---------- */
   const badgeNum = h('b.crb-num', '0');
@@ -55,6 +57,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
         act({ t: 'crawlers.drop', pct: p / 100, label: 'Casualties' }, `−${p} % of the crawlers.`).then((ok) => { if (ok) customPct.value = ''; });
       } }, customPct, h('button.btn.btn-sm', { type: 'submit' }, 'Kill that share'))),
     h('div.crg-sec', h('h3', 'Floor'), clockBox, collapseBox),
+    grind.el,
     h('div.crg-sec', h('h3', 'At the table'), deathBox),
     h('details.crg-sec.crg-fix',
       h('summary', 'Set the count by hand (quiet, no TV moment)'),
@@ -155,6 +158,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
   setInterval(tick, 500);
 
   function update(v) {
+    grind.update(v);
     clock.set(v?.crawlers);
     badge.hidden = !v?.crawlers;
     if (!v?.crawlers) return;

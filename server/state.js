@@ -26,6 +26,7 @@ import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor 
 import { SHOW_CHECK_GM, SHOW_CHECK_PLAYER, normalizeShowCheck, showCheckGmView, showCheckPrompts } from './show-check.js';
 import { RULES_GM } from './rules-search.js';
 import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
+import { GRIND_GM, grindView, suggestKillLevels } from './grinding.js';
 import { ACH_SUGGEST_GM, suggestAchievements } from './ach-triggers.js';
 import { TABLES_GM, tablesView } from './tables.js';
 import { CHASE_GM } from './chase.js';
@@ -1031,6 +1032,7 @@ Object.assign(GM, makeEncounterGM(GM));
 Object.assign(GM, PREP_CHECKS_GM, SHOW_CHECK_GM);
 Object.assign(GM, RULES_GM);
 Object.assign(GM, MARKS_GM);
+Object.assign(GM, GRIND_GM);
 Object.assign(GM, {
   ...ACH_SUGGEST_GM,
   'ach.suggest.award': (st, a, ctx, out) => ACH_SUGGEST_GM['ach.suggest.award'](st, a, ctx, out, GM),
@@ -1212,6 +1214,7 @@ function giveStarterAttack(st, p, ctx) {
     const marks = inj ? (st.combat?.combatants ?? []).filter((x) => x.type === 'crawler' && x.injuries?.length).map((x) => [x.playerId, x.injuries]) : [];
     prepareEndLoot(st, ctx, a.outcome);
     creditMarks(st, { ...ctx, h: { ...(ctx.h ?? {}), feedPush } }, out); // skulls and stars over the killers' heads (marks.js)
+    suggestKillLevels(st, ctx); // boss / crawler-kill level reminders for the GM (grinding.js)
     end(st, a, ctx, out);
     const sickness = ctx.pack.ruleset.hotlist.potionSickness;
     if (sickness) for (const p of st.players) p.sheet.buffs = p.sheet.buffs.filter((b) => b.buffId !== sickness);
@@ -1468,6 +1471,7 @@ export function viewFor(state, basePack, role, opts = {}) {
       // Level-up reminder (gm.js): minutes of play, since the last party level-up, snoozed until.
       playClock: { playMin: Math.floor((state.session.playMs ?? 0) / 60_000), sinceLevelMin: Math.floor(((state.session.playMs ?? 0) - (state.session.levelAtMs ?? 0)) / 60_000), snoozeMin: state.session.levelSnoozeMs != null ? Math.ceil(state.session.levelSnoozeMs / 60_000) : null },
       advancementClock: advancementClockView(state.session, pack.ruleset, now),
+      ...grindView(state, pack), // grinding form + level hints (grinding.js)
       joinUrl: opts.urls?.join ?? '',
       stageUrl: opts.urls?.stage ?? '',
       gmUrl: opts.urls?.gm ?? '',

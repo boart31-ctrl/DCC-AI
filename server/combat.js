@@ -1146,7 +1146,7 @@ const DANGER_ACTIONS = new Set([
   'combat.condition', 'combat.target', 'combat.undo', 'combat.auto', 'combat.autoStep', 'combat.autoConfirm', 'combat.autoUndo', 'combat.mobAct',
   'rx.start', 'rx.step', 'rx.resolveNext', 'rx.undo', 'rx.round', 'rx.surprise', 'rx.favor', 'enc.run', 'map.toFight',
   'boss.damage', 'boss.heal', 'boss.defeat', 'scene.update', 'player.add', 'player.remove', 'player.stat', 'player.resource',
-  'crawlers.set', 'crawlers.collapse', 'level.party', 'rest.party', 'prep.card.fire', 'lib.upsert', 'lib.remove', 'lib.give',
+  'crawlers.set', 'crawlers.collapse', 'level.party', 'rest.party', 'grind.run', 'level.hint.apply', 'prep.card.fire', 'lib.upsert', 'lib.remove', 'lib.give',
   'roll.undo', 'roll.void', 'roll.restore', 'roll.undoLast', 'roll.redoLast', 'roll.favor', 'roll.intervene',
 ]);
 

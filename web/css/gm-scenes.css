@@ -335,3 +335,15 @@
   .sh-controls { flex-direction: column; align-items: stretch; }
   .sh-shortcuts { justify-content: flex-end; flex-wrap: wrap; }
 }
+
+/* Grinding montage (gm-grind.js) */
+.grd-wrap { display: grid; gap: 14px; }
+.grd-rows { display: grid; gap: 10px; }
+.grd-row { display: grid; gap: 6px; padding: 8px 10px; border: 1px solid var(--c-line, #333); border-radius: 8px; }
+.grd-cb { display: inline-flex; align-items: center; gap: 6px; }
+.grd-skill[aria-pressed="true"] { outline: 2px solid var(--c-accent, #ff7a00); }
+.grd-skill b { margin-right: 4px; }
+.grd-fails { width: 7em; }
+.grd-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
+.grd-last h3 { margin: 6px 0 4px; }
+.grd-skill:disabled { opacity: 0.45; text-decoration: line-through; }

@@ -61,6 +61,8 @@ export function whatNow(v, { unread = 0 } = {}) {
   const more = [];
   const gm = v?.gm ?? {};
   // The System noticed an achievement moment: one tap awards it (Loot & Rewards has Later / Never).
+  // A boss or a rival crawler went down: the book gives levels; one tap gives them (Crawlers panel has Drop).
+  for (const lh of (gm.levelHints ?? []).slice(-2).reverse()) more.push({ text: `⬆ +${lh.delta} level${lh.delta > 1 ? 's' : ''} · ${lh.victim}`, act: { t: 'level.hint.apply', id: lh.id } });
   for (const sg of (gm.achSuggestions ?? []).slice(-2).reverse()) more.push({ text: `🏆 ${sg.title} → ${sg.name}?`, act: { t: 'ach.suggest.award', id: sg.id } });
   for (const p of gm.playersFull ?? []) {
     const req = p.sheet?.gearRequest ?? [];

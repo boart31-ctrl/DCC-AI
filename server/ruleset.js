@@ -907,6 +907,8 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     attack,
     ...(Number.isInteger(r.advancement?.intervalMinutes) && r.advancement.intervalMinutes >= 1 && r.advancement.intervalMinutes <= 1440
       ? { advancement: { intervalMinutes: r.advancement.intervalMinutes } } : {}),
+    ...(isObj(r.grinding) ? { grinding: normalizeGrinding(r.grinding) } : {}),
+    ...(isObj(r.levels) ? { levels: normalizeLevelRules(r.levels) } : {}),
     spells: { costTrack,
       ...(r.spells?.attackChecks === true ? { attackChecks: true } : {}),
       ...(Array.isArray(r.spells?.starting) ? { starting: idList(r.spells.starting, 12) } : {}),
@@ -1325,5 +1327,41 @@ export function sheetResolver(computed, ch, ruleset, extra = {}) {
     if (head === 'track' && seg.length === 3 && Object.hasOwn(computed.tracks, a) && (b === 'cur' || b === 'max')) return { value: computed.tracks[a][b], label: `${ruleset.tracks.find((t) => t.id === a).label} ${b}` };
     if (head === 'derived' && seg.length === 2 && Object.hasOwn(computed.derived, a)) return { value: computed.derived[a].value, label: ruleset.derived.find((d) => d.id === a).label, parts: computed.derived[a].parts };
     return undefined;
+  };
+}
+
+const intIn = (v, lo, hi, dflt) => (Number.isInteger(v) && v >= lo && v <= hi ? v : dflt);
+
+/**
+ * Grinding montage (ruleset `grinding`): hours of easy fights instead of rolled scenes.
+ * { safeHours, dayHours, maxHours, skill, dc: { base, perFloor }, fatigue, bonusMinHours, mapBonus: { id: hours },
+ *   complicationTable, lowestBonusDie } — every number is the pack's, the engine only does the bookkeeping.
+ */
+function normalizeGrinding(g) {
+  const mapBonus = {};
+  if (isObj(g.mapBonus)) for (const [k, v] of Object.entries(g.mapBonus)) if (safeId(k)) { const n = intIn(v, 0, 24, null); if (n != null) mapBonus[k] = n; }
+  return {
+    safeHours: intIn(g.safeHours, 0, 24, 5),
+    dayHours: intIn(g.dayHours, 1, 100, 24),
+    maxHours: intIn(g.maxHours, 1, 48, 12),
+    skill: safeId(g.skill) ? g.skill : null,
+    dc: { base: intIn(g.dc?.base, 0, 100, 10), perFloor: intIn(g.dc?.perFloor, 0, 20, 0) },
+    fatigue: safeId(g.fatigue) ? g.fatigue : null,
+    bonusMinHours: intIn(g.bonusMinHours, 0, 48, 0),
+    mapBonus,
+    complicationTable: safeId(g.complicationTable) ? g.complicationTable : null,
+    lowestBonusDie: intIn(g.lowestBonusDie, 0, 20, 0),
+    ...noteOf(g),
+  };
+}
+
+/** Level awards suggested to the GM (ruleset `levels`): boss kill by boss rank, crawler kill by a die ± level gap. */
+function normalizeLevelRules(l) {
+  const boss = {};
+  if (isObj(l.boss)) for (const [k, v] of Object.entries(l.boss)) { const n = intIn(v, 0, 20, null); if (n != null && k.length <= 40) boss[k] = n; }
+  const ck = isObj(l.crawlerKill) ? l.crawlerKill : null;
+  return {
+    boss,
+    ...(ck ? { crawlerKill: { die: intIn(ck.die, 1, 100, 6), min: intIn(ck.min, 0, 20, 1), max: intIn(ck.max, 1, 100, 15) } } : {}),
   };
 }

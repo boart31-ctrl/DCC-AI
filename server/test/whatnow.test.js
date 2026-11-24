@@ -37,3 +37,10 @@ test('Panic Hold wins; outside a fight it points at the next prepared scene; wai
   assert.deepEqual(r.more.map((m) => m.text), ['Barbie asks for 1 item', 'Waiting for Perception check: Barbie', '2 h of play: level-up?']);
   assert.equal(whatNow({ players: [], session: {}, gm: {}, combat: {} }).main.text, 'Add your players');
 });
+
+test('what now: a pending level suggestion is one tap', () => {
+  const v = { players: [{ id: 'p1', name: 'Carl' }], gm: { levelHints: [{ id: 'lh_1', kind: 'boss', delta: 2, playerIds: ['p1'], victim: 'Chief' }] } };
+  const chip = whatNow(v).more.find((m) => m.act?.t === 'level.hint.apply');
+  assert.equal(chip.act.id, 'lh_1');
+  assert.match(chip.text, /\+2 levels · Chief/);
+});
