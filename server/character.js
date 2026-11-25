@@ -1428,7 +1428,7 @@ export const SHEET = {
     rec.breakdown = { ...rec.breakdown, value: rec.total };
     rescore(st, ctx, rec);
     checkWeaponBreak(st, ctx, out, rec);
-    out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: p.id, name: p.name, why: 'favor', from: old, to: die }, 'all');
+    out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: p.id, name: p.name, ...(rec.secret ? {} : { degree: rec.vs?.deg7 }), why: 'favor', from: old, to: die }, 'all');
     const shown = publicRoll(rec);
     out.result = { natural: die, total: rec.total, vs: shown.vs ?? null, roll: shown };
   },
@@ -1466,7 +1466,7 @@ export const SHEET = {
     rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown?.parts ?? []), { label: `Intervene (${me?.name ?? 'GM'})`, value: d6, source: 'intervene' }] };
     rescore(st, ctx, rec);
     checkWeaponBreak(st, ctx, out, rec);
-    out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: rec.playerId, why: 'intervene', by: me?.name ?? 'GM', d6, hit: !!rec.vs.hit }, 'all');
+    out.emit({ kind: 'rollUpdate', rollId: rec.id, playerId: rec.playerId, ...(rec.secret ? {} : { degree: rec.vs?.deg7 }), why: 'intervene', by: me?.name ?? 'GM', d6, hit: !!rec.vs.hit }, 'all');
     out.result = { d6, total: rec.total, hit: !!rec.vs.hit, ...(receipt ? { receipt } : {}) };
   },
 

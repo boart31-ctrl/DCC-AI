@@ -68,7 +68,7 @@ function syncHold(on) {
   held = on;
   holdCard.hidden = !on;
   document.body.classList.toggle('held', on);
-  if (on) { try { stopAll(); } catch {} }
+  if (on) { degreeBanner.hidden = true; try { stopAll(); } catch {} }
 }
 
 /** The TV must not fall asleep mid-show: keep the screen on while this page is visible. */
@@ -133,6 +133,21 @@ function renderInit() {
 
 /* ---------- player roll cards: who did what, and did it work ---------- */
 const cards = new Map();
+const degreeBanner = h('aside.degree-banner', { hidden: true, role: 'status' });
+document.body.append(degreeBanner);
+const degreeNames = { crit: 'Critical success', amazing: 'Amazing success', success: 'Success',
+  near: 'Near miss', fail: 'Failure', major: 'Major failure', critfail: 'Critical failure' };
+let degreeTimer;
+function showDegree(e, degree, label) {
+  if (held || e.secret || !degreeNames[degree]) return;
+  const who = view?.players?.find((p) => p.id === e.playerId)?.name;
+  if (!who) return;
+  degreeBanner.dataset.roll = e.rollId || e.id;
+  degreeBanner.replaceChildren(h('span', [who, label].filter(Boolean).join(' · ')), h('strong', degreeNames[degree]));
+  degreeBanner.hidden = false;
+  clearTimeout(degreeTimer);
+  degreeTimer = setTimeout(() => { degreeBanner.hidden = true; }, 4200);
+}
 function rollCard(e) {
   if (e.secret || !e.card || e.auto) return;
   const p = (view?.players || []).find((x) => x.id === e.playerId);
@@ -364,8 +379,16 @@ function onEvent(e) {
       if (!momentBusy) nextMoment();
       break;
     case 'stat': flashPlayer(e.playerId); break;
-    case 'roll': rollCard(e); break;
-    case 'roll.void': rollVoided(e); break;
+    case 'roll':
+      rollCard(e);
+      if (e.part !== 'damage') showDegree(e, e.vs?.deg7, e.label);
+      break;
+    case 'rx.evade': showDegree(e, e.degree, 'Evade'); break;
+    case 'rollUpdate': showDegree(e, e.degree, e.why === 'favor' ? 'AI Favor' : 'Intervene'); break;
+    case 'roll.void':
+      rollVoided(e);
+      if (degreeBanner.dataset.roll === e.id) degreeBanner.hidden = true;
+      break;
     case 'loot.drop': lootTray(e); break;
     case 'crawlers': onCrawlers(e); break;
     case 'loot.take': lootTaken(e); break;

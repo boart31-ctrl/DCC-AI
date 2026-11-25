@@ -292,6 +292,9 @@ client.on('event', (e) => {
   if (e.kind === 'roll') {
     const r = e.roll || e;
     if (r.playerId === me.id && !r.vs && !r.card && !(r.what === 'rankUp' && r.by === me.id)) showRollCard(r, { meId: me.id });
+    if (r.playerId === me.id && r.vs?.deg7 && r.part !== 'damage') showLastRoll({
+      title: r.label, degree: r.vs.deg7, die: r.natural, modifier: r.total - r.natural, total: r.total, adv: r.adv,
+    });
     // A friend's near miss (seven degrees): offer to Intervene with +1d6.
     if (!r.partyCheck && r.playerId && r.playerId !== me.id && r.vs?.deg7 === 'near' && r.vs.damage === undefined) intervenePrompt(r);
     return;
