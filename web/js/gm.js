@@ -1217,6 +1217,22 @@ $('#perm-seg').addEventListener('click', (e) => {
 
 function renderCampaign() {
   const r = $('#node-recap');
+  const kept = view.gm?.tables?.kept ?? [];
+  $('#recap-tables').hidden = !kept.length;
+  const rows = $('#recap-table-rows');
+  const signature = JSON.stringify(kept.map(k => k.id));
+  if (rows.dataset.ids !== signature) {
+    rows.dataset.ids = signature;
+    rows.replaceChildren(...kept.map(k => {
+      const line = k.table ? k.table + ': ' + k.text : k.text;
+      return h('li', line, ' ', h('button.btn.btn-sm', { type: 'button', onclick: () => {
+        const draft = [r.value.trimEnd(), line].filter(Boolean).join('\n');
+        if (draft.length > r.maxLength) { toast('Shorten the recap before adding this result.', { error: true }); return; }
+        r.value = draft;
+        r.dataset.dirty = '1';
+      } }, 'Add to recap'));
+    }));
+  }
   if (r && document.activeElement !== r && !r.dataset.dirty) r.value = view.recap || '';
 }
 $('#node-recap').addEventListener('input', (e) => { e.target.dataset.dirty = '1'; });
@@ -1272,7 +1288,7 @@ campaignBox.prepend(h('h2.desk-sec', 'Campaign'));
 // Crawlers remaining (gm-crawlers.js): a live badge in the Show bar + the Crawlers tool.
 const crawlers = createCrawlers({ act, getView: () => view, open: () => { showView('show'); scenes.pick('crawlers'); } });
 // Příprava (gm-prep.js): adventures + session plans; pinned items wait "within reach" in the Show bar.
-const prep = createPrep({ act, getView: () => view, getCredential: () => ext.credential, scenes, showView: (v) => showView(v), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
+const prep = createPrep({ act, openTables: () => tables.open('tables'), getView: () => view, getCredential: () => ext.credential, scenes, showView: (v) => showView(v), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
 $('#view-prep').append(prep.el);
 // Maps with fog (gm-maps.js): Show → Map chip.
 const maps = createMaps({ act, getView: () => view, getCredential: () => ext.credential, scenes, showView: (v) => showView(v) });

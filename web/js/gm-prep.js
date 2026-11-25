@@ -33,7 +33,7 @@ const store = {
   set(k, v) { try { localStorage.setItem(`system.prep.${k}`, JSON.stringify(v)); } catch {} },
 };
 
-export function createPrep({ act, getView, scenes, showView, openInLibrary, getCredential }) {
+export function createPrep({ act, getView, scenes, showView, openInLibrary, getCredential, openTables }) {
   let view = null;
   let sig = '';
   let reachSig = '';
@@ -529,6 +529,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
           d.id === tonight ? icon('star', { size: 12 }) : null, d.title))) : null,
       h('span.grow'),
       list.length && !st.overview ? h('button.btn.btn-sm', { type: 'button', class: `btn btn-sm${st.newEvening ? ' btn-primary' : ''}`, onclick: newEvening }, icon('plus', { size: 14 }), 'New evening') : null,
+      h('button.btn.btn-sm', { type: 'button', onclick: openTables }, icon('dice', { size: 14 }), 'Random tables'),
       h('button.btn.btn-sm', { type: 'button', onclick: openLibrary }, icon('book', { size: 14 }), 'Library'));
   }
 
