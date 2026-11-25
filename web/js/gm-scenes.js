@@ -1021,8 +1021,14 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const fixed = Number.isInteger(d.fixedDc) ? d.fixedDc : 10 + 2 * floor;
     const dc = checkDC({ dcType, mod: mod ?? 0, dc: fixed }, rs, { floor });
     const label = ability ? skill ? skill.name : `${stat.label} check` : 'Skill check';
-    return { mode, stats, skills, ability, skill, stat, participants, floor, dcType, bookType, key, opp, oppStat, picked, mod, fixed, dc, label,
-      dice: d.dice || 'phone', adv: d.adv || '', showDc: d.showDc === true };
+    // Extras (RfS 13–29): off-stat, unenhanced scores, light, Help, escalating steps.
+    const useStat = skill && d.useStat && d.useStat !== skill.stat && stats.some((s) => s.id === d.useStat) ? d.useStat : '';
+    const tiers = d.escalate ? String(d.tiersText || '').split('\n').map((line) => /^\s*(-?\d+)\s*[:=-]\s*(.+)$/.exec(line)).filter(Boolean)
+      .map((m) => ({ dc: Number(m[1]), text: m[2].trim() })) : null;
+    const locked = skill ? participants.filter((p) => (view().gm?.playersFull?.find((x) => x.id === p.id)?.lockedSkills ?? []).includes(skill.id)) : [];
+    return { mode, stats, skills, ability, skill, stat, participants, floor, dcType, bookType, key, opp, oppStat, picked, mod, fixed, dc: tiers?.length ? Math.min(...tiers.map((t) => t.dc)) : dc, label,
+      dice: d.dice || 'phone', adv: d.adv || '', showDc: d.showDc === true, useStat, unenhanced: d.unenhanced === true, light: d.light || 'bright',
+      helperId: mode === 'single' && skill && d.helperId && d.helperId !== participants[0]?.id ? d.helperId : '', tiers, locked, allowLocked: d.allowLocked === true };
   }
 
   const heldCheck = () => { const q = view().gm?.showCheck; return q && !q.revealed ? q : null; };
@@ -1041,6 +1047,8 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
           : h('span', `${e.die}${e.otherDie != null ? ` (other ${e.otherDie})` : ''} ${e.modifier < 0 ? '−' : '+'} ${Math.abs(e.modifier)} = `, h('b', String(e.total)), ' → ',
             h('b.sc-held-deg', DEG_NAME[e.degree]), h('span.dim', ` · ${DEG_HINT[e.degree]}`), e.favored ? h('span.dim', ` · rerolled with AI Favor (was ${e.favored.from})`) : null),
         e.advantage ? h('span.dim', e.advantage === 'dis' ? ' · Disadvantage' : ' · Advantage') : null,
+        e.extra?.length ? h('span.dim', ` · incl. ${e.extra.map((x) => `${x.label} ${x.value >= 0 ? '+' : '−'}${Math.abs(x.value)}`).join(', ')}`) : null,
+        q.tiers && e.tier != null ? h('div.sc-tier', e.tier >= 0 ? h('span', h('b', `Step ${e.tier + 1} (DC ${q.tiers[e.tier].dc}): `), q.tiers[e.tier].text) : h('span.dim', 'No step reached.')) : null,
         e.die != null && !e.favored && e.die !== 1 && e.aiFavor > 0
           ? h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Before you reveal: the crawler spends 1 AI Favor to reroll the d20', onclick: () => act({ t: 'scene.check.favor', playerId: e.playerId }, 'Rerolled with AI Favor.') }, `AI Favor reroll (${e.aiFavor})`)
           : null,
@@ -1059,11 +1067,19 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const update = (key, value) => { d[key] = value; saveDraft(); drawBody(); changed(); };
     const held = scoredRolls() ? heldCheck() : null;
     if (held) return [heldPanel(held)];
+    const done = view().gm?.showCheck;
+    const tierBox = done?.revealed && done.tiers && done.results?.length ? h('div.span-all.sc-tiers',
+      h('p', h('b', `${done.label}: what each crawler gets`)),
+      h('ul', done.results.map((r) => { const name = (view().players || []).find((p) => p.id === r.playerId)?.name ?? '?';
+        return h('li', h('b', name), ': ', r.tier >= 0 ? `${done.tiers[r.tier].text} (DC ${done.tiers[r.tier].dc})` : 'nothing'); })),
+      h('button.btn.btn-sm', { type: 'button', onclick: async () => {
+        for (const r of done.results) if (r.tier >= 0) await act({ t: 'msg.send', to: [r.playerId], text: `${done.label}: ${done.tiers.slice(0, r.tier + 1).map((t) => t.text).join(' · ')}` }, null);
+      } }, 'Send each crawler their result')) : null;
     const modes = scoredRolls() ? h('div.seg.seg-sm.span-all.sc-roll-modes', { 'aria-label': 'Roll type' },
       [['single', 'Single check'], ['party', 'Party check'], ['free', 'Free roll']].map(([id, label]) => h('button', {
         type: 'button', 'aria-pressed': String(mode === id), onclick: () => { enteredDice.clear(); update('mode', id); },
       }, label))) : null;
-    if (!check) return [modes, crawlerSelect('roll', { allowNone: true }), txt('roll', 'formula', 'Dice', { placeholder: 'd20', max: 60 }), txt('roll', 'label', 'What for', { placeholder: 'Save vs. the jukebox', max: 80 })];
+    if (!check) return [tierBox, modes, crawlerSelect('roll', { allowNone: true }), txt('roll', 'formula', 'Dice', { placeholder: 'd20', max: 60 }), txt('roll', 'label', 'What for', { placeholder: 'Save vs. the jukebox', max: 80 })];
     const players = view().players || [];
     const isParty = mode === 'party';
     const opts = [{ label: 'Skills', options: check.skills.map((s) => ({ value: `skill:${s.id}`, label: `${s.name} · ${s.checkType || ''}` })) }];
@@ -1078,7 +1094,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       ...(check.opp.bosses.length ? [{ label: `Bosses (floor ${check.floor} ±1)`, options: check.opp.bosses }] : []),
       ...(check.opp.monsters.length ? [{ label: `Monsters (floor ${check.floor} ±1)`, options: check.opp.monsters }] : [])];
     const formula = type[3](check.floor, check.dcType === 'opposed' && check.mod != null ? `${check.mod}` : null);
-    return [modes,
+    return [tierBox, modes,
       labeled('Check', select(opts, check.key, { label: 'Check', onChange: (value) => update(isParty ? 'partyCheck' : 'check', value) })),
       isParty ? h('div.span-all.sc-check-party',
         h('div.sc-check-people', players.map((p) => h('label.chk', h('input', { type: 'checkbox', checked: !d.excluded?.includes(p.id), onchange: (e) => {
@@ -1106,6 +1122,20 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
         h('span.dim', check.showDc ? '' : ' (book: players hear the degree, never the DC)')),
       labeled('Situation', select([{ value: '', label: 'Normal' }, { value: 'adv', label: 'Advantage (2d20, higher)' }, { value: 'dis', label: 'Disadvantage (2d20, lower)' }], check.adv, { label: 'Situation', onChange: (v) => update('adv', v) }),
         { hint: 'Untrained skills get Disadvantage by themselves; one of each cancels.' }),
+      labeled('Light', select([{ value: 'bright', label: 'Bright' }, { value: 'dim', label: 'Dim (lichen, torch edge)' }, { value: 'dark', label: 'Darkness' }], check.light, { label: 'Light', onChange: (v) => update('light', v) }),
+        { hint: 'Dim: Disadvantage on checks that need sight (Perception, Investigation…). Dark: on every check where light matters.' }),
+      check.skill ? labeled('Stat', select([{ value: '', label: `${check.skill.stat?.toUpperCase() || '—'} (the skill's own)` }, ...check.stats.filter((x) => x.id !== check.skill.stat).map((x) => ({ value: x.id, label: `${x.label} instead (off-stat)` }))], check.useStat, { label: 'Stat', onChange: (v) => update('useStat', v) }),
+        { hint: 'Off-stat: same skill, another way to use it (Survival thought through = Int).' }) : null,
+      h('label.chk', h('input', { type: 'checkbox', checked: check.unenhanced, onchange: (e) => update('unenhanced', e.target.checked) }), h('span', 'Unenhanced stats (interview shows, admins)')),
+      !isParty && check.skill ? labeled('Help', select([{ value: '', label: 'Nobody helps' }, ...players.filter((p) => p.id !== check.participants[0]?.id).map((p) => ({ value: p.id, label: `${p.name} helps` }))], check.helperId, { label: 'Help', onChange: (v) => update('helperId', v) }),
+        { hint: 'Before the roll: +1d2 (no Ranks in the skill) or +1d6 (has Ranks). The app rolls it.' }) : null,
+      h('label.chk.span-all', h('input', { type: 'checkbox', checked: !!d.escalate, onchange: (e) => update('escalate', e.target.checked) }), h('span', 'Escalating check (several DCs, better info for higher rolls)')),
+      d.escalate ? h('div.span-all', h('textarea.inp', { rows: 4, placeholder: `${10 + 2 * check.floor}: they notice the scratches\n${15 + 2 * check.floor}: fresh blood\n${20 + 2 * check.floor}: the hidden door`, value: d.tiersText || '',
+        'aria-label': 'Escalating steps, one per line: DC: what they get', onchange: (e) => update('tiersText', e.target.value) }),
+        h('p.dim', check.tiers?.length >= 2 ? `${check.tiers.length} steps · lowest DC ${check.dc} counts as success` : 'One line per step: "DC: what they learn". At least two.')) : null,
+      check.locked.length ? h('div.span-all.sc-locked', h('b', '🔒 '), `${check.locked.map((p) => p.name).join(', ')} had a Major or Critical Fail with ${check.skill.name} in this scene (book: no retry until the scene changes). `,
+        h('label.chk', h('input', { type: 'checkbox', checked: check.allowLocked, onchange: (e) => update('allowLocked', e.target.checked) }), h('span', 'Allow anyway')),
+        h('button.btn.btn-sm', { type: 'button', onclick: async () => { if (await act({ t: 'scene.new' }, 'New scene: locked skills are free again.')) setTimeout(() => update('allowLocked', false), 150); } }, 'New scene')) : null,
       players.length ? labeled('Dice', select([{ value: 'phone', label: 'Each phone (roll or type the die)' }, { value: 'physical', label: 'I type the physical d20' }, { value: 'digital', label: 'App rolls for everyone' }], check.dice, { label: 'Dice', onChange: (value) => update('dice', value) })) : null,
       !players.length ? h('p.dim.span-all', 'Add a crawler to roll a check.') : null,
       check.dice === 'physical' && check.participants.length ? h('div.span-all.sc-check-dice',
@@ -1119,6 +1149,8 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
   }
 
   function readyCheck(check) {
+    if (check.tiers && check.tiers.length < 2) return false;
+    if (check.locked.length && !check.allowLocked) return false;
     return check.ability && check.participants.length && check.dc != null && !(check.dcType === 'opposed' && check.picked && check.mod == null);
   }
 
@@ -1280,7 +1312,10 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       try {
         if (await act({ t: 'scene.check.start', mode: check.mode, dcType: check.dcType, ...rule, playerIds: check.participants.map((p) => p.id), dice: check.dice,
           ...(check.dice === 'physical' ? { entered } : {}), ...(check.adv ? { adv: check.adv } : {}), showDc: check.showDc,
-          ...(check.skill ? { skillId: check.skill.id } : { statId: check.stat.id }) }, null)) enteredDice.clear();
+          ...(check.skill ? { skillId: check.skill.id } : { statId: check.stat.id }),
+          ...(check.useStat ? { stat: check.useStat } : {}), ...(check.unenhanced ? { unenhanced: true } : {}), ...(check.light !== 'bright' ? { light: check.light } : {}),
+          ...(check.helperId ? { help: { [check.participants[0].id]: check.helperId } } : {}), ...(check.tiers?.length >= 2 ? { tiers: check.tiers } : {}),
+          ...(check.allowLocked ? { allowLocked: true } : {}) }, null)) enteredDice.clear();
       } finally {
         rolling = false;
         if (tab === 'roll') { drawBody(); drawGoLive(); }

@@ -10,10 +10,13 @@ import { checkDC } from '../web/js/check-dc.js';
 import { degree7, floorOfState } from './outcome.js';
 import { checkModifier } from './prep-checks.js';
 import { SCENE_GM, setScene } from './scenes.js';
+import { lockedSkills } from './skill-locks.js';
 
 export const SHOW_CHECK_DC_TYPES = ['stat', 'unopposed', 'opposed', 'fixed'];
 export const SHOW_CHECK_DICE = ['digital', 'physical', 'phone'];
 const ADV = ['adv', 'dis'];
+export const SHOW_CHECK_LIGHT = ['bright', 'dim', 'dark'];
+const MAX_TIERS = 6;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const face = (v) => Number.isInteger(v) && v >= 1 && v <= 20;
 const int = (v, field, lo, hi) => {
@@ -79,6 +82,15 @@ function opposedMod(st, ctx, a, fallbackStat) {
   return { mod, against: { kind: against.kind, ...(against.uid ? { uid: against.uid } : { id: against.id }), name, stat } };
 }
 
+/** Escalating check: the best step reached (index into tiers, −1 = none). A natural 20 reaches the top, a natural 1 none. */
+export function tierFor(tiers, total, natural) {
+  if (natural === 1) return -1;
+  if (natural === 20) return tiers.length - 1;
+  let best = -1;
+  tiers.forEach((t, i) => { if (total >= t.dc) best = i; });
+  return best;
+}
+
 function favorLeft(p, pack) {
   const fdef = pack?.ruleset?.fields?.find((f) => f.id === 'aiFavor');
   return fdef ? Number(p?.sheet.fields?.aiFavor ?? fdef.default ?? 0) : 0;
@@ -121,7 +133,11 @@ function favor(st, ctx, q, e, entered) {
 
 export const SHOW_CHECK_GM = {
   /**
-   * `{ mode, skillId|statId, dcType, mod?, against?, dc?, adv?, playerIds[], dice, entered?: {playerId: face}, showDc?, label? }`
+   * `{ mode, skillId|statId, dcType, mod?, against?, dc?, adv?, playerIds[], dice, entered?: {playerId: face}, showDc?, label?,
+   *    stat?, unenhanced?, light?, help?: {playerId: helperId}, helpEntered?: {playerId: face}, tiers?: [{dc, text}], allowLocked? }`
+   * stat = off-stat check (the skill's Rank with another Stat Mod), unenhanced = unenhanced scores (shows),
+   * light dim/dark = Disadvantage on the pack's vision skills (dark: on every check), help = a helper's die before
+   * the roll (1d2 untrained / 1d6 with Ranks; not on stat or party checks), tiers = escalating Difficulties.
    * Holds the check: the TV shows who is rolling, the GM sees results in gm.showCheck, `scene.check.reveal` resolves it.
    */
   'scene.check.start'(st, a, ctx, out) {
@@ -139,6 +155,19 @@ export const SHOW_CHECK_GM = {
     if (skill && ['passive', 'evade'].includes(skill.checkType?.toLowerCase())) throw bad('choose one active skill for the check');
     const stat = !skill && !party ? rs.stats.find((s) => s.id === a.statId) : null;
     if (!skill && !stat) throw bad(party ? 'choose a skill for the party check' : 'choose a skill or stat');
+    if (a.stat !== undefined && (!skill || !rs.stats.some((x) => x.id === a.stat))) throw bad('an off-stat check needs a skill and a stat');
+    if (a.unenhanced !== undefined && typeof a.unenhanced !== 'boolean') throw bad('unenhanced must be a boolean');
+    if (a.light !== undefined && !SHOW_CHECK_LIGHT.includes(a.light)) throw bad(`light must be ${SHOW_CHECK_LIGHT.join(', ')}`);
+    const vision = new Set(ctx.pack.ruleset.checks?.visionSkills ?? []);
+    const lightAdv = a.light === 'dark' || (a.light === 'dim' && skill && vision.has(skill.id)) ? 'dis' : null;
+    let tiers = null;
+    if (a.tiers !== undefined) {
+      if (!Array.isArray(a.tiers) || a.tiers.length < 2 || a.tiers.length > MAX_TIERS) throw bad(`escalating checks need 2..${MAX_TIERS} steps`);
+      tiers = a.tiers.map((t) => ({ dc: int(t?.dc, 'tier dc', -10, 99), text: typeof t?.text === 'string' ? t.text.trim().slice(0, 300) : '' }))
+        .sort((x, y) => x.dc - y.dc);
+      if (new Set(tiers.map((t) => t.dc)).size !== tiers.length) throw bad('each step needs its own DC');
+    }
+    if (a.help !== undefined && (!isObj(a.help) || party || !skill)) throw bad('help is for a single skill check');
     const ids = Array.isArray(a.playerIds) ? a.playerIds : [];
     if (!ids.length || ids.length > st.players.length || new Set(ids).size !== ids.length || (!party && ids.length !== 1)) throw bad('select the crawlers making this check');
     const floor = floorOfState(st);
@@ -146,15 +175,31 @@ export const SHOW_CHECK_GM = {
     let against = null;
     if (a.dcType === 'opposed') ({ mod: rule.mod, against } = opposedMod(st, ctx, a, skill?.stat ?? stat?.id));
     if (a.dcType === 'fixed') rule.dc = int(a.dc, 'dc', -10, 99);
-    const dc = checkDC(rule, rs, { floor });
+    const dc = tiers ? tiers[0].dc : checkDC(rule, rs, { floor });
     if (!Number.isInteger(dc) || dc < -10 || dc > 99) throw bad('that Difficulty is out of range');
     const check = skill ? { skillId: skill.id } : { statId: stat.id };
     const entries = ids.map((playerId) => {
       const p = st.players.find((x) => x.id === playerId);
       if (!p) throw notFound(`no player ${playerId}`);
-      const m = checkModifier(p, st, ctx.pack, check);
+      if (skill && a.allowLocked !== true && lockedSkills(st, p).includes(skill.id)) throw bad(`${p.name} had a Major or Critical Fail with ${skill.name} in this scene: try another way, or start a new scene`);
+      const m = checkModifier(p, st, ctx.pack, check, { stat: a.stat, unenhanced: a.unenhanced === true });
       const e = { playerId, modifier: m.modifier, die: null, ...(m.untrained ? { untrained: true } : {}) };
-      const adv = netAdvantage(m.advantage, a.adv);
+      // Extra over the sheet's own bonus: carried into the reveal as a situational bonus.
+      const extra = [];
+      if (m.statShift) extra.push({ label: a.unenhanced ? 'Unenhanced stats' : `Off-stat (${a.stat.toUpperCase()})`, value: m.statShift });
+      const helperId = isObj(a.help) ? a.help[playerId] : undefined;
+      if (helperId !== undefined) {
+        const helper = st.players.find((x) => x.id === helperId);
+        if (!helper || helper.id === playerId) throw bad('choose another crawler to help');
+        const sides = helper.sheet.skills.some((x) => x.skillId === skill.id && x.rank > 0) ? 6 : 2;
+        const typed = isObj(a.helpEntered) ? a.helpEntered[playerId] : undefined;
+        const die = typed !== undefined ? int(typed, 'help die', 1, sides) : (ctx.dieInt ?? ctx.rollInt ?? ctx.randInt)(sides) + 1;
+        e.help = { helperId, name: helper.name, sides, die };
+        e.modifier += die;
+        extra.push({ label: `Help from ${helper.name} (d${sides})`, value: die });
+      }
+      if (extra.length) e.extra = extra;
+      const adv = netAdvantage(m.advantage, a.adv, lightAdv);
       if (adv) e.advantage = adv;
       if (a.dice === 'digital') { const r = rollD20(ctx, adv); setDie(null, e, r.die, r.otherDie); }
       const typed = isObj(a.entered) ? a.entered[playerId] : undefined;
@@ -164,7 +209,8 @@ export const SHOW_CHECK_GM = {
     const label = typeof a.label === 'string' && a.label.trim() ? a.label.trim().slice(0, 80) : skill?.name ?? `${stat.label} check`;
     const q = {
       id: ctx.genId('scq'), sessionId: st.session.id, mode: party ? 'party' : 'single', ...check, label, ability: skill?.name ?? stat.label,
-      dcType: a.dcType, floor, dc, ...(rule.mod !== undefined ? { mod: rule.mod } : {}), ...(against ? { against } : {}),
+      dcType: tiers ? 'tiers' : a.dcType, floor, dc, ...(rule.mod !== undefined && !tiers ? { mod: rule.mod } : {}), ...(against && !tiers ? { against } : {}),
+      ...(tiers ? { tiers } : {}), ...(a.stat ? { stat: a.stat } : {}), ...(a.unenhanced ? { unenhanced: true } : {}), ...(a.light && a.light !== 'bright' ? { light: a.light } : {}),
       ...(a.adv ? { adv: a.adv } : {}), showDc: a.showDc === true, dice: a.dice, entries, revealed: false, at: ctx.now,
     };
     setScene(st, ctx, 'roll', publicData(st, q));
@@ -199,11 +245,13 @@ export const SHOW_CHECK_GM = {
     SCENE_GM['scene.check'](st, {
       t: 'scene.check', mode: q.mode, dc: q.dc, label: q.label, hideDc: !q.showDc, ...(q.adv ? { adv: q.adv } : {}),
       ...(q.skillId ? { skillId: q.skillId } : { statId: q.statId }),
-      entries: ready.map((e) => ({ playerId: e.playerId, entered: e.die })),
+      entries: ready.map((e) => ({ playerId: e.playerId, entered: e.die, ...(e.extra?.length ? { bonus: e.extra.reduce((n, x) => n + x.value, 0) } : {}) })),
     }, ctx, out);
     q.revealed = true;
     q.sceneId = st.scene.id;
-    q.results = out.result?.results?.map((r) => ({ playerId: r.playerId, total: r.total, degree: r.degree, shift: r.shift ?? null })) ?? [];
+    q.results = out.result?.results?.map((r) => ({ playerId: r.playerId, total: r.total, degree: r.degree, shift: r.shift ?? null,
+      ...(q.tiers ? { tier: tierFor(q.tiers, r.total, r.natural) } : {}) })) ?? [];
+    if (q.tiers) out.result = { ...out.result, tiers: q.results.map((r) => ({ playerId: r.playerId, tier: r.tier })) };
     q.verdict = out.result?.verdict ?? null;
     q.skipped = q.entries.filter((e) => e.die == null).map((e) => e.playerId);
   },
@@ -248,7 +296,8 @@ export function showCheckGmView(st, pack) {
     entries: q.entries.map((e) => {
       const p = st.players.find((x) => x.id === e.playerId);
       const total = e.die == null ? null : e.die + e.modifier;
-      return { ...e, name: p?.name ?? '', aiFavor: favorLeft(p, pack), total, degree: e.die == null ? null : degree7(e.die, total, q.dc) };
+      return { ...e, name: p?.name ?? '', aiFavor: favorLeft(p, pack), total, degree: e.die == null ? null : degree7(e.die, total, q.dc),
+        ...(q.tiers && e.die != null ? { tier: tierFor(q.tiers, total, e.die) } : {}) };
     }),
   };
 }

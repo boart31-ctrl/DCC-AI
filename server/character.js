@@ -1,5 +1,6 @@
 // Character sheets (RULESET v2): storage shape, migration, sheet/roll/library actions, sheet views.
 // Browser-safe. See docs/RULESET.md and docs/PROTOCOL.md.
+import { lockSkill } from './skill-locks.js';
 import { ActionError, bad, notFound, forbidden } from './errors.js';
 import { computeSheet, enhanceItem, MAX_ENHANCE, makeLibrary, normalizeLibEntry, normalizeEffects, sheetResolver, tmpl, RulesetError, LIB_KINDS, ID_RE } from './ruleset.js';
 import { rollDice, validateFormula, evaluate, FormulaError } from './formula.js';
@@ -17,6 +18,7 @@ export const MAX_UNTRIED = 20;
 export const MAX_ATTACKS = 50;
 export const MAX_SPELLS = 200;
 export const MAX_BUFFS = 50;
+export const MAX_STACKS = 10;
 export const MAX_INVENTORY = 500;
 export const MAX_POOLS = 20;
 export const ORIGIN_KEYS = ['race', 'class', 'background'];
@@ -121,7 +123,7 @@ export function migrateSheet(sheet, legacy, ruleset) {
     spellCasts: cleanSpellCasts(s.spellCasts),
     hotlist: hot,
     ...(ruleset.hotlist.combat ? { preparedSpellHotlist: true } : {}),
-    buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0), ...(Number.isInteger(b.roundsLeft) && b.roundsLeft >= 0 ? { roundsLeft: b.roundsLeft } : {}) })),
+    buffs: arr(s.buffs).map((b) => ({ uid: b.uid, buffId: b.buffId ?? null, name: b.name ?? 'Buff', desc: b.desc ?? '', external: !!b.external, effects: Array.isArray(b.effects) ? b.effects : [], until: b.until ?? '', at: finite(b.at, 0), ...(b.stackable ? { stackable: true, stacks: Number.isInteger(b.stacks) && b.stacks >= 1 && b.stacks <= MAX_STACKS ? b.stacks : 1 } : {}), ...(Number.isInteger(b.roundsLeft) && b.roundsLeft >= 0 ? { roundsLeft: b.roundsLeft } : {}) })),
     story: cleanMap(s.story),
     portrait: typeof s.portrait === 'string' ? s.portrait : null,
     // Counters like "Lay on Hands": { uid, name, cur, max, desc } (player-trackable, GM/sheet-editable).
@@ -331,6 +333,8 @@ export const isContainer = (def) => !!def && (def.container === true || (def.tag
 export function enrichInventory(inv, library) {
   return inv.map((i) => {
     const def = enhanceItem(library.get('item', i.itemId), i.bonus);
+    // Crafted / hand-written items (no library entry): plain notes, no rules.
+    if (!def && i.custom === true) return { ...i, slot: null, stackable: false, effects: [], attack: null, use: null, source: null };
     if (!def) return { ...i, slot: null, stackable: false, effects: [], attack: null, use: null, source: null, missing: true };
     return {
       ...i,
@@ -524,7 +528,7 @@ export function nextInjuryDescription(p, rules, severity, requested) {
 }
 
 function buffFromDef(def, ctx) {
-  return { uid: ctx.genId('b'), buffId: def.id, name: def.name, desc: def.desc ?? '', external: !!def.external, effects: def.effects ?? [], until: def.duration ?? '', at: ctx.now, ...(def.rounds ? { roundsLeft: def.rounds } : {}) };
+  return { uid: ctx.genId('b'), buffId: def.id, name: def.name, desc: def.desc ?? '', external: !!def.external, effects: def.effects ?? [], until: def.duration ?? '', at: ctx.now, ...(def.stackable ? { stackable: true, stacks: 1 } : {}), ...(def.rounds ? { roundsLeft: def.rounds } : {}) };
 }
 
 /** Resolve status restrictions from library ids, including statuses already active in older saves. */
@@ -544,10 +548,17 @@ export function requireStatusAllowed(st, ctx, target, kind) {
   if (name) throw bad(`Blocked by ${name}.`);
 }
 
-/** Adds a buff (enforcing the external cap). Library buffs never stack: same buffId → existing entry. */
+/**
+ * Adds a buff (enforcing the external cap). Same buffId → the existing entry; a `stackable` library buff
+ * (e.g. a fatigue level) gains one stack instead, up to MAX_STACKS — its numeric `add` effects count once per stack.
+ */
 function addBuff(p, buff, ruleset) {
   if (buff.buffId) {
     const have = p.sheet.buffs.find((b) => b.buffId === buff.buffId);
+    if (have && have.stackable && (have.stacks ?? 1) < MAX_STACKS) {
+      have.stacks = (have.stacks ?? 1) + 1;
+      return { buff: have, added: false, stacked: true };
+    }
     if (have) return { buff: have, added: false };
   }
   if (p.sheet.buffs.length >= MAX_BUFFS) throw bad(`max ${MAX_BUFFS} buffs`);
@@ -565,7 +576,7 @@ function removeInv(p, uid) {
   p.sheet.hotlist = p.sheet.hotlist.map((x) => (x === uid ? null : x));
 }
 
-function trackDelta(p, pack, library, track, delta, out) {
+export function trackDelta(p, pack, library, track, delta, out) {
   const { computed } = computeFor(p, pack, library);
   const c = computed.tracks[track];
   const from = c.cur;
@@ -1626,6 +1637,11 @@ export const SHEET = {
     if (prior?.broken) rec.weaponHitId = prior.id;
     checkWeaponBreak(st, ctx, out, rec);
     pushRoll(st, rec, out, ctx0);
+    // RfS 15: Major / Critical Fail on a skill check → that skill is locked for the rest of the scene.
+    if ((rec.vs?.deg7 === 'major' || rec.vs?.deg7 === 'critfail') && (w.kind === 'skill' || w.kind === 'untrained')) {
+      const sk = w.kind === 'skill' ? p.sheet.skills.find((x) => x.uid === w.uid) : null;
+      lockSkill(st, p, sk ? (sk.skillId ?? sk.uid) : w.skillId);
+    }
     const shown = ctx0.actor.role === 'gm' ? rec : publicRoll(rec);
     out.result = { rollId: rec.id, total: rec.total, roll: shown, ...(rec.vs ? { hit: rec.vs.hit, crit: rec.vs.crit, degree: rec.vs.degree, deg7: rec.vs.deg7 ?? null, typed: rec.vs.typed ?? null, advantage: !!rec.vs.advantage, applied: rec.applied ?? null } : {}) };
   },
@@ -1789,10 +1805,12 @@ export const SHEET_GM = {
     out.result = { uid: r.buff.uid, added: r.added };
   },
 
+  /** `{ uid, one? }` removes the buff; `one: true` on a stacked buff takes off a single stack. */
   'buff.remove'(st, a, ctx) {
     const p = targetOf(st, a, ctx, 'gm');
-    findUid(p.sheet.buffs, a.uid, 'buff');
-    p.sheet.buffs = p.sheet.buffs.filter((b) => b.uid !== a.uid);
+    const b = findUid(p.sheet.buffs, a.uid, 'buff');
+    if (a.one === true && (b.stacks ?? 1) > 1) { b.stacks -= 1; return; }
+    p.sheet.buffs = p.sheet.buffs.filter((x) => x.uid !== a.uid);
   },
 
   'skills.rankUp'(st, a, ctx, out) {

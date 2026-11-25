@@ -230,6 +230,7 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
     if (blocks.length) e.blocks = blocks;
     if (Number.isInteger(raw.rounds) && raw.rounds >= 1 && raw.rounds <= 99) e.rounds = raw.rounds;
     if (raw.endCombat === true) e.endCombat = true;
+    if (raw.stackable === true) e.stackable = true; // levels (fatigue): adding it again adds a stack
     // Damage at every clean up while it lasts (Blood Trail, Burned, Poisoned…): dice + the floor if plusFloor.
     if (raw.tick && typeof raw.tick === 'object' && /^\d*d\d+([+-]\d+)?$/.test(String(raw.tick.damage ?? '').replace(/\s/g, ''))) {
       e.tick = { damage: String(raw.tick.damage).replace(/\s/g, ''), plusFloor: raw.tick.plusFloor === true, type: text(raw.tick.type, 30).toLowerCase() };
@@ -908,7 +909,12 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     ...(Number.isInteger(r.advancement?.intervalMinutes) && r.advancement.intervalMinutes >= 1 && r.advancement.intervalMinutes <= 1440
       ? { advancement: { intervalMinutes: r.advancement.intervalMinutes } } : {}),
     ...(isObj(r.grinding) ? { grinding: normalizeGrinding(r.grinding) } : {}),
+    // Skills that rely on sight: dim light gives them Disadvantage on the Big roll (RfS 23).
+    ...(isObj(r.checks) && Array.isArray(r.checks.visionSkills) ? { checks: { visionSkills: r.checks.visionSkills.filter(safeId).slice(0, 40) } } : {}),
     ...(isObj(r.levels) ? { levels: normalizeLevelRules(r.levels) } : {}),
+    ...(isObj(r.hazards) ? { hazards: normalizeHazards(r.hazards) } : {}),
+    ...(isObj(r.crafting) ? { crafting: normalizeCrafting(r.crafting) } : {}),
+    ...(isObj(r.popularity) ? { popularity: normalizePopularity(r.popularity) } : {}),
     spells: { costTrack,
       ...(r.spells?.attackChecks === true ? { attackChecks: true } : {}),
       ...(Array.isArray(r.spells?.starting) ? { starting: idList(r.spells.starting, 12) } : {}),
@@ -1016,7 +1022,11 @@ export function collectEffects(ch, library, warnings) {
     add(def.effects, { kind: 'item', uid: inv.uid, id: def.id, name: def.name }, (e) => (e.when === 'equipped' || e.when === 'active' ? equipped : true));
   }
   for (const b of ch.buffs ?? []) {
-    add(b.effects, { kind: 'buff', uid: b.uid, id: b.buffId ?? null, name: b.name || 'Buff', external: !!b.external }, () => true);
+    // Stacked buffs (fatigue levels): numeric `add` effects count once per stack.
+    const n = b.stackable && Number.isInteger(b.stacks) && b.stacks > 1 ? b.stacks : 1;
+    const effects = n === 1 ? b.effects : (b.effects ?? []).map((e) => (e.op === 'add' && typeof e.value === 'number'
+      ? { ...e, value: e.value * n, label: `${e.label || b.name || 'Buff'} ×${n}` } : e));
+    add(effects, { kind: 'buff', uid: b.uid, id: b.buffId ?? null, name: b.name || 'Buff', external: !!b.external }, () => true);
   }
   for (const sp of ch.spells ?? []) {
     const def = library.get('spell', sp.spellId);
@@ -1363,5 +1373,46 @@ function normalizeLevelRules(l) {
   return {
     boss,
     ...(ck ? { crawlerKill: { die: intIn(ck.die, 1, 100, 6), min: intIn(ck.min, 0, 20, 1), max: intIn(ck.max, 1, 100, 15) } } : {}),
+  };
+}
+
+/** Falling and starving (ruleset `hazards`). */
+function normalizeHazards(h) {
+  const f = isObj(h.fall) ? h.fall : null;
+  const s = isObj(h.starve) ? h.starve : null;
+  return {
+    ...(f ? { fall: { perFeet: intIn(f.perFeet, 1, 100, 10), die: intIn(f.die, 2, 20, 6), maxDice: intIn(f.maxDice, 1, 100, 20),
+      dtype: typeof f.dtype === 'string' ? f.dtype.toLowerCase().slice(0, 30) : '', prone: safeId(f.prone) ? f.prone : null } } : {}),
+    ...(s ? { starve: { slots: intIn(s.slots, 0, 10, 3), fatigue: safeId(s.fatigue) ? s.fatigue : null, skill: safeId(s.skill) ? s.skill : 'survival' } } : {}),
+  };
+}
+
+/** Misc. Junk crafting (ruleset `crafting`). */
+function normalizeCrafting(c) {
+  const sizes = (Array.isArray(c.sizes) ? c.sizes : []).filter(isObj).slice(0, 12)
+    .map((x) => ({ label: text(x.label, 30) || '?', junk: intIn(x.junk, 0, 100000, 1) }));
+  const salvage = (Array.isArray(c.salvage) ? c.salvage : []).filter(isObj).slice(0, 6)
+    .map((x) => ({ min: intIn(x.min, 0, 100, 0), max: Number.isInteger(x.max) ? x.max : null, share: Number.isFinite(x.share) && x.share >= 0 && x.share <= 1 ? x.share : 0, label: text(x.label, 120) }));
+  return {
+    junkField: safeId(c.junkField) ? c.junkField : 'junk',
+    commonCost: intIn(c.commonCost, 0, 100, 1),
+    skills: (Array.isArray(c.skills) ? c.skills : []).filter(safeId).slice(0, 6),
+    sizes, salvage,
+  };
+}
+
+/** Popularity reasons (ruleset `popularity`). */
+function normalizePopularity(p) {
+  const reasons = (list) => (Array.isArray(list) ? list : []).filter((x) => isObj(x) && safeId(x.id)).slice(0, 20).map((x) => ({
+    id: x.id, label: text(x.label, 120) || x.id,
+    ...(isObj(x.auto) && safeId(x.auto.stat) ? { auto: { stat: x.auto.stat, ...(Number.isInteger(x.auto.min) ? { min: x.auto.min } : {}), ...(Number.isInteger(x.auto.max) ? { max: x.auto.max } : {}) } }
+      : x.auto === 'grindLate' || x.auto === 'earlyStairs' ? { auto: x.auto } : {}),
+  }));
+  return {
+    field: safeId(p.field) ? p.field : 'popularityScore',
+    fromFloor: intIn(p.fromFloor, 1, 99, 2),
+    gains: reasons(p.gains), losses: reasons(p.losses),
+    ...(isObj(p.grindLate) ? { grindLate: { hours: intIn(p.grindLate.hours, 0, 100, 15), window: intIn(p.grindLate.window, 1, 200, 30) } } : {}),
+    ...(Number.isInteger(p.earlyStairs) ? { earlyStairs: p.earlyStairs } : {}),
   };
 }

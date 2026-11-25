@@ -30,21 +30,45 @@ function checkAbility(rs, lib, check) {
   return stat;
 }
 
-export function checkModifier(p, st, pack, check) {
+/**
+ * The crawler's check bonus. `opts.stat` = off-stat check (RfS 29: the skill's Rank with another Stat Mod),
+ * `opts.unenhanced` = use the unenhanced stat score (interview shows, admins: RfS 51).
+ */
+export function checkModifier(p, st, pack, check, opts = {}) {
   const rs = pack.ruleset;
   const lib = libraryOf(st, pack);
   const ability = checkAbility(rs, lib, check);
   const { ch, computed } = computeFor(p, pack, lib);
   const statModifier = (id) => statCheckBonus(computed, id).value;
-  if (!check.skillId) return { modifier: statModifier(ability.id) };
+  const enhancedMod = (id) => computed.stats[id]?.mod?.value ?? 0;
+  const unenhancedMod = (id) => {
+    const def = rs.stats.find((x) => x.id === id);
+    const raw = ch.stats?.[id];
+    const part = def?.parts?.includes('unenhanced') ? 'unenhanced' : null;
+    if (!part) return enhancedMod(id);
+    const score = typeof raw === 'number' ? raw : Number(raw?.[part] ?? def.default?.[part] ?? 0);
+    return evaluate(rs.statMod.formula, (n) => (n === 'x' ? score : undefined)).value;
+  };
+  const modOf = (id) => (opts.unenhanced ? unenhancedMod(id) : enhancedMod(id));
+  // Shift from the default stat (enhanced mod of the check's own stat) to the one this check uses.
+  const shift = (from, to) => (to && from && (to !== from || opts.unenhanced) ? modOf(to) - enhancedMod(from) : 0);
+  if (!check.skillId) {
+    const d = shift(ability.id, ability.id);
+    return { modifier: statModifier(ability.id) + d, ...(d ? { statShift: d } : {}) };
+  }
+  const useStat = opts.stat && rs.stats.some((x) => x.id === opts.stat) ? opts.stat : null;
   const skill = ch.skills.find((s) => s.skillId === ability.id);
-  if (skill) return { modifier: computed.skills.find((s) => s.uid === skill.uid).total.value, skillUid: skill.uid };
+  if (skill) {
+    const d = shift(skill.stat || ability.stat, useStat ?? (skill.stat || ability.stat));
+    return { modifier: computed.skills.find((s) => s.uid === skill.uid).total.value + d, skillUid: skill.uid, ...(d ? { statShift: d } : {}) };
+  }
   const untrained = rs.skills.untrained;
-  const stat = ability.stat;
-  if (!untrained) return { modifier: statModifier(stat) };
+  const stat = useStat ?? ability.stat;
+  const d0 = opts.unenhanced ? modOf(stat) - enhancedMod(stat) : 0;
+  if (!untrained) return { modifier: statModifier(stat) + d0 };
   if (untrained.noCheckTypes.includes(ability.checkType)) throw bad(`${p.name} cannot attempt this skill untrained`);
   const expression = String(untrained.formula || 'mod.{stat}').replaceAll('{stat}', stat);
-  return { modifier: evaluate(expression, sheetResolver(computed, ch, rs)).value, advantage: untrained.adv, untrained: true };
+  return { modifier: evaluate(expression, sheetResolver(computed, ch, rs)).value + d0, advantage: untrained.adv, untrained: true };
 }
 
 function resultDegree({ family, degreeScale }, die, total, dc) {

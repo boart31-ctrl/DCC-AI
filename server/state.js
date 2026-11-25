@@ -27,6 +27,9 @@ import { SHOW_CHECK_GM, SHOW_CHECK_PLAYER, normalizeShowCheck, showCheckGmView, 
 import { RULES_GM } from './rules-search.js';
 import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
 import { GRIND_GM, grindView, suggestKillLevels } from './grinding.js';
+import { SKILL_LOCK_GM, bumpScene, lockedSkills } from './skill-locks.js';
+import { SURVIVAL_GM } from './survival.js';
+import { POPULARITY_GM, popularityView } from './popularity.js';
 import { ACH_SUGGEST_GM, suggestAchievements } from './ach-triggers.js';
 import { TABLES_GM, tablesView } from './tables.js';
 import { CHASE_GM } from './chase.js';
@@ -839,6 +842,7 @@ const GM = {
     const rs = ctx.pack.ruleset;
     if (!rs.rests || !Object.hasOwn(rs.rests, a.kind)) throw bad('unknown party rest');
     if (st.combat?.active) throw bad('finish combat before resting');
+    bumpScene(st);
     const rest = rs.rests[a.kind];
     if (st.crawlers?.clock?.hours == null) throw bad('set the floor clock first');
     if (st.crawlers.clock.hours < rest.hours) throw bad('not enough time before the floor collapses');
@@ -1033,6 +1037,9 @@ Object.assign(GM, PREP_CHECKS_GM, SHOW_CHECK_GM);
 Object.assign(GM, RULES_GM);
 Object.assign(GM, MARKS_GM);
 Object.assign(GM, GRIND_GM);
+Object.assign(GM, SKILL_LOCK_GM);
+Object.assign(GM, SURVIVAL_GM);
+Object.assign(GM, POPULARITY_GM);
 Object.assign(GM, {
   ...ACH_SUGGEST_GM,
   'ach.suggest.award': (st, a, ctx, out) => ACH_SUGGEST_GM['ach.suggest.award'](st, a, ctx, out, GM),
@@ -1044,7 +1051,7 @@ GM['map.toFight'] = (st, a, ctx, out) => startCombatOnMap(st, a, ctx, out, GM);
 GM['prep.adventure.load'] = (st, a, ctx, out) => loadPreparedAdventure(st, a, ctx, out, GM['enc.save']);
 GM['prep.evening.plan'] = (st, a, ctx, out) => planEvening(st, a, ctx, out, GM);
 GM['prep.evening.build'] = (st, a, ctx, out) => buildEvening(st, a, ctx, out, GM);
-GM['prep.scene.run'] = (st, a, ctx, out) => runPrepScene(st, a, ctx, out, GM);
+GM['prep.scene.run'] = (st, a, ctx, out) => { bumpScene(st); runPrepScene(st, a, ctx, out, GM); };
 GM['prep.scene.encounter'] = (st, a, ctx, out) => editPrepEncounter(st, a, ctx, out, GM);
 GM['prep.scene.npc'] = (st, a, ctx, out) => addSceneNpc(st, a, ctx, out, GM);
 const CREATION = makeCreation(GM);
@@ -1216,6 +1223,7 @@ function giveStarterAttack(st, p, ctx) {
     creditMarks(st, { ...ctx, h: { ...(ctx.h ?? {}), feedPush } }, out); // skulls and stars over the killers' heads (marks.js)
     suggestKillLevels(st, ctx); // boss / crawler-kill level reminders for the GM (grinding.js)
     end(st, a, ctx, out);
+    bumpScene(st); // a fight is a scene: skills locked by a Major Fail are free again (skill-locks.js)
     const sickness = ctx.pack.ruleset.hotlist.potionSickness;
     if (sickness) for (const p of st.players) p.sheet.buffs = p.sheet.buffs.filter((b) => b.buffId !== sickness);
     const remaining = new Set(st.combat.combatants.map((m) => m.uid));
@@ -1387,6 +1395,7 @@ function fullPlayer(state, p, pack, library) {
     inventory: enrichInventory(p.inventory, library), achievements: p.achievements,
     sheet,
     ...(p.levelGrants?.length ? { levelGrants: p.levelGrants } : {}),
+    ...(lockedSkills(state, p).length ? { lockedSkills: lockedSkills(state, p) } : {}), // skill ids, Major / Critical Fail this scene
     secrets: messages.filter((m) => !m.group).map(({ id, at, from, text, read }) => ({ id, at, from, text, read })), // legacy shape
     messages,
   };
@@ -1472,6 +1481,8 @@ export function viewFor(state, basePack, role, opts = {}) {
       playClock: { playMin: Math.floor((state.session.playMs ?? 0) / 60_000), sinceLevelMin: Math.floor(((state.session.playMs ?? 0) - (state.session.levelAtMs ?? 0)) / 60_000), snoozeMin: state.session.levelSnoozeMs != null ? Math.ceil(state.session.levelSnoozeMs / 60_000) : null },
       advancementClock: advancementClockView(state.session, pack.ruleset, now),
       ...grindView(state, pack), // grinding form + level hints (grinding.js)
+      ...(pack.ruleset.popularity ? { popularity: popularityView(state, pack, opts) } : {}),
+      ...(pack.ruleset.hazards || pack.ruleset.crafting ? { survival: { hazards: pack.ruleset.hazards ?? null, crafting: pack.ruleset.crafting ?? null } } : {}),
       joinUrl: opts.urls?.join ?? '',
       stageUrl: opts.urls?.stage ?? '',
       gmUrl: opts.urls?.gm ?? '',

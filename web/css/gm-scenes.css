@@ -347,3 +347,13 @@
 .grd-list { margin: 0; padding-left: 18px; display: grid; gap: 6px; }
 .grd-last h3 { margin: 6px 0 4px; }
 .grd-skill:disabled { opacity: 0.45; text-decoration: line-through; }
+
+/* Big roll extras: locked skill, escalating steps */
+.sc-locked { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 10px; border: 1px solid var(--c-warn, #c98a00); border-radius: 8px; }
+.sc-tier { margin-top: 4px; }
+.sc-tiers { padding: 8px 10px; border: 1px solid var(--c-line, #333); border-radius: 8px; }
+.sc-tiers ul { margin: 4px 0 8px; padding-left: 18px; }
+
+/* Hazards / crafting / popularity (gm-survival.js) */
+.srv-wrap { display: grid; gap: 14px; }
+.srv-wrap .crg-sec + .crg-sec { margin-top: 4px; }

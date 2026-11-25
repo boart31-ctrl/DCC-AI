@@ -413,7 +413,7 @@ function partyRow(p, summary) {
     const def = M.lib.buff.find((x) => x.id === b.buffId) || {};
     const effs = b.effects?.length ? b.effects : (def.effects || []);
     const neg = effs.reduce((s, e) => s + (typeof e.value === 'number' ? e.value : 0), 0) < 0;
-    return h('span.mini-buff', { class: neg ? 'mini-buff neg' : 'mini-buff', title: b.until ? `${b.name}: ${b.until}` : b.name }, b.name || def.name);
+    return h('span.mini-buff', { class: neg ? 'mini-buff neg' : 'mini-buff', title: b.until ? `${b.name}: ${b.until}` : b.name }, `${b.name || def.name}${(b.stacks ?? 1) > 1 ? ` ×${b.stacks}` : ''}`);
   });
   const used = (M.sheet.skills || []).filter((s) => s.used).length;
   const pin = view.gm?.pins?.[p.id];

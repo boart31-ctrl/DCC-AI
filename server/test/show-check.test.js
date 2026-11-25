@@ -12,8 +12,9 @@ const { pack } = loadPack(writePack(tmpDir(), {
     fields: [{ id: 'aiFavor', label: 'AI Favor', type: 'number', default: 1 }],
     combat: { degreeScale: 'seven' },
     skills: { check: { roll: 'd20', formula: 'skill.rank + mod.{stat}' }, untrained: { adv: 'dis', formula: 'mod.{stat}' }, usedTracking: true },
+    checks: { visionSkills: ['look'] },
   },
-  'skills.json': [{ id: 'sneak', name: 'Sneak', stat: 'dex', checkType: 'Opposed' }, { id: 'climb', name: 'Climb', stat: 'dex', checkType: 'Unopposed' }],
+  'skills.json': [{ id: 'sneak', name: 'Sneak', stat: 'dex', checkType: 'Opposed' }, { id: 'climb', name: 'Climb', stat: 'dex', checkType: 'Unopposed' }, { id: 'look', name: 'Look', stat: 'int', checkType: 'Unopposed' }],
   'monsters.json': [{ id: 'guard', name: 'Guard', hpSlots: 2, stats: { int: { score: 4, mod: 3 }, dex: { score: 2, mod: 1 } } }, { id: 'blob', name: 'Blob', hpSlots: 2 }],
 }));
 
@@ -119,4 +120,48 @@ test('reveal with someone missing, cancel, guard rails', () => {
   assert.deepEqual(view('player', a).checkPrompts, []);
   assert.throws(() => gm({ t: 'scene.check.start', mode: 'single', statId: 'dex', dcType: 'nope', playerIds: [a], dice: 'phone' }), /dcType/);
   assert.throws(() => gm({ t: 'scene.check.start', mode: 'single', statId: 'dex', dcType: 'stat', playerIds: [a, b], dice: 'phone' }), /select the crawlers/);
+});
+
+test('held show check: off-stat, Help die, dim light, escalating steps; a Major Fail locks the skill for the scene', () => {
+  const { gm, view, dice } = setup();
+  const a = gm({ t: 'player.add', name: 'Ann' }).playerId;
+  const b = gm({ t: 'player.add', name: 'Bo' }).playerId;
+  gm({ t: 'skill.add', playerId: a, skillId: 'climb', rank: 2 });
+  gm({ t: 'skill.add', playerId: b, skillId: 'climb', rank: 1 });
+  // Off-stat: Climb (Dex 2) with Int (3) → +1; Bo has Ranks → Help is a d6.
+  dice.push(4);
+  gm({ t: 'scene.check.start', mode: 'single', skillId: 'climb', stat: 'int', dcType: 'fixed', dc: 15, playerIds: [a], dice: 'physical', entered: { [a]: 8 }, help: { [a]: b } });
+  let q = view('gm').gm.showCheck;
+  assert.equal(q.entries[0].modifier, 2 + 3 + 4, 'Rank 2 + Int 3 + help 4');
+  assert.deepEqual(q.entries[0].help, { helperId: b, name: 'Bo', sides: 6, die: 4 });
+  assert.equal(q.entries[0].total, 17);
+  gm({ t: 'scene.check.reveal' });
+  assert.equal(view('stage').scene.data.check.results[0].total, 17, 'the reveal keeps the help and the off-stat shift');
+  assert.throws(() => gm({ t: 'scene.check.start', mode: 'single', statId: 'dex', dcType: 'stat', playerIds: [a], dice: 'digital', help: { [a]: b } }), /single skill/);
+  // Dim light → Disadvantage on a vision skill, not on Climb.
+  gm({ t: 'scene.check.start', mode: 'single', skillId: 'look', dcType: 'unopposed', light: 'dim', playerIds: [a], dice: 'physical' });
+  assert.equal(view('gm').gm.showCheck.entries[0].advantage, 'dis', 'untrained Look already has Disadvantage; dim does not stack');
+  gm({ t: 'scene.check.cancel' });
+  gm({ t: 'scene.check.start', mode: 'single', skillId: 'climb', dcType: 'unopposed', light: 'dim', playerIds: [a], dice: 'physical' });
+  assert.equal(view('gm').gm.showCheck.entries[0].advantage, undefined);
+  gm({ t: 'scene.check.cancel' });
+  gm({ t: 'scene.check.start', mode: 'single', skillId: 'climb', dcType: 'unopposed', light: 'dark', playerIds: [a], dice: 'physical' });
+  assert.equal(view('gm').gm.showCheck.entries[0].advantage, 'dis', 'darkness: every check that needs light');
+  gm({ t: 'scene.check.cancel' });
+  // Escalating: three steps; the best reached counts.
+  gm({ t: 'scene.check.start', mode: 'single', skillId: 'climb', dcType: 'fixed', dc: 10, tiers: [{ dc: 18, text: 'the secret door' }, { dc: 12, text: 'old scratches' }, { dc: 15, text: 'fresh blood' }], playerIds: [a], dice: 'physical', entered: { [a]: 9 } });
+  q = view('gm').gm.showCheck;
+  assert.equal(q.dc, 12);
+  assert.equal(q.tiers[q.entries[0].tier].text, 'old scratches', '9 + Rank 2 + Dex 2 = 13 reaches DC 12, not 15');
+  gm({ t: 'scene.check.cancel' });
+  // Major Fail → Climb locked until the next scene.
+  gm({ t: 'scene.check.start', mode: 'single', skillId: 'climb', dcType: 'fixed', dc: 20, playerIds: [a], dice: 'physical', entered: { [a]: 2 } });
+  gm({ t: 'scene.check.reveal' });
+  assert.equal(view('stage').scene.data.check.results[0].degree, 'major');
+  assert.deepEqual(view('gm').gm.playersFull.find((p) => p.id === a).lockedSkills, ['climb']);
+  assert.throws(() => gm({ t: 'scene.check.start', mode: 'single', skillId: 'climb', dcType: 'fixed', dc: 10, playerIds: [a], dice: 'digital' }), /Major or Critical Fail/);
+  gm({ t: 'scene.check.start', mode: 'single', skillId: 'climb', dcType: 'fixed', dc: 10, playerIds: [a], dice: 'digital', allowLocked: true });
+  gm({ t: 'scene.check.cancel' });
+  gm({ t: 'scene.new' });
+  assert.equal(view('gm').gm.playersFull.find((p) => p.id === a).lockedSkills, undefined, 'new scene, new chances');
 });

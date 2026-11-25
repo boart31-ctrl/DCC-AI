@@ -10,6 +10,7 @@
 import { bad, notFound } from './errors.js';
 import { SHEET, libraryOf, computeFor } from './character.js';
 import { chaseDefaults, startChase } from './chase.js';
+import { lockSkill } from './skill-locks.js';
 import { combatRules, mobHealthSlot, rolledDamage, recordKillCredit } from './outcome.js';
 
 export const SCENE_KINDS = ['lobby', 'explore', 'boss', 'loot', 'countdown', 'roll', 'recap', 'blank', 'combat', 'npc', 'finale', 'map', 'builds', 'chase'];
@@ -611,7 +612,9 @@ export const SCENE_GM = {
       const what = stat ? { kind: 'stat', id: stat.id }
         : trained ? { kind: 'skill', uid: trained.uid } : { kind: 'untrained', skillId: skill.id };
       const sub = { ...out, result: undefined };
-      SHEET.roll(st, { t: 'roll', what, playerId: p.id, dc, entered: entry.entered, ...(a.adv ? { adv: a.adv } : {}) }, { ...ctx, partyCheck: party }, sub);
+      // entry.bonus: Help die, off-stat or unenhanced shift worked out by the held check (show-check.js).
+      const bonus = entry.bonus === undefined ? 0 : intIn(entry.bonus, 'bonus', -50, 50);
+      SHEET.roll(st, { t: 'roll', what, playerId: p.id, dc, entered: entry.entered, ...(bonus ? { bonus } : {}), ...(a.adv ? { adv: a.adv } : {}) }, { ...ctx, partyCheck: party }, sub);
       const { roll } = sub.result;
       return {
         rollId: roll.id, playerId: p.id, name: p.name, color: p.color, total: roll.total, natural: roll.natural,
@@ -619,6 +622,8 @@ export const SCENE_GM = {
         degree: roll.vs.deg7, success: roll.vs.hit,
       };
     });
+    // RfS 15: after a Major or Critical Fail the crawler can't test that skill again in this scene.
+    if (skill) for (const r of results) if (r.degree === 'major' || r.degree === 'critfail') lockSkill(st, st.players.find((x) => x.id === r.playerId), skill.id);
     let verdict = null;
     if (party) {
       const successes = results.filter((r) => r.success).sort((a, b) => a.total - b.total);

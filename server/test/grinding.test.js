@@ -7,7 +7,7 @@ import { tmpDir, writePack } from './fixtures.js';
 const RULESET = {
   id: 'grind', stats: [{ id: 'con', label: 'Constitution', parts: ['base'], default: { base: 3 } }],
   statMod: { from: 'base', formula: 'x' },
-  skills: { rankMax: 15, rankUp: { roll: 'd20', rule: 'gte', target: 'rank', amount: 1 } },
+  skills: { rankMax: 15, check: { roll: 'd20', formula: 'skill.rank + mod.{stat} + buff.check' }, rankUp: { roll: 'd20', rule: 'gte', target: 'rank', amount: 1 } },
   grinding: { safeHours: 5, dayHours: 30, maxHours: 12, dc: { base: 10, perFloor: 2 }, fatigue: 'tired', bonusMinHours: 5,
     mapBonus: { neighborhood: 1, borough: 2 }, complicationTable: 'grind_t', lowestBonusDie: 2 },
   levels: { boss: { 'Neighborhood Boss': 1, 'Floor Boss': 6 }, crawlerKill: { die: 6, min: 1, max: 15 } },
@@ -16,7 +16,7 @@ const RULESET = {
 function setup(rollInt = () => 19) {
   const { pack } = loadPack(writePack(tmpDir(), {
     'ruleset.json': RULESET,
-    'buffs.json': [{ id: 'tired', name: 'Tired', effects: [] }],
+    'buffs.json': [{ id: 'tired', name: 'Tired', stackable: true, effects: [{ target: 'check', op: 'add', value: -1, when: 'active', label: 'Tired' }] }],
     'tables.json': { tables: [{ id: 'grind_t', name: 'Grind trouble', rows: ['A rival party shows up.', 'Nothing happens.'] }] },
     'monsters.json': [{ id: 'rival', name: 'Rival', hpSlots: 1, evade: 1, level: 9, tags: ['crawler'], attacks: [] }],
     'bosses.json': [{ id: 'chief', name: 'Chief', rank: 'Neighborhood Boss', hpSlots: 1, evade: 1, attacks: [] }],
@@ -55,7 +55,11 @@ test('grind.run: hours to skills by rank, advancement roll, level from the runni
   assert.equal(again.earned, 1);
   assert.deepEqual(again.skills.map((x) => x.skipped), ['already ground today', 'already ground today']);
   assert.ok(again.fatigued);
-  assert.ok(g.state.players[0].sheet.buffs.some((x) => x.buffId === 'tired'));
+  assert.equal(g.state.players[0].sheet.buffs.find((x) => x.buffId === 'tired').stacks, 2, 'one fatigue level per failed hour');
+  const sk = viewFor(g.state, g.pack, 'gm', { now: 0 }).gm.playersFull[0].sheet.computed.skills.find((x) => x.uid === s1);
+  assert.ok(sk.total.parts.flatMap((x) => [x, ...(x.parts ?? [])]).some((x) => x.value === -2 && /×2/.test(x.label)), 'stacked penalty counts twice');
+  g.act({ t: 'buff.remove', playerId: a, uid: g.state.players[0].sheet.buffs.find((x) => x.buffId === 'tired').uid, one: true });
+  assert.equal(g.state.players[0].sheet.buffs.find((x) => x.buffId === 'tired').stacks, 1);
   const auto = g.act({ t: 'grind.run', hours: 1, complication: false, crawlers: [{ playerId: b }] }).result.crawlers[0];
   assert.equal(auto.overtime, 0, 'Donut ground 4 h today');
   const late = g.act({ t: 'grind.run', hours: 2, complication: false, crawlers: [{ playerId: b }] }).result.crawlers[0];

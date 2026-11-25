@@ -4,7 +4,7 @@
 //   earned = hours − unproductive overtime hours (+ map bonus when hours ≥ bonusMinHours)
 //   overtime = hours past `safeHours` on the same in-game day (day = floor clock elapsed / dayHours); each overtime
 //   hour is an Endurance check (DC base + perFloor × floor) — digital, or the GM enters the number of fails.
-//   Every fail adds the fatigue debuff once (the engine keeps one instance; stacks are noted in the result).
+//   Every fail adds one level of the fatigue debuff (stackable buffs count their `add` effects per stack).
 //   Hours go to the skills the GM picked, in order: a skill needs hours = its rank, then rolls advancement at once.
 //   A skill can take grinding hours once per in-game day; hours left over move to the next skill, never bank twice.
 //   Level: running total of grinding hours; total ≥ current level → +1 level (lowest-level crawler alone: +1d`lowestBonusDie`),
@@ -19,6 +19,7 @@ import { libraryOf, rankUpEntries, rollSkillRankUp, SHEET, SHEET_GM } from './ch
 import { floorOfState } from './outcome.js';
 import { rollTable } from './tables.js';
 import { CRAWLERS_GM } from './crawlers.js';
+import { bumpScene } from './skill-locks.js';
 
 const MAX_HINTS = 12;
 const MAX_SKILLS = 10;
@@ -34,6 +35,8 @@ export function normalizeGrind(raw) {
     days: map(r.days), // skill uid → last in-game day it was ground
     day: Number.isInteger(r.day) ? r.day : -1, // in-game day of `dayHours`
     dayHours: nat(r.dayHours), // hours ground on `day`
+    // When the grinding happened (floor clock seconds at its end) — Popularity looks at the last hours of a floor.
+    log: (Array.isArray(r.log) ? r.log : []).filter((x) => x && Number.isFinite(x.at) && Number.isInteger(x.hours)).slice(-50),
   };
 }
 
@@ -77,12 +80,14 @@ function grindCrawler(st, p, row, a, cfg, ctx, out, { day, lowest }) {
     for (let i = 0; i < overtime; i++) if (!enduranceRoll(st, p, cfg, ctx, out)) fails++;
   }
   g.dayHours += hours;
+  g.log.push({ at: (st.crawlers?.clock?.elapsedSeconds ?? 0) + hours * 3600, hours });
+  if (g.log.length > 50) g.log.splice(0, g.log.length - 50);
   const bonus = hours >= cfg.bonusMinHours ? (cfg.mapBonus[a.map] ?? 0) : 0;
   const earned = Math.max(0, hours - fails) + bonus;
   let fatigued = false;
   if (fails > 0 && cfg.fatigue && libraryOf(st, ctx.pack).get('buff', cfg.fatigue)) {
-    const sub = { ...out, result: null };
-    SHEET_GM['buff.add'](st, { playerId: p.id, buffId: cfg.fatigue }, ctx, sub);
+    // One fatigue level per failed hour (stackable debuff).
+    for (let i = 0; i < fails; i++) SHEET_GM['buff.add'](st, { playerId: p.id, buffId: cfg.fatigue }, ctx, { ...out, result: null });
     fatigued = true;
   }
   // Skills, in the GM's order.
@@ -201,6 +206,7 @@ export const GRIND_GM = {
     if (ups.length) out.emit({ kind: 'levelup', delta: Math.max(...ups.map((c) => c.levelTo - c.levelFrom)), names: ups.map((c) => c.name), reason: 'grind' }, 'all');
     const result = { id: ctx.genId('gr'), at: ctx.now, day, hours: a.hours, map: a.map ?? null, complication, crawlers };
     st.session.lastGrind = result;
+    bumpScene(st);
     out.result = result;
   },
 

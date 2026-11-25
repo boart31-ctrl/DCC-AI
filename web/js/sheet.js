@@ -355,8 +355,9 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const effs = b.effects?.length ? b.effects : (def.effects || []);
       const el = h('span.buff', { class: `buff${buffNet(b) < 0 ? ' debuff' : ''}${b.external ? ' ext' : ''}`, tabindex: '0' },
         h('span.buff-n', b.name || def.name || 'Buff'),
+        (b.stacks ?? 1) > 1 ? h('span.buff-tag', `×${b.stacks}`) : null,
         b.external ? h('span.buff-tag', 'Ext') : null,
-        gm ? h('button.buff-x', { type: 'button', 'aria-label': `Remove ${b.name}`, onclick: (e) => { e.stopPropagation(); act({ t: 'buff.remove', uid: b.uid }, `Removed ${b.name}.`); } }, icon('x', { size: 12 })) : null,
+        gm ? h('button.buff-x', { type: 'button', 'aria-label': (b.stacks ?? 1) > 1 ? `Remove one level of ${b.name}` : `Remove ${b.name}`, onclick: (e) => { e.stopPropagation(); act({ t: 'buff.remove', uid: b.uid, ...((b.stacks ?? 1) > 1 ? { one: true } : {}) }, `Removed ${b.name}.`); } }, icon('x', { size: 12 })) : null,
       );
       explain(el, () => h('div.why',
         h('div.why-head', h('span.why-title', b.name || def.name), h('span.why-total', b.external ? 'External' : (buffNet(b) < 0 ? 'Debuff' : 'Buff'))),
@@ -389,11 +390,12 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const open = ui.openSkill === s.uid;
       const def = libGet(M.lib, 'skill', s.skillId) || rs.skills.catalog.find((x) => x.id === s.skillId) || {};
       const statAbbr = rs.stats.find((x) => x.id === s.stat)?.abbr || s.stat || '—';
-      const row = h('li.skill', { class: `skill${open ? ' open' : ''}${s.used ? ' used' : ''}` },
+      const locked = (player?.lockedSkills || []).includes(s.skillId ?? s.uid);
+      const row = h('li.skill', { class: `skill${open ? ' open' : ''}${s.used ? ' used' : ''}${locked ? ' locked' : ''}` },
         rs.skills.usedTracking ? h('label.used', { title: 'Marked for the next eligible rank-up' },
           h('input', { type: 'checkbox', checked: !!s.used, disabled: !can('used'), 'aria-label': `${s.name} used this session`, onchange: (e) => act({ t: 'skill.update', uid: s.uid, used: e.target.checked }) })) : null,
         h('button.skill-n', { type: 'button', 'aria-expanded': String(open), title: def.desc || '', onclick: () => { ui.openSkill = open ? null : s.uid; draw(true); } },
-          h('span.sn', s.name), h('span.sk-meta', [s.checkType, !open ? def.desc : ''].filter(Boolean).join(' · '))),
+          h('span.sn', s.name, locked ? h('span.sk-lock', { title: 'Major or Critical Fail in this scene: no retry until the scene changes' }, ' 🔒 not this scene') : null), h('span.sk-meta', [s.checkType, !open ? def.desc : ''].filter(Boolean).join(' · '))),
         h('span.sk-stat', statAbbr),
         h('span.sk-rank', { title: 'Rank' }, String(s.rank ?? 0)),
         num(c, { title: `${s.name} total`, prefix: ' ', text: signed(c.value), roll: { kind: 'skill', uid: s.uid } }),
