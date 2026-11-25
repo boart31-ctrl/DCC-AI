@@ -36,7 +36,7 @@ export function reactionControls(view, me) {
   const favor = Number(me.sheet?.fields?.aiFavor ?? favorField?.default ?? 0);
   const canFavor = (react || act) && canAct && favor > 0 && !rx.favor?.includes(mine.uid);
   return { c, rx, mine, standing, left, extra, react, act, canInterrupt, canIntervene, canAct, favor, canFavor,
-    canHelp: (react || act) && (canInterrupt || canIntervene),
+    canHelp: (react || act) && (canInterrupt || canIntervene || (act && canAct && left + extra > 0)),
     canDoSomething: (act && canAct && left + extra > 0) || canFavor };
 }
 
@@ -137,6 +137,17 @@ export function createRxPhone({ send, toast, onReceipt }) {
         if ((canIntervene || canInterrupt) && d.evade) buttons.push(h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: pending, 'aria-label': 'Assist with d6',
           onclick: () => openPad('intervene', d.id) }, 'Assist with d6', h('small', canIntervene ? 'Prepared' : '1 action')));
         if (buttons.length) options.push(h('div.rxp-ally', h('strong', crawlerName(d.targetUid)), h('small', `${d.mob} · ${d.attack}`), h('div.rxp-mini', buttons)));
+      }
+    }
+    // Call a Play (action phase): 2d6 keep the higher → bonus to the ally's next check, or its damage.
+    if (tools.kind === 'help' && state?.act && state.canAct && state.left + state.extra > 0 && !(state.rx.plays ?? []).some((x) => x.by === state.mine.uid)) {
+      const allies = state.c.combatants.filter((x) => x.type === 'crawler' && x.uid !== state.mine.uid && !x.down && !x.dead && x.dying == null);
+      const callPlay = (allyUid, die) => useAction({ t: 'rx.callPlay', allyUid, ...(die ? { die } : {}) }, 'Play called', true);
+      for (const x of allies) {
+        options.push(h('div.rxp-ally', h('strong', `Call a play for ${crawlerName(x.uid)}`),
+          h('small', 'Roll 2d6, keep the higher: their next check gets it, or their damage if they hit anyway. 1 action.'),
+          h('div.rxp-mini', h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: pending, onclick: () => callPlay(x.uid) }, 'Roll 2d6')),
+          h('small.dim', 'Rolled at the table? Tap the higher die:'), dieFaces(6, (die) => callPlay(x.uid, die), { disabled: pending })));
       }
     }
     if (tools.kind === 'utility' && state?.canDoSomething) {

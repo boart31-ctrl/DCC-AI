@@ -142,6 +142,28 @@ export function migrateSheet(sheet, legacy, ruleset) {
   };
 }
 
+/**
+ * Call a Play (reaction rounds): an ally called a play for this crawler this round → the bonus is added to this
+ * check against a target if it would fail without it, otherwise it's kept for the damage roll that follows.
+ */
+function applyCalledPlay(st, ctx, p, rec) {
+  const rx = st.combat?.active ? st.combat.rx : null;
+  if (!rx?.plays?.length || !rec.vs || rec.vs.defense == null || rec.vs.damage !== undefined) return;
+  const me = (st.combat.combatants ?? []).find((x) => x.type === 'crawler' && x.playerId === p.id);
+  const play = me && rx.plays.find((x) => x.ally === me.uid && !x.used);
+  if (!play) return;
+  play.used = true;
+  if (!rec.vs.hit) {
+    rec.total += play.bonus;
+    rec.breakdown = { ...rec.breakdown, value: rec.total, parts: [...(rec.breakdown?.parts ?? []), { label: `Called play (${play.byName})`, value: play.bonus, source: 'play' }] };
+    rescore(st, ctx, rec);
+    rec.calledPlay = { by: play.byName, bonus: play.bonus, to: 'check' };
+  } else {
+    rec.playDamage = play.bonus;
+    rec.calledPlay = { by: play.byName, bonus: play.bonus, to: 'damage' };
+  }
+}
+
 /** Repairs inventory entries (v2 adds qty / notes / equippedSlot). */
 export function migrateInventory(inv, ruleset) {
   const slots = new Set(ruleset.slots.map((x) => x.id));
@@ -1604,6 +1626,8 @@ export const SHEET = {
         // Entered damage = what the real damage dice showed (already doubled by the player on a 5e crit).
         if (entered != null) formula = tmpl(rs.attack.damage, stat, String(entered));
         else if (prev?.vs?.crit) formula = critFormula(formula, combatRules(ctx.pack, st.combat?.settings));
+        // Call a Play that wasn't needed to hit adds to this damage (RfS 37).
+        if (prev?.playDamage) formula = `${formula}+${prev.playDamage}`;
         label = `${k.name} damage${prev?.vs?.crit ? ' (critical)' : ''}`;
         r = doRoll(formula, sheetResolver(computed, ch, rs, { 'skill.rank': { value: sk?.rank ?? 0, label: 'Skill rank' } }), ctx);
         r.parts = r.parts.filter((x) => !(x.source?.startsWith('buff.') && x.value === 0 && !x.parts?.length));
@@ -1634,6 +1658,7 @@ export const SHEET = {
       rec.spellPayment = payment;
     }
     resolveAgainst(st, ctx0, a, rec, p, out, earned, attackProfile);
+    applyCalledPlay(st, ctx0, p, rec);
     if (prior?.broken) rec.weaponHitId = prior.id;
     checkWeaponBreak(st, ctx, out, rec);
     pushRoll(st, rec, out, ctx0);

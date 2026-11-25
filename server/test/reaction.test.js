@@ -710,3 +710,47 @@ test('book stat blocks (private DCC pack): extras load, area attacks are AoE, fl
   assert.equal(rd.attack.dc, 13 + 3, 'Breath 13+F on floor 3');
   assert.equal(rd.attack.area, true, 'a Cone is an area attack');
 });
+
+test('Call a Play: 1 action, 2d6 keep high; turns the ally miss into a hit, or adds to damage when the ally hits anyway', () => {
+  let s = fight();
+  const carl = playerId(s, 'Carl');
+  const donut = playerId(s, 'Donut');
+  const donutUid = crawlerUid(s, 'Donut');
+  const carlUid = crawlerUid(s, 'Carl');
+  const axe = gm(s, { t: 'attack.add', playerId: donut, name: 'Axe', dice: '1d6' });
+  s = axe.state;
+  const goblin = s.combat.combatants.find((x) => x.type === 'mob');
+  assert.throws(() => pl(s, carl, { t: 'rx.callPlay', allyUid: donutUid }), /action phase/);
+  s = gm(s, { t: 'rx.step', to: 'act' }).state;
+  assert.throws(() => pl(s, carl, { t: 'rx.callPlay', allyUid: carlUid }), /someone else/);
+  const before = s.combat.rx.acts[carlUid];
+  const called = pl(s, carl, { t: 'rx.callPlay', allyUid: donutUid, die: 5 });
+  s = called.state;
+  assert.equal(called.result.bonus, 5);
+  assert.equal(s.combat.rx.acts[carlUid], before - 1);
+  assert.throws(() => pl(s, carl, { t: 'rx.callPlay', allyUid: donutUid }), /already called/);
+  assert.deepEqual(viewFor(s, pack, 'player', { playerId: donut }).combat.rx.plays.map((x) => x.bonus), [5]);
+  // Donut misses by a little: the play makes it a hit.
+  const evade = goblin.evade ?? 0;
+  const need = 10 + evade; // fight() ad-hoc goblins: Evade = mobBase + bonus
+  const miss = pl(s, donut, { t: 'roll', what: { kind: 'attack', uid: axe.result.uid }, target: goblin.uid, entered: 2 });
+  s = miss.state;
+  const rec = s.rolls.at(-1);
+  assert.equal(rec.calledPlay?.bonus, 5, `called play used (need ${need})`);
+  if (rec.calledPlay.to === 'check') assert.ok(rec.breakdown.parts.some((x) => x.source === 'play'));
+  else {
+    // Hit without it: the bonus rides on the damage roll.
+    const dmg = pl(s, donut, { t: 'roll', what: { kind: 'attack', uid: axe.result.uid, part: 'damage' }, after: rec.id, entered: 3 });
+    assert.match(dmg.state.rolls.at(-1).formula, /\+5/);
+  }
+  assert.equal(viewFor(s, pack, 'player', { playerId: donut }).combat.rx.plays.length, 0, 'used once');
+  // Next round: Donut rolls a natural 20, the play goes to damage.
+  s = gm(s, { t: 'rx.round' }).state;
+  s = gm(s, { t: 'rx.step', to: 'act' }).state;
+  s = pl(s, carl, { t: 'rx.callPlay', allyUid: donutUid, die: 4 }).state;
+  s = pl(s, donut, { t: 'roll', what: { kind: 'attack', uid: axe.result.uid }, target: goblin.uid, entered: 20 }).state;
+  const hit = s.rolls.at(-1);
+  assert.equal(hit.calledPlay.to, 'damage');
+  const dmg = pl(s, donut, { t: 'roll', what: { kind: 'attack', uid: axe.result.uid, part: 'damage' }, after: hit.id, entered: 3 });
+  assert.match(dmg.state.rolls.at(-1).formula, /\+4/);
+});

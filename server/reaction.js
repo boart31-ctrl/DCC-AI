@@ -70,6 +70,7 @@ function resetActs(st) {
   rx.favor = [];
   rx.nonAttackActions = {};
   rx.intervene = [];
+  rx.plays = [];
 }
 function log(rx, text) {
   rx.log.push(text);
@@ -949,6 +950,39 @@ export const REACTION_PLAYER = {
     out.emit({ kind: 'rx.evade', declId: d.id, uid: d.targetUid, playerId: st.combat.combatants.find((c) => c.uid === d.targetUid)?.playerId ?? null, degree: d.evade.degree, helped: true }, 'all');
   },
 
+  /**
+   * Call a Play (RfS 37): `{ allyUid, die? }` spend 1 action in the action phase, roll 2d6 and keep the higher die
+   * (or `die` = the kept face from the table). The ally's next check against a target this round gets the bonus;
+   * if it already succeeds without it, the bonus goes to that attack's damage instead (character.js).
+   */
+  'rx.callPlay'(st, a, ctx, out) {
+    const rx = rxOf(st);
+    const me = crawlers(st).find((x) => x.playerId === ctx.actor.playerId);
+    if (!me || !standing(me)) throw bad('that crawler cannot act');
+    if (rx.step !== 'act') throw bad('call a play in the action phase');
+    requireStatusAllowed(st, ctx, playerOfCrawler(st, me), 'action');
+    const ally = crawlerOf(st, a.allyUid);
+    if (ally.uid === me.uid) throw bad('call the play for someone else');
+    if (!standing(ally)) throw bad('that ally cannot act');
+    rx.plays = Array.isArray(rx.plays) ? rx.plays : [];
+    if (rx.plays.some((x) => x.by === me.uid && !x.used)) throw bad('you already called a play this round');
+    let bonus;
+    if (a.die !== undefined) {
+      if (!Number.isInteger(a.die) || a.die < 1 || a.die > 6) throw bad('die must be 1..6 (the higher of your two d6)');
+      bonus = a.die;
+    } else {
+      const r = ctx.dieInt ?? ctx.rollInt ?? ctx.randInt;
+      bonus = Math.max(r(6) + 1, r(6) + 1);
+    }
+    spendReactionAction(rx, me.uid);
+    const byName = playerOfCrawler(st, me)?.name ?? 'A crawler';
+    const allyName = playerOfCrawler(st, ally)?.name ?? 'an ally';
+    rx.plays.push({ id: ctx.genId('play'), by: me.uid, byName, ally: ally.uid, allyName, bonus, used: false });
+    log(rx, `${byName} calls a play for ${allyName}: +${bonus}.`);
+    out.emit({ kind: 'rx.play', by: byName, ally: allyName, bonus }, 'all');
+    out.result = { bonus, receipt: actionReceipt(rx, me.uid, 1) };
+  },
+
   /** Spend a non-attack action for a move or item: `{ n? }`. */
   'rx.spend'(st, a, ctx, out) {
     const rx = rxOf(st);
@@ -983,6 +1017,6 @@ export function reactionView(state, role, pack) {
   const lastUndo = ['resolve', 'act'].includes(rx.step) ? rx.resolutionUndo?.at(-1) : null;
   const roster = gm && library && rx.step === 'declare' && !rx.decls.length ? suggestionRoster(state, pack, library) : null;
   const suggestion = roster ? { ...suggestionHint(roster.reason), mobs: roster.mobs.length, targets: roster.targets.length } : null;
-  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, nonAttackActions: rx.nonAttackActions ?? {}, favor: rx.favor ?? [], evading: rx.evading, intervene: rx.intervene, advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5),
+  return { round: rx.round, step: rx.step, steps: STEPS, decls, acts: rx.acts, nonAttackActions: rx.nonAttackActions ?? {}, favor: rx.favor ?? [], evading: rx.evading, intervene: rx.intervene, plays: (rx.plays ?? []).filter((x) => !x.used).map(({ by, byName, ally, allyName, bonus }) => ({ by, byName, ally, allyName, bonus })), advantage, surprised: !!rx.surprised, log: gm ? rx.log.slice(-12) : rx.log.slice(-5),
     ...(gm ? { pending: rx.pending ?? null, batch: rx.batch ?? null, canUndo: !!lastUndo, undoAt: lastUndo?.at ?? null, suggestion } : {}) };
 }
