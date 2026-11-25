@@ -30,7 +30,7 @@ import { GRIND_GM, grindView, suggestKillLevels } from './grinding.js';
 import { SKILL_LOCK_GM, bumpScene, lockedSkills } from './skill-locks.js';
 import { SURVIVAL_GM } from './survival.js';
 import { POPULARITY_GM, popularityView } from './popularity.js';
-import { ACH_SUGGEST_GM, suggestAchievements } from './ach-triggers.js';
+import { ACH_SUGGEST_GM, momentsOf, suggestAchievements } from './ach-triggers.js';
 import { TABLES_GM, tablesView } from './tables.js';
 import { CHASE_GM } from './chase.js';
 import { originsFor } from './origins.js';
@@ -484,13 +484,14 @@ const GM = {
   'player.remove'(st, a) {
     const p = playerOf(st, a.playerId);
     st.players = st.players.filter((x) => x !== p);
+    if (st.achCeremony) st.achCeremony = st.achCeremony.filter(x => x.playerId !== p.id);
   },
 
   'ach.award'(st, a, ctx, out) {
     const p = playerOf(st, a.playerId);
     let ach;
     if (a.achId !== undefined) {
-      ach = ctx.pack.achievementsById.get(a.achId);
+      ach = ctx.pack.achievementsById.get(a.achId) ?? st.customAchievements?.find(x => x.id === a.achId);
       if (!ach) throw notFound(`unknown achievement ${a.achId}`);
     } else {
       ach = {
@@ -516,7 +517,48 @@ const GM = {
     const line = voiced
       ? quipLine(st, voiced, 1)
       : categoryLine(st, ctx, 'achievement', 1) ?? { priority: 1, text: `New achievement. ${ach.title}.`, quipId: null, crit: false };
-    if (a.quiet !== true) out.lines.push(line);
+    if (a.quiet !== true) out.lines.push(ach.voiceLine ? { priority: 1, text: ach.voiceLine, quipId: null, crit: false } : line);
+  },
+
+  'ach.batch'(st, a, ctx, out) {
+    if (!['award', 'queue'].includes(a.mode) || !Array.isArray(a.rows) || !a.rows.length || a.rows.length > 30) throw bad('Select 1–30 proposals and an award mode.');
+    const catalog = st.customAchievements ??= [];
+    const queue = st.achCeremony ??= [];
+    let given = 0;
+    for (const row of a.rows) {
+      const p = playerOf(st, row?.playerId);
+      const title = str(row.title, 'title', 80);
+      const desc = str(row.desc ?? '', 'desc', 300, { allowEmpty: true });
+      const reward = str(row.reward ?? '', 'reward', 200, { allowEmpty: true });
+      const voiceLine = str(row.voiceLine ?? '', 'voiceLine', 300, { allowEmpty: true });
+      const box = row.box || null;
+      if (box && !ctx.pack.tiersById.has(box)) throw bad('Unknown box tier.');
+      if (p.achievements.some(x => x.title.toLowerCase() === title.toLowerCase())) continue;
+      let entry = catalog.find(x => x.title === title && x.desc === desc && x.reward === reward && x.box === box && x.voiceLine === voiceLine);
+      if (!entry) {
+        if (catalog.length >= 500) throw bad('Campaign achievement catalog is full.');
+        entry = { id: ctx.genId('ach'), title, desc, reward, voiceLine, box, group: 'Custom', origin: 'homebrew_ai' };
+        catalog.push(entry);
+      }
+      if (queue.some(x => x.playerId === p.id && x.achId === entry.id)) continue;
+      const request = { playerId: p.id, achId: entry.id };
+      if (a.mode === 'queue') queue.push(request);
+      else GM['ach.award'](st, request, ctx, out);
+      given++;
+    }
+    out.result = { count: given };
+  },
+
+  'ach.ceremony'(st, a, ctx, out) {
+    const queue = st.achCeremony ?? [];
+    const index = queue.findIndex(x => x.achId === a.achId && x.playerId === a.playerId);
+    if (index < 0) { out.changed = false; return; }
+    const [row] = queue.splice(index, 1);
+    const entry = st.customAchievements.find(x => x.id === row.achId);
+    const player = playerOf(st, row.playerId);
+    if (player.achievements.some(x => x.title.toLowerCase() === entry.title.toLowerCase())) return;
+    setScene(st, ctx, 'recap', { title: 'Previously on…', text: player.name + ' — ' + entry.title + '\n' + entry.desc });
+    GM['ach.award'](st, row, ctx, out);
   },
 
   /** GM peek: rolls the tier's table without giving anything. Ack `result.item` {id, name, rarity, image}. Re-roll = call again. */
@@ -1343,6 +1385,8 @@ export function reduce(state, action, ctx) {
   };
   if (action.role === 'system') out.changed = false;
   fn(st, action, full, out);
+  const moments = momentsOf(st, out.events);
+  if (moments.length) st.session.achLog = [...(st.session.achLog ?? []), ...moments.map(m => ({ ...m, at: full.now }))].slice(-2000);
   // The System notices moments that match an achievement trigger and suggests it to the GM (ach-triggers.js).
   if (out.changed && full.pack && action.t !== 'ach.suggest.award') suggestAchievements(st, full, out, GM);
   if (st.combat?.active && st.combat.mapId === action.id &&
@@ -1508,7 +1552,9 @@ export function viewFor(state, basePack, role, opts = {}) {
         left: quipsLeft(pack, state.usedQuips, id),
         total: categoryPool(pack, id).length,
       })),
-      achievementsCatalog: pack.achievements.map(({ id, title, desc, reward, group, box, trigger }) => ({ id, title, desc, reward, group, ...(box ? { box } : {}), ...(trigger ? { on: trigger.on } : {}) })),
+      achLog: state.session.achLog ?? [],
+      achCeremony: state.achCeremony ?? [],
+      achievementsCatalog: [...pack.achievements, ...(state.customAchievements ?? [])].map(({ id, title, desc, reward, group, box, trigger }) => ({ id, title, desc, reward, group, ...(box ? { box } : {}), ...(trigger ? { on: trigger.on } : {}) })),
       achSuggestions: state.achSuggestions ?? [],
       achRecent: state.achRecent ?? [],
       achSettings: state.achSettings ?? { suggest: true },

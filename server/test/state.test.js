@@ -482,3 +482,23 @@ test('loot.peek rolls without giving; loot.open itemId keeps the peeked roll (mu
   const other = [...pack.itemsById.values()].find((x) => !pack.loot.bronze.some((y) => y.item === x.id));
   if (other) assert.throws(() => gm(state, { t: 'loot.open', playerId: id, tier: 'bronze', itemId: other.id }), /not in the bronze table/);
 });
+
+test('batch achievements validate atomically, stay GM-only until presented, and cannot pay a box twice', () => {
+  const { state, id } = withPlayer();
+  const row = { playerId: id, title: 'First Out', desc: 'Found the exit.', reward: 'A box', box: pack.lootTiers[0].id, voiceLine: 'You found the door!' };
+  assert.throws(() => gm(state, { t: 'ach.batch', mode: 'queue', rows: [row, { ...row, box: 'missing' }] }));
+  assert.equal(state.customAchievements, undefined);
+  const queued = gm(state, { t: 'ach.batch', mode: 'queue', rows: [row, row] });
+  assert.equal(queued.result.count, 1);
+  assert.equal(queued.state.players[0].achievements.length, 0);
+  assert.doesNotMatch(JSON.stringify(viewFor(queued.state, pack, 'stage')), /First Out/);
+  const next = gm(normalizeState(queued.state, pack, 0), { t: 'session.new' });
+  const request = { t: 'ach.ceremony', ...next.state.achCeremony[0] };
+  const shown = gm(next.state, request);
+  assert.equal(shown.state.scene.kind, 'recap');
+  assert.ok(shown.lines.some(l => l.text === row.voiceLine));
+  assert.equal(shown.state.players[0].pendingBoxes.length, 1);
+  assert.equal(gm(shown.state, request).state.players[0].achievements.length, 1);
+  assert.equal(gm(shown.state, { t: 'ach.batch', mode: 'award', rows: [row] }).result.count, 0);
+  assert.throws(() => reduce(state, { role: 'player', t: 'ach.batch', rows: [row] }, ctx()));
+});

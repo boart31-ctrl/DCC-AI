@@ -1,3 +1,4 @@
+import { createBatchAchievements } from './gm-ach-batch.js';
 import { showCredits } from './gm-origins.js';
 import {
   SystemClient, TransportHub, takeHashToken, buzz, h, toast, itemArt, fmtNum, timeAgo,
@@ -41,7 +42,8 @@ export const ext = { afterRender: [], customAchievementWriter: null, libraryDraf
 ext.client = client;
 document.getElementById('gm-credits').onclick = () => showCredits(view?.gm?.origins);
 createRulesSearch({ send: (a) => client.send(a), button: document.getElementById('rules-btn') });
-createAchPicker({ getView: () => view, act, button: document.getElementById('ach-btn') });
+const batchAchievements = createBatchAchievements({ getView: () => view, act });
+createAchPicker({ openBatch: () => batchAchievements.open(), getView: () => view, act, button: document.getElementById('ach-btn') });
 const tables = createTables({ getView: () => view, act, button: document.getElementById('tables-btn') });
 ext.credential = null; // { key } or { token }
 
@@ -158,6 +160,7 @@ function render() {
   renderLog();
   renderSettings();
   renderCampaign();
+  batchAchievements.update();
   applyAccent(view.pack);
   applyPackTheme(view.pack?.theme);
   drawTheme();
@@ -733,6 +736,7 @@ function createRewards() {
       h('div.view-head', h('h1', 'Loot & Rewards'), h('span.dim', 'Power of each crawler, boxes waiting, the System\'s offers, achievements and gifts')),
       list.length ? btn('tv', 'Show builds on TV', () => act({ t: 'scene.set', kind: 'builds' }, 'Build analysis on TV.')) : null,
       v.gm?.loot ? lootSettingsPanel(v.gm.loot, { act }) : null,
+      btn('sparkle', 'Custom achievements', () => batchAchievements.open()),
       suggestionsPanel(v.gm, { act }),
       list.length ? h('div.rw-grid', list.map(card)) : h('div.empty-state', h('p', h('b', 'No crawlers yet.')), h('p.dim', 'Add them on Party first.')),
       h('section.panel.rw-recent',

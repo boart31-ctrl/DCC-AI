@@ -248,6 +248,8 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `player.resource` | `playerId`, `res`, `cur?`, `max?`, `delta?` | Changes hp/mana etc. (clamped 0..max) |
 | `player.remove` | `playerId` | |
 | `ach.award` | `playerId`, `achId` **or** `title`+`desc?`+`reward?` | Adds achievement, event `achievement`, P1 voice line (pack `voice` for that achievement, else quip category `achievement`) |
+| `ach.batch` | `mode` (award or queue), `rows` (1–30 proposals with playerId, title, desc?, reward?, box?, voiceLine?) | GM-only atomic review submission. Stores custom campaign entries. Repeating an award for the same recipient and title skips it. Returns count. |
+| `ach.ceremony` | `playerId`, `achId` from gm.achCeremony | Presents one queued award in the recap scene and grants its pending box. Survives session.new. |
 | `ach.suggest.award` | `id` (from `gm.achSuggestions`) | Awards the suggested achievement (same as `ach.award`) and drops the suggestion |
 | `ach.suggest.dismiss` | `id`, `never?` | Drops a suggestion; `never: true` = never suggest that achievement to that crawler again |
 | `ach.settings` | `suggest?` (bool), `auto?` (bool) | Turns System achievement suggestions on/off. Suggestions come from pack achievement `trigger`: `{ on: roll\|evade\|kill\|down\|saved\|mark\|loot\|sponsor, nat?, deg?, what?, hit?, rarity?, mark?, partyFirst?, inRound?, streak?, count?, auto? }`; GM confirms, except `auto: true` (quiet) ones, which are given by themselves without a System line while `auto` is on (default). GM view: `achSuggestions`, `achRecent`, `achSettings`, catalog `on` |

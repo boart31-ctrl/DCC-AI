@@ -19,7 +19,7 @@ export function suggestionsPanel(gm, { act }) {
       h('button.btn.btn-sm.btn-quiet', { type: 'button', title: 'Never suggest this one for this crawler again', onclick: () => act({ t: 'ach.suggest.dismiss', id: s.id, never: true }) }, 'Never'))))));
 }
 
-export function createAchPicker({ getView, act, button }) {
+export function createAchPicker({ getView, act, button, openBatch }) {
   let picked = new Set();
   const search = h('input.field', { type: 'search', placeholder: 'Search, or type a new title to award it as custom', 'aria-label': 'Search achievements', autocomplete: 'off' });
   const crawlers = h('div.ach-pk-who');
@@ -27,7 +27,7 @@ export function createAchPicker({ getView, act, button }) {
   const dlg = h('dialog.sheet-dlg.tool.ach-pk', { 'aria-label': 'Award an achievement' },
     h('div.sheet-inner',
       h('header.sheet-head', h('h3', 'Award an achievement'), h('button.icon-btn.sheet-x', { type: 'button', 'aria-label': 'Close', onclick: () => dlg.close() }, '✕')),
-      h('div.sheet-body', crawlers, search, body)));
+      h('div.sheet-body', h('button.btn', { type: 'button', onclick: () => { dlg.close(); openBatch(); } }, 'Custom achievements'), crawlers, search, body)));
   document.body.append(dlg);
   search.addEventListener('input', draw);
 
