@@ -257,6 +257,9 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `chase.leg` | `entries?: [{ playerId, entered }]` | Rolls the current leg for every crawler still in it (check + Move/10; NPCs use their fixed value). Chase: Amazing+ +2 Ground, Success +1, Near 0, Fail −1, Major −2, Critical fail out; 4+ caught early, −4 out; after the last leg 1+ caught. Race: places per leg, lowest sum wins. Ack `{ leg, results, done, result }`, event `chase.leg` |
 | `chase.adjust` | `runnerId`, `ground` (−4..4) | GM override of a chaser's Ground (clever idea, hazard) |
 | `chase.finish` | — | Ends the contest now with the normal result rules |
+| `table.read` | table id | GM-only full table for editing or duplication. |
+| `table.save` | name, rows, optional group, scope, id and revision | Creates a campaign table or updates its current revision. Disabled rows stay in the editor. |
+| `table.make` | resultId, playerId for item or box | Applies the stored roll action once to its recipient, fight, active prep scene, notes or TV. |
 | `table.roll` | `id` | Rolls a random table (pack `tables.json` or campaign); `{XdY+Z}` rolled, `[[table]]` nested (depth 3), last 3 rows of that table not repeated. Ack `result` `{ id, tableId, table, die, roll, row, text, make }`, also in GM view `tables.recent` |
 | `names.roll` | `list?`, `n?` (1–10, default 5) | Ack `result.names` from a pack name list |
 | `crowd.gen` | `place?` (pack crowd place id), `n` (1–6) | Replaces `tables.crowd` with N quick NPCs `{ id, name, species, lines: [look, want, hook] }` (exactly 3 sentences) |

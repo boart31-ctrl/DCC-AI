@@ -98,3 +98,42 @@ test('crowd portraits: picked by species, saved onto the NPC', () => {
   TABLES_GM['crowd.gen'](st, { n: 1 }, ctx, {});
   assert.equal(st.crowd.people[0].image, '/pack/images/crowd/goblin_01.webp');
 });
+
+test('campaign editor preserves disabled rows, validates ranges and prevents stale edits; apply is idempotent', () => {
+  const d = demo();
+  const rows = [{text:'No',disabled:true}, {text:'A witness',make:'npc',weight:5}];
+  const {id,revision} = d.step({t:'table.save',name:'Rumours',rows}).result;
+  assert.equal(d.step({t:'table.read',id}).result.rows[0].disabled,true);
+  assert.throws(()=>d.step({t:'table.save',id,name:'stale',revision:0,rows}),/changed/);
+  assert.throws(()=>d.step({t:'table.save',name:'Bad',rows:[{text:'bad',range:[1,1000000000]}]}),/ranges/);
+  assert.throws(()=>d.step({t:'table.save',name:'Bad',rows:['[[unknown]]']}),/nested/);
+  for(let n=0;n<3;n++) assert.equal(d.step({t:'table.roll',id}).result.text,'A witness');
+  const r=d.step({t:'table.roll',id}).result;
+  d.step({t:'table.make',resultId:r.id});
+  d.step({t:'table.make',resultId:r.id});
+  assert.equal(d.state.library.npc.length,1);
+  d.step({t:'table.save',id,name:'Evening',revision,rows:[{text:'A clue',make:'note'}]});
+  const note=d.step({t:'table.roll',id}).result;
+  d.step({t:'table.make',resultId:note.id});
+  assert.equal(d.state.tableKept.at(-1).text,'A clue');
+});
+
+test('table actions attach trap checks and NPCs to tonight, send table text to TV and grant a picked item', () => {
+  const d = demo();
+  const {playerId} = d.step({t:'player.add',name:'Iris'}).result;
+  const apply = (make, text) => {
+    const {id} = d.step({t:'table.save',name:'Test',rows:[{text,make}]}).result;
+    const resultId = d.step({t:'table.roll',id}).result.id;
+    d.step({t:'table.make',resultId,playerId});
+  };
+  d.step({t:'prep.evening.build',title:'Tonight',recipe:['trap'],suggest:false});
+  const scene = () => d.state.prep.docs.find(x=>x.id===d.state.prep.current).evening.scenes[0];
+  apply('trap','Watch the pressure plate');
+  assert.equal(scene().checks.at(-1).fail,'Watch the pressure plate');
+  apply('npc','A witness to the trap');
+  assert.equal(scene().npcs.at(-1),d.state.library.npc.at(-1).id);
+  apply('tv','The room goes dark');
+  assert.equal(d.state.messages.at(-1).text,'The room goes dark');
+  apply('item:'+d.pack.items[0].id,'Found an item');
+  assert.equal(d.state.players[0].inventory.at(-1).itemId,d.pack.items[0].id);
+});

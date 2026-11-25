@@ -44,7 +44,7 @@ function blank(kind, rs) {
   return e;
 }
 
-export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
+export function createLibrary({ openTables, act, getView, getCredential, aiDraft, hasAi }) {
   const st = { kind: 'all', source: 'all', tag: '', q: '', sel: null, draft: null, dirty: false };
   let view = null;
   let rs = null;
@@ -69,7 +69,7 @@ export function createLibrary({ act, getView, getCredential, aiDraft, hasAi }) {
   const list = h('ul.lib-list', { role: 'listbox', 'aria-label': 'Library entries' });
   const editor = h('div.lib-editor');
   const el = h('div.library',
-    h('div.view-head', h('h1', 'Library'), count, h('span.grow'), importButton, importFile, newSel),
+    h('div.view-head', h('h1', 'Library'), count, h('span.grow'), h('button.btn', { type:'button', onclick:openTables }, 'Tables'), importButton, importFile, newSel),
     importStatus,
     kindSeg,
     h('div.lib-cols',

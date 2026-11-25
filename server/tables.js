@@ -48,9 +48,9 @@ export function normalizeTable(raw, warnings = [], where = 'tables.json') {
   if (rows.every((r) => r.range)) {
     const hi = Math.max(...rows.map((r) => r.range[1]));
     die = `d${hi}`;
-    const covered = new Set();
-    for (const r of rows) for (let i = r.range[0]; i <= r.range[1]; i++) covered.add(i);
-    if (covered.size !== hi || Math.min(...rows.map((r) => r.range[0])) !== 1) warnings.push(`${where} ${raw.id}: ranges do not cover 1–${hi} without gaps`);
+    const ranges = rows.map(r => r.range).sort((a,b) => a[0]-b[0]);
+    if (hi > 10000 || ranges.some(([lo], i) => lo !== (i ? ranges[i-1][1]+1 : 1))) warnings.push(`${where} ${raw.id}: ranges must cover 1–${hi} without gaps or overlaps`);
+
   } else if (rows.some((r) => r.weight)) die = 'weights';
   else die = `d${rows.length}`;
   const scope = {};
@@ -59,6 +59,8 @@ export function normalizeTable(raw, warnings = [], where = 'tables.json') {
     if (scenes.length) scope.scenes = scenes;
     const floors = (Array.isArray(raw.scope.floors) ? raw.scope.floors : []).filter(Number.isInteger).slice(0, 30);
     if (floors.length) scope.floors = floors;
+    const hoods = strs(raw.scope.hoods, 80, 30);
+    if (hoods.length) scope.hoods = hoods;
   }
   const t = { id: raw.id, name: str(raw.name, 80) || raw.id, group: str(raw.group, 40) || 'Other', die, rows, scope };
   const desc = str(raw.desc, 300);
@@ -118,7 +120,7 @@ function pickRow(st, ctx, t) {
   const hist = (st.tableHistory ??= {});
   const recent = hist[t.id] ?? [];
   const window = Math.min(NO_REPEAT, t.rows.length - 1);
-  const banned = new Set(recent.slice(-window));
+  const banned = new Set(window ? recent.slice(-window) : []);
   let idx;
   let roll;
   if (t.die === 'weights') {
@@ -135,7 +137,11 @@ function pickRow(st, ctx, t) {
       idx = t.rows.findIndex((r, i) => (r.range ? roll >= r.range[0] && roll <= r.range[1] : i === roll - 1));
       if (idx >= 0 && !banned.has(idx)) break;
     }
-    if (idx < 0) idx = 0;
+    if (idx < 0 || banned.has(idx)) {
+      idx = t.rows.findIndex((_, i) => !banned.has(i));
+      if (idx < 0) idx = 0;
+      roll = t.rows[idx].range?.[0] ?? idx + 1;
+    }
   }
   hist[t.id] = [...recent, idx].slice(-NO_REPEAT);
   return { idx, roll };
@@ -264,6 +270,64 @@ export function savePerson(st, ctx, out, GM, person, placeName) {
 }
 
 export const TABLES_GM = {
+  'table.read'(st, a, ctx, out) {
+    const table = findTable(st, ctx, a.id);
+    if (!table) throw notFound('Unknown table.');
+    out.result = { ...table, rows: table.editorRows ?? table.rows, own: (st.tables ?? []).some(t => t.id === a.id) };
+    out.changed = false;
+  },
+  'table.save'(st, a, ctx, out) {
+    const own = st.tables ??= [];
+    const old = a.id ? own.find(t => t.id === a.id) : null;
+    if (a.id && !old) throw bad('Duplicate a pack table before editing it.');
+    if (old && a.revision !== old.revision) throw bad('This table changed. Reopen it before saving.');
+    if (!old && own.length >= MAX_TABLES) throw bad('Table limit reached.');
+    if (!str(a.name,80) || !Array.isArray(a.rows) || !a.rows.length || a.rows.length > MAX_ROWS) throw bad('Provide a name and 1–200 rows.');
+    const editorRows = a.rows.map(raw => {
+      const r = normRow(raw);
+      if (!r || (raw.weight != null && !(Number.isInteger(raw.weight) && raw.weight >= 1 && raw.weight <= 1000)) || (raw.range && !r.range)) throw bad('Invalid text, weight or range.');
+      for (const [,id] of r.text.matchAll(NEST_RE)) if (!findTable(st,ctx,id)) throw bad('Unknown nested table: ' + id);
+      return raw.disabled ? { ...r, disabled: true } : r;
+    });
+    const active = editorRows.filter(r => !r.disabled);
+    const ranged = active.filter(r => r.range);
+    if (ranged.length && (ranged.length !== active.length || active.some(r => r.weight))) throw bad('Use either ranges or weights.');
+    const warnings = [];
+    const table = normalizeTable({ id: old?.id ?? ctx.genId('tbl'), name:a.name, group:a.group, desc:a.desc, scope:a.scope, rows:active, origin:'homebrew_ai' },warnings);
+    if (!table || warnings.length) throw bad(warnings.join(' ') || 'No active rows.');
+    Object.assign(table,{ editorRows, revision:(old?.revision ?? 0)+1 });
+    if (old) own[own.indexOf(old)] = table; else own.push(table);
+    delete st.tableHistory?.[table.id];
+    out.result = { id: table.id, revision:table.revision };
+  },
+  'table.make'(st, a, ctx, out, GM) {
+    const r = st.tableRecent?.find(x => x.id === a.resultId);
+    if (!r) throw notFound('Roll the table again to use this result.');
+    if (r.made) { out.changed=false; return; }
+    const [kind,ref] = (r.make || '').split(':');
+    const send = (type, fields) => GM[type](st,fields,ctx,out);
+    const doc = st.prep?.docs.find(d => d.id === st.prep.current);
+    const scene = doc?.evening?.scenes.find(s => s.id === doc.evening.activeSceneId);
+    if (kind === 'npc') {
+      const place = ctx.pack.tables?.crowd?.places?.[0];
+      const person = makePerson(st,ctx,place);
+      person.lines[2] = r.text;
+      savePerson(st,ctx,out,GM,person,place?.name ?? '');
+      if (scene && !scene.npcs.includes(person.npcId)) send('prep.scene.update',{id:doc.id,sceneId:scene.id,patch:{npcs:[...scene.npcs,person.npcId]}});
+    } else if (kind === 'item') send('item.give',{playerId:a.playerId,itemId:ref});
+    else if (kind === 'loot') send('loot.open',{playerId:a.playerId,tier:ref});
+    else if (kind === 'mob') {
+      const match = /^([a-z0-9_-]+?)(?:x(\d+))?$/.exec(ref || '');
+      if (!match) throw bad('Invalid monster reference.');
+      send('combat.addMob',{kind:'monster',sourceId:match[1],count:Number(match[2] ?? 1)});
+    } else if (kind === 'trap') {
+      if (!scene) throw bad('Select a scene in tonight’s evening first.');
+      send('prep.scene.update',{id:doc.id,sceneId:scene.id,patch:{checks:[...scene.checks,{id:ctx.genId('ck'),label:r.text.slice(0,120),fail:r.text}]}});
+    } else if (kind === 'note') send('table.keep',{table:r.table,text:r.text});
+    else if (kind === 'tv') send('msg.send',{to:'all',onStage:true,text:r.text.slice(0,500)});
+    else throw bad('This row has no supported action.');
+    r.made = true;
+  },
   /** Roll a table → result card (also in recent). */
   'table.roll'(st, a, ctx, out) {
     if (typeof a.id !== 'string') throw bad('id must be a table id');

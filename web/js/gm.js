@@ -1,3 +1,4 @@
+import { createTableEditor } from './gm-table-editor.js';
 import { createBatchAchievements } from './gm-ach-batch.js';
 import { showCredits } from './gm-origins.js';
 import {
@@ -1254,7 +1255,9 @@ $('#add-player-btn').addEventListener('click', showAddPlayer);
 $('#rank-up').addEventListener('click', () => rankUp('session'));
 $('#rank-up-floor').addEventListener('click', () => rankUp('floor'));
 
+const tableEditor = createTableEditor({ getView: () => view, act });
 const library = createLibrary({
+  openTables: () => tableEditor.open(),
   send: (a) => client.send(a),
   act,
   getView: () => view,

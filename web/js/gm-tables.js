@@ -9,7 +9,7 @@ import { h, toast } from './client.js';
 const SCENE_TAG = { combat: 'combat', boss: 'boss', explore: 'explore', npc: 'npc', trap: 'trap' };
 
 export function createTables({ getView, act, button }) {
-  const st = { tab: 'crowd', q: '', result: null, n: 3, place: null, names: null, list: null, tell: false };
+  const st = { tab: 'crowd', q: '', context: true, result: null, n: 3, place: null, names: null, list: null, tell: false };
   const body = h('div.tb-body');
   const tabs = h('div.tb-tabs', { role: 'tablist' });
   const dlg = h('dialog.sheet-dlg.tool.tb-dlg', { 'aria-label': 'Random tables' },
@@ -48,6 +48,10 @@ export function createTables({ getView, act, button }) {
         h('button.btn.btn-primary', { type: 'button', onclick: () => roll(r.tableId) }, 'Reroll'),
         h('button.btn', { type: 'button', onclick: () => keep(r.table, r.text) }, 'Keep'),
         h('button.btn', { type: 'button', onclick: () => tv(r.text) }, 'Show on TV')),
+      r.make ? h('div.tb-acts', (T().recent.find(x=>x.id===r.id)?.made || r.made) ? 'Applied' :
+        (/^(item|loot):/.test(r.make) ? players() : [null]).map(p => h('button.btn', { type:'button', onclick:async()=>{
+          if (await act({t:'table.make',resultId:r.id,playerId:p?.id},'Result applied.')) { r.made=true; draw(); }
+        } }, 'Make it real · ' + r.make + (p ? ' → '+p.name : '')))) : null,
       tellRow(r.text));
   }
   function tablesTab() {
@@ -57,13 +61,19 @@ export function createTables({ getView, act, button }) {
     const q = st.q.trim().toLowerCase();
     const kind = SCENE_TAG[getView()?.scene?.kind] ?? null;
     const btn = (x) => h('button.tb-pick', { type: 'button', onclick: () => roll(x.id), title: x.desc || x.name }, h('b', x.name), h('span.dim', x.die));
-    const parts = [search, resultCard(st.result)];
-    if (q) parts.push(h('div.tb-grid', t.catalog.filter((x) => `${x.name} ${x.group} ${x.desc}`.toLowerCase().includes(q)).map(btn)));
+    const scene = getView()?.scene?.data || {};
+    const hood = (scene.location || '').toLowerCase();
+    const floor = Number(String(scene.floor || getView()?.crawlers?.floor || '').match(/\d+/)?.[0]);
+    const matches = x => !st.context || ((!hood || !x.scope?.hoods?.length || x.scope.hoods.some(n=>hood.includes(n.toLowerCase()))) &&
+      (!x.scope?.floors?.length || !floor || x.scope.floors.includes(floor)));
+    const catalog=t.catalog.filter(matches);
+    const parts = [search, h('label',h('input',{type:'checkbox',checked:st.context,onchange:e=>{st.context=e.target.checked;draw();}}),' Filter by current floor and neighbourhood'), resultCard(st.result)];
+    if (q) parts.push(h('div.tb-grid', catalog.filter((x) => `${x.name} ${x.group} ${x.desc}`.toLowerCase().includes(q)).map(btn)));
     else {
-      const fits = kind ? t.catalog.filter((x) => x.scope?.scenes?.includes(kind)) : [];
+      const fits = kind ? catalog.filter((x) => x.scope?.scenes?.includes(kind)) : [];
       if (fits.length) parts.push(h('h4.tb-h', 'Fits this scene'), h('div.tb-grid', fits.map(btn)));
-      const groups = [...new Set(t.catalog.map((x) => x.group))];
-      for (const g of groups) parts.push(h('h4.tb-h', g), h('div.tb-grid', t.catalog.filter((x) => x.group === g).map(btn)));
+      const groups = [...new Set(catalog.map((x) => x.group))];
+      for (const g of groups) parts.push(h('h4.tb-h', g), h('div.tb-grid', catalog.filter((x) => x.group === g).map(btn)));
       if (!t.catalog.length) parts.push(h('p.dim', 'This pack has no tables yet (tables.json).'));
     }
     if (t.kept.length) parts.push(h('h4.tb-h', 'Kept tonight'), h('ul.tb-kept', [...t.kept].reverse().slice(0, 8).map((k) => h('li', h('span.dim', `${k.table}: `), k.text))));

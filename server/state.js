@@ -953,6 +953,9 @@ const GM = {
   'session.new'(st, a, ctx, out) {
     out.effects.push({ type: 'archive', session: st.session });
     st.session = newSession(ctx.pack, ctx.now, st.session);
+    st.tableKept = [];
+    st.tableRecent = [];
+    st.achRecent = [];
     st.usedQuips = {};
     st.feed = [];
     st.rolls = [];
@@ -1087,6 +1090,7 @@ Object.assign(GM, {
   ...ACH_SUGGEST_GM,
   'ach.suggest.award': (st, a, ctx, out) => ACH_SUGGEST_GM['ach.suggest.award'](st, a, ctx, out, GM),
   ...TABLES_GM,
+  'table.make': (st,a,ctx,out) => TABLES_GM['table.make'](st,a,ctx,out,GM),
   ...CHASE_GM,
   'crowd.save': (st, a, ctx, out) => TABLES_GM['crowd.save'](st, a, ctx, out, GM),
 });
