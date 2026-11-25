@@ -26,12 +26,23 @@ export function createBattleMap({ act, goLiveFight }) {
   function candidates() {
     const live = uids();
     const onTv = view?.scene?.kind === 'map' ? view.scene.data?.mapId : null;
-    return (view?.maps || []).map((m) => ({ m, n: m.tokens.filter((t) => t.ref && live.has(t.ref)).length + (m.id === onTv ? 0.5 : 0) })).filter((x) => x.n > 0).sort((a, b) => b.n - a.n).map((x) => x.m);
+    return (view?.maps || []).map((m) => ({ m, n: m.tokens.filter((t) => t.ref && live.has(t.ref)).length + (m.id === onTv ? 0.5 : 0) })).filter((x) => x.n > 0 || x.m.id === view?.combat?.mapId).sort((a, b) => b.n - a.n).map((x) => x.m);
   }
   function cur() {
     const list = candidates();
     return list.find((m) => m.id === pick) || list[0] || null;
   }
+
+  let dragging = null;
+  mv.el.addEventListener('dragover', (e) => { if (dragging) e.preventDefault(); });
+  mv.el.addEventListener('drop', (e) => {
+    if (!dragging || !cur()) return;
+    e.preventDefault();
+    const c = dragging;
+    dragging = null;
+    act({ t: 'map.token.add', id: cur().id, kind: c.type === 'crawler' ? 'pc' : 'mob',
+      ref: c.playerId || c.uid, label: c.name, hidden: !!c.hidden, ...mv.toLocal(e) });
+  });
 
   function draw() {
     const m = cur();
@@ -49,6 +60,11 @@ export function createBattleMap({ act, goLiveFight }) {
           ? h('button.btn.btn-sm.btn-primary', { type: 'button', title: 'Put the arena back on the TV', onclick: () => goLiveFight() }, icon('tv', { size: 14 }), 'TV: fight')
           : h('button.btn.btn-sm', { type: 'button', title: 'Show this map on the TV (the fight goes on here)', onclick: () => act({ t: 'scene.set', kind: 'map', data: { mapId: m.id } }, 'Map on the TV.') }, icon('tv', { size: 14 }), 'TV: map')),
       ...(open ? [
+        ...view.combat.combatants.filter((c) => !c.dead && !m.tokens.some((t) => t.ref === (c.playerId || c.uid))).map((c) =>
+          h('button.btn.btn-sm', { type: 'button', draggable: true, ondragstart: (e) => {
+            dragging = c; e.dataTransfer.setData('text/plain', c.uid);
+          }, ondragend: () => { dragging = null; }, onclick: () => act({ t: 'map.token.add', id: m.id,
+            kind: c.type === 'crawler' ? 'pc' : 'mob', ref: c.playerId || c.uid, label: c.name, hidden: !!c.hidden }) }, `Place ${c.name}`)),
         mv.el,
         m.zones.length ? h('div.bm-zones', h('span.dim', 'Zones:'), m.zones.map((z) => h('button.btn.btn-sm', { type: 'button', class: z.revealed ? 'btn btn-sm' : 'btn btn-sm btn-quiet', 'aria-pressed': String(z.revealed), title: z.revealed ? 'Revealed: click to hide' : 'Hidden: click to reveal', onclick: () => act({ t: 'map.zone.reveal', id: m.id, zoneId: z.id, on: !z.revealed }) }, icon(z.revealed ? 'eye' : 'lock', { size: 12 }), z.name))) : null,
         h('p.dim.pp-hint', 'Drag tokens to move them. Hidden mobs show dashed until you reveal them in the tracker.'),

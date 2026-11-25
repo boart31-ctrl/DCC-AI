@@ -128,7 +128,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     fightBossOnMap = view().scene?.kind === 'boss' ? view().scene.data?.bossId : null;
     if (view().combat?.mapId !== mapId && !(await act({ t: 'map.bindCombat', id: mapId }, null))) return;
     parts.mapEditor?.select(mapId);
-    await act({ t: 'scene.set', kind: 'map', data: { mapId } }, null);
+    if (await act({ t: 'scene.set', kind: 'map', data: { mapId } }, null)) pick('map');
   }
   const head = h('div.sh-head');
   const body = h('div.sh-body');
@@ -1413,6 +1413,6 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     return true;
   }
 
-  const api = { currentTab: () => tab, currentMap, el, update, audio, mountInto, loadDraft, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
+  const api = { currentTab: () => tab, currentMap, switchMapFight, el, update, audio, mountInto, loadDraft, openSub: (id) => pick(id === 'scenes' ? 'lobby' : id), pick, refresh: () => { sig = ''; update(view()); }, goLive };
   return api;
 }

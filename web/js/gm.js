@@ -1261,7 +1261,7 @@ const openSound = () => {
   scenes.pick('sound');
   requestAnimationFrame(() => document.getElementById('combat-sounds')?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
 };
-const combat = createCombat({ act, addPlayer: showAddPlayer, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight'), currentMap: () => scenes.currentMap() });
+const combat = createCombat({ act, addPlayer: showAddPlayer, getView: () => view, send: (a) => client.send(a), sfx: combatSfx, openSound, goLive: () => scenes.goLive('fight'), switchMapFight: () => scenes.switchMapFight(), currentMap: () => scenes.currentMap() });
 $('#view-settings .settings-grid').append(sound.settingsEl);
 const npcs = createNpcs({ act, getView: () => view, openCrowd: () => tables.open('crowd'), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
 // The campaign panel ("Previously on…", plus the hosted edition's extras) lives in Show → Desk.
@@ -1326,7 +1326,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/') { e.preventDefault(); showView('library'); library.focusSearch(); return; }
   // Quip number keys work on every view (the show's signature should never be a tab away); A / M stay on Show.
   if (currentView === 'show' && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); toggleAuto(); return; }
-  if (currentView === 'show' && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); openComms(); return; }
+  if (currentView === 'show' && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); if (['fight', 'map'].includes(scenes.currentTab())) scenes.switchMapFight(); else openComms(); return; }
   // Physical keys (e.code) so the number row works on Czech/other layouts; Shift+digits belong to the SFX pads.
   const qDigit = !e.shiftKey && /^(Digit|Numpad)[1-9]$/.test(e.code) ? Number(e.code.slice(-1)) : 0;
   if (qDigit) {

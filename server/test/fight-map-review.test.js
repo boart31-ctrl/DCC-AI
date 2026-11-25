@@ -294,3 +294,21 @@ test('GM PNG upload stores the image and map atomically, with a campaign boundar
   assert.equal((await fetch(base + result.image)).headers.get('content-type'), 'image/png');
   assert.equal(JSON.parse(fs.readFileSync(path.join(dir, 'state.json'), 'utf-8')).maps.list[0].image, result.image);
 });
+
+test('revealing a zone joins only its prepared opponents to the current round once', () => {
+  const { act, state } = setup();
+  act({ t: 'player.add', name: 'Scout' });
+  const { id } = act({ t: 'map.add', name: 'Hall', image: '/pack/images/duck.webp' });
+  const mob = { t: 'map.token.add', id, kind: 'mob', sourceKind: 'monster', sourceId: 'beetle' };
+  act({ ...mob, x: .1, y: .1, hidden: false });
+  const { tokenId } = act({ ...mob, x: .6, y: .6 });
+  act({ ...mob, x: .9, y: .9 });
+  const { zoneId } = act({ t: 'map.zone.add', id, name: 'Corner', shape: { x: .5, y: .5, w: .2, h: .2 } });
+  act({ t: 'map.toFight', id });
+  const round = state().combat.round;
+  act({ t: 'map.zone.reveal', id, zoneId });
+  act({ t: 'map.zone.reveal', id, zoneId });
+  act({ t: 'map.token.update', id, tokenId, hidden: false });
+  assert.equal(state().combat.round, round);
+  assert.equal(state().combat.combatants.filter((c) => c.type === 'mob').length, 2);
+});

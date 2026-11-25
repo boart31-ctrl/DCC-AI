@@ -381,7 +381,7 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
         return h('li.gmap-enc', icon('swords', { size: 14 }), h('b', e.label), h('span.dim', `${placed}/${n} on the map`),
           h('span.grow'),
           placed < n || !placed ? h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'enc.tokens', id: e.id }, 'Mobs placed (hidden): drag them where they lurk.') }, 'Place mobs') : null,
-          live ? h('button.btn.btn-sm.btn-primary', { type: 'button', title: 'Add its mobs to the fight (hidden ones stay hidden); their tokens follow the fight', onclick: async () => { if (await act({ t: 'enc.run', id: e.id }, `${e.label}: mobs in the fight.`)) { showView('show'); scenes.pick('fight'); } } }, e.used ? 'Run again' : 'Run') : null);
+          live ? h('button.btn.btn-sm.btn-primary', { type: 'button', title: 'Add its mobs to the fight (hidden ones stay hidden); their tokens follow the fight', onclick: async () => { if (await act({ t: 'enc.run', id: e.id }, `${e.label}: mobs in the fight.`)) { showView('show'); scenes.pick('fight'); await scenes.goLive('fight'); } } }, e.used ? 'Run again' : 'Run') : null);
       })) : null,
       groups.length ? groups.map(([label, list]) => h('div.gmap-tgroup', h('h4', label), h('ul.gmap-list', list.map((t) => tokenRow(m, t))))) : h('p.empty-s', 'No tokens yet.'),
       h('label.chk', { title: 'Online play: each crawler drags their own token on the phone' }, h('input', { type: 'checkbox', checked: m.tokensOn, onchange: (e) => act({ t: 'map.update', id: m.id, tokensOn: e.target.checked }) }), 'Players move their own token on the phone'),
@@ -457,7 +457,7 @@ export function createMaps({ act, getView, scenes, showView, getCredential, mode
           onclick: () => act({ t: 'map.bindCombat', id: view?.combat?.mapId === m.id ? null : m.id }) }, view?.combat?.mapId === m.id ? 'Linked to fight' : 'Link to fight') : null,
         live && !view?.combat?.active ? h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: !canStart,
           title: canStart ? `Start combat on ${m.name}` : 'Reveal a monster or boss token from the Library first',
-          onclick: async () => { if (await act({ t: 'map.toFight', id: m.id })) { showView('show'); scenes.pick('fight'); } },
+          onclick: async () => { if (await act({ t: 'map.toFight', id: m.id })) { showView('show'); scenes.pick('fight'); await scenes.goLive('fight'); } },
         }, icon('swords', { size: 14 }), 'Start combat with revealed mobs') : null,
         h('button.icon-btn', { type: 'button', title: 'Rename', onclick: async () => { const n = await promptName('Rename map', m.name); if (n) act({ t: 'map.update', id: m.id, name: n }); } }, icon('edit', { size: 14 })),
         h('button.icon-btn', { type: 'button', title: 'Delete map', onclick: async () => { if (await ask(`Delete map "${m.name}"?`, { ok: 'Delete', danger: true })) { await act({ t: 'map.remove', id: m.id }, 'Map deleted.'); st.sel = null; sig = ''; draw(); } } }, icon('trash', { size: 14 })),

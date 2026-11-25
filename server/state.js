@@ -403,7 +403,7 @@ function quipLine(st, quip, priority) {
 // ---------- reducers ----------
 
 // Phone takeovers a crawler may miss (reload, phone asleep): the feed keeps what the phone needs to replay them.
-const REPLAY_KINDS = { 'item.broken': ['name'], achievement: ['achId', 'title', 'desc', 'reward', 'group'], loot: ['tier', 'item'], sponsor: ['sponsor', 'tier', 'item'] };
+const REPLAY_KINDS = { 'item.broken': ['name'], achievement: ['achId', 'title', 'desc', 'reward', 'group'], loot: ['tier', 'item', 'items', 'gold'], sponsor: ['sponsor', 'tier', 'item'] };
 function feedPush(st, ev, text) {
   const keep = REPLAY_KINDS[ev.kind];
   const replay = keep && ev.playerId ? Object.fromEntries(keep.filter((k) => ev[k] !== undefined).map((k) => [k, ev[k]])) : null;
@@ -628,8 +628,9 @@ const GM = {
     p.lootStats = { boxes: (p.lootStats?.boxes ?? 0) + 1, noFit: fit ? 0 : (p.lootStats?.noFit ?? 0) + 1 };
     if (typeof a.pendingId === 'string') p.pendingBoxes = (p.pendingBoxes ?? []).filter((b) => b.id !== a.pendingId);
     const best = given.reduce((b, x) => (RARITY_IDX(x.rarity) > RARITY_IDX(b.rarity) ? x : b), given[0]);
-    const { name, desc, flavor, rarity, image } = best;
-    setScene(st, ctx, 'loot', { playerId: p.id, tier: a.tier, opened: { name, desc, flavor, rarity, image } });
+    const itemsShown = given.map(({ name, desc, flavor, rarity, image }) => ({ name, desc, flavor, rarity, image }));
+    const bestIndex = given.indexOf(best);
+    setScene(st, ctx, 'loot', { playerId: p.id, tier: a.tier, opened: itemsShown[bestIndex], items: itemsShown, bestIndex, gold });
     const ev = out.emit({ kind: 'loot', sceneId: st.scene.id, playerId: p.id, tier: a.tier, boss: !!a.boss, item: best, items: given, gold }, 'all');
     const tierName = ctx.pack.tiersById.get(a.tier).name;
     feedPush(st, ev, `${p.name} opened a ${a.boss ? 'Boss ' : ''}${tierName}: ${given.map((x) => x.name).join(', ')}${gold ? ` + ${gold} gold` : ''}`);
@@ -1344,6 +1345,10 @@ export function reduce(state, action, ctx) {
   fn(st, action, full, out);
   // The System notices moments that match an achievement trigger and suggests it to the GM (ach-triggers.js).
   if (out.changed && full.pack && action.t !== 'ach.suggest.award') suggestAchievements(st, full, out, GM);
+  if (st.combat?.active && st.combat.mapId === action.id &&
+      ((action.t === 'map.zone.reveal' && action.on !== false) || (action.t === 'map.token.update' && action.hidden === false))) {
+    startCombatOnMap(st, action, full, { ...out }, GM);
+  }
   if (out.changed && st.combat?.mapId && ['map.bindCombat', 'map.toFight', 'enc.run', 'prep.scene.run', 'combat.addMob', 'combat.addAdhoc', 'combat.start', 'combat.addCrawler', 'combat.remove', 'combat.undo', 'player.add', 'player.remove'].includes(action.t)) {
     syncCombatTokens(st, full);
   }

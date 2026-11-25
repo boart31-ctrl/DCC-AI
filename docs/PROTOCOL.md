@@ -547,7 +547,7 @@ Map views may include an alternate `fallbackImage`. The GM view also includes au
 | `map.zone.update` | `id`, `zoneId`, `name?`, `shape?`, `text?` (read-aloud), `notes?` (GM only), `links?` `[{kind: monster/boss/npc/location/item/card, id}]` | |
 | `map.zone.remove` | `id`, `zoneId` | |
 | `map.bindCombat` | map `id` or null | Attach the current combat to a map, add any missing tokens, or detach. |
-| `map.toFight` | map `id` | Start normal combat with revealed monsters and bosses placed on this map. Keep token positions and existing combatant IDs. A matching active fight stays unchanged. A different active or prepared fight is protected. Ack `result {mapId, started, added}`. |
+| `map.toFight` | map `id` | Start normal combat with revealed monsters and bosses placed on this map. Keep token positions and existing combatant IDs. Revealing new map mobs during its active fight adds them as reinforcements. Repeat calls preserve the round and existing fighters. A different active or prepared fight is protected. Ack `result {mapId, started, added}`. |
 | `map.zone.reveal` | `id`, `zoneId` (use `0` for the area outside all drawn zones), `on?` (default true) | Event `map.reveal {mapId, zoneId, name}` when on air or shared |
 | `map.token.add` | `id`, `kind` (`pc` with `ref` = player id, one per crawler · `mob` · `mark`), `label?`, `color?`, `x?`, `y?`, `hidden?` | Mobs start hidden. Ack `result.tokenId` |
 | `map.token.party` | `id` | A token for every crawler without one; ack `result.added` |
@@ -895,7 +895,7 @@ Solo map tokens may specify `sourceKind` and `sourceId` in `map.token.add` for m
 
 | `loot.offers` | `playerId`, `tier`, `boss?` | GM. The System's offers for a box (loot-advisor.js): per item 3 candidates (on-build + wild card), the crawler's floor budget, held-back items. Read-only; call again to re-roll. |
 | `loot.prefs` | `playerId`, `builds?` (≤3 of melee, ranged, defense, stealth, magic, social, support, crafty, boom, pet, utility), `lean?` 0..1, `block?` [itemId] | GM steering per crawler, saved as `player.lootPrefs`. |
-| `loot.box` | `playerId`, `tier`, `boss?`, `itemIds` (1–8), `gold?`, `force?` | GM opens a box with the picked items: gives them + rolled gold, TV loot scene with the best item, System line, viewers. Items above the tier's reach need `force`. Ack `{uids, gold, warnings, fit}`. `item.give` acks `warnings` too. |
+| `loot.box` | `playerId`, `tier`, `boss?`, `itemIds` (1–8), `gold?`, `force?` | GM opens a box with the picked items: gives them + rolled gold, TV loot scene with the best item and remaining items, per-item phone reveals that resume after reconnect, System line, viewers. Items above the tier's reach need `force`. Ack `{uids, gold, warnings, fit}`. `item.give` acks `warnings` too. |
 | `loot.settings` | `settings` {budget?, stretch?, wildcard?, pity?, offers?, drops?, fragileFactor?, dropsOff?} or `null` | GM. Campaign loot rules over the pack's `lootPolicy` (null = back to pack defaults). |
 | `loot.prefs` | … `mode?` auto / catchup / standard / ahead | Reward mode per crawler (auto: C/D grade → catch-up, S → ahead). |
 | `loot.box` | … `pendingId?` | Opening a waiting box (boss drop, achievement) removes it from `player.pendingBoxes`. |

@@ -103,6 +103,26 @@ function changeAspect(map, aspect) {
   map.aspect = aspect;
 }
 
+function containsPoint(shape, x, y) {
+  if (!shape.points) return x >= shape.x && x <= shape.x + shape.w && y >= shape.y && y <= shape.y + shape.h;
+  let inside = false;
+  let [ax, ay] = shape.points.at(-1);
+  for (const [bx, by] of shape.points) {
+    if ((ay > y) !== (by > y) && x < ax + (bx - ax) * (y - ay) / (by - ay)) inside = !inside;
+    ax = bx; ay = by;
+  }
+  return inside;
+}
+
+function revealZoneMobs(st, map, contains) {
+  for (const token of map.tokens) {
+    if (token.kind !== 'mob' || !contains(token)) continue;
+    token.hidden = false;
+    const mob = token.ref && st.combat?.combatants.find((x) => x.uid === token.ref);
+    if (mob) mob.hidden = false;
+  }
+}
+
 // Zone Zero uses the complement of all zones, including their overlaps. Only the derived fog grid goes to viewers.
 function outsideFog(m) {
   if (typeof m.zoneZero !== 'boolean') return m.fog;
@@ -410,11 +430,13 @@ export const MAPS_GM = {
     const m = mapOf(st, a.id);
     if (a.zoneId === '0') {
       m.zoneZero = a.on !== false;
+      if (m.zoneZero) revealZoneMobs(st, m, (t) => !m.zones.some((z) => containsPoint(z.shape, t.x, t.y)));
       if (m.zoneZero && (onTv(st, m.id) || m.phones)) out.emit({ type: 'map.reveal', mapId: m.id, zoneId: '0', name: 'Zone 0' });
       return;
     }
     const z = zoneOf(m, a.zoneId);
     z.revealed = a.on !== false;
+    if (z.revealed) revealZoneMobs(st, m, (t) => containsPoint(z.shape, t.x, t.y));
     if (z.revealed && (onTv(st, m.id) || m.phones)) out.emit({ type: 'map.reveal', mapId: m.id, zoneId: z.id, name: z.name });
   },
 
@@ -563,13 +585,8 @@ function mapMobArt(entry, token) {
 export function startCombatOnMap(st, a, ctx, out, gm) {
   const map = mapOf(st, a.id);
   const combat = st.combat;
-  if (combat.active) {
-    if (combat.mapId !== map.id) throw bad('End the current fight before starting one on this map.');
-    out.changed = false;
-    out.result = { mapId: map.id, started: false, added: 0 };
-    return;
-  }
-
+  const running = combat.active;
+  if (running && combat.mapId !== map.id) throw bad('End the current fight before starting one on this map.');
   const library = libraryOf(st, ctx.pack);
   const queued = combat.combatants.filter((x) => x.type === 'mob');
   const byUid = new Map(queued.map((x) => [x.uid, x]));
@@ -588,7 +605,7 @@ export function startCombatOnMap(st, a, ctx, out, gm) {
   }
 
   // An unbound draft entry can be reused if its source and visible name identify the map token.
-  for (const { token } of additions) {
+  for (const { token } of running ? [] : additions) {
     const matches = queued.filter((mob) => !existing.has(mob.uid) && !mob.hidden && mob.hp > 0
       && mob.sourceKind === token.sourceKind && mob.sourceId === token.sourceId && mob.name === token.label);
     if (matches.length !== 1) continue;
@@ -597,8 +614,13 @@ export function startCombatOnMap(st, a, ctx, out, gm) {
     bindings.push({ token, uid: mob.uid });
   }
 
-  if (queued.length && (existing.size !== queued.length || (combat.mapId && combat.mapId !== map.id))) {
+  if (!running && queued.length && (existing.size !== queued.length || (combat.mapId && combat.mapId !== map.id))) {
     throw bad('A different lineup is already prepared. Start it normally or clear it before starting with this map’s revealed mobs.');
+  }
+  if (running && !additions.length) {
+    out.changed = false;
+    out.result = { mapId: map.id, started: false, added: 0 };
+    return;
   }
   if (!existing.size && !additions.length) throw bad('Reveal at least one monster or boss token from the Library on this map first.');
 
@@ -612,8 +634,10 @@ export function startCombatOnMap(st, a, ctx, out, gm) {
       { name: token.label, image: mapMobArt(entry, token) });
     [token.ref] = sub.result.uids;
   }
-  gm['combat.start'](st, {}, ctx, out);
-  out.result = { mapId: map.id, started: true, added: newMobs.length };
+  if (running) {
+    out.lines.push({ priority: 1, text: `Reinforcements: ${newMobs.map(({ token }) => token.label).join(', ')}.`, quipId: null, crit: false });
+  } else gm['combat.start'](st, {}, ctx, out);
+  out.result = { mapId: map.id, started: !running, added: newMobs.length };
 }
 
 // ---------- player actions ----------
@@ -664,6 +688,7 @@ function liveToken(st, library, combatRows, t) {
   if (t.kind === 'pc') {
     const p = st.players.find((x) => x.id === t.ref);
     if (!p) return null;
+    if (combatRows.get(p.id)?.dead) return null;
     return { ...t, marks: publicMarks(p.marks), image: p.sheet?.portrait ?? null, down: combatRows.get(p.id)?.down === true };
   }
   if (t.kind !== 'mob') return t;

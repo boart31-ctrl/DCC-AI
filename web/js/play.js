@@ -371,9 +371,12 @@ function savePendingLoot(cards) {
   } catch {}
 }
 function receiveTakeover(e) {
-  if (e.kind === 'loot') savePendingLoot([...pendingLoot(), e]);
+  const cards = e.kind === 'loot' && e.items?.length ? e.items.map((item, i) => ({
+    kind: 'loot', id: `${e.id}/${i}`, playerId: e.playerId, item, tier: e.tier, number: i + 1, count: e.items.length, gold: e.gold,
+  })) : [e];
+  if (e.kind === 'loot') savePendingLoot([...pendingLoot(), ...cards]);
   markSeen(e.id);
-  enqueueTakeover(e);
+  cards.forEach(enqueueTakeover);
 }
 function replayMissed(v) {
   if (!me) return;
@@ -1165,7 +1168,8 @@ function nextTakeover() {
       );
       buzz(r === 'legendary' || r === 'epic' ? [100, 50, 100, 50, 400] : 120);
       ready = true;
-      inner.append(h('button.btn', { type: 'button' }, 'Close item details'));
+      if (e.count) inner.append(h('p', `Item ${e.number} of ${e.count}${e.gold ? ` · +${e.gold} gold in this box` : ''}`));
+      inner.append(h('button.btn', { type: 'button' }, e.number < e.count ? 'Next item' : 'Close item details'));
     };
     if (reduced) { reveal(); } else {
       requestAnimationFrame(() => box.classList.add('shake'));

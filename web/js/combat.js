@@ -1,3 +1,4 @@
+import { createBattleMap } from './gm-battlemap.js';
 import { originBadge, originOptions } from './gm-origins.js';
 // GM desk → Combat: the synced tracker (server/combat.js + combat-auto.js). Everything here is engine
 // state, so the TV, phones and a reloaded desk all see the same fight.
@@ -93,7 +94,7 @@ function encounterRows(view) {
 
 const encounterText = (text) => String(text ?? '').normalize('NFD').replace(/\p{Diacritic}/gu, '').toLowerCase();
 
-export function createCombat({ act, send, getView, addPlayer = null, sfx = null, openSound = null, goLive = null, currentMap = () => null }) {
+export function createCombat({ act, send, getView, addPlayer = null, sfx = null, openSound = null, goLive = null, switchMapFight = null, currentMap = () => null }) {
   let view = null;
   let sig = '';
   const pref = { tab: 'monsters', publicRolls: false, q: '', locationId: '', ...loadPref() };
@@ -104,6 +105,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
   };
   const setPref = (k, v) => { pref[k] = v; savePref(pref); };
   const el = h('div.combat.cbt');
+  const battleMap = createBattleMap({ act, goLiveFight: goLive });
   const toastEl = h('div.cbt-endtoast', { role: 'status', 'aria-live': 'assertive', hidden: true });
   document.body.append(toastEl);
 
@@ -210,6 +212,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
         dangerBar(c.danger),
         h('span.grow'),
         displayControls(c),
+        c.active && c.mapId && switchMapFight ? h('button.btn.btn-sm', { type: 'button', onclick: switchMapFight }, 'Map ⇄ Fight (M)') : null,
         soundButton(),
         // A labelled button, not a small icon (playtest 21 Nov): red "Go live on TV" until the fight is on the TV.
         h('button.btn.cbt-tvbtn', {
@@ -1151,6 +1154,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
       !c.active && plan,
       !c.active && payout,
       list,
+      c.active && battleMap.el,
       c.active && payout,
       side,
     ].filter(Boolean));
@@ -1176,7 +1180,7 @@ export function createCombat({ act, send, getView, addPlayer = null, sfx = null,
     act({ t: 'combat.next' });
   });
 
-  return { el, chooseAttack, update(v) { if (v) v._at = Date.now(); view = v; if (v?.scene?.kind !== 'finale') ui.loot = null; ui.refreshEncounters?.(); draw(); } };
+  return { el, chooseAttack, update(v) { if (v) v._at = Date.now(); view = v; if (v?.combat?.active) battleMap.update(v); if (v?.scene?.kind !== 'finale') ui.loot = null; ui.refreshEncounters?.(); draw(); } };
 }
 
 export { signed };

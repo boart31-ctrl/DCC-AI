@@ -470,7 +470,7 @@ let lastOpening = null;
 function syncLootMoment(scene) {
   const id = scene?.kind === 'loot' && scene.data.opened ? scene.id : null;
   if (id === (lootMoment?.sceneId ?? null)) return;
-  lootMoment = id ? { kind: 'loot', sceneId: id, playerId: scene.data.playerId, tier: scene.data.tier, item: scene.data.opened } : null;
+  lootMoment = id ? { kind: 'loot', sceneId: id, playerId: scene.data.playerId, tier: scene.data.tier, item: scene.data.opened, items: scene.data.items, bestIndex: scene.data.bestIndex, gold: scene.data.gold } : null;
   if (!momentBusy) nextMoment();
 }
 
@@ -595,7 +595,10 @@ function nextMoment() {
         ),
         frame,
       );
+      const rest = (e.items || []).filter((_, i) => i !== e.bestIndex);
       inner.replaceChildren(...top.slice(0, 1), card);
+      if (rest.length || e.gold) inner.append(h('div.loot-strip', rest.map(it =>
+        h('span', itemArt(it), it.name)), e.gold ? h('b', `+${e.gold} gold`) : null));
     };
     const resume = e === lootMoment && (lastOpening === e.sceneId || view.scene.now - view.scene.since >= 1950);
     if (e === lootMoment) lastOpening = e.sceneId;

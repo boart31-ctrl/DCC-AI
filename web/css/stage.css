@@ -707,3 +707,7 @@ body.has-crawlers .hype { width: 20rem; }
 .degree-banner { position: fixed; z-index: 18; top: 15vh; left: 50%; transform: translateX(-50%); max-width: 80vw; padding: .55em 1.25em; text-align: center; background: #171220f5; color: white; border-bottom: .12em solid var(--cyan); font-size: clamp(18px, 2.6vw, 44px); pointer-events: none; }
 .degree-banner span, .degree-banner strong { display: block; }
 .degree-banner strong { font-size: 1.7em; }
+
+.loot-strip { display:flex; flex-wrap:wrap; gap:.6em 1em; align-items:center; justify-content:center; color:#fff; }
+.loot-strip span { display:inline-flex; align-items:center; gap:.35em; }
+.loot-strip img { width:2em; height:2em; object-fit:contain; }
