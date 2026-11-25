@@ -21,6 +21,7 @@
 //
 // The TV shows a map through scene kind `map` ({ mapId }); its content is view.maps (role-filtered here):
 // the GM gets everything, the TV and phones only revealed zones (no notes), the fog bits and visible tokens.
+import { publicMarks } from './marks.js';
 import { bad, notFound } from './errors.js';
 import { libraryOf } from './character.js';
 
@@ -663,7 +664,7 @@ function liveToken(st, library, combatRows, t) {
   if (t.kind === 'pc') {
     const p = st.players.find((x) => x.id === t.ref);
     if (!p) return null;
-    return { ...t, image: p.sheet?.portrait ?? null, down: combatRows.get(p.id)?.down === true };
+    return { ...t, marks: publicMarks(p.marks), image: p.sheet?.portrait ?? null, down: combatRows.get(p.id)?.down === true };
   }
   if (t.kind !== 'mob') return t;
   const raw = (st.combat?.combatants ?? []).find((x) => x.uid === t.ref);
@@ -685,7 +686,7 @@ export function publicMap(m) {
     ...(m.fallbackImage ? { fallbackImage: m.fallbackImage } : {}),
     tokensOn: m.tokensOn, phones: m.phones,
     zones: m.zones.filter((z) => z.revealed).map(({ id, name, shape, text: t }) => ({ id, name, shape, text: t })),
-    tokens: m.tokens.filter((t) => !t.hidden).map(({ id, kind, ref, label, color, x, y, down, image }) => ({ id, kind, ref, label, color, x, y, ...(image ? { image } : {}), ...(down ? { down: true } : {}) })),
+    tokens: m.tokens.filter((t) => !t.hidden).map(({ id, kind, ref, label, color, x, y, down, image, marks }) => ({ ...(marks ? { marks } : {}), id, kind, ref, label, color, x, y, ...(image ? { image } : {}), ...(down ? { down: true } : {}) })),
     strokes: (m.strokes ?? []).filter((k) => !k.gm).map(({ id, pts, color }) => ({ id, pts, color })),
   };
 }

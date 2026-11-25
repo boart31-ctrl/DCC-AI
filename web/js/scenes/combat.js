@@ -9,6 +9,7 @@
 // get their own treatment; a crawler reaching 0 gets the big DOWN stamp. While it plays, crawler HP
 // shows the value *before* each step (the view already carries the result). TV budget: transform +
 // opacity animations only.
+import { marksEl } from '../marks.js';
 import { h, hash, threatColor, rgb, replay, bossSvg, portraitTile, attackPlayback, attackResultText, threatMeter } from './common.js';
 import { portraitSrc } from '../client.js';
 import { uiOf, uiAsset, artEl, floorLayer } from '../ui-art.js';
@@ -104,7 +105,7 @@ export default function combat(root, sc, env) {
     },
     portraitTile('ar-face', p, { name: x.name, level: p?.level }),
     h('div.ar-main',
-      h('div.ar-name', x.name),
+      h('div.ar-name', x.name, marksEl(p?.marks)),
       h('div.ar-hp', pips(x.hp, x.hpMax, 'crawl', prev != null && prev > x.hp ? prev : null), h('b.ar-num', x.slotValue ? `${Math.round(100 * Math.max(0, x.hp) / (x.hpMax || 1))}%` : `${Math.max(0, x.hp)}`)),
       conds(x.conditions)),
     x.dead ? h('div.ar-down.ar-dead', 'Dead') : x.dying != null ? h('div.ar-down.ar-dying', `Dying · ${x.dying}`) : x.down ? h('div.ar-down', 'Down') : null,
@@ -144,7 +145,7 @@ export default function combat(root, sc, env) {
     const want = list.map((x) => x.uid);
     for (const [uid, c] of cards) if (c.host === host && !want.includes(uid)) { c.el.remove(); cards.delete(uid); }
     list.forEach((x, i) => {
-      const s = JSON.stringify([x, playback.health.get(x.uid), x.type === 'crawler' ? [...['level', 'portrait', 'name'].map((k) => playerOf(x.playerId)?.[k]), !!portraitSrc(playerOf(x.playerId)?.portrait)] : null]);
+      const s = JSON.stringify([x, playback.health.get(x.uid), x.type === 'crawler' ? [...['level', 'portrait', 'name', 'marks'].map((k) => playerOf(x.playerId)?.[k]), !!portraitSrc(playerOf(x.playerId)?.portrait)] : null]);
       let c = cards.get(x.uid);
       if (!c || c.sig !== s) {
         const el = make(x);

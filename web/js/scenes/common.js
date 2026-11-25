@@ -1,6 +1,7 @@
 // Shared bits for the TV scenes: timers bound to a scene's lifetime, the party strip with HP
 // slots, boss art with a generated silhouette fallback, and small text helpers.
 // TV budget: transforms + opacity only, no animated filters, no canvas.
+import { marksEl } from '../marks.js';
 import { h, portraitSrc } from '../client.js';
 
 export { h };
@@ -306,7 +307,7 @@ export function partyStrip() {
       portraitSrc(p.portrait) ? h('img.ps-face', { src: portraitSrc(p.portrait), alt: '', decoding: 'async' }) : null,
       levelBadge('ps-lvl', p, p.level),
       h('div.ps-main',
-        h('div.ps-name', p.name),
+        h('div.ps-name', p.name, marksEl(p.marks)),
         tr.map((t, i) => trackEl(t, i === 0))),
       );
       const was = prev.get(p.id);

@@ -13,6 +13,7 @@
 //   canMoveToken(token)      who may drag which token (default: nobody)
 //   onToken(token)           a token was clicked without moving it
 // A zone counts as revealed when `revealed` is true or missing (public maps only carry revealed zones).
+import { marksEl } from './marks.js';
 import { h, portraitSrc, onPortraits } from './client.js';
 import { imageRef } from './portrait.js';
 
@@ -260,7 +261,7 @@ export function createMapView({ gm = false, onDrag = null, onPen = null, onPoly 
         class: `mv-tok mv-${t.kind}${t.hidden ? ' hid' : ''}${t.down ? ' down' : ''}${mine ? ' mine' : ''}${opts.selectedToken === t.id ? ' sel' : ''}`,
         style: { left: `${t.x * 100}%`, top: `${t.y * 100}%`, '--tk': t.color },
         title: `${t.label}${t.down ? ' (down)' : t.hidden ? ' (hidden from the players)' : ''}`,
-      }, face, gm || opts.names || t.image ? h('i.mv-tok-n', t.label) : null);
+      }, face, gm || opts.names || t.image || t.marks?.skulls || t.marks?.goldSkulls || t.marks?.stars ? h('i.mv-tok-n', t.label, marksEl(t.marks)) : null);
       if (onTokenMove || onToken) {
         tk.addEventListener('pointerdown', (e) => {
           const mine = canMoveToken(t); // the tool may have changed since this token was drawn

@@ -22,6 +22,11 @@ export function normalizeMarks(raw) {
   };
 }
 
+export function publicMarks(raw) {
+  const m = normalizeMarks(raw);
+  return { skulls: m.skulls, goldSkulls: m.goldSkulls, stars: m.stars.length };
+}
+
 /** Called from combat.end: credit every newly dead marked mob to its killer. Returns [{playerId, kind, victim}]. */
 export function creditMarks(st, ctx, out) {
   const lib = libraryOf(st, ctx.pack);
@@ -49,6 +54,10 @@ export function creditMarks(st, ctx, out) {
   for (const g of got) {
     const p = st.players.find((x) => x.id === g.playerId);
     const ev = out.emit({ kind: 'marks', playerId: g.playerId, mark: g.kind, victim: g.victim, marks: p.marks }, 'all');
+    if (g.kind !== 'star') {
+      const line = ctx.h?.categoryLine?.(st, ctx, 'player_killer', 1);
+      if (line) out.lines.push(line);
+    }
     ctx.h?.feedPush?.(st, ev, g.kind === 'star' ? `${p.name} earned a star for ${g.victim}` : `${p.name} now wears a ${g.kind === 'goldSkull' ? 'golden ' : ''}Player Killer skull (${g.victim})`);
   }
   return got;

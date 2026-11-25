@@ -25,7 +25,7 @@ import { PREP_GM, addSceneNpc, editPrepEncounter, initPrep, loadPreparedAdventur
 import { PREP_CHECKS_GM, PREP_CHECKS_PLAYER, normalizePrepChecks, prepChecksFor } from './prep-checks.js';
 import { SHOW_CHECK_GM, SHOW_CHECK_PLAYER, normalizeShowCheck, showCheckGmView, showCheckPrompts } from './show-check.js';
 import { RULES_GM } from './rules-search.js';
-import { MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
+import { publicMarks, MARKS_GM, creditMarks, normalizeMarks } from './marks.js';
 import { GRIND_GM, grindView, suggestKillLevels } from './grinding.js';
 import { SKILL_LOCK_GM, bumpScene, lockedSkills } from './skill-locks.js';
 import { SURVIVAL_GM } from './survival.js';
@@ -1434,7 +1434,7 @@ function common(state, pack, opts) {
       id: p.id, name: p.name, color: p.color, level: p.level,
       achievementCount: p.achievements.length,
       // HUD marks are public (DCC: everyone sees skulls and stars over a crawler's head).
-      marks: (() => { const m = normalizeMarks(p.marks); return { skulls: m.skulls, goldSkulls: m.goldSkulls, stars: m.stars.length }; })(),
+      marks: publicMarks(p.marks),
       connected: opts.connected?.has(p.id) ?? false,
       portrait: p.sheet?.portrait ?? null, // host.js swaps data: URLs for "portrait:<hash>" refs (see `portraits`)
     })),
