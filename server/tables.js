@@ -207,8 +207,8 @@ export function makePerson(st, ctx, place, taken = new Set()) {
   const vars = { name, species: species || 'stranger', place: place?.name ?? 'here', they: name };
   const line = (k, fallback) => (tab(k) && findTable(st, ctx, tab(k)) ? sentence(rollTable(st, ctx, tab(k), vars).text) : fallback);
   const pool = C.portraits ?? [];
-  const sp = species.toLowerCase();
-  const fit = pool.filter((x) => x.species && sp.includes(x.species));
+  const sp = ' ' + species.toLowerCase().replace(/[^a-z0-9-]+/g, ' ') + ' ';
+  const fit = pool.filter((x) => x.species && sp.includes(' ' + x.species + ' '));
   const pick = (fit.length ? fit : pool.filter((x) => !x.species));
   const image = pick.length ? `/pack/images/${pick[ctx.randInt(pick.length)].image}` : null;
   return {
