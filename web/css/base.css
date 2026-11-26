@@ -344,3 +344,13 @@ textarea.field { resize: vertical; min-height: 88px; }
 /* HUD marks (marks.js): skulls, gold skulls, stars next to a name */
 .marks { display: inline-flex; gap: 3px; margin-left: 6px; font-size: .85em; letter-spacing: -.05em; white-space: nowrap; vertical-align: middle; }
 .mk-skull { color: #e5484d; } .mk-gold { color: #f5b301; text-shadow: 0 0 6px rgba(245,179,1,.6); } .mk-star { color: #4ea8de; }
+
+/* CZ / EN language flag (i18n.js) */
+.lang-flag { display: inline-flex; align-items: center; gap: 6px; min-height: 36px; padding: 4px 10px; border: 1px solid var(--line, rgba(255,255,255,.2)); border-radius: 999px; background: transparent; color: inherit; font: inherit; font-size: .8rem; font-weight: 700; letter-spacing: .04em; cursor: pointer; }
+.lang-flag svg { width: 22px; height: 15px; border-radius: 2px; box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+.lang-flag:focus-visible { outline: 2px solid var(--c-accent, #6cf); outline-offset: 2px; }
+.lang-slot-join { justify-self: end; }
+.lang-slot-tv .lang-flag { font-size: 1.1rem; min-height: 0; padding: .3rem .8rem; opacity: .7; }
+.lang-slot-tv .lang-flag svg { width: 2rem; height: 1.35rem; }
+.ph-lang { min-height: 26px; padding: 2px 8px; margin-left: 8px; font-size: .72rem; vertical-align: middle; }
+.ph-lang svg { width: 18px; height: 12px; }

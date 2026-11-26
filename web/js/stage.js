@@ -1,3 +1,4 @@
+import { initI18n } from './i18n.js';
 import { marksEl } from './marks.js';
 import {
   SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted, portraitSrc, onPortraits,
@@ -11,6 +12,8 @@ import { createTicker } from './ticker.js';
 import { uiOf, uiAsset, artEl, assetSrc, cornerFrame, mascotEl, setSpeaking, slug, preloadFor } from './ui-art.js';
 import { crawlerClock, fmtFull, countDown, skullSvg } from './crawlers.js';
 import { initStrip } from './initiative.js';
+
+initI18n({ slots: ['.lang-slot'], key: 'l' });
 
 const $ = (s, r = document) => r.querySelector(s);
 const client = new TransportHub();

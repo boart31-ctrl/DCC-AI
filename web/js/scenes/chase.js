@@ -21,6 +21,7 @@ export default function chase(root, sc, env) {
     const d = s.data || {};
     const chaseMode = d.mode !== 'race';
     root.classList.toggle('ch-race', !chaseMode);
+    title.dataset.i18nKey = 'chase';
     title.textContent = d.title || (chaseMode ? 'Chase' : 'Race');
     const total = d.legs?.length ?? 0;
     const next = d.legs?.[d.leg];

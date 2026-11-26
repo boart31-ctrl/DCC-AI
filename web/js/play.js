@@ -1,3 +1,4 @@
+import { initI18n, langButton, setLang, getLang } from './i18n.js';
 import { marksEl } from './marks.js';
 import {
   SystemClient, TransportHub, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
@@ -17,6 +18,8 @@ import { crawlerClock, fmtFull, fmtCompact, skullSvg } from './crawlers.js';
 import { createMsgCenter, threadKey } from './msgcenter.js';
 import { createRollPad } from './rollpad.js';
 import { openLevelUp, pendingLevelActions } from './level-up.js';
+
+initI18n({ slots: ['.lang-slot'] });
 
 const $ = (s, r = document) => r.querySelector(s);
 const KEY = 'system.player';
@@ -513,7 +516,7 @@ const sheet = createSheet({
   phone: () => phoneMq.matches,
   onPlayerPage: () => { if (me) renderStart(); },
   top: () => [h('span.ph-live', h('span.live-dot', { 'aria-hidden': 'true' }), `${fmtNum(view?.audience?.viewers ?? 0)} watching`),
-    h('span.ph-crawlers.js-crawlers', { 'data-fmt': 'compact', title: 'Crawlers still alive in the dungeon' })],
+    h('span.ph-crawlers.js-crawlers', { 'data-fmt': 'compact', title: 'Crawlers still alive in the dungeon' }), langButton('ph-lang')],
   moreItems: () => [
     view?.pack?.ruleset?.advancement || me?.levelGrants?.length ? { icon: 'sparkle', label: 'Level up', badge: levelActions(), navigationDrawer: true, onClick: showLevelUp } : null,
     { icon: 'dice', label: 'Dice on this phone', sub: DICE_LABEL[me?.diceMode ?? 'enter'], onClick: () => setDiceMode({ off: 'enter', enter: 'digital', digital: 'off' }[me?.diceMode ?? 'enter']) },
@@ -522,6 +525,7 @@ const sheet = createSheet({
     // Printable cheat sheets from the pack (pack.json "cheats", player ones only).
     ...(view?.pack?.cheats || []).map((c) => ({ icon: 'info', label: c.label, sub: 'Cheat sheet: one page, also printable', onClick: () => window.open(c.url, '_blank', 'noopener') })),
     { icon: 'sun', label: 'Theme', sub: 'Dark, light or neon', onClick: () => { toggleTheme(); drawTheme(); } },
+    { icon: 'flag', label: 'Jazyk · Language', sub: getLang() === 'cs' ? 'Čeština → English' : 'English → Čeština', onClick: () => setLang(getLang() === 'cs' ? 'en' : 'cs') },
     ext.hosted ? null : { icon: 'x', label: 'Switch campaign', sub: 'You can come back with your QR code', onClick: () => $('#leave').click() },
   ].filter(Boolean),
 });
