@@ -37,6 +37,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
   const deathBox = h('div.crg-row');
   const history = h('ol.crg-history');
   const clockBox = h('div.crg-clock');
+  const restBox = h('div.crg-rest');
   const customPct = h('input.inp.inp-sm', { type: 'number', min: '0.1', max: '100', step: '0.1', placeholder: '%', 'aria-label': 'Share of the living (%)' });
   const setCount = h('input.inp.inp-sm', { type: 'number', min: '0', step: '1', 'aria-label': 'Crawlers remaining' });
   const setFloor = h('input.inp.inp-sm.crg-floor-inp', { type: 'number', min: '1', max: '99', step: '1', 'aria-label': 'Floor' });
@@ -61,6 +62,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
     h('div.crg-sec', h('h3', 'Floor'), clockBox, collapseBox),
     grind.el,
     survival.el,
+    h('div.crg-sec', h('h3', 'Rest'), restBox),
     h('div.crg-sec', h('h3', 'At the table'), deathBox),
     h('details.crg-sec.crg-fix',
       h('summary', 'Set the count by hand (quiet, no TV moment)'),
@@ -78,6 +80,28 @@ export function createCrawlers({ act, getView, open = () => {} }) {
 
   const toggle = (on, label, offLabel, title, fn) => h('button.btn.btn-sm.crg-tg', { type: 'button', 'aria-pressed': String(!!on), title, onclick: fn }, on ? label : offLabel);
 
+  // Rest offered to the phones (rest-offer.js): GM picks the kind, each crawler taps Rest; status per crawler.
+  function drawRest(players, rests, fighting, k, fmt) {
+    const offer = view().rest;
+    const kinds = rests ?? { short: { hours: 1 }, long: { hours: 8 } };
+    const names = { calm: 'Calm hour', short: 'Short rest', long: 'Long rest', day: 'Full-day rest' };
+    if (offer) {
+      restBox.replaceChildren(
+        h('div.crg-row', h('b', `${offer.label} · ${offer.hours} h`), h('span.hint', 'Phones show Rest; nothing heals until the crawler taps it.')),
+        h('div.crg-row', ...offer.crawlers.map((c) => c.done
+          ? h('span.chip.on', { title: (c.done.restored || []).join(', ') || 'Nothing to restore' }, `✓ ${c.name}`)
+          : h('button.btn.btn-sm', { type: 'button', title: 'Rest this crawler from the desk', onclick: () => act({ t: 'rest.accept', playerId: c.id }, `${c.name} rested.`) }, `Rest ${c.name}`))),
+        h('div.crg-row', h('button.btn.btn-sm', { type: 'button', onclick: () => act({ t: 'rest.close' }, 'Rest closed.') }, 'Close the rest')));
+      return;
+    }
+    restBox.replaceChildren(
+      players.length ? h('div.crg-row', h('span.hint', 'Offer to the phones'),
+        Object.entries(kinds).map(([kind, r]) => h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: fighting || (k?.hours != null && k.hours < (r.hours ?? 0)),
+          title: 'TV shows the saferoom, each crawler confirms on the phone; the floor clock moves once',
+          onclick: () => act({ t: 'rest.offer', kind }, `${names[kind] ?? kind} offered to the phones.`) }, `${names[kind] ?? kind} · ${r.hours ?? 0} h`))) : h('span.hint', 'No crawlers yet.'),
+      fighting ? h('span.hint', 'Finish the fight first.') : null);
+  }
+
   function draw() {
     const c = view().crawlers;
     if (!c) return;
@@ -85,7 +109,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
     const rests = view().pack?.ruleset?.rests;
     const preciseClock = !!view().pack?.ruleset?.combat?.roundSeconds;
     const fighting = view().combat?.active;
-    const s = JSON.stringify([c.clock, c.count, c.at, c.floor, c.running, c.shown, c.speak, c.live, c.history?.length, c.history?.at(-1)?.at, c.events, c.nextStart, players.map((p) => [p.id, p.name]), rests, fighting, preciseClock]);
+    const s = JSON.stringify([c.clock, c.count, c.at, c.floor, c.running, c.shown, c.speak, c.live, c.history?.length, c.history?.at(-1)?.at, c.events, c.nextStart, players.map((p) => [p.id, p.name]), rests, fighting, preciseClock, view().rest]);
     if (s === sig) return;
     sig = s;
     state.replaceChildren(h('span', String(c.label || 'Crawlers remaining').toLowerCase()), h('span.crg-floor', `Floor ${c.floor}`),
@@ -127,6 +151,7 @@ export function createCrawlers({ act, getView, open = () => {} }) {
         })) : null,
       h('form.crg-row', { onsubmit: (e) => { e.preventDefault(); const v = hoursIn.value === '' ? null : Number(hoursIn.value); act({ t: 'crawlers.clock', hours: v, ...(v != null && !k ? { shown: true } : {}) }, v == null ? 'Floor clock off.' : 'Floor clock set.'); } },
         h('label.crg-lbl', `Hours left (a day = ${dh} h)`, hoursIn), h('button.btn.btn-sm', { type: 'submit' }, 'Set')));
+    drawRest(players, rests, fighting, k, fmt);
     collapseBox.replaceChildren(
       c.nextStart != null ? h('button.btn.btn-alarm', { type: 'button', onclick: async () => {
         if (!await ask(`Collapse floor ${c.floor}? Everyone who did not make the stairs dies: about ${fmtFull(c.nextStart)} crawlers reach floor ${c.nextFloor}.`, { ok: `Collapse floor ${c.floor}`, danger: true })) return;

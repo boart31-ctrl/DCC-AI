@@ -23,6 +23,7 @@ import { pickFromLibrary, KIND_LABEL } from './lib-picker.js';
 import { encounterEditor, ratingBadge, strengthBadge } from './gm-encounter.js';
 import { createMaps } from './gm-maps.js';
 import { createEvening } from './evening.js';
+import { createDirector } from './director.js';
 import { openEveningCheck } from './prep-checks.js';
 import { giveGuard } from './give-once.js';
 
@@ -56,7 +57,9 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
   const party = () => (view?.players || []).map((p) => ({ level: p.level || 1 }));
   const tplLabel = (id) => (P().templates || []).find((t) => t.id === id)?.label || P().adventures?.find((a) => a.id === id)?.title || id;
   const currentEvening = () => (docById(P().current)?.evening ? docById(P().current) : docs().findLast((d) => d.evening)) ?? null;
-  const evening = createEvening({ act, redraw, onPlan: planEvening, onSelect: select_, onRun: runEvening, onShow: showEvening, openInLibrary });
+  // Director (railroad): one page at a time, over the desk; Run/Fight from a page go through runEvening.
+  const director = createDirector({ act, getView, run: (doc, scene, options) => runEvening(doc, scene, options), openCheck: openEveningCheck });
+  const evening = createEvening({ act, redraw, onPlan: planEvening, onSelect: select_, onRun: runEvening, onShow: showEvening, openInLibrary, onDirector: (doc) => director.open(doc.id) });
 
   function entryOf(ref) {
     if (!ref) return null;
@@ -604,6 +607,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
 
   function update(v) {
     view = v;
+    director.refresh();
     drawReach();
     mapEd.update(v);
     const library = lib();
@@ -616,5 +620,5 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     draw();
   }
 
-  return { el, reach, update };
+  return { el, reach, update, director };
 }

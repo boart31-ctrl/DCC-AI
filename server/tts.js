@@ -24,7 +24,8 @@ export const DEFAULT_MODEL = 'eleven_multilingual_v2'; // the API's own default 
 export const DEFAULT_FORMAT = 'mp3_44100_96';
 export const CHUNK_BYTES = 1_000_000; // DO SQLite: stay far below the per-row limit
 export const MAX_TEXT = 1000;
-// Only the account's stock voices and ones designed from a text prompt; never clones of real people.
+// Only the account's stock voices and ones designed from a text prompt; never clones of real people. The one
+// exception is the deployer's own ELEVENLABS_VOICE_ID (tts-host.js checkVoice): their own cloned voice.
 export const ALLOWED_CATEGORIES = new Set(['premade', 'generated']);
 export const DEFAULT_SETTINGS = Object.freeze({
   voiceId: null, modelId: null, stability: 0.5, similarity: 0.75,
@@ -379,6 +380,9 @@ export function voiceLines(pack, state, settings = DEFAULT_SETTINGS, { configure
   if (achievementMode(settings, configured) === 'announce') {
     for (const a of pack?.achievements ?? []) add('achievement', a.id, achievementText(pack, a, settings));
   }
+  // Director steps of tonight's evening: the System reads each page's `say` (prep.js normalizeStep).
+  const tonight = state?.prep?.docs?.find?.((d) => d?.id === state.prep.current);
+  for (const sc of tonight?.evening?.scenes ?? []) for (const st of sc.steps ?? []) if (st.say) add('director', `${sc.id}:${st.id}`, st.say);
   const bosses = [...(pack?.library?.boss ?? []), ...(Array.isArray(state?.library?.boss) ? state.library.boss : [])];
   for (const b of bosses) {
     if (!b || typeof b !== 'object') continue;

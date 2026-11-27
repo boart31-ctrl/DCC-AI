@@ -33,7 +33,7 @@
 .ph-app-page { min-width: 0; }
 .ph-view-more { display: grid; gap: 10px; max-width: 720px; }
 .ph-view-more h2 { margin: 0; }
-body.play:has(:is(.ph-view-messages, .ph-view-more)) :is(.roll-fab, .ini-prompt) { display: none; }
+body.play:has(:is(.ph-view-messages, .ph-view-more, .ph-view-maps)) :is(.roll-fab, .ini-prompt) { display: none; }
 
 @media (min-width: 700px) {
   body.play .sh-tabs { scroll-margin-top: 90px; }
@@ -48,7 +48,7 @@ body.play:has(:is(.ph-view-messages, .ph-view-more)) :is(.roll-fab, .ini-prompt)
     inset: auto 0 0;
     display: grid;
     gap: 0;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(5, minmax(0, 1fr));
     min-height: calc(var(--ph-dock-size) + env(safe-area-inset-bottom));
     padding: 0 max(5px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(5px, env(safe-area-inset-left));
     border: 0;

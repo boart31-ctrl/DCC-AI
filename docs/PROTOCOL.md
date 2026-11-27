@@ -273,7 +273,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `item.enhance` | `playerId`, `uid`, `bonus` (0-3) | Make an inventory copy +N (0 = plain). Not for a stack of more than one |
 | `item.remove` | `playerId`, `uid` | Also clears it from the hotlist |
 | `quip.play` | `category` **or** `quipId` | P0: plays immediately on stage |
-| `say` | `text` | P0: GM typed text, spoken via TTS fallback |
+| `say` | `text` (≤ 1000) | P0: GM typed text, spoken via TTS fallback (ElevenLabs when configured). Director pages use it; Eleven v3 tags like `[sighs]` are spoken, never shown (`untag` in voice.js / stage subtitles) |
 | `msg.send` | `to`: `"all"` or `[playerId, ...]`, `text` (max 1000; may be empty with `icon`), `icon?` (sticker id), `from?` (default pack `systemName`), `onStage?`: bool | Message to one, several or all players. Event `message` to recipients + gm. If `onStage` and it is a group message, stage also gets event `announcement` (text only, no audio — use `say` for voice) |
 | `secret.send` | `playerId`, `text`, `from?` | Alias for `msg.send` with `to: [playerId]` |
 | `msg.react` | `id`, `r` (reaction id: pack `ui.reactions` keys, else `like lol love wow sad fire skull party`) | Toggles the GM's reaction on a message |
@@ -308,6 +308,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `prep.adventure.load` | `id` from `view.gm.prep.adventures` | Copy a pack's ready-made adventure, encounters and fog maps into the campaign. Reopening keeps GM edits and returns the existing ID. Published map art can be upgraded in place, with count in `result.upgradedMaps` when changed. |
 | `prep.session.add` | `title?`, `template?`, `adventureId?`, `carryFrom?` | New session plan from a session template (default: pack's, else `lazy_session`). Unfinished items of `carry` sections are copied from `carryFrom` (default: current session); inherits its adventure unless `adventureId` is given (`null` = none). Becomes current. Ack `result {id, carried}` |
 | `prep.session.current` | `id` (session) or `null` | Marks tonight's plan (drives "Within reach" on the Show tab) |
+| `prep.director.go` | `id` (evening doc) + `sceneId`, `stepId` · or `back: true` · or `stop: true` | Director (railroad) position: go to a scene's step (the previous one joins `evening.director.trail`, max 60), one step back, or leave. Sets `evening.activeSceneId`. GM view only; the client reads the page (`say` through `say`) and offers the step's `do` buttons. Scene `steps: [{id, title, say, tasks[], goal, gm, do:[{kind: tv\|fight\|npc\|check\|give\|ach\|loot\|rest\|secret\|chase, ref?, label?, qty?, tier?, rest?}], next:[{label, to?}], end?}]` (prep.js normalizeStep, max 30). Ack `{sceneId, stepId}` |
 | `prep.evening.plan` | `adventureId?`, `key?`, `title?`, `minutes?` (1..1440) | Start tonight's session from a prepared evening in `view.gm.prep.evenings` or from scratch. Installs and links seeds once. A continuation carries unplayed scenes and unrevealed clues. Returns `{id,sceneId}`. |
 | `prep.evening.build` | `title?`, `recipe` (1–12 of `hook`/`explore`/`check`/`fight`/`talk`/`trap`/`boss`/`chase`), `minutes?`, `suggest?` (default true) | New evening from scratch, becomes tonight, nothing carried over. With suggestions: fights get an encounter of floor monsters scaled to the party, boss a floor boss, hook/talk a new campaign NPC (look → read aloud, want → goal, hook → secret), check a check, trap/explore a rolled table complication. Ack `result` `{ id, sceneId }` |
 | `prep.evening.update` | `id`, `title?`, `minutes?` (1..1440) | Update the session title or planned duration. |
@@ -587,12 +588,15 @@ Map views may include an alternate `fallbackImage`. The GM view also includes au
 | `level.advance` (player) | `id`, `uid`, `entered?` (1–20 for d20 rules) | Roll a skill or spell queued on your own `levelGrants`. Omit `entered` for the digital roll. Repeating the action returns the saved outcome. |
 | `level.learn` (player) | `id`, `skillId` | Learn one queued practiced skill at Rank 1. Repeating the action returns the saved choice. |
 | `rest.party` | `kind` from `ruleset.rests` | Outside combat, recover each standing character and advance the floor clock once by the configured hours. A missing clock or insufficient time rejects the entire action. Ack `result: {results, hours}`. |
+| `rest.offer` (GM) | `kind` from `ruleset.rests` (fallback short/long), `place?` saferoom\|camp\|other, `tv?` false = leave the TV | Outside combat: opens a rest for every standing crawler, moves a running floor clock once by the kind's hours (too little time rejects), TV → Explore "Saferoom" (pack location `saferoom`/`camp` when it exists). Nothing heals yet. Event `rest.offer {label, hours}`. Views: GM `rest {id, kind, label, hours, restore, crawlers:[{id,name,done}]}`, player `rest {…, done}` (null when not offered), stage none. Ack `{id, who}` |
+| `rest.accept` (player `{id}` / GM `{playerId}`) | | That crawler takes the offered rest (same recovery as `rest`, once; a second tap does nothing). Event `rest {playerId, name, restored, label}` to GM, stage and that player. Ack `{at, restored}` |
+| `rest.close` (GM) | | Ends the offer; crawlers who did not tap get nothing. Ack `{rested}` |
 | `crawlers.clock` | `hours?` (null = off), `advance?` (hours of game time), `shown?`, `scene?: true` | The clock tracks game hours left until the floor collapses. The pack sets its starting hours and the TV sees it when shown. Advancing to 0 emits `floor.timeup`. `scene` starts a new fictional scene and refreshes scene-limited spells. |
 | `gear.approve` | `playerId`, `index?` | Gives requested starting things (custom ones become homebrew items) |
 | `gear.deny` | `playerId`, `index?` | Drops one request or all |
 | `enc.give` | `id`, `index`, `playerId` | Gives one of the encounter's prepared items (its qty) to a crawler; marks it `given` |
 | `enc.run` | `id`, `start?`, `mapId?` | Mobs into the fight (each hidden as prepared), map tokens bound to the new combatants (they follow reveal / down), card marked used. `start` starts the fight. A map override applies to this run only. Result `{ uids, skipped, mapId, bound }` |
-| *(player)* `map.token.move` | `id`, `tokenId`, `x`, `y` | Own crawler's token only, only while `tokensOn` |
+| *(player)* `map.token.move` | `id`, `tokenId?`, `x`, `y` | Own crawler's token only, on a map the crawler can see (TV live map, `phones`, or `tokensOn`). No `tokenId` = put my figure on this map (created once). In a phased fight (`combat.rx`) only in the action phase. The GM can drag it back with the GM `map.token.move` |
 
 ### 3b-4. Reaction rounds (server/reaction.js) — games where the GM never rolls a d20
 
@@ -903,6 +907,7 @@ Solo map tokens may specify `sourceKind` and `sourceId` in `map.token.add` for m
 | `loot.offers` | `playerId`, `tier`, `boss?` | GM. The System's offers for a box (loot-advisor.js): per item 3 candidates (on-build + wild card), the crawler's floor budget, held-back items. Read-only; call again to re-roll. |
 | `loot.prefs` | `playerId`, `builds?` (≤3 of melee, ranged, defense, stealth, magic, social, support, crafty, boom, pet, utility), `lean?` 0..1, `block?` [itemId] | GM steering per crawler, saved as `player.lootPrefs`. |
 | `loot.box` | `playerId`, `tier`, `boss?`, `itemIds` (1–8), `gold?`, `force?` | GM opens a box with the picked items: gives them + rolled gold, TV loot scene with the best item and remaining items, per-item phone reveals that resume after reconnect, System line, viewers. Items above the tier's reach need `force`. Ack `{uids, gold, warnings, fit}`. `item.give` acks `warnings` too. |
+| `loot.pending.add` | `playerId`, `tier`, `from?` (≤ 80) | A box waits on the crawler (`pendingBoxes`, max 20) until the GM opens it in Loot, like an achievement's box. Director step rewards use it. Ack `{id}` |
 | `loot.settings` | `settings` {budget?, stretch?, wildcard?, pity?, offers?, drops?, fragileFactor?, dropsOff?} or `null` | GM. Campaign loot rules over the pack's `lootPolicy` (null = back to pack defaults). |
 | `loot.prefs` | … `mode?` auto / catchup / standard / ahead | Reward mode per crawler (auto: C/D grade → catch-up, S → ahead). |
 | `loot.box` | … `pendingId?` | Opening a waiting box (boss drop, achievement) removes it from `player.pendingBoxes`. |

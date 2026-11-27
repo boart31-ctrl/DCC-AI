@@ -215,6 +215,30 @@ function normalizePrepChase(c) {
   };
 }
 
+// Director steps (27 Nov, "railroad"): a scene read like a gamebook page. The System reads `say` (Eleven v3
+// tags like [sighs] allowed), the table sees `tasks` and `goal`, only the GM sees `gm`; `do` are one-click
+// buttons, `next` the page turns (no `next` = the following step / scene).
+export const STEP_ACTIONS = ['tv', 'fight', 'npc', 'check', 'give', 'ach', 'loot', 'rest', 'secret', 'chase'];
+const MAX_STEPS = 30;
+function normalizeStep(st, i) {
+  if (!isObj(st)) return null;
+  const actions = (Array.isArray(st.do) ? st.do : []).filter(isObj).slice(0, 8).map((x) => {
+    if (!STEP_ACTIONS.includes(x.kind)) return null;
+    const ref = validId(x.ref);
+    return { kind: x.kind, ...(ref ? { ref } : {}), ...(isStr(x.label) ? { label: optionalText(x.label, 80) } : {}),
+      ...(Number.isInteger(x.qty) && x.qty > 0 && x.qty <= 99 ? { qty: x.qty } : {}), ...(validId(x.tier) ? { tier: x.tier } : {}),
+      ...(validId(x.rest) ? { rest: x.rest } : {}) };
+  }).filter(Boolean);
+  const next = (Array.isArray(st.next) ? st.next : []).filter(isObj).slice(0, 4)
+    .map((n) => (isStr(n.label) ? { label: optionalText(n.label, 80), ...(validId(n.to) ? { to: n.to } : {}) } : null)).filter(Boolean);
+  return {
+    id: validId(st.id) ?? `step_${i + 1}`, title: optionalText(st.title, MAX_TITLE),
+    say: cleanText(st.say, 1000), tasks: (Array.isArray(st.tasks) ? st.tasks : []).filter(isStr).slice(0, 6).map((t) => cleanText(t, 200)),
+    goal: cleanText(st.goal, 300), gm: cleanText(st.gm, 1200), do: actions, next,
+    ...(st.end === true ? { end: true } : {}),
+  };
+}
+
 function normalizeEveningScene(s, index = 0) {
   if (!isObj(s)) return null;
   const type = SCENE_TYPES.includes(s.type) ? s.type : 'explore';
@@ -235,6 +259,7 @@ function normalizeEveningScene(s, index = 0) {
     readAloud: cleanText(s.readAloud, 4000), notes: cleanText(s.notes), checks,
     encounterId: validId(s.encounterId), mapId: validId(s.mapId), npcs: refIds(s.npcs), items: refIds(s.items), secrets,
     ...(type === 'chase' ? { chase: normalizePrepChase(s.chase) } : {}),
+    ...(Array.isArray(s.steps) && s.steps.length ? { steps: uniqueRows(s.steps, normalizeStep, MAX_STEPS) } : {}),
     played: s.played === true, ...(validId(s.lastCombatId) ? { lastCombatId: s.lastCombatId } : {}),
     ...(validId(s.lastEncounterId) ? { lastEncounterId: s.lastEncounterId } : {}),
   };
@@ -244,8 +269,14 @@ export function normalizeEvening(e) {
   if (!isObj(e)) return null;
   const scenes = uniqueRows(e.scenes, normalizeEveningScene, MAX_SCENES);
   const activeSceneId = scenes.some((s) => s.id === e.activeSceneId) ? e.activeSceneId : scenes[0]?.id ?? null;
+  const d = isObj(e.director) ? e.director : null;
+  const dScene = d && scenes.find((x) => x.id === d.sceneId);
+  const director = dScene && dScene.steps?.some((x) => x.id === d.stepId)
+    ? { sceneId: dScene.id, stepId: d.stepId, trail: (Array.isArray(d.trail) ? d.trail : []).filter((t) => isObj(t) && validId(t.sceneId) && validId(t.stepId)).slice(-60).map((t) => ({ sceneId: t.sceneId, stepId: t.stepId })) }
+    : null;
   return {
     minutes: numeric(e.minutes, 1, 1440, 240), activeSceneId, scenes,
+    ...(director ? { director } : {}),
     ...(validId(e.sourceKey) ? { sourceKey: e.sourceKey } : {}),
   };
 }
@@ -985,6 +1016,31 @@ export const PREP_GM = {
     p.docs.push(doc);
     p.current = doc.id;
     out.result = { id: doc.id, carried };
+  },
+
+  /**
+   * Director (railroad): `{ id, sceneId, stepId }` go to that step (the previous one joins the trail),
+   * `{ id, back: true }` one step back, `{ id, stop: true }` leave director mode. GM only, nothing reaches the TV.
+   */
+  'prep.director.go'(st, a, ctx, out) {
+    const d = docOf(st, a.id);
+    const e = d.evening;
+    if (!e) throw bad('only an evening has a director');
+    if (a.stop === true) { delete e.director; return; }
+    if (a.back === true) {
+      const prev = e.director?.trail?.at(-1);
+      if (!prev) throw bad('this is the first step');
+      e.director = { sceneId: prev.sceneId, stepId: prev.stepId, trail: e.director.trail.slice(0, -1) };
+    } else {
+      const scene = e.scenes.find((x) => x.id === a.sceneId);
+      if (!scene) throw notFound(`no scene ${a.sceneId}`);
+      if (!scene.steps?.some((x) => x.id === a.stepId)) throw notFound(`no step ${a.stepId}`);
+      const trail = e.director ? [...e.director.trail, { sceneId: e.director.sceneId, stepId: e.director.stepId }].slice(-60) : [];
+      e.director = { sceneId: scene.id, stepId: a.stepId, trail };
+    }
+    const scene = e.scenes.find((x) => x.id === e.director.sceneId);
+    e.activeSceneId = scene.id;
+    out.result = { sceneId: e.director.sceneId, stepId: e.director.stepId };
   },
 
   'prep.session.current'(st, a) {

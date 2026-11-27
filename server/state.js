@@ -33,6 +33,7 @@ import { POPULARITY_GM, popularityView } from './popularity.js';
 import { ACH_SUGGEST_GM, momentsOf, suggestAchievements } from './ach-triggers.js';
 import { TABLES_GM, tablesView } from './tables.js';
 import { CHASE_GM } from './chase.js';
+import { REST_GM, REST_PLAYER, normalizeRestOffer, restOfferView } from './rest-offer.js';
 import { originsFor } from './origins.js';
 import { BUILD_IDS, floorRarityFor, offersFor, giveWarnings, itemBuilds, crawlerBuild, crawlerRating, rewardMode, effectiveLootPolicy, normalizeLootPolicy, REWARD_MODES, SETTING_KEYS } from './loot-advisor.js';
 import { floorOfState } from './outcome.js';
@@ -137,6 +138,7 @@ export function createState(basePack, now = Date.now(), campaign = {}) {
     showCheck: null, // show-check.js: Big roll held for the GM's reveal
     prep: initPrep(), // prep.js: adventures + session plans (GM only)
     maps: initMaps(), // maps.js: images + zones + fog (+ tokens for online play)
+    restOffer: null, // rest-offer.js: a rest the GM offered, taken on the phones
     library: emptyHomebrew(),
     contentMedia: {},
     libArt: normalizeLibArt(null),
@@ -178,6 +180,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   s.prepChecks = normalizePrepChecks(raw.prepChecks);
   s.showCheck = normalizeShowCheck(raw.showCheck);
   s.maps = normalizeMaps(raw.maps);
+  s.restOffer = normalizeRestOffer(raw.restOffer);
   upgradePreparedMaps(s, pack);
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.session.aiMute = s.session.aiMute === true;
@@ -640,6 +643,15 @@ const GM = {
     out.result = { lootPrefs: next };
   },
 
+  /** `{ playerId, tier, from? }` A box waits on the crawler until the GM opens it in Loot (director step rewards). */
+  'loot.pending.add'(st, a, ctx, out) {
+    const p = playerOf(st, a.playerId);
+    if (typeof a.tier !== 'string' || !ctx.pack.tiersById.has(a.tier)) throw notFound(`unknown loot tier ${a.tier}`);
+    const from = str(a.from ?? 'The System', 'from', 80);
+    p.pendingBoxes = [...(p.pendingBoxes ?? []), { id: ctx.genId('pb'), tier: a.tier, boss: false, from, at: ctx.now }].slice(-20);
+    out.result = { id: p.pendingBoxes.at(-1).id };
+  },
+
   /**
    * Opens a box with the items the GM picked from the offers: a: { playerId, tier, boss?, itemIds: [id…], gold?, force? }.
    * Items above the tier's rarity reach need force:true. Gives everything, shows the best item on the TV, System line.
@@ -749,7 +761,8 @@ const GM = {
   },
 
   say(st, a, ctx, out) {
-    out.lines.push({ priority: 0, text: str(a.text, 'text', 500), quipId: null, crit: false });
+    // 1000 = the voice limit (tts.js MAX_TEXT): director pages are read through here too.
+    out.lines.push({ priority: 0, text: str(a.text, 'text', 1000), quipId: null, crit: false });
     touch(st, ctx);
   },
 
@@ -1098,6 +1111,7 @@ Object.assign(GM, GRIND_GM);
 Object.assign(GM, SKILL_LOCK_GM);
 Object.assign(GM, SURVIVAL_GM);
 Object.assign(GM, POPULARITY_GM);
+Object.assign(GM, REST_GM);
 Object.assign(GM, {
   ...ACH_SUGGEST_GM,
   'ach.suggest.award': (st, a, ctx, out) => ACH_SUGGEST_GM['ach.suggest.award'](st, a, ctx, out, GM),
@@ -1120,6 +1134,7 @@ Object.assign(PLAYER, CREATION.player);
 Object.assign(PLAYER, INIT_PLAYER, MAPS_PLAYER, REACTION_PLAYER);
 Object.assign(PLAYER, PREP_CHECKS_PLAYER, SHOW_CHECK_PLAYER);
 Object.assign(PLAYER, ADVANCEMENT_PLAYER);
+Object.assign(PLAYER, REST_PLAYER);
 
 function requireCombatHotlist(st, ctx, uid) {
   const p = st.players.find((x) => x.id === ctx.actor.playerId);
@@ -1538,6 +1553,7 @@ export function viewFor(state, basePack, role, opts = {}) {
   if (v.combat) v.combat.rx = reactionView(state, role, pack);
   v.crawlers = crawlersView(state, pack, role, now, opts.stageOn !== false);
   v.maps = mapsView(state, role, library, v.combat);
+  v.rest = role === 'stage' ? null : restOfferView(state, pack, role, opts.playerId);
   if (role === 'player') {
     const p = state.players.find((x) => x.id === opts.playerId);
     v.me = p ? fullPlayer(state, p, pack, library) : null;

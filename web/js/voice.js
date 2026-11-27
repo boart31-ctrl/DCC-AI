@@ -12,6 +12,9 @@
 
 const RENDER_WAIT_MS = 7000;
 
+/** Eleven v3 audio tags ([sighs], [whispers]…) are for the voice only: never shown, never read by the browser voice. */
+export const untag = (t) => String(t ?? '').replace(/\[[^\]\n]{1,40}\]\s*/g, '').replace(/\s{2,}/g, ' ').trim();
+
 export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {}, resolveAudio = null, onStart = () => {}, onRender = () => {} } = {}) {
   let current = null; // { id, cancel() }
   let unlocked = false;
@@ -46,7 +49,7 @@ export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {}, re
     if (typeof speechSynthesis === 'undefined' || !m.text) { onStart(m); setTimeout(done, Math.min(8000, 1500 + (m.text || '').length * 55)); return; }
     try {
       const v = typeof m.voice === 'object' && m.voice ? m.voice : {};
-      const u = new SpeechSynthesisUtterance(m.text);
+      const u = new SpeechSynthesisUtterance(untag(m.text));
       const voice = pickVoice(v);
       if (voice) u.voice = voice;
       u.lang = voice?.lang || v.lang || 'en-US';
@@ -104,7 +107,7 @@ export function createVoicePlayer({ ack, onSub = () => {}, onDuck = () => {}, re
       safety = setTimeout(() => { cancel(); finished = false; done(); }, Math.max(12000, (m.text || '').length * 85));
     };
     arm();
-    onSub(m.text || '');
+    onSub(untag(m.text));
     onDuck(true);
     // Before the first user gesture audio is locked: show the subtitle for reading time, then release.
     // Mute AI (m.silent) or audio still locked before the first gesture: subtitle for reading time, no sound.

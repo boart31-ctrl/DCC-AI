@@ -277,3 +277,7 @@ body:has(.tp-combat) :is(.roll-fab, .ini-prompt) { display: none; }
 .roll-card.deg-near .roll-card-verdict { color: #f5b301; }
 .roll-card-math { font-size: 18px; font-variant-numeric: tabular-nums; }
 .roll-card-note { font-size: 13px; opacity: .85; }
+.ph-map-empty { display: grid; justify-items: center; gap: 8px; padding: 48px 16px; text-align: center; opacity: .8; }
+.ph-map-empty p { margin: 0; max-width: 28ch; }
+.ph-map-place { margin: 6px 0 10px; width: 100%; }
+.ph-map-tip { margin: 2px 0 8px; }

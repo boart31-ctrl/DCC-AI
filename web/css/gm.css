@@ -607,3 +607,37 @@ dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .sc-slide-th { flex: none; width: 96px; aspect-ratio: 16 / 9; padding: 0; border: 2px solid transparent; border-radius: 6px; overflow: hidden; background: #000; cursor: pointer; }
 .sc-slide-th img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .sc-slide-th[aria-pressed="true"] { border-color: var(--c-accent); }
+.ach-pk-who.need { padding: 8px; border: 2px solid var(--c-warn, #f5a623); border-radius: 10px; }
+.ach-pk-wait { flex-basis: 100%; margin: 0 0 4px; }
+
+/* Director (director.js): one gamebook page at a time */
+dialog.dir { width: min(760px, 96vw); max-height: 94vh; padding: 0; border: 1px solid var(--line); border-radius: 16px; background: var(--bg-1, #14121c); color: inherit; }
+dialog.dir::backdrop { background: rgba(5, 4, 10, .72); }
+.dir-body { display: grid; gap: 14px; padding: 18px 22px 20px; }
+.dir-head { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.dir-head progress { flex: 1 1 120px; height: 6px; }
+.dir-evening { font-weight: 700; }
+.dir-progress { font-variant-numeric: tabular-nums; opacity: .75; }
+.dir-auto { font-size: .85rem; opacity: .85; }
+.dir-scene { margin: 0; text-transform: uppercase; letter-spacing: .08em; font-size: .78rem; opacity: .7; }
+.dir-title { margin: -6px 0 0; font-size: 1.6rem; line-height: 1.15; }
+.dir-k { display: block; font-size: .72rem; text-transform: uppercase; letter-spacing: .1em; opacity: .7; margin-bottom: 4px; }
+.dir-read { padding: 12px 14px; border-radius: 12px; background: color-mix(in srgb, var(--c-accent, #6cf) 10%, transparent); }
+.dir-read-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.dir-say { margin: 4px 0 0; line-height: 1.5; opacity: .85; }
+.dir-tasks ul { margin: 0; padding-left: 1.2em; display: grid; gap: 4px; }
+.dir-goal { padding: 10px 14px; border-left: 4px solid var(--c-warn, #f5a623); background: color-mix(in srgb, var(--c-warn, #f5a623) 8%, transparent); border-radius: 6px; }
+.dir-goal p, .dir-gm p { margin: 0; line-height: 1.45; }
+.dir-gm { padding: 8px 12px; border: 1px dashed var(--line); border-radius: 10px; }
+.dir-gm summary { cursor: pointer; list-style: none; }
+.dir-do { display: grid; gap: 8px; }
+.dir-act { display: grid; gap: 6px; }
+.dir-act-btn { justify-content: flex-start; min-height: 44px; font-size: 1rem; }
+.dir-pick { display: grid; gap: 8px; padding: 10px; border: 2px solid var(--c-warn, #f5a623); border-radius: 10px; }
+.dir-pick-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.dir-pick .chip.on { outline: 2px solid var(--c-accent); }
+.dir-results { list-style: none; margin: 0; padding: 0 0 0 8px; display: grid; gap: 6px; }
+.dir-deg { margin-left: 8px; font-variant-numeric: tabular-nums; }
+.dir-foot { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; padding-top: 8px; border-top: 1px solid var(--line); }
+.dir-turn { min-height: 48px; font-size: 1.05rem; }
+.ev-director { width: 100%; justify-content: center; margin: 4px 0 8px; }

@@ -79,7 +79,9 @@ export function createTtsHost({ config = {}, pack, getTts, saveTts, getState, no
       if (id === envVoice && !list.length) return id;
       throw new TtsError('no_voice', `voice ${id} is not in this ElevenLabs account`);
     }
-    if (!allowedVoice(v)) throw new TtsError('no_voice', `voice "${v.name}" is a ${v.category} voice; only premade or generated voices are allowed`);
+    // The deployer's own voice (ELEVENLABS_VOICE_ID, a Worker secret / .env) may be their own clone: whoever
+    // runs the server vouches for it. Voices picked in the GM settings stay premade / generated only.
+    if (!allowedVoice(v) && id !== envVoice) throw new TtsError('no_voice', `voice "${v.name}" is a ${v.category} voice; only premade or generated voices are allowed`);
     return id;
   }
 

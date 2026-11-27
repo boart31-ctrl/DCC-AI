@@ -643,13 +643,30 @@ export function startCombatOnMap(st, a, ctx, out, gm) {
 // ---------- player actions ----------
 
 export const MAPS_PLAYER = {
-  /** A crawler drags their own token (token layer on). */
+  /**
+   * A crawler drags their own token on a map they can see: the TV's live map, a map shared to the phones,
+   * or any map with the token layer on (27 Nov: free movement, the GM sees it and can drag it back).
+   * `tokenId` omitted = put my figure on this map (created once). In a phased fight only in the action phase.
+   */
   'map.token.move'(st, a, ctx) {
     const m = mapOf(st, a.id);
-    if (!m.tokensOn) throw bad('tokens are off on this map');
-    const t = tokenOf(m, a.tokenId);
-    if (t.kind !== 'pc' || t.ref !== ctx.actor.playerId) throw bad('you can only move your own token');
+    const live = st.scene?.kind === 'map' && st.scene.data?.mapId === m.id;
+    if (!m.tokensOn && !m.phones && !live) throw bad('this map is not shared with you');
     if (!fin(a.x) || !fin(a.y)) throw bad('x and y must be numbers 0..1');
+    const c = st.combat;
+    if (c?.active && c.rx && c.rx.combatId === c.id && c.rx.step !== 'act') throw bad('Move your figure in the action phase.');
+    let t;
+    if (a.tokenId == null) {
+      const p = st.players.find((x) => x.id === ctx.actor.playerId);
+      if (!p) throw bad('no crawler');
+      t = m.tokens.find((x) => x.kind === 'pc' && x.ref === p.id);
+      if (!t) {
+        if (m.tokens.length >= MAX_TOKENS) throw bad('this map is full');
+        t = { id: ctx.genId('tk'), kind: 'pc', ref: p.id, label: p.name, color: p.color ?? '#ffcc00', x: 0.5, y: 0.5, hidden: false };
+        m.tokens.push(t);
+      }
+    } else t = tokenOf(m, a.tokenId);
+    if (t.kind !== 'pc' || t.ref !== ctx.actor.playerId) throw bad('you can only move your own token');
     t.x = round4(clamp01(a.x));
     t.y = round4(clamp01(a.y));
   },

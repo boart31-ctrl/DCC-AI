@@ -93,7 +93,7 @@ test('GM camera clamps to the map, persists on reload and mirrors the TV only', 
   assert.equal(viewFor(state, pack, 'stage', { now: 0 }).maps[0].camera, undefined);
 });
 
-test('tokens: GM adds party and mobs; players move only their own, only with tokens on; hidden mobs stay hidden', () => {
+test('tokens: GM adds party and mobs; players move only their own, only on a map they can see; hidden mobs stay hidden', () => {
   let s = withPlayers();
   const [carl, donut] = s.players;
   let r = gm(s, { t: 'map.add', name: 'A', image: 'https://x.test/a.png' });
@@ -108,8 +108,8 @@ test('tokens: GM adds party and mobs; players move only their own, only with tok
   const carlTok = s.maps.list[0].tokens.find((t) => t.ref === carl.id);
   const donutTok = s.maps.list[0].tokens.find((t) => t.ref === donut.id);
   const player = (st, pid, a) => reducePlayerAction(st, a, { ...ctx(), playerId: pid });
-  assert.throws(() => player(s, carl.id, { t: 'map.token.move', id, tokenId: carlTok.id, x: 0.3, y: 0.3 }), /tokens are off/);
-  s = run(s, { t: 'map.update', id, tokensOn: true, phones: true });
+  assert.throws(() => player(s, carl.id, { t: 'map.token.move', id, tokenId: carlTok.id, x: 0.3, y: 0.3 }), /not shared with you/);
+  s = run(s, { t: 'map.update', id, phones: true });
   s = player(s, carl.id, { t: 'map.token.move', id, tokenId: carlTok.id, x: 0.3, y: 1.7 }).state;
   assert.deepEqual([s.maps.list[0].tokens.find((t) => t.id === carlTok.id).x, s.maps.list[0].tokens.find((t) => t.id === carlTok.id).y], [0.3, 1]);
   assert.throws(() => player(s, carl.id, { t: 'map.token.move', id, tokenId: donutTok.id, x: 0.1, y: 0.1 }), /your own token/);
@@ -118,6 +118,26 @@ test('tokens: GM adds party and mobs; players move only their own, only with tok
   assert.deepEqual(pv.tokens.map((t) => t.label).sort(), ['Carl', 'Donut']);
   s = gm(s, { t: 'map.token.update', id, tokenId: goblin, hidden: false }).state;
   assert.equal(viewFor(s, pack, 'player', { now: 0, playerId: carl.id }).maps[0].tokens.length, 3);
+});
+
+test('tokens: a crawler with no figure on a shared map puts one there by moving it; fights allow it in the action phase only', () => {
+  let s = withPlayers();
+  const [carl] = s.players;
+  const added = gm(s, { t: 'map.add', name: 'B', image: 'https://x.test/b.png' });
+  const id = added.result.id;
+  s = gm(added.state, { t: 'scene.set', kind: 'map', data: { mapId: id } }).state;
+  const player = (st, pid, a) => reducePlayerAction(st, a, { ...ctx(), playerId: pid });
+  s = player(s, carl.id, { t: 'map.token.move', id, x: 0.2, y: 0.4 }).state;
+  const mine = s.maps.list.find((m) => m.id === id).tokens.filter((t) => t.ref === carl.id);
+  assert.equal(mine.length, 1);
+  assert.deepEqual([mine[0].x, mine[0].y], [0.2, 0.4]);
+  s = player(s, carl.id, { t: 'map.token.move', id, x: 0.6, y: 0.6 }).state;
+  assert.equal(s.maps.list.find((m) => m.id === id).tokens.filter((t) => t.ref === carl.id).length, 1, 'no second figure');
+  const fight = structuredClone(s);
+  fight.combat = { ...fight.combat, active: true, id: 'cb1', rx: { combatId: 'cb1', step: 'declare' } };
+  assert.throws(() => player(fight, carl.id, { t: 'map.token.move', id, x: 0.1, y: 0.1 }), /action phase/);
+  fight.combat.rx.step = 'act';
+  assert.equal(player(fight, carl.id, { t: 'map.token.move', id, x: 0.1, y: 0.1 }).state.maps.list.find((m) => m.id === id).tokens.find((t) => t.ref === carl.id).x, 0.1);
 });
 
 test('normalize: junk dropped, invalid fog dimensions reset and missing image kept empty', () => {

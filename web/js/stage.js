@@ -6,7 +6,7 @@ import {
 import { createDirector } from './scenes/director.js';
 import { levelBadge } from './scenes/common.js';
 import { INTRO_HOLD_MS } from './scenes/boss.js';
-import { createVoicePlayer, createSubtitleOnly, createCueGate } from './voice.js';
+import { createVoicePlayer, createSubtitleOnly, createCueGate, untag } from './voice.js';
 import { createShowAudio } from './show-audio.js';
 import { createTicker } from './ticker.js';
 import { uiOf, uiAsset, artEl, assetSrc, cornerFrame, mascotEl, setSpeaking, slug, preloadFor } from './ui-art.js';
@@ -750,7 +750,8 @@ const PREVIEW = new URLSearchParams(location.search).has('preview') || new URLSe
 const DRAFT = new URLSearchParams(location.search).has('draft');
 const music = $('#music');
 const subtitle = $('#subtitle');
-function showSub(text) {
+function showSub(raw) {
+  const text = untag(raw);
   $('#sub-text').textContent = text || '';
   subtitle.hidden = !text;
   setSpeaking(!!text); // mascots on screen switch to their talking art while the System speaks

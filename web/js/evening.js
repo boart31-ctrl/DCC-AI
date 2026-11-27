@@ -2,6 +2,7 @@ import { h } from './client.js';
 import { closeDrawer, field, icon, openDrawer, select } from './ui.js';
 import { addEveningMob, eveningScene } from './evening-scene.js';
 import { eveningTools } from './evening-tools.js';
+import { hasSteps } from './director.js';
 
 const TYPES = { fight: ['Fight', 'swords'], explore: ['Explore', 'map'], talk: ['Talk', 'user'], trap: ['Trap', 'warn'], boss: ['Boss', 'skull'], chase: ['Chase', 'bolt'] };
 const MOVE_TYPE = 'application/x-evening-scene';
@@ -36,7 +37,7 @@ function readiness(scene, view) {
 }
 
 /** Evening selection and layout. Scene content and GM tools are rendered by their own components. */
-export function createEvening({ act, redraw, onPlan, onSelect, onRun, onShow, openInLibrary }) {
+export function createEvening({ act, redraw, onPlan, onSelect, onRun, onShow, openInLibrary, onDirector }) {
   const selection = new Map();
   const blockState = { open: new Set(['goal']), focus: null };
   let coach = readCoach();
@@ -137,6 +138,8 @@ export function createEvening({ act, redraw, onPlan, onSelect, onRun, onShow, op
     };
     return h('aside.panel.ev-agenda', { 'aria-label': 'Evening agenda' },
       h('h2', 'Evening'),
+      onDirector && hasSteps(doc.evening) ? h('button.btn.btn-primary.ev-director', { type: 'button', title: 'Play the evening page by page: the System reads, you click',
+        onclick: () => onDirector(doc) }, icon('play', { size: 16 }), doc.evening.director ? 'Continue as director' : 'Play as director') : null,
       field(doc.title, { cls: 'ev-title', attrs: { 'aria-label': 'Evening title', maxlength: 100 }, onCommit: (title) => title.trim() && update({ title: title.trim() }) }),
       h('label.ev-budget', h('span', 'Planned length'), field(doc.evening.minutes, { type: 'number', cls: 'inp-sm',
         attrs: { min: 1, max: 1440, 'aria-label': 'Planned minutes' }, onCommit: (minutes) => Number.isInteger(minutes) && minutes > 0 && minutes <= 1440 && update({ minutes }) }), h('span.dim', 'min')),

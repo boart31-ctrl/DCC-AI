@@ -32,7 +32,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
   const root = h('article.sheet', { class: `sheet sheet-${mode}` });
   const ui = { tab: null, page: 'sheet', editing: false, openSkill: null, invQuery: '', drawer: null, ptab: 'skills', skillQuery: '', openBoxes: {} };
   const playerNav = h('nav.ph-primary', { 'aria-label': 'Player navigation', hidden: true });
-  const primary = [['sheet', 'Sheet', 'book'], ['combat', 'Combat', 'swords'], ['msg', 'Messages', 'chat'], ['more', 'More', 'more']];
+  const primary = [['sheet', 'Sheet', 'book'], ['combat', 'Combat', 'swords'], ['msg', 'Messages', 'chat'], ['maps', 'Map', 'map'], ['more', 'More', 'more']];
   const dock = new Map(primary.map(([id, label, glyph]) => {
     const badge = h('span.ph-dock-badge', { 'aria-hidden': 'true', hidden: true });
     const button = h('button.ph-dock-btn', { type: 'button', 'data-page': id, onclick: () => setTab(id) }, icon(glyph, { size: 21 }), h('span', label), badge);
@@ -1316,7 +1316,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     root.style.removeProperty('--ph-top-h');
     if (ui.page === 'more') return h('div.ph-app-page', playerMore());
     const tab = tabs.find((t) => t.primaryPage && t.id === ui.page);
-    const cls = ui.page === 'combat' ? 'ph-view-combat tp-combat' : 'ph-view-messages tp-msg';
+    const cls = ui.page === 'combat' ? 'ph-view-combat tp-combat' : ui.page === 'maps' ? 'ph-view-maps' : 'ph-view-messages tp-msg';
     return h('div.ph-app-page', { class: `ph-app-page ${cls}` }, tab?.render());
   }
 

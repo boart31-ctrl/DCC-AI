@@ -31,11 +31,27 @@ export function createAchPicker({ getView, act, button, openBatch }) {
   document.body.append(dlg);
   search.addEventListener('input', draw);
 
+  // 27 Nov playtest: an achievement clicked before a crawler was picked only flashed a hint on the search
+  // box and was lost. Now it waits as "Who gets …?" until a crawler is tapped, then goes out.
+  let waiting = null;
   async function award(a) {
     const who = [...picked];
-    if (!who.length) { search.setCustomValidity('Pick a crawler first'); search.reportValidity(); return; }
-    for (const playerId of who) await act(a.id ? { t: 'ach.award', playerId, achId: a.id } : { t: 'ach.award', playerId, title: a.title }, `Awarded ${a.title}.`);
-    dlg.close();
+    if (!who.length) { waiting = a; draw(); crawlers.querySelector('button')?.focus(); return; }
+    waiting = null;
+    let ok = 0;
+    for (const playerId of who) if (await act(a.id ? { t: 'ach.award', playerId, achId: a.id } : { t: 'ach.award', playerId, title: a.title }, `Awarded ${a.title}.`)) ok++;
+    if (ok) dlg.close();
+  }
+
+  // Achievements the current Prep scene (or director step) names in its text: the quest's own ones first.
+  function sceneAchievements(v, cat) {
+    const prep = v?.gm?.prep;
+    const doc = prep?.docs?.find((d) => d.id === prep.current);
+    const sc = doc?.evening?.scenes?.find((x) => x.id === doc.evening.activeSceneId);
+    if (!sc) return [];
+    const ids = new Set([...(sc.achievements ?? []), ...(sc.steps ?? []).flatMap((st) => st.achievements ?? [])]);
+    const text = JSON.stringify([sc.notes, sc.goal, sc.readAloud, sc.steps]).toLowerCase();
+    return cat.filter((a) => ids.has(a.id) || (a.title.length > 6 && text.includes(a.title.toLowerCase())));
   }
 
   function row(a, why) {
@@ -48,8 +64,12 @@ export function createAchPicker({ getView, act, button, openBatch }) {
     const v = getView();
     const gm = v?.gm ?? {};
     const players = v?.players ?? [];
-    crawlers.replaceChildren(...players.map((p) => h('button.chip', { type: 'button', class: `chip${picked.has(p.id) ? ' on' : ''}`, 'aria-pressed': String(picked.has(p.id)),
-      onclick: () => { picked.has(p.id) ? picked.delete(p.id) : picked.add(p.id); draw(); } }, p.name)));
+    crawlers.replaceChildren(
+      waiting ? h('p.ach-pk-wait', h('b', `Who gets “${waiting.title}”?`), ' Tap the crawlers, then Award.') : null,
+      ...players.map((p) => h('button.chip', { type: 'button', class: `chip${picked.has(p.id) ? ' on' : ''}`, 'aria-pressed': String(picked.has(p.id)),
+        onclick: () => { picked.has(p.id) ? picked.delete(p.id) : picked.add(p.id); draw(); } }, p.name)),
+      waiting && picked.size ? h('button.btn.btn-primary.ach-pk-go', { type: 'button', onclick: () => award(waiting) }, `Award to ${picked.size}`) : null);
+    crawlers.classList.toggle('need', !!waiting);
     const cat = gm.achievementsCatalog ?? [];
     const q = search.value.trim().toLowerCase();
     const sections = [];
@@ -59,9 +79,12 @@ export function createAchPicker({ getView, act, button, openBatch }) {
         h('b', s.title), h('span.ach-pk-why', `→ ${s.name}`))));
       const recent = gm.achRecent ?? [];
       const kinds = new Set(recent.map((m) => m.on));
+      const scene = sceneAchievements(v, cat);
+      if (scene.length) sections.push(h('h4', 'This scene'), ...scene.map((a) => row(a)));
       const fits = cat.filter((a) => a.on && kinds.has(a.on)).slice(0, 8);
       if (fits.length) sections.push(h('h4', 'Fits this moment'), ...fits.map((a) => row(a, a.on)));
-      sections.push(h('h4', 'All'), ...cat.slice(0, 40).map((a) => row(a)));
+      // Every achievement, newest pack/campaign entries first (quest-specific ones sit at the end of the catalog).
+      sections.push(h('h4', `All (${cat.length})`), ...[...cat].reverse().map((a) => row(a)));
     } else {
       const hits = cat.filter((a) => `${a.title} ${a.desc} ${a.group}`.toLowerCase().includes(q)).slice(0, 30);
       sections.push(...hits.map((a) => row(a)));
@@ -75,6 +98,7 @@ export function createAchPicker({ getView, act, button, openBatch }) {
     // Preselect the crawler from the newest moment, so "A, Enter" works for the obvious case.
     const last = (v?.gm?.achRecent ?? []).at(-1);
     picked = new Set(last?.playerId ? [last.playerId] : []);
+    waiting = null;
     search.value = '';
     draw();
     if (!dlg.open) dlg.showModal();

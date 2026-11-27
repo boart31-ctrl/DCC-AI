@@ -325,6 +325,7 @@ client.on('event', (e) => {
     }
     return;
   }
+  if (e.kind === 'rest.offer') { buzz([40, 60, 40]); toast(`${e.label}: tap Rest when you are ready.`, { ms: 5000 }); return; }
   if (e.kind === 'combat.hit' && e.type === 'crawler' && e.playerId === me.id) return;
   // The event can land before the view that puts me in the fight: open the pad on the next render instead.
   if (e.kind === 'combat.start' && e.initiative) { if (waitingForMe()) initPrompt(); else initWanted = Date.now(); return; }
@@ -511,7 +512,8 @@ const sheet = createSheet({
     { id: 'combat', label: 'Combat', primaryPage: true, badge: combatAttention(), render: () => combatPanel },
     { id: 'ach', label: 'Achievements', count: me.achievements?.length || '', sig: achSig(), render: renderAchievements },
     { id: 'msg', label: 'Messages', primaryPage: true, badge: unreadCount() || '', sig: msgSig(), render: renderMessages },
-    ...((view?.maps || []).length ? [{ id: 'maps', label: 'Maps', count: view.maps.length, sig: JSON.stringify(view.maps), render: renderMaps }] : []),
+    // Always a dock page (27 Nov): an empty state until the GM shares a map, then the map with the own token.
+    { id: 'maps', label: 'Map', primaryPage: true, badge: (view?.maps || []).length ? '' : '', sig: JSON.stringify(view?.maps ?? []), render: renderMaps },
   ] : []),
   onBuilder: (model, p) => openBuilder({ model, player: p, gm: false, act: sheet.act, allowOrigins: !!view?.session?.permissions?.allowOrigins }),
   // Phones: app layout (sticky crawler bar, section tabs); the app bar items move into the menu.
@@ -874,8 +876,9 @@ function renderPrivateChecks() {
   const prompts = view.checkPrompts ?? [];
   const el = $('#prep-prompts');
   if (checkDrawer?.open && !prompts.some((p) => p.id === openCheck)) closeDrawer();
-  el.hidden = !prompts.length;
-  el.replaceChildren(...prompts.map((p) => {
+  const rest = restCard();
+  el.hidden = !prompts.length && !rest;
+  el.replaceChildren(rest ?? '', ...prompts.map((p) => {
     if (p.kind === 'show' && p.rolled) {
       const r = p.rolled;
       return h('div.panel.prep-prompt', h('span.prep-prompt-k', 'Rolled · the GM reveals it on the TV'), h('b', p.label),
@@ -885,6 +888,27 @@ function renderPrivateChecks() {
     return h('div.panel.prep-prompt', h('span.prep-prompt-k', p.kind === 'show' ? 'The GM asks for a roll · on the TV' : 'The GM asks for a roll'), h('b', p.label || 'Private check'),
       h('button.btn.btn-primary', { type: 'button', onclick: () => openPrivateCheck(p) }, icon('dice', { size: 18 }), `Roll ${p.ability}`));
   }));
+}
+
+// Rest offered by the GM (server/rest-offer.js): nothing heals until the crawler taps Rest.
+function restCard() {
+  const r = view.rest;
+  if (!r) return null;
+  const restore = r.restore ? Object.entries(r.restore).map(([k, v]) => `${k === 'hp' ? 'Health' : k === 'mana' ? 'Mana' : k} ${v === 'full' ? 'full' : typeof v === 'number' ? `+${v}` : 'half'}`).join(' · ') : '';
+  if (r.done) {
+    return h('div.panel.prep-prompt.rest-prompt.done', h('span.prep-prompt-k', r.label), h('b', 'You rested.'),
+      h('span', (r.done.restored ?? []).join(' · ') || 'Nothing needed restoring.'));
+  }
+  return h('div.panel.prep-prompt.rest-prompt', h('span.prep-prompt-k', `${r.place === 'camp' ? 'Camp' : 'Saferoom'} · ${r.hours} h`), h('b', r.label),
+    restore ? h('span', restore) : null,
+    h('button.btn.btn-primary', { type: 'button', onclick: async (e) => {
+      e.currentTarget.disabled = true;
+      try {
+        const res = await client.send({ t: 'rest.accept', id: r.id });
+        buzz(30);
+        toast(`Rested. ${(res?.result?.restored ?? []).join(' · ') || 'Nothing needed restoring.'}`);
+      } catch (error) { e.currentTarget.disabled = false; toast(error.message || 'Could not rest.', { error: true }); }
+    } }, icon('moon', { size: 18 }), 'Rest'));
 }
 
 async function favorShowCheck(p) {
@@ -1039,17 +1063,21 @@ function renderMaps() {
     if (!row) {
       row = { map: m };
       row.mv = createMapView({
-        canMoveToken: (t) => row.map.tokensOn && t.kind === 'pc' && t.ref === me?.id,
+        canMoveToken: (t) => t.kind === 'pc' && t.ref === me?.id,
         onTokenMove: (t, x, y) => client.send({ t: 'map.token.move', id: row.map.id, tokenId: t.id, x, y }).catch((err) => toast(err.message, { error: true })),
       });
       phoneMapViews.set(m.id, row);
     }
     row.map = m;
     row.mv.set(m, { labels: true });
-    return h('section.ph-map', h('h3', m.name), row.mv.el,
+    const mine = (m.tokens ?? []).some((t) => t.kind === 'pc' && t.ref === me?.id);
+    return h('section.ph-map', h('h3', m.name),
+      mine ? h('p.hint.ph-map-tip', 'Drag your figure to move it.') : h('button.btn.btn-primary.ph-map-place', { type: 'button',
+        onclick: () => client.send({ t: 'map.token.move', id: m.id, x: 0.5, y: 0.5 }).catch((err) => toast(err.message, { error: true })) }, 'Put my figure on the map'),
+      row.mv.el,
       m.zones.some((z) => z.text) ? h('ul.ph-map-zones', m.zones.filter((z) => z.text).map((z) => h('li', h('b', z.name), h('p', z.text)))) : null);
   };
-  phoneMapsEl.replaceChildren(...(maps.length ? maps.map(renderMap) : [h('p.empty-s', 'No maps shared.')]));
+  phoneMapsEl.replaceChildren(...(maps.length ? maps.map(renderMap) : [h('div.ph-map-empty', icon('map', { size: 40 }), h('b', 'Map not available'), h('p', 'It appears here when the GM shares one. Then you can move your own figure.'))]));
   return phoneMapsEl;
 }
 
