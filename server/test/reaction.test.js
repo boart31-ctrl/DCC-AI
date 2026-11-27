@@ -754,3 +754,23 @@ test('Call a Play: 1 action, 2d6 keep high; turns the ally miss into a hit, or a
   const dmg = pl(s, donut, { t: 'roll', what: { kind: 'attack', uid: axe.result.uid, part: 'damage' }, after: hit.id, entered: 3 });
   assert.match(dmg.state.rolls.at(-1).formula, /\+4/);
 });
+
+test('named turn activities and combat checks consume one action only when accepted', () => {
+  let s = fight();
+  const id = playerId(s, 'Carl');
+  const uid = crawlerUid(s, 'Carl');
+  const move = { t: 'rx.spend', activity: 'move' };
+  const check = { t: 'roll', what: { kind: 'stat', id: 'str' }, useAction: 'check' };
+  assert.throws(() => pl(s, id, move), /action phase|not now/);
+  assert.throws(() => pl(s, id, check), /crawler actions/);
+  s = gm(s, { t: 'rx.step', to: 'act' }).state;
+  assert.throws(() => pl(s, id, { ...move, activity: 'clues' }), /visible boss/);
+  assert.throws(() => pl(s, id, { ...move, n: 2 }), /one action/);
+  s = pl(s, id, move).state;
+  s.combat.rx.nonAttackActions = { [uid]: 1 };
+  const rolled = pl(s, id, check);
+  assert.deepEqual(rolled.result.receipt, { spent: 1, actionsLeft: 1, utilityLeft: 0 });
+  const undo = pl(rolled.state, id, { t: 'roll.undo' });
+  assert.equal(undo.result.receipt.utilityLeft, 1);
+  assert.equal(undo.result.receipt.actionsLeft, 1);
+});

@@ -124,6 +124,11 @@ export function createRxPhone({ send, toast, onReceipt }) {
     const state = reactionControls(view, me);
     const options = [];
     const option = (label, note, run) => h('button.btn.rxp-opt', { type: 'button', disabled: pending, onclick: run }, h('strong', label), note ? h('small', note) : null);
+    if (tools.kind === 'taunt' && state?.react && state.canInterrupt) {
+      for (const d of state.rx.decls.filter(x => x.targetUid !== state.mine.uid && !x.result)) {
+        options.push(option(d.mob, `${d.attack} → ${crawlerName(d.targetUid)}`, () => openPad('taunt', d.id)));
+      }
+    }
     if (tools.kind === 'help' && state?.canHelp) {
       const { rx, mine, react, canInterrupt, canIntervene } = state;
       if (canInterrupt && !canIntervene) options.push(option('Prepare Intervene', 'Spend 1 action now to help with a later roll.',
@@ -200,5 +205,8 @@ export function createRxPhone({ send, toast, onReceipt }) {
     drawTools();
   }
 
-  return { el, update, showHelp: () => showTools('help', 'Help a friend'), showUtility: () => showTools('utility', 'Something else') };
+  return { el, update,
+    activity: kind => useAction({ t: 'rx.spend', activity: kind }, kind === 'move' ? 'Move recorded' : 'Clue search recorded'),
+    showTaunt: () => showTools('taunt', 'Taunt'),
+    showHelp: () => showTools('help', 'Help a friend'), showUtility: () => showTools('utility', 'Something else') };
 }

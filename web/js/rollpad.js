@@ -69,7 +69,7 @@ export function createRollPad({ send, getView, getMe }) {
   }
 
   /** Opens the pad for one roll (from a tap on the sheet). */
-  function open(what, label, target) {
+  function open(what, label, target, combatCheck = false) {
     if (!me() || st.busy) return;
     const rx = myRound();
     const usesAction = rx && isStrike(what) && what.part !== 'damage';
@@ -82,7 +82,9 @@ export function createRollPad({ send, getView, getMe }) {
       return;
     }
     st.what = what;
-    st.actionRound = usesAction ? rx.round : null;
+    if (combatCheck && rx?.step !== 'act') return;
+    st.combatCheck = combatCheck;
+    st.actionRound = usesAction || combatCheck ? rx.round : null;
     st.label = label || 'Roll';
     st.digits = '';
     st.bonus = 0;
@@ -106,10 +108,11 @@ export function createRollPad({ send, getView, getMe }) {
   }
 
   /** Action list (Roll button): attacks, skills, saves and other rollable numbers, abilities. */
-  function openPicker({ target, attacksOnly = false } = {}) {
+  function openPicker({ target, attacksOnly = false, checksOnly = false } = {}) {
     if (!me() || st.busy) return;
     st.pickerTarget = target;
     st.attacksOnly = attacksOnly;
+    st.checksOnly = checksOnly;
     st.query = '';
     st.step = 'pick';
     st.result = null;
@@ -127,14 +130,14 @@ export function createRollPad({ send, getView, getMe }) {
       return;
     }
     const a = { t: 'roll', what: st.what };
-    if (st.actionRound != null && isAttack()) {
+    if (st.actionRound != null && (isAttack() || st.combatCheck)) {
       const rx = myRound();
       if (rx?.step !== 'act' || rx.round !== st.actionRound) {
         toast('The combat phase changed. Open a fresh attack from Combat.', { error: true });
         close();
         return;
       }
-      a.useAction = true;
+      a.useAction = st.combatCheck ? 'check' : true;
     }
     if (!digital) a.entered = n;
     if (st.target) a.target = st.target;
@@ -189,7 +192,7 @@ export function createRollPad({ send, getView, getMe }) {
     const statAbbr = (id) => (R.stats || []).find((x) => x.id === id)?.abbr || '';
     const q = (st.query || '').trim().toLowerCase();
     const hit = (label) => !q || label.toLowerCase().includes(q);
-    const btn = (what, label, val, unavailable, meta) => h('button.rp-act', { type: 'button', disabled: !!unavailable, onclick: () => open(what, label, st.pickerTarget) },
+    const btn = (what, label, val, unavailable, meta) => h('button.rp-act', { type: 'button', disabled: !!unavailable, onclick: () => open(what, label, st.pickerTarget, st.checksOnly) },
       h('span', label, meta ? h('small.dim.rp-meta', meta) : null, unavailable ? h('small.dim', unavailable) : null), val == null ? null : h('b', signed(val)));
     const dmgOf = (a) => { const d = c.attacks?.find((x) => x.uid === a.uid)?.damage || a.dice; return d ? String(d).replace(/\+\s*-/g, '− ') : null; };
     const avgOf = (d) => { const m = /^(\d*)d(\d+)\s*(?:([+−-])\s*(\d+))?$/.exec(String(d || '').replace(/\s+/g, ' ').trim().replace(/ /g, '')); if (!m) return null; const n = +(m[1] || 1); const v = n * (+m[2] + 1) / 2 + (m[3] ? (m[3] === '+' ? 1 : -1) * +m[4] : 0); return Math.round(v * 10) / 10; };
@@ -229,9 +232,9 @@ export function createRollPad({ send, getView, getMe }) {
     const empty = q && !attacks.length && !spells.length && !derived.length && !skills.length && !stats.length && !untrained.length;
     return h('div.rp-body', head('What do you roll?', null), h('div.rp-scroll',
       search,
-      inFight ? [group('Attacks', attacks), group('Attack spells', spells)] : null,
+      inFight && !st.checksOnly ? [group('Attacks', attacks), group('Attack spells', spells)] : null,
       group('Your skills', skills, !q && skills.length ? 'Your bonus = Rank + stat modifier (+ items). It is added for you.' : null),
-      !inFight ? [group('Attacks', attacks), group('Attack spells', spells)] : null,
+      !inFight && !st.checksOnly ? [group('Attacks', attacks), group('Attack spells', spells)] : null,
       group('Saves & more', derived), group('Stats (only when the GM asks for a stat, not a skill)', stats),
       untrainedGroup,
       empty ? h('p.hint', `Nothing matches “${st.query}”.`) : null,

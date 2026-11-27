@@ -678,7 +678,7 @@ function drawCombat() {
   const myPhase = standing && (rx?.step === 'act' || isMyTurn);
   const phaseLabel = myPhase ? 'Your turn' : COMBAT_PHASES[step] ?? (active ? c.phase || 'Fight in progress' : 'No active fight');
   const key = JSON.stringify([step, active, own?.uid, own?.dying, own?.dead, health, c?.round, phaseLabel, needsInitiative, canStrike,
-    reaction?.left, reaction?.extra, reaction?.canHelp, reaction?.canDoSomething, mayCast, mayUse, quickSpells, quickItems, basicHeal, healDisabled, healingBlocked, mana, costs, advantages, injuries, mobs, history]);
+    reaction?.left, reaction?.extra, reaction?.canHelp, reaction?.canDoSomething, rx?.decls, rx?.intervene, reaction?.canInterrupt, standing, mayCast, mayUse, quickSpells, quickItems, basicHeal, healDisabled, healingBlocked, mana, costs, advantages, injuries, mobs, history]);
   if (key === combatKey) return;
   combatKey = key;
 
@@ -699,9 +699,13 @@ function drawCombat() {
     active && !own ? h('p.dim', 'The GM can add you to this fight.') : null,
     active && own && !rx && reactionRules ? h('p.dim', 'Waiting for the GM to start the round.') : null].filter(Boolean));
 
-  const action = (label, glyph, enabled, onclick, primary = false) => h('button.btn.pl-fight-action', {
-    type: 'button', class: primary && enabled ? 'btn btn-primary pl-fight-action' : null, disabled: !enabled, onclick,
-  }, icon(glyph, { size: 19 }), label);
+  const why = !standing ? 'Cannot act' : !reaction ? 'Wait for your turn'
+    : !reaction.act && !reaction.react ? 'Wait for your phase' : reaction.left + reaction.extra === 0 ? 'No actions left' : 'Unavailable in this phase';
+  const allyTarget = rx?.decls?.some(d => d.targetUid !== own?.uid && !d.result);
+  const bossTarget = mobs.some(m => m.boss);
+  const action = (label, glyph, enabled, onclick, primary = false, reason = why) => h('button.btn.pl-fight-action', {
+    type: 'button', class: primary && enabled ? 'btn btn-primary pl-fight-action' : null, disabled: !enabled, 'aria-label': label, title: enabled ? null : reason, onclick,
+  }, icon(glyph, { size: 19 }), h('span', label, enabled ? null : h('small', reason)));
   function pickSpell() {
     const rows = quickSpells.map((s) => {
       const t = costs?.find((x) => x.uid === s.uid);
@@ -744,8 +748,15 @@ function drawCombat() {
   combatActions.replaceChildren(...[needsInitiative ? h('button.btn.btn-primary', { type: 'button', onclick: initPrompt }, 'Roll initiative') : null,
     active && own ? h('div.pl-action-grid',
       action('Attack', 'swords', canStrike, () => rollPad.openPicker({ attacksOnly: true }), true),
-      action('Spell', 'bolt', quickSpells.length || basicHeal, pickSpell),
-      action(hotlist ? 'Item (Hotlist)' : 'Item', 'gift', hotlist ? quickItems.length : mayUse, pickItem),
+      action('Spell', 'bolt', quickSpells.length || basicHeal, pickSpell, false, mayCast ? 'No ready spell' : why),
+      action(hotlist ? 'Item (Hotlist)' : 'Item', 'gift', hotlist ? quickItems.length : mayUse, pickItem, false, mayUse ? 'No ready item' : why),
+      reaction ? [
+        action('Make a check', 'dice', available, () => rollPad.openPicker({ checksOnly: true })),
+        action('Move', 'chevron', available, () => rxPhone.activity('move')),
+        action('Retrieve', 'gift', available && hotlist, () => sheet.setTab('hotlist')),
+        action('Look for clues', 'search', available && bossTarget, () => rxPhone.activity('clues'), false, bossTarget ? why : 'Needs a visible boss'),
+        action('Taunt', 'users', interrupt && allyTarget, rxPhone.showTaunt, false, reaction.react && !allyTarget ? 'No attack aimed at an ally' : why),
+      ] : null,
       action('Help a friend', 'users', reaction?.canHelp, rxPhone.showHelp),
       action('Something else', 'more', reaction ? reaction.canDoSomething : mayAct, reaction ? rxPhone.showUtility : () => rollPad.openPicker())) : null,
     rx?.step === 'act' && advantages.length ? h('p.pl-combat-adv', `Advantage against ${advantages.map((a) => a.mob).join(', ')}. Roll 2d20 and keep the higher.`) : null].filter(Boolean));

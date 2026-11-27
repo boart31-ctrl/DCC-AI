@@ -1129,6 +1129,17 @@ function requireCombatHotlist(st, ctx, uid) {
 PLAYER.roll = (st, a, ctx, out) => {
   const weapon = a.what?.kind === 'attack';
   const strike = (weapon || a.what?.kind === 'spell') && a.what.part !== 'damage';
+  if (a.useAction === 'check') {
+    const rx = st.combat?.active && st.combat.rx;
+    if (rx?.step !== 'act' || !['stat','derived','skill','untrained'].includes(a.what?.kind)) throw bad('choose a check during crawler actions');
+    const me = st.combat.combatants.find(x => x.playerId === ctx.actor.playerId);
+    const utility = rx.nonAttackActions?.[me?.uid] > 0;
+    const cost = {};
+    REACTION_PLAYER['rx.spend'](st, {}, ctx, cost);
+    SHEET.roll(st, a, { ...ctx, actionReceipt: { combatId: rx.combatId, round: rx.round, uid: me.uid, utility } }, out);
+    out.result.receipt = cost.result.receipt;
+    return;
+  }
   if (a.useAction !== undefined && a.useAction !== false && (a.useAction !== true || !strike)) throw bad('useAction needs an attack roll');
   const rx = st.combat?.active ? st.combat.rx : null;
   const targeted = typeof a.target === 'string' && (strike || weapon);

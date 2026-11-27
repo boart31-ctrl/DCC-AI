@@ -3,6 +3,11 @@
 // (Evade, Hotlist, AI Favor, Intervene, Taunt, Mana, DR, Rank, GM, loot box) stay English on purpose:
 // the table reads the books and cheat sheets with the same words.
 export default {
+  'Make a check': 'Hod na ověření', 'Retrieve': 'Připravit do hotlistu', 'Look for clues': 'Hledat stopy',
+  'Cannot act': 'Nemůžeš jednat', 'Wait for your phase': 'Počkej na svou fázi', 'Unavailable in this phase': 'V této fázi nedostupné',
+  'Needs a visible boss': 'Vyžaduje odhaleného bosse', 'No attack aimed at an ally': 'Na spojence nikdo neútočí',
+  'No ready spell': 'Žádné připravené kouzlo', 'No ready item': 'Žádný připravený předmět',
+  'Move recorded': 'Pohyb zaznamenán', 'Clue search recorded': 'Hledání stop zaznamenáno',
   'Round status': 'Stav kola', 'Combat log': 'Průběh boje', 'Turn complete': 'Tah dokončen',
   'Evade used': 'Evade využit', 'No Evade': 'Bez Evade',
   // ---- join / connection ----

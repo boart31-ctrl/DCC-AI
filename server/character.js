@@ -831,9 +831,10 @@ function adjustActionReceipt(st, rec, delta) {
   const r = rec.actionReceipt;
   const rx = st.combat?.rx;
   if (!r || rx?.step !== 'act' || rx.combatId !== r.combatId || rx.round !== r.round || !Object.hasOwn(rx.acts, r.uid)) return;
-  const left = rx.acts[r.uid] + delta;
+  const pool = r.utility ? rx.nonAttackActions : rx.acts;
+  const left = (pool[r.uid] ?? 0) + delta;
   if (left < 0) throw bad('no action left to restore this attack');
-  rx.acts[r.uid] = left;
+  pool[r.uid] = left;
   return true;
 }
 

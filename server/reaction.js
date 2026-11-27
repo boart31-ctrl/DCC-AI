@@ -991,8 +991,14 @@ export const REACTION_PLAYER = {
     if (!standing(me)) throw bad('that crawler cannot act');
     if (rx.step !== 'act' && rx.step !== 'react') throw bad('not now');
     requireStatusAllowed(st, ctx, playerOfCrawler(st, me), rx.step === 'react' ? 'interrupt' : 'action');
+    if (a.activity !== undefined) {
+      if (!['move', 'clues'].includes(a.activity) || rx.step !== 'act') throw bad('choose an activity in the action phase');
+      if (a.activity === 'clues' && !st.combat.combatants.some(x => x.sourceKind === 'boss' && !x.hidden && x.hp > 0)) throw bad('no visible boss in the fight');
+      if (a.n != null && a.n !== 1) throw bad('one action per activity');
+    }
     const count = a.n === 2 ? 2 : 1;
     spendReactionAction(rx, me.uid, count);
+    if (a.activity) log(rx, `${playerOfCrawler(st, me).name}: ${a.activity === 'move' ? 'Move' : 'Look for clues'}`);
     if (out) out.result = { receipt: actionReceipt(rx, me.uid, count) };
   },
 };

@@ -60,3 +60,5 @@
 .rxp-tools .rxp-opt { display: grid; justify-content: start; justify-items: start; text-align: left; white-space: normal; }
 .rxp-mini { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 4px; }
 .rxp-ally { padding: 6px; border: 1px solid var(--c-line); border-radius: var(--r-1); }
+
+.pl-fight-action small { display: block; font-size: .72rem; font-weight: normal; }
