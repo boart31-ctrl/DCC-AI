@@ -2,6 +2,7 @@
 // fight (segmented HP bar, art, phase), phase change, defeat (shatter → BOSS DEFEATED → loot hint).
 // Everything animates with transform/opacity; the only per-frame work is CSS.
 import { h, bossArt, partyStrip, threatColor, rgb, replay, typeText, attackPlayback, attackResultText, threatMeter } from './common.js';
+import combat from './combat.js';
 import { floorLayer } from '../ui-art.js';
 
 const ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X'];
@@ -420,11 +421,25 @@ export default function boss(root, sc, env) {
   drawMinions(env.view);
   party.update(env.view);
   threat.update(env.view?.combat?.threatMeter);
+  const arenaRoot = h('div.scene.sc-combat.boss-arena');
+  root.append(arenaRoot);
+  let arena;
+  function syncArena(s, view) {
+    const active = view?.combat?.active && s.data.revealed && !s.data.defeated;
+    arenaRoot.hidden = !active;
+    fight.hidden = !!active;
+    if (!active) return;
+    const phase = s.data.boss.phases?.[s.data.phase]?.name;
+    const arenaScene = { ...s, data: { title: [s.data.boss.name, phase].filter(Boolean).join(' · ') } };
+    if (!arena) arena = combat(arenaRoot, arenaScene, { ...env, view });
+    arena.update(arenaScene, view);
+  }
+  syncArena(sc, env.view);
   const baseUpdate = update;
   return {
-    update(s, view) { lastView = view; baseUpdate(s, view); drawMinions(view); drawParty(); threat.update(view?.combat?.threatMeter); },
-    event,
-    destroy() { playback.stop(false); document.body.classList.remove('cine'); },
+    update(s, view) { lastView = view; syncArena(s, view); baseUpdate(s, view); drawMinions(view); drawParty(); threat.update(view?.combat?.threatMeter); },
+    event(e) { if (!arenaRoot.hidden && !e.kind.startsWith('boss.')) arena?.event(e); else event(e); },
+    destroy() { arena?.destroy(); playback.stop(false); document.body.classList.remove('cine'); },
     get hp() { return hpShown; },
   };
 }

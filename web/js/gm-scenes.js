@@ -359,17 +359,22 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
    */
   async function goLiveBoss(data) {
     if (!data) { toast('Pick a boss first (or build one ad hoc).', { error: true }); return false; }
-    if (!(await act({ t: 'scene.set', kind: 'boss', data }, null))) return false;
-    const c = view().combat || {};
-    if (data.bossId) {
-      const boss = (c.combatants || []).find((x) => x.type === 'mob' && x.sourceKind === 'boss' && x.sourceId === data.bossId);
-      if (!boss) await act({ t: 'combat.addMob', kind: 'boss', sourceId: data.bossId, hidden: false }, null);
-      else if (boss.hidden) await act({ t: 'combat.reveal', uid: boss.uid }, null);
+    if (data.boss) {
+      const saved = await act({ t: 'lib.upsert', kind: 'boss', entry: data.boss }, null);
+      if (!saved?.result?.id) return false;
+      bossPick = saved.result.id;
+      Object.assign(D('boss'), { mode: 'library', bossId: bossPick });
+      saveDraft();
+      data = { bossId: bossPick, lootHint: data.lootHint };
     }
-    if (!view().combat?.active) await act({ t: 'combat.start' }, null);
-    await act({ t: 'boss.intro' }, null);
-    toast('On air: boss intro.');
+    const boss = bossFighterFor(data.bossId);
+    if (!boss && !(await act({ t: 'combat.addMob', kind: 'boss', sourceId: data.bossId, hidden: false }, null))) return false;
+    if (boss?.hidden && !(await act({ t: 'combat.reveal', uid: boss.uid }, null))) return false;
+    if (!view().combat?.active && !(await act({ t: 'combat.start' }, null))) return false;
+    if (!(await act({ t: 'scene.set', kind: 'boss', data }, null))) return false;
+    if (!(await act({ t: 'boss.intro' }, null))) return false;
     pick('boss');
+    toast('On air: boss intro.');
     return true;
   }
 

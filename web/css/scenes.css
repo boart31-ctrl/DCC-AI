@@ -744,3 +744,5 @@ body.stage[data-scene="roll"] .subtitle { bottom: auto; top: 6.2rem; }
 /* Explore without on-screen text (default): the location picture leads, lighter scrim, title low-left. */
 .ex-picture .ex-bg::after { background: linear-gradient(0deg, rgba(10, 6, 20, 0.85), transparent 45%), linear-gradient(90deg, rgba(10, 6, 20, 0.55) 0%, transparent 45%); }
 .ex-picture .ex-body { align-items: end; }
+
+.boss-arena[hidden], .bs-fight[hidden] { display: none; }
