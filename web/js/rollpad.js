@@ -27,6 +27,7 @@ export function createRollPad({ send, getView, getMe }) {
   const rs = () => V().pack?.ruleset || {};
   const rules = () => rs().combat || {};
   const mode = () => me()?.diceMode || 'enter';
+  const prefersReduced = () => !!globalThis.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
   const sides = () => Number(String(rs().dice || 'd20').replace(/^d/, '')) || 20;
   const combat = () => V().combat || {};
   const mobs = () => (combat().active ? (combat().combatants || []).filter((x) => x.type === 'mob' && !x.down) : []);
@@ -89,6 +90,8 @@ export function createRollPad({ send, getView, getMe }) {
     st.result = null;
     st.favorOpen = false;
     st.after = null;
+    st.how = '';
+    st.pending = null;
     st.step = 'roll';
     // Keep aiming at the monster you just attacked (5 minutes), else the only one standing.
     const alive = mobs();
@@ -161,6 +164,7 @@ export function createRollPad({ send, getView, getMe }) {
     st.label = `${st.label.replace(/ to hit$/i, '')} damage`;
     st.after = rollId || null;
     st.critPending = !!st.result?.crit;
+    st.pending = null;
     st.digits = '';
     st.bonus = 0;
     st.result = null;
@@ -291,7 +295,7 @@ export function createRollPad({ send, getView, getMe }) {
 
   function keypad() {
     const max = isDamage() ? 999 : sides();
-    if (!isDamage() && max === 20) return dieFaces(max, (face) => submit({ face }), { disabled: st.busy || st.target === undefined });
+    if (!isDamage() && max === 20) return dieFaces(max, (face) => { st.pending = face; draw(); }, { disabled: st.busy || st.target === undefined });
     const press = (k) => {
       if (k === 'del') st.digits = st.digits.slice(0, -1);
       else if (st.digits.length < (max >= 100 ? 3 : 2)) st.digits = `${st.digits}${k}`.replace(/^0+/, '');
@@ -302,22 +306,46 @@ export function createRollPad({ send, getView, getMe }) {
     return h('div.rp-pad',
       h('div.rp-shown', { 'aria-live': 'polite' }, st.digits || (isDamage() ? 'Damage' : `1–${max}`)),
       h('div.keypad.rp-keys', keys.map((k) => (k === 'ok'
-        ? h('button.rp-ok', { type: 'button', disabled: !st.digits || st.busy || st.target === undefined, onclick: () => submit() }, 'OK')
+        ? h('button.rp-ok', { type: 'button', disabled: !st.digits || st.busy || st.target === undefined, onclick: () => { st.pending = Number(st.digits); draw(); } }, 'OK')
         : k === 'del' ? h('button.k-soft', { type: 'button', 'aria-label': 'Delete', onclick: () => press('del') }, '⌫')
           : h('button', { type: 'button', onclick: () => press(k) }, k)))));
   }
 
+  /** Playtest 26 Nov: "where do I click for digital, where for a real die?" → pick first, then one clear path. */
   function rollStep() {
     const dmg = isDamage();
-    const enterFirst = mode() !== 'digital';
     const critNote = st.after && st.critPending ? (rules().crit === 'dice' ? ' — critical: roll the dice twice' : ' — critical: the app doubles it') : '';
     const physical = dmg ? `Roll ${damageText(st.what) || 'your damage dice'}${critNote} and enter the total shown on the dice` : physicalDieHint();
-    const sub = enterFirst || dmg ? physical : 'Roll here or enter a physical die';
-    const digitalBtn = h('button.btn.btn-primary.rp-digital', { type: 'button', disabled: st.busy || st.target === undefined, onclick: () => submit({ digital: true }) }, icon('dice', { size: 18 }), dmg ? 'Roll damage for me' : 'Roll for me');
-    return h(enterFirst ? 'div.rp-body.rp-entry' : 'div.rp-body', head(st.label, sub), h('div.rp-scroll',
-      targetRow(), modsRow(),
-      enterFirst ? keypad() : [digitalBtn, h('details.rp-alt', h('summary', 'I rolled a real die'), dmg ? null : h('p.rp-hint', physical), keypad())]),
-    enterFirst ? h('footer.rp-roll-footer', digitalBtn) : null);
+    const blocked = st.busy || st.target === undefined;
+    const rollDigital = () => {
+      if (blocked) return;
+      st.rolling = true; draw(); buzz([10, 30, 10, 30, 10]);
+      setTimeout(() => { st.rolling = false; submit({ digital: true }); }, prefersReduced() ? 0 : 750);
+    };
+    let main;
+    if (st.rolling) {
+      main = h('div.rp-rolling', { 'aria-live': 'polite' }, h('span.rp-die-spin', { 'aria-hidden': 'true' }, icon('dice', { size: 56 })), h('b', 'Rolling…'));
+    } else if (st.pending != null) {
+      const b = dmg ? null : bonusOf(st.what);
+      main = h('div.rp-confirm',
+        h('p.rp-confirm-k', 'You rolled'),
+        h('span.rp-confirm-n', String(st.pending)),
+        b != null && !dmg ? h('p.rp-confirm-math', `${st.pending} ${b < 0 ? '−' : '+'} ${Math.abs(b)} = ${st.pending + b}`) : null,
+        h('div.rp-confirm-act',
+          h('button.btn.btn-quiet', { type: 'button', onclick: () => { st.pending = null; st.digits = ''; draw(); } }, 'Change'),
+          h('button.btn.btn-primary', { type: 'button', disabled: blocked, onclick: () => { const n = st.pending; st.pending = null; submit({ face: n }); } }, 'Send')));
+    } else if (st.how === 'real') {
+      main = [h('p.rp-real-big', 'Enter only the number on the die. Your bonuses are added for you.'), h('p.rp-hint', physical), keypad(),
+        h('button.btn.btn-quiet.btn-sm.rp-switch', { type: 'button', onclick: () => { st.how = 'digital'; draw(); } }, 'Roll here instead')];
+    } else {
+      const pref = mode() === 'digital' ? 'digital' : 'real';
+      main = h('div.rp-how',
+        h('button', { type: 'button', class: `rp-how-btn${pref === 'digital' ? ' is-pref' : ''}`, disabled: blocked, onclick: rollDigital }, icon('dice', { size: 28 }), h('b', dmg ? 'Roll damage here' : 'Roll here'), h('small', 'The phone rolls for you')),
+        h('button', { type: 'button', class: `rp-how-btn${pref === 'real' ? ' is-pref' : ''}`, disabled: blocked, onclick: () => { st.how = 'real'; draw(); } }, h('span.rp-how-ico', { 'aria-hidden': 'true' }, '✋'), h('b', 'I rolled a real die'), h('small', 'Type what it shows')));
+    }
+    const tgt = mobs().find((m) => m.uid === st.target);
+    return h('div.rp-body.rp-entry', head(st.label, tgt && (isAttack() || dmg) ? `Target: ${tgt.name}` : null), h('div.rp-scroll',
+      targetRow(), modsRow(), main));
   }
 
   function resultStep() {

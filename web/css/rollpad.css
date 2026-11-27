@@ -102,3 +102,27 @@ body.rp-open .roll-fab { display: none; }
 .rp-untrained[open] > summary h3::after { content: ' ▴'; }
 .rp-dice-help { margin-top: 12px; color: var(--c-ink-3); }
 .rp-dice-help summary { cursor: pointer; min-height: 32px; }
+/* Playtest 26 Nov T5: choose digital vs real die first, confirm a typed die, short roll animation. */
+.rp-how { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 8px; }
+.rp-how-btn { display: grid; justify-items: center; gap: 6px; min-height: 132px; padding: 14px 10px; border: 2px solid var(--c-line-2); border-radius: 14px; background: var(--c-raised); color: var(--c-ink); font-size: 16px; text-align: center; cursor: pointer; }
+.rp-how-btn b { font-size: 17px; }
+.rp-how-btn small { color: var(--c-ink-3); font-size: 13px; }
+.rp-how-btn.is-pref { border-color: var(--c-accent); }
+.rp-how-btn:disabled { opacity: .45; }
+.rp-how-ico { font-size: 28px; line-height: 1; }
+.rp-real-big { margin: 6px 0 2px; font-size: 18px; font-weight: 700; line-height: 1.3; }
+.rp-switch { margin-top: 10px; }
+.rp-confirm { display: grid; justify-items: center; gap: 6px; padding: 16px 8px; }
+.rp-confirm-k { margin: 0; color: var(--c-ink-3); }
+.rp-confirm-n { font-size: 64px; font-weight: 800; line-height: 1; color: var(--c-accent); }
+.rp-confirm-math { margin: 0; font-size: 18px; }
+.rp-confirm-act { display: grid; grid-template-columns: 1fr 1.6fr; gap: 10px; width: 100%; margin-top: 10px; }
+.rp-confirm-act .btn { min-height: 52px; font-size: 17px; }
+.rp-rolling { display: grid; justify-items: center; gap: 8px; padding: 28px 0; }
+.rp-die-spin { display: inline-flex; animation: rp-spin .75s cubic-bezier(.3,.7,.4,1) both; color: var(--c-accent); }
+@keyframes rp-spin { from { transform: rotate(0) scale(.6); } 60% { transform: rotate(540deg) scale(1.15); } to { transform: rotate(720deg) scale(1); } }
+@media (prefers-reduced-motion: reduce) { .rp-die-spin { animation: none; } }
+/* T3: the picked target is unmistakable. */
+.rp-chips .chip[aria-pressed="true"] { background: #e5484d; border-color: #ff6369; color: #fff; font-weight: 800; box-shadow: 0 0 0 3px rgba(229, 72, 77, .35); }
+.rp-chips .chip[aria-pressed="true"]::before { content: '🎯 '; }
+.rp-confirm-act .btn-primary { background: var(--c-accent, #e3a33b); border-color: var(--c-accent, #e3a33b); color: #111; }
