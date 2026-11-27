@@ -24,7 +24,7 @@
 import { normalizeState, createState, reduce, reducePlayerAction, packOf, viewFor, genId, ActionError } from './state.js';
 import { rulesetChoices } from './systems.js';
 import { VoiceQueue } from './quips.js';
-import { voiceFor, recordedAudio } from './pack-core.js';
+import { voiceFor, recordedAudio, lineForLang } from './pack-core.js';
 import { makeToken } from './random.js';
 import { safeEqual, RateLimiter, TokenBucket, authenticate, makePairCode } from './access.js';
 import { createTtsHost } from './tts-host.js';
@@ -330,10 +330,13 @@ export function createHost(opts) {
     genId,
     getSession: () => state.session,
     consumeBudget: () => apply({ role: 'system', t: 'budget.consume' }),
-    onPlay: (item) => {
+    onPlay: (raw) => {
+      // TV in Czech: quips with a `cs` line speak Czech (TTS, not the English recording); Czech text gets a cs-CZ voice.
+      const said = lineForLang(pack, raw, state.session.tvLang);
+      const item = said.swapped ? { ...raw, text: said.text } : raw;
       logEvent({ at: now(), kind: 'play', id: item.id, priority: item.priority, text: item.text, quipId: item.quipId });
       const silent = !!state.session.aiMute; // Mute AI: subtitle only, no audio / TTS / speech
-      const audio = silent ? null : recordedAudio(pack, item, state.session.voice);
+      const audio = silent || said.swapped ? null : recordedAudio(pack, item, state.session.voice);
       recentPlays.set(item.id, { text: item.text, ttsVoice: item.ttsVoice ?? null, cue: item.cue ?? null });
       while (recentPlays.size > 50) recentPlays.delete(recentPlays.keys().next().value);
       toStage({
@@ -342,7 +345,7 @@ export function createHost(opts) {
         priority: item.priority,
         text: item.text,
         audio,
-        voice: voiceFor(pack, state.session.voice),
+        voice: said.lang ? { ...voiceFor(pack, state.session.voice), lang: said.lang, prefer: [] } : voiceFor(pack, state.session.voice),
         cue: item.cue ?? null, // id of the event (achievement / announcement) this line belongs to
         category: item.category ?? null, // sound cues on the desk (web/js/cues.js)
         source: item.source ?? null, // { kind, id } of the boss / monster / NPC the line is about

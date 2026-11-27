@@ -373,7 +373,10 @@ export function voiceLines(pack, state, settings = DEFAULT_SETTINGS, { configure
     return !!(q && (q.audioByVoice?.[voiceId] ?? q.audio));
   };
   const addLive = (kind, ref, text) => { if (!recorded(text)) add(kind, ref, text); };
+  const czech = state?.session?.tvLang === 'cs';
   for (const q of pack?.quips ?? []) {
+    // TV in Czech: the Czech line is what gets spoken (host.js lineForLang), recorded English or not.
+    if (czech && q.cs) { add('quip', q.id, q.cs); continue; }
     const own = q.audioByVoice?.[voiceId] ?? q.audio ?? null;
     if (!own) addLive('quip', q.id, q.text);
   }

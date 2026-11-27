@@ -302,7 +302,8 @@ function loadQuips(io, raw, warnings, voices) {
     // "also": extra categories the same line fits (e.g. the cleanup-crew line after a floor AND after a won fight).
     const also = Array.isArray(q.also) ? [...new Set(q.also.filter((c) => isStr(c) && CATEGORY_RE.test(c) && c !== q.category))] : [];
     if (Array.isArray(q.also) && also.length !== q.also.length) warnings.push(`quips.json ${q.id}: also has invalid or duplicate categories, kept ${also.length}`);
-    return { id: q.id, category: q.category, text: q.text.trim(), audio: generic, audioByVoice, ...(also.length ? { also } : {}) };
+    // `cs`: the Czech line (the TV in Czech speaks it; recorded English audio is skipped then).
+    return { id: q.id, category: q.category, text: q.text.trim(), audio: generic, audioByVoice, ...(also.length ? { also } : {}), ...(isStr(q.cs) ? { cs: q.cs.trim().slice(0, 1000) } : {}) };
   });
 }
 
@@ -669,6 +670,20 @@ function finish(pack) {
 /** Full voice object for an id, falling back to the first pack voice, then the built-in host. */
 export function voiceFor(pack, id) {
   return pack.voicesById.get(id) ?? pack.voices[0] ?? DEFAULT_VOICE;
+}
+
+/** Czech text in a line (diacritics): the browser voice must speak it as cs-CZ, not with an English voice. */
+export const looksCzech = (text) => /[ěščřžýáíéůúťďňĚŠČŘŽÝÁÍÉŮÚŤĎŇ]/.test(String(text ?? ''));
+
+/**
+ * The line as this table hears it: with the TV in Czech a quip that has `cs` is spoken in Czech (no English
+ * recording), and any Czech text gets a Czech browser voice. Returns { text, lang } (lang null = voice default).
+ */
+export function lineForLang(pack, item, lang) {
+  const q = item.quipId ? pack?.quipsById?.get(item.quipId) : null;
+  let text = lang === 'cs' && q?.cs ? q.cs : item.text;
+  if (lang === 'cs' && !q?.cs) text = text.replace(/^New achievement\. /, 'Nový achievement. ').replace(/^New achievement! /, 'Nový achievement! ');
+  return { text, lang: looksCzech(text) ? 'cs-CZ' : null, swapped: text !== item.text };
 }
 
 /** Audio URL for a quip in a given voice: audio/<voiceId>/<file> beats audio/<file>. */

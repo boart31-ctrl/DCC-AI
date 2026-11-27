@@ -54,7 +54,7 @@ export function normalizeChatLines(raw, warnings = []) {
       if (typeof c.weight === 'number' && Number.isFinite(c.weight) && c.weight > 0) weight = Math.min(100, c.weight);
       else warnings.push(`chat.json [${i}]: weight must be a positive number, using 1`);
     }
-    out.push({ user: c.user.trim().slice(0, 40), text: c.text.trim().slice(0, 200), tags, weight });
+    out.push({ user: c.user.trim().slice(0, 40), text: c.text.trim().slice(0, 200), tags, weight, ...(isStr(c.cs) ? { cs: c.cs.trim().slice(0, 200) } : {}) });
   });
   if (unknown.size) warnings.push(`chat.json: unknown tags ignored: ${[...unknown].slice(0, 8).join(', ')}`);
   return out;
@@ -243,7 +243,7 @@ export function fillText(text, value) {
   return ok ? out : null;
 }
 
-const needs = (line) => /\{(player|boss|mob|item|count|lost)\}/.test(line.user + line.text);
+const needs = (line, text = line.text) => /\{(player|boss|mob|item|count|lost)\}/.test(line.user + text);
 
 // ---------- director ----------
 
@@ -292,7 +292,10 @@ export function createChat({ lines = [], rng = Math.random, now = Date.now, rece
     }
     if (!cands.length) return null;
     const value = fillerFor(state, rng, fill);
-    const usable = (c) => !needs(c.line) || (fillText(c.line.text, value) !== null && fillText(c.line.user, value) !== null);
+    // TV in Czech (session.tvLang): lines with a `cs` text chat in Czech, the rest stay as written.
+    const cs = state?.session?.tvLang === 'cs';
+    const body = (line) => (cs && line.cs ? line.cs : line.text);
+    const usable = (c) => !needs(c.line, body(c.line)) || (fillText(body(c.line), value) !== null && fillText(c.line.user, value) !== null);
     const blocked = new Set(history);
     let ok = cands.filter((c) => !blocked.has(c.line.i) && usable(c));
     if (!ok.length) {
@@ -306,7 +309,7 @@ export function createChat({ lines = [], rng = Math.random, now = Date.now, rece
     const line = weighted(ok);
     if (!line) return null;
     remember(line.i);
-    return { user: fillText(line.user, value), text: fillText(line.text, value), tag };
+    return { user: fillText(line.user, value), text: fillText(body(line), value), tag };
   }
 
   return {
