@@ -238,7 +238,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
             type: 'button', class: `slot${filled ? ' on' : ''}${cur <= Math.ceil(n * 0.3) && filled ? ' low' : ''}`,
             disabled: !ok, 'aria-label': `${t.label} ${lbl}${filled ? ', filled' : ''}`, title: lbl,
             onclick: () => act({ t: 'track.set', track: t.id, cur: i + 1 === cur ? i : i + 1 }),
-          }));
+          }, c.slotValue > 0 ? String(c.slotValue) : ''));
         }
         out.push(h('div.track.track-slots', { 'data-track': t.id },
           h('div.track-top', h('span.track-l', t.label), h('span.track-v', h('b', String(cur)), ` / ${n}`), !ok ? lockHint(lockText()) : null),
@@ -1226,8 +1226,13 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       const step = (d) => h('button.ph-step', { type: 'button', disabled: !okT || (d < 0 ? cur <= 0 : cur >= max), 'aria-label': `${t.label} ${d < 0 ? 'minus' : 'plus'} 1`, onclick: () => act({ t: 'track.set', track: t.id, delta: d }) }, icon(d < 0 ? 'minus' : 'plus', { size: 16 }));
       return h('div.ph-track', { 'data-track': t.id, class: `ph-track${pct <= 30 ? ' low' : ''}${k === 0 ? ' main' : ''}` },
         k === 0 ? step(-1) : null,
-        h('div.ph-bar', { role: 'meter', 'aria-valuenow': cur, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-label': t.label },
-          h('i.ph-fill', { style: { width: `${pct}%` } }), h('span.ph-bl', t.label), h('b.ph-bv', `${cur}`, h('small', `/${max}`))),
+        // Health slots (27 Nov): one rectangle per slot with the HP it soaks, so a hit's cost is visible.
+        t.kind === 'slots' && max > 0 && max <= 20
+          ? h('div.ph-bar.ph-slotbar', { role: 'meter', 'aria-valuenow': cur, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-label': `${t.label} ${cur}/${max}${c.slotValue > 1 ? `, ${c.slotValue} HP per slot` : ''}` },
+            h('span.ph-bl', t.label, c.slotValue > 1 ? h('small', ` · ${c.slotValue} HP/slot`) : null), h('b.ph-bv', `${cur}`, h('small', `/${max}`)),
+            h('div.ph-cells', Array.from({ length: max }, (_, i) => h('i', { class: i < cur ? 'on' : '' }, c.slotValue > 0 ? String(c.slotValue) : ''))))
+          : h('div.ph-bar', { role: 'meter', 'aria-valuenow': cur, 'aria-valuemin': 0, 'aria-valuemax': max, 'aria-label': t.label },
+            h('i.ph-fill', { style: { width: `${pct}%` } }), h('span.ph-bl', t.label), h('b.ph-bv', `${cur}`, h('small', `/${max}`))),
         k === 0 ? step(1) : null);
     });
     const lf = luckField();

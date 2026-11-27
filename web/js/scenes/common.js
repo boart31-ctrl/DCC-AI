@@ -276,7 +276,7 @@ function trackEl(t, big) {
   const style = { '--tc': t.color || '#ff3355' };
   if ((t.kind === 'slots' || max <= 20) && max > 0 && big) {
     return h('div.ps-track.slots', { style, class: low ? 'ps-track slots low' : 'ps-track slots', title: `${t.label} ${cur}/${max}` },
-      h('div.ps-pips', Array.from({ length: max }, (_, i) => h('i', { class: i < cur ? 'on' : '' }))),
+      h('div.ps-pips', Array.from({ length: max }, (_, i) => h('i', { class: i < cur ? 'on' : '' }, t.slotValue > 0 && i < cur ? String(t.slotValue) : ''))),
       h('b.ps-num', `${cur}`));
   }
   return h('div.ps-track.bar', { style, class: low ? 'ps-track bar low' : 'ps-track bar' },

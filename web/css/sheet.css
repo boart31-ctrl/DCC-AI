@@ -576,3 +576,14 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 .cr-more { grid-column: 1 / -1; }
 .cr-own { border-style: dashed; }
 .cr-pick:has(.lbl) .cr-skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }
+/* Health as numbered slots on the phone (27 Nov). */
+.ph-bar.ph-slotbar { height: auto; display: grid; grid-template-columns: 1fr auto; row-gap: 4px; padding: 5px 8px 6px; overflow: visible; }
+.ph-track.main .ph-bar.ph-slotbar { height: auto; }
+.ph-slotbar .ph-bl, .ph-slotbar .ph-bv { position: static; }
+.ph-slotbar .ph-bl small { color: var(--c-ink-3); font-weight: 500; }
+.ph-cells { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: 3px; }
+.ph-cells i { display: grid; place-items: center; height: 22px; border-radius: 3px; border: 1px solid var(--c-line-2); font: 700 12px/1 var(--f-mono, monospace); font-style: normal; color: var(--c-ink-3); }
+.ph-cells i.on { background: var(--c-hp); border-color: var(--c-hp); color: #fff; }
+.ph-track.low .ph-cells i.on { animation: none; }
+.track-slots .slot { font: 700 12px/1 var(--f-mono, monospace); color: var(--c-ink-3); }
+.track-slots .slot.on { color: #fff; }

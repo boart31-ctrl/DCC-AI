@@ -323,6 +323,7 @@ function exploreMerge(st, ctx, prev, patch) {
       text: loc.readAloud ?? '',
       slides: [loc.image, ...(loc.images || [])].filter(Boolean).slice(0, 9),
       slide: 0,
+      autoSlide: (loc.images || []).length ? 120 : 0, // a place with several pictures changes them slowly by itself
     };
   } else if (locationId === null) base = { ...prev, locationId: null };
   return plainMerge('explore', base, rest);
@@ -794,7 +795,7 @@ function partyOf(state, pack) {
       id: p.id,
       tracks: order.map((t) => {
         const c = computed?.tracks?.[t.id] ?? p.sheet?.tracks?.[t.id] ?? { cur: 0, max: 0 };
-        return { id: t.id, label: t.label, color: t.color, kind: t.kind, cur: c.cur ?? 0, max: c.max ?? 0 };
+        return { id: t.id, label: t.label, color: t.color, kind: t.kind, cur: c.cur ?? 0, max: c.max ?? 0, ...(c.slotValue > 0 ? { slotValue: c.slotValue } : {}) };
       }),
     };
   });

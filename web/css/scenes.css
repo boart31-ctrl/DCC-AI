@@ -757,3 +757,32 @@ body.stage[data-scene="roll"] .subtitle { bottom: auto; top: 6.2rem; }
 @keyframes ex-kb2 { from { transform: scale(1.04) translate(-2%, 0); } to { transform: scale(1.12) translate(2%, -1%); } }
 @keyframes ex-kb3 { from { transform: scale(1.1) translate(0, -2%); } to { transform: scale(1.03) translate(-1%, 1.5%); } }
 @media (prefers-reduced-motion: reduce) { .ex-bg .ex-slide.in { animation: none; } }
+/* 27 Nov (David): Explore title smaller, so it doesn't fight the picture. */
+.sc-explore .ex-loc, .ex-loc { font-size: 4.6rem; line-height: 0.9; }
+.ex-loc.long { font-size: 3.8rem; }
+.ex-floor { font-size: 1.5rem; }
+/* Explore crawler cards: portrait in a frame, name, HP and Mana under it; cards side by side, no wide panel. */
+.ex-party .party-strip { justify-content: flex-start; gap: 0.8rem; min-height: 0; }
+.ex-party .ps-card {
+  flex: 0 0 12.5rem; max-width: 12.5rem;
+  grid-template-columns: 1fr; justify-items: center; gap: 0.35rem;
+  padding: 0.6rem 0.7rem 0.7rem; clip-path: none; border-radius: 0.6rem;
+  background: rgba(10, 6, 20, 0.78); border: 2px solid var(--pc); border-bottom-width: 2px;
+}
+.ex-party .ps-card::before { display: none; }
+.ex-party .ps-face { width: 5.6rem; height: 5.6rem; border-radius: 0.5rem; box-shadow: 0 0 0 0.22rem var(--pc); }
+.ex-party .ps-lvl { position: absolute; top: 0.4rem; left: 0.4rem; width: 2.4rem; height: 2.4rem; }
+.ex-party .ps-lvl b { font-size: 1.2rem; }
+.ex-party .ps-lvl small { font-size: 0.5rem; }
+.ex-party .ps-card:not(:has(.ps-face)) .ps-lvl { position: relative; top: 0; left: 0; width: 5.6rem; height: 5.6rem; }
+.ex-party .ps-card:not(:has(.ps-face)) .ps-lvl b { font-size: 2.4rem; }
+.ex-party .ps-main { width: 100%; justify-items: center; gap: 0.3rem; }
+.ex-party .ps-name { font-size: 1.35rem; text-align: center; max-width: 100%; }
+.ex-party .ps-track { width: 100%; gap: 0.35rem; }
+.ex-party .ps-track.bar { height: 0.55rem; }
+.ex-party .ps-track.bar .ps-num { top: -1.1rem; font-size: 0.75rem; }
+/* HP as numbered slots (each rectangle = one Health slot, the number = HP it soaks). */
+.ps-pips i { display: grid; place-items: center; min-height: 1.15rem; font: 800 0.75rem/1 var(--f-mono); color: rgba(0, 0, 0, 0.75); transform: none; border-radius: 2px; }
+.ex-party .ps-pips { gap: 2px; }
+.ex-party .ps-pips i { min-height: 1.05rem; font-size: 0.68rem; }
+.ex-party .ps-track.slots .ps-num { font-size: 0.85rem; min-width: 2ch; }

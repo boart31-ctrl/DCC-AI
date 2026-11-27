@@ -518,7 +518,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
   }
 
   /** Explore presentation (27 Nov): step through the location's pictures on the TV, or let the TV advance itself. */
-  const AUTO_SLIDE = [[0, 'You step'], [8, 'Every 8 s'], [15, 'Every 15 s'], [30, 'Every 30 s'], [60, 'Every 1 min']];
+  const AUTO_SLIDE = [[0, 'You step'], [15, 'Every 15 s'], [30, 'Every 30 s'], [60, 'Every 1 min'], [120, 'Every 2 min'], [300, 'Every 5 min']];
   function slidesRow(sc) {
     const slides = sc.data.slides || [];
     if (slides.length < 2) return slides.length ? null : h('p.dim.sc-slides-none', 'No pictures for this place yet: the TV shows the floor backdrop.');
@@ -1205,7 +1205,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
   function formBody(kind) {
     const v = view();
     if (kind === 'lobby') return [txt('lobby', 'title', 'Title', { placeholder: v.pack?.systemName || 'The System', max: 80 }), txt('lobby', 'subtitle', 'Subtitle', { placeholder: 'Grab your phone. The show starts soon.', max: 160, cls: 'span-2' }), chk('lobby', 'showQr', 'Show the join QR')];
-    if (kind === 'explore') return [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Read-aloud (you read it; the TV shows the picture)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showText', 'Also put the text on the TV'), chk('explore', 'showFeed', 'Show the event feed')];
+    if (kind === 'explore') return [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Read-aloud (you read it; the TV shows the picture)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showText', 'Also put the text on the TV')];
     if (kind === 'boss') return bossPicker();
     if (kind === 'chase') return chaseForm();
     if (kind === 'loot') return lootForm();

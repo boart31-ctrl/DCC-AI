@@ -32,7 +32,7 @@ export default function explore(root, sc, env) {
     h('div.ex-body',
       h('div.ex-card', floor, loc, textBox),
       feed),
-    h('div.sc-party', party.el));
+    h('div.sc-party.ex-party', party.el));
   let img = '';
   let feedSig = '';
   function update(s, view) {
@@ -59,7 +59,7 @@ export default function explore(root, sc, env) {
       if (slides && slides.length > 1 && d.autoSlide > 0) auto = setInterval(() => { cur = (cur + 1) % slides.length; show(slides[cur]); }, d.autoSlide * 1000);
     }
     show(slides ? slides[cur] || slides[0] : d.image || assetSrc(floorBg(uiOf(view), 'explore', String(d.floor || '').match(/-?\d+/)?.[0])) || '');
-    feed.hidden = d.showFeed === false;
+    feed.hidden = true; // 27 Nov: the event log is on demand (GM Dice log / phone messages), not on the TV
     const items = (view.feed || []).filter((e) => e.kind !== 'gift').slice(-5);
     const sig = items.map((e) => e.id).join();
     if (sig !== feedSig) {
