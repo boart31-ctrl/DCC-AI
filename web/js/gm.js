@@ -1370,7 +1370,7 @@ document.addEventListener('keydown', (e) => {
   if (e.key === '/') { e.preventDefault(); showView('library'); library.focusSearch(); return; }
   // Quip number keys work on every view (the show's signature should never be a tab away); A / M stay on Show.
   if (currentView === 'show' && (e.key === 'a' || e.key === 'A')) { e.preventDefault(); toggleAuto(); return; }
-  if (currentView === 'show' && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); if (['fight', 'map'].includes(scenes.currentTab())) scenes.switchMapFight(); else openComms(); return; }
+  if (currentView === 'show' && (e.key === 'm' || e.key === 'M')) { e.preventDefault(); if (['fight', 'map', 'boss'].includes(scenes.currentTab())) scenes.switchMapFight(); else openComms(); return; }
   // Physical keys (e.code) so the number row works on Czech/other layouts; Shift+digits belong to the SFX pads.
   const qDigit = !e.shiftKey && /^(Digit|Numpad)[1-9]$/.test(e.code) ? Number(e.code.slice(-1)) : 0;
   if (qDigit) {

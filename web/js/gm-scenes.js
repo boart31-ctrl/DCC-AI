@@ -120,7 +120,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     if (tab === 'map') {
       const boss = fightBossOnMap && view().combat?.combatants?.some((m) => m.sourceKind === 'boss' && m.sourceId === fightBossOnMap && !m.down && !m.hidden);
       const kind = boss ? 'boss' : 'combat';
-      if (await act({ t: 'scene.set', kind, data: boss ? { bossId: fightBossOnMap } : {} }, null)) pick('fight');
+      if (await act({ t: 'scene.set', kind, data: boss ? { bossId: fightBossOnMap } : {} }, null)) pick(boss ? 'boss' : 'fight');
       return;
     }
     const mapId = currentMap();
@@ -255,7 +255,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       }, pref.focusFight ? 'Exit focus' : 'Focus fight') : null,
       tab === 'map' && D('map').mapId && !isLive('map') ? h('button.btn.btn-sm', { type: 'button', onclick: () => goLive('map') }, icon('tv', { size: 14 }), 'Map on TV') : null,
       ['fight', 'map'].includes(tab) && !(tab === 'fight' && pref.focusFight) ? h('button.btn.btn-sm.btn-quiet', { type: 'button', 'aria-pressed': String(pref.pv), onclick: () => { pref.pv = !pref.pv; store.set('pv2', pref.pv); drawAll(); } }, pref.pv ? 'Hide preview' : 'Show preview') : null,
-      ['fight', 'map'].includes(tab) ? h('button.btn.btn-sm.sh-map-switch', { type: 'button', onclick: switchMapFight },
+      ['fight', 'map', 'boss'].includes(tab) && (tab !== 'boss' || !!view().combat?.active) ? h('button.btn.btn-sm.sh-map-switch', { type: 'button', onclick: switchMapFight },
         icon(tab === 'map' ? 'swords' : 'map', { size: 14 }), tab === 'map' ? 'Switch to fight' : 'Switch to map') : null,
     ].filter(Boolean));
   }
@@ -591,7 +591,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
         }),
         h('button.btn.btn-sm.btn-quiet', { type: 'button', onclick: () => send({ t: 'boss.intro' }, 'Boss intro.'), title: 'Cinematic + intro line again' }, 'Replay intro')),
       attacks.length ? attackSection(b.name, attacks, fighter, d.bossId, { boss: true }) : null,
-      minionSection(true),
+      view().combat?.active ? null : minionSection(true), // in a running fight the tracker below lists them
       h('div.sc-boss-info',
         h('div.sc-gm-only',
           h('p.sc-gm-k', icon('lock', { size: 12 }), 'GM only'),
@@ -1254,7 +1254,10 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const live = isLive(id);
     pvCol.hidden = false; // always there: a draft preview, or a mirror of the TV once it is on air
     panel.classList.toggle('no-pv', pvCol.hidden || !pref.pv);
-    slots.fight.hidden = id !== 'fight';
+    // Playtest 26 Nov: the Boss tab replaced the fight tracker, so HP, actions and evades vanished mid-fight.
+    // A live boss now sits on top of the same tracker as a normal fight.
+    const bossFight = id === 'boss' && live && !!view().combat?.active;
+    slots.fight.hidden = !(id === 'fight' || bossFight);
     slots.npc.hidden = id !== 'npc';
     slots.map.hidden = id !== 'map';
     slots.sound.hidden = id !== 'sound';
