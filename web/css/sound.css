@@ -80,3 +80,8 @@
 .snd-now { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
 .snd-now-i { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border: 1px solid var(--c-line); border-radius: 999px; font-size: 13px; }
 .snd-now-i.on { border-color: var(--c-accent); }
+.snd-cell-ctl { display: flex; gap: 4px; align-items: center; }
+.snd-cell-ctl .snd-pad-vol { flex: 1 1 60px; min-width: 50px; width: auto; }
+.snd-cell-ctl .snd-repeat { flex: 0 0 64px; width: 64px; min-height: 28px; padding: 0 2px; font-size: 12px; }
+.snd-pad.is-armed { outline: 2px solid var(--c-accent); outline-offset: 1px; }
+.snd-pad.is-armed .snd-pad-l::after { content: ' ↻'; }

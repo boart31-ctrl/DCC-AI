@@ -205,7 +205,7 @@ Optional arrays, library kinds `boss` and `location` (GM library + the Scenes pa
   to the current phase's portrait). `tools/art_ingest.py` writes all three.
 - Unknown keys (`attacks`, `evade`, `cues`, ...) are ignored by the scene system.
 
-Locations: `{ id, name, floor, image, readAloud, features[], npcs[], monsters[], bosses[] }` — picking one fills
+Locations: `{ id, name, floor, image, images[] (extra slides, ≤8), readAloud, features[], npcs[], monsters[], bosses[] }` — picking one fills
 the Explore scene (name, "Floor N", backdrop image, `readAloud` as the on-screen text). `features` are GM-only
 notes; `npcs` / `monsters` / `bosses` are library ids (the GM desk lists them; the combat builder can add a
 location's monsters in one go).

@@ -746,3 +746,14 @@ body.stage[data-scene="roll"] .subtitle { bottom: auto; top: 6.2rem; }
 .ex-picture .ex-body { align-items: end; }
 
 .boss-arena[hidden], .bs-fight[hidden] { display: none; }
+/* Explore slides (27 Nov): crossfade + slow drift, so a still picture feels alive on the TV. */
+.ex-bg .ex-slide { position: absolute; inset: 0; opacity: 0; transition: opacity 1.4s ease; transform-origin: 50% 50%; }
+.ex-bg .ex-slide.in { opacity: 1; animation: ex-kb 26s ease-in-out infinite alternate; }
+.ex-bg .ex-slide.kb-1.in { animation-name: ex-kb1; }
+.ex-bg .ex-slide.kb-2.in { animation-name: ex-kb2; }
+.ex-bg .ex-slide.kb-3.in { animation-name: ex-kb3; }
+@keyframes ex-kb { from { transform: scale(1.02) translate(0, 0); } to { transform: scale(1.12) translate(-2%, -1.5%); } }
+@keyframes ex-kb1 { from { transform: scale(1.12) translate(2%, 1%); } to { transform: scale(1.02) translate(0, 0); } }
+@keyframes ex-kb2 { from { transform: scale(1.04) translate(-2%, 0); } to { transform: scale(1.12) translate(2%, -1%); } }
+@keyframes ex-kb3 { from { transform: scale(1.1) translate(0, -2%); } to { transform: scale(1.03) translate(-1%, 1.5%); } }
+@media (prefers-reduced-motion: reduce) { .ex-bg .ex-slide.in { animation: none; } }

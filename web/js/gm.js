@@ -1013,6 +1013,7 @@ $('#ai-mute').addEventListener('click', () => {
   const on = !view?.session?.aiMute;
   act({ t: 'session.aiMute', on }, on ? 'AI muted: text only, no chat, AUTO off.' : 'AI is back on.');
 });
+$('#settings-btn').addEventListener('click', () => showView(currentView === 'settings' ? 'show' : 'settings'));
 $('#tv-lang').addEventListener('click', () => {
   const lang = view?.session?.tvLang === 'cs' ? 'en' : 'cs';
   act({ t: 'session.tvLang', lang }, lang === 'cs' ? 'TV in Czech.' : 'TV in English.');
@@ -1147,6 +1148,7 @@ function showView(v) {
     if (b.dataset.view === v) b.setAttribute('aria-current', 'page'); else b.removeAttribute('aria-current');
   }
   for (const id of VIEWS) $(`#view-${id}`).hidden = id !== v;
+  $('#settings-btn')?.setAttribute('aria-pressed', String(v === 'settings'));
   document.body.dataset.desk = v; // not data-view: [data-view] means a nav button
   msgCenter?.setVisible(v === 'messages');
   try { sessionStorage.setItem('system.gmView', v); } catch {}

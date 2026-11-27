@@ -88,10 +88,26 @@ export function minionRows(combat) {
 export function createScenes({ client, act, getView, getCues = () => null, onPick = () => {}, chooseAttack = () => {}, onOpenPrep = null }) {
   const audio = createGmAudio({ client, getView });
   const view = () => getView() || {};
-  // Drafts per scene kind (what F-keys / GO LIVE send). Persisted per device.
-  const draft = store.get('draft', {});
+  // Drafts per scene kind (what F-keys / GO LIVE send). Persisted per device AND per campaign
+  // (playtest 27 Nov: a new campaign opened with the Lobby text typed for the other one).
+  const draft = {};
+  let draftCampaign = null;
+  const draftKey = () => `draft.${draftCampaign || 'none'}`;
   const D = (k) => (draft[k] ||= {});
-  const saveDraft = () => store.set('draft', draft);
+  const saveDraft = () => { if (draftCampaign) store.set(draftKey(), draft); };
+  function loadDrafts(campaignId) {
+    if (!campaignId || campaignId === draftCampaign) return false;
+    draftCampaign = campaignId;
+    let mine = store.get(draftKey(), null);
+    if (!mine) { // one-time move: the old device-wide drafts go to the first campaign opened, then they are gone
+      mine = store.get('draft', null) || {};
+      try { localStorage.removeItem('system.scenes.draft'); } catch {}
+      store.set(draftKey(), mine);
+    }
+    for (const k of Object.keys(draft)) delete draft[k];
+    Object.assign(draft, mine);
+    return true;
+  }
   let tab = store.get('tab2', 'lobby');
   if (![...SCENES.map((s) => s.kind), ...TOOLS.map((t) => t.id)].includes(tab)) tab = 'lobby';
   let bossPick = D('boss').bossId ?? null;
@@ -495,9 +511,28 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
         st.has ? (st.playing
           ? h('button.btn.btn-sm', { type: 'button', onclick: () => cues.stopAmbience() }, icon('x', { size: 13 }), 'Stop')
           : h('button.btn.btn-sm.btn-primary', { type: 'button', disabled: st.enabled === false, onclick: () => cues.playAmbience() }, icon('play', { size: 13 }), 'Play')) : null),
+      slidesRow(sc),
       text ? h('div.sc-boss-row',
-        h('span.sc-ex-k', icon('chat', { size: 14 }), unread ? h('b.sc-warn-t', 'Text on the TV not read aloud yet') : 'Read aloud'),
+        h('span.sc-ex-k', icon('chat', { size: 14 }), unread ? h('b.sc-warn-t', sc.data.showText ? 'Text on the TV not read aloud yet' : 'Read-aloud not read yet (only on your desk)') : 'Read aloud'),
         h('button.btn.btn-sm', { class: unread ? 'btn btn-sm btn-primary' : 'btn btn-sm', type: 'button', onclick: async () => { if (await act({ t: 'say', text: text.slice(0, 1000) }, 'The System reads it.')) { readSig = text; sig = ''; drawAll(); } } }, icon('speaker', { size: 13 }), unread ? 'Read it now' : 'Read again')) : null);
+  }
+
+  /** Explore presentation (27 Nov): step through the location's pictures on the TV, or let the TV advance itself. */
+  const AUTO_SLIDE = [[0, 'You step'], [8, 'Every 8 s'], [15, 'Every 15 s'], [30, 'Every 30 s'], [60, 'Every 1 min']];
+  function slidesRow(sc) {
+    const slides = sc.data.slides || [];
+    if (slides.length < 2) return slides.length ? null : h('p.dim.sc-slides-none', 'No pictures for this place yet: the TV shows the floor backdrop.');
+    const cur = Math.min(sc.data.slide || 0, slides.length - 1);
+    const go = (i) => act({ t: 'scene.update', data: { slide: (i + slides.length) % slides.length } }, null);
+    return h('div.sc-slides',
+      h('div.sc-boss-row',
+        h('span.sc-ex-k', icon('eye', { size: 14 }), `Picture ${cur + 1} / ${slides.length}`),
+        h('button.btn.btn-sm', { type: 'button', 'aria-label': 'Previous picture', onclick: () => go(cur - 1) }, '◀'),
+        h('button.btn.btn-sm.btn-primary', { type: 'button', 'aria-label': 'Next picture', onclick: () => go(cur + 1) }, 'Next ▶'),
+        select(AUTO_SLIDE.map(([v, l]) => ({ value: String(v), label: l })), String(sc.data.autoSlide || 0),
+          { cls: 'inp-sm', label: 'Slideshow', onChange: (v) => act({ t: 'scene.update', data: { autoSlide: Number(v) } }, Number(v) ? 'The TV changes pictures by itself.' : null) })),
+      h('div.sc-slide-thumbs', slides.map((u, i) => h('button.sc-slide-th', { type: 'button', 'aria-pressed': String(i === cur), 'aria-label': `Show picture ${i + 1}`, onclick: () => go(i) },
+        h('img', { src: u, alt: '', loading: 'lazy' })))));
   }
 
   /** NPC on air: what the TV shows (intro + last line), how to play them (GM only) and notes on this device. */
@@ -1362,6 +1397,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
   /* ---------- render ---------- */
   let sig = '';
   function update(v) {
+    if (loadDrafts(v?.campaign?.id)) drawAll();
     audio.update(v);
     drawAudio();
     const c = v.combat || {};

@@ -377,7 +377,7 @@ look for every missing slot.
 | kind | data |
 |------|------|
 | `lobby` (initial) | `title` [""], `subtitle` [""], `showQr` [true] |
-| `explore` | `locationId` [null], `location`, `floor`, `image` (http(s) / `/pack/` / small data:image, else null), `text` (≤1200, the GM read-aloud), `showText` [false] (also show `text` on the TV; the TV is picture-first otherwise), `showFeed` [true] |
+| `explore` | `locationId` [null], `location`, `floor`, `image` (http(s) / `/pack/` / small data:image, else null), `text` (≤1200, the GM read-aloud), `showText` [false] (also show `text` on the TV; the TV is picture-first otherwise), `showFeed` [true], `slides` [] (≤9 images; set from the location's `image` + `images` on `locationId`), `slide` [0] (which one is on the TV), `autoSlide` [0] (seconds, ≤600; the TV advances by itself, 0 = the GM steps) |
 | `boss` | `bossId` (library id or null), `boss` `{name, title, image, hpSlots, phases:[{name, text, image, atHp}], flavor, color, lootTier, floor, intro, defeatLine}`, `phase` [0], `hp` [hpSlots], `revealed` [false], `defeated` [false], `lootHint` [""] (the TV loot line); view adds `lootTierInfo`, `suggestPhase` (index or null) |
 | `loot` | `playerId`, `tier`; view adds `tierInfo` |
 | `countdown` | `label`, `totalMs`, `remainingMs`; view adds `running`, `endsAt` (server ms or null). Clients compute `endsAt − (Date.now() + (now − receivedAt))` |

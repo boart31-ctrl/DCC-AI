@@ -83,7 +83,7 @@ test('scene.set / scene.update: plain kinds validate fields, update is a shallow
   const sc = r.state.scene;
   assert.equal(sc.kind, 'explore');
   assert.equal(sc.since, 1_000_000);
-  assert.deepEqual(sc.data, { locationId: null, location: 'The Food Court', floor: 'Floor 2', image: null, text: 'It smells of fryer oil.', showText: false, showFeed: true });
+  assert.deepEqual(sc.data, { locationId: null, location: 'The Food Court', floor: 'Floor 2', image: null, text: 'It smells of fryer oil.', showText: false, showFeed: true, slides: [], slide: 0, autoSlide: 0 });
   assert.equal(gm(r.state, { t: 'scene.update', data: { showText: true } }).state.scene.data.showText, true, 'GM can put the read-aloud on the TV');
   r = gm(r.state, { t: 'scene.update', data: { floor: 'Floor 3', image: '/pack/images/food.webp' } });
   assert.equal(r.state.scene.id, sc.id); // same scene, no transition
@@ -346,8 +346,14 @@ test('private-pack boss shape: intro/defeatLine voiced, atHp suggests phases, ta
   r = g2(s, { t: 'scene.set', kind: 'explore', data: { locationId: 'lobby' } });
   assert.deepEqual(
     { ...r.state.scene.data },
-    { locationId: 'lobby', location: 'The Grand Lobby', floor: 'Floor 1', image: null, text: 'Marble. Blood. Mints.', showText: false, showFeed: true },
+    { locationId: 'lobby', location: 'The Grand Lobby', floor: 'Floor 1', image: null, text: 'Marble. Blood. Mints.', showText: false, showFeed: true, slides: [], slide: 0, autoSlide: 0 },
   );
+  // presentation: the GM steps through pictures or lets the TV advance; bad values are refused
+  let pr = g2(r.state, { t: 'scene.update', data: { slides: ['/pack/images/a.webp', '/pack/images/b.webp'], slide: 1, autoSlide: 15 } });
+  assert.deepEqual([pr.state.scene.data.slides.length, pr.state.scene.data.slide, pr.state.scene.data.autoSlide], [2, 1, 15]);
+  assert.throws(() => g2(pr.state, { t: 'scene.update', data: { slide: 12 } }), /slide/);
+  assert.throws(() => g2(pr.state, { t: 'scene.update', data: { slides: ['javascript:alert(1)'] } }), /slides\[0\]/);
+  pr = null;
   assert.ok(!JSON.stringify(viewFor(r.state, p2, 'stage')).includes('SECRET'));
   r = g2(r.state, { t: 'scene.update', data: { text: 'Shorter.' } });
   assert.equal(r.state.scene.data.location, 'The Grand Lobby');

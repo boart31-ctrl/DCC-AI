@@ -80,7 +80,11 @@ const PLAIN = {
   builds: {},
   lobby: { title: T.title, subtitle: T.subtitle, showQr: T.showQr },
   // showText: the read-aloud text also on the TV. Off by default (playtest 26 Nov: the GM reads it aloud, the TV is for pictures).
-  explore: { location: T.location, floor: T.floor, image: T.image, text: T.text1200, showText: (v) => flag(v, 'showText'), showFeed: T.showFeed, locationId: (v) => v },
+  explore: { location: T.location, floor: T.floor, image: T.image, text: T.text1200, showText: (v) => flag(v, 'showText'), showFeed: T.showFeed, locationId: (v) => v,
+    // Presentation: slides = location pictures, slide = the one on the TV, autoSlide = TV advances by itself every N s (0 = GM steps).
+    slides: (v) => { if (!Array.isArray(v)) throw bad('slides must be a list of images'); return v.slice(0, 9).map((x, i) => imageUrl(x, `slides[${i}]`)).filter(Boolean); },
+    slide: (v) => intIn(v, 'slide', 0, 8),
+    autoSlide: (v) => intIn(v, 'autoSlide', 0, 600) },
   recap: { title: T.title, text: T.text4000 },
   blank: { text: T.text160 },
   // The arena board: party vs revealed mobs. Its content is view.combat (already role-filtered).
@@ -92,7 +96,7 @@ const PLAIN = {
 const DEFAULTS = {
   builds: () => ({}),
   lobby: () => ({ title: '', subtitle: '', showQr: true }),
-  explore: () => ({ locationId: null, location: '', floor: '', image: null, text: '', showText: false, showFeed: true }),
+  explore: () => ({ locationId: null, location: '', floor: '', image: null, text: '', showText: false, showFeed: true, slides: [], slide: 0, autoSlide: 0 }),
   recap: () => ({ title: '', text: '' }),
   blank: () => ({ text: '' }),
   combat: () => ({ title: '', showParty: true }),
@@ -317,6 +321,8 @@ function exploreMerge(st, ctx, prev, patch) {
       floor: loc.floor !== '' && loc.floor != null ? `Floor ${loc.floor}` : '',
       image: loc.image ?? null,
       text: loc.readAloud ?? '',
+      slides: [loc.image, ...(loc.images || [])].filter(Boolean).slice(0, 9),
+      slide: 0,
     };
   } else if (locationId === null) base = { ...prev, locationId: null };
   return plainMerge('explore', base, rest);

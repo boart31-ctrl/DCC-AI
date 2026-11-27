@@ -243,6 +243,8 @@ export function normalizeLibEntry(kind, raw, opts = {}) {
     Object.assign(e, {
       floor: floorText(raw.floor),
       image: opts.image ? opts.image(raw.image) : homebrewImage(raw.image, ctx),
+      // Extra slides for the Explore presentation (GM steps through them on the TV).
+      images: (Array.isArray(raw.images) ? raw.images : []).slice(0, 8).map((x) => (opts.image ? opts.image(x) : homebrewImage(x, ctx))).filter(Boolean),
       readAloud: text(raw.readAloud, 1200),
       features: textList(raw.features, 30, 300), // GM only
       npcs: idList(raw.npcs, 30),

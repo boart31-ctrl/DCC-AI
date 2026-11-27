@@ -26,6 +26,23 @@ export function createSound({ client, act, getView, audio }) {
   const view = () => getView() || {};
   const tts = () => view().gm?.tts || { configured: false };
 
+  /* Repeat (playtest 27 Nov): an effect can fire every 10 s … 2 min while its pad is armed; click again to stop.
+     The interval is remembered per pad on this device. Stop all / Hold / Esc disarm everything. */
+  const REPEATS = [[0, 'Once'], [10, '10 s'], [30, '30 s'], [60, '1 min'], [120, '2 min']];
+  const repeatOf = (id) => { try { return Number(JSON.parse(localStorage.getItem('system.sfxRepeat') || '{}')[id]) || 0; } catch { return 0; } };
+  const setRepeatOf = (id, sec) => { try { const m = JSON.parse(localStorage.getItem('system.sfxRepeat') || '{}'); if (sec) m[id] = sec; else delete m[id]; localStorage.setItem('system.sfxRepeat', JSON.stringify(m)); } catch {} };
+  const armed = new Map(); // pad id → interval handle
+  function disarm(id) { clearInterval(armed.get(id)); armed.delete(id); padEls.get(id)?.btn.classList.remove('is-armed'); }
+  function disarmAll() { for (const id of [...armed.keys()]) disarm(id); }
+  function arm(id, sec) {
+    disarm(id);
+    board.play(id);
+    armed.set(id, setInterval(() => board.play(id), sec * 1000));
+    padEls.get(id)?.btn.classList.add('is-armed');
+  }
+  const stopAllPads = board.stopAll.bind(board);
+  board.stopAll = () => { disarmAll(); stopAllPads(); };
+
   /* ---------- top bar ---------- */
   const masterIn = h('input.snd-range', { type: 'range', min: 0, max: 1, step: 0.01, 'aria-label': 'Pads master volume' });
   masterIn.value = String(board.master);
@@ -106,8 +123,8 @@ export function createSound({ client, act, getView, audio }) {
     void names;
     grid.replaceChildren(
       ...block('Background', 'loops until you stop it; a new one crossfades', ofKind('ambience'), true),
-      ...block('Music', 'one track at a time, plays once', ofKind('music'), false),
-      ...block('Effects', 'short, once, never repeat by themselves', ofKind('effect'), true));
+      ...block('Music', 'one track at a time; click again to stop', ofKind('music'), false),
+      ...block('Effects', 'short; pick ↻ to repeat every 10 s – 2 min while the pad is lit', ofKind('effect'), true));
     drawPlaying();
   }
   function padCell(p) {
@@ -120,17 +137,31 @@ export function createSound({ client, act, getView, audio }) {
       const btn = h('button.snd-pad', {
         type: 'button', 'data-id': p.id, 'aria-pressed': 'false',
         title: `${p.label}${p.hotkey ? ` (${hotkeyLabel(p.hotkey, layoutMap)})` : ''}${p.source === 'pack' ? ' · from the pack' : ''}`,
-        onclick: () => { board.unlock(); if (p.kind === 'ambience' && board.isPlaying(p.id)) board.stop(p.id, 2); else board.play(p.id); },
+        // Background and music toggle (a second click stops instead of restarting). Effects: once, or repeat while armed.
+        onclick: () => {
+          board.unlock();
+          if ((p.kind === 'ambience' || p.kind === 'music') && board.isPlaying(p.id)) { board.stop(p.id, 2); return; }
+          if (p.kind === 'ambience' || p.kind === 'music') { board.play(p.id); return; }
+          if (armed.has(p.id)) { disarm(p.id); return; }
+          const sec = repeatOf(p.id);
+          if (sec) arm(p.id, sec); else board.play(p.id);
+        },
       },
       h('span.snd-pad-l', p.label),
       h('span.snd-pad-m', p.hotkey ? h('kbd', hotkeyLabel(p.hotkey, layoutMap)) : null, p.source === 'pack' ? h('span.snd-pack', 'pack') : null,
         p.route && p.route !== 'front' ? h('span.snd-route', { title: 'Where it plays on 5.1' }, ROUTE_LABEL[p.route] || p.route) : null,
         p.sub > 0 ? h('span.snd-route', { title: 'Subwoofer send' }, 'Sub') : null,
         p.urls?.length > 1 ? h('span.snd-route', { title: 'Variants, one at random' }, `×${p.urls.length}`) : null,
-        p.kind === 'ambience' ? h('span.snd-route', { title: 'Loops until clicked again' }, 'Loop') : p.kind === 'music' ? h('span.snd-route', 'Music') : null),
+        p.kind === 'ambience' ? h('span.snd-route', { title: 'Loops until clicked again' }, 'Loop') : p.kind === 'music' ? h('span.snd-route', { title: 'Click again to stop' }, 'Music') : null),
       bar);
-      const cell = h('div.snd-cell', btn, vol);
+      const looped = p.kind === 'ambience' || p.kind === 'music';
+      const rep = looped ? null : h('select.inp.inp-sm.snd-repeat', { 'aria-label': `${p.label}: repeat`, title: 'Repeat: once, or every N seconds while the pad is lit (click the pad again to stop)',
+        onchange: (e) => { const sec = Number(e.target.value); setRepeatOf(p.id, sec); if (armed.has(p.id)) { if (sec) arm(p.id, sec); else disarm(p.id); } } },
+        REPEATS.map(([v, l]) => h('option', { value: String(v), selected: repeatOf(p.id) === v }, v ? `↻ ${l}` : l)));
+      rep?.addEventListener('pointerdown', (e) => e.stopPropagation());
+      const cell = h('div.snd-cell', btn, h('div.snd-cell-ctl', vol, rep));
       padEls.set(p.id, { btn, bar });
+      if (armed.has(p.id)) btn.classList.add('is-armed');
       return cell;
     }
   }
@@ -143,7 +174,7 @@ export function createSound({ client, act, getView, audio }) {
       const on = pr != null;
       any ||= on;
       btn.classList.toggle('is-playing', on);
-      btn.setAttribute('aria-pressed', String(on));
+      btn.setAttribute('aria-pressed', String(on || armed.has(id)));
       bar.style.transform = `scaleX(${on ? 1 - pr : 0})`;
     }
     stopBtn.disabled = !any;
