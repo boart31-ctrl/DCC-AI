@@ -567,3 +567,9 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 .skill.locked .sn { opacity: 0.7; }
 .sk-lock { font-size: 0.78em; color: var(--c-warn, #e0a000); white-space: nowrap; }
 .inv-new { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--c-accent, #e4ff2e); color: #111; font-size: 11px; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }
+.gl-i { display: inline-flex; align-items: center; justify-content: center; width: 22px; height: 22px; margin-left: 2px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--c-ink-3); vertical-align: middle; cursor: pointer; }
+.gl-i:focus-visible { outline: 2px solid var(--c-accent); }
+.gl-list { display: grid; gap: 12px; }
+.gl-term { display: block; font-size: 15px; }
+.gl-text { margin: 2px 0 0; line-height: 1.45; }
+.rp-help { min-width: 44px; min-height: 44px; font-weight: 800; font-size: 18px; }

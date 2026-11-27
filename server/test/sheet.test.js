@@ -1323,3 +1323,9 @@ test('item.give: phone + GM get a gift receipt (not the TV), replayable after a 
   assert.equal(r.state.feed.at(-1).kind, 'gift');
   assert.ok(r.state.feed.at(-1).replay.item, 'replayable after a phone reload');
 });
+
+test('ruleset glossary: terms pass through to the view; junk entries are dropped', () => {
+  const rs = normalizeRuleset({ ...RULESET, glossary: [{ term: 'DEX', en: 'Dodging.', cs: 'Uhýbání.', stat: 'dex' }, { term: 'x' }, 'nope', { term: 'DC', en: 'Difficulty.' }] });
+  assert.deepEqual(rs.glossary, [{ term: 'DEX', en: 'Dodging.', cs: 'Uhýbání.', stat: 'dex' }, { term: 'DC', en: 'Difficulty.' }]);
+  assert.deepEqual(normalizeRuleset(RULESET).glossary, []);
+});

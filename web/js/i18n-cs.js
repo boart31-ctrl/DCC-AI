@@ -680,6 +680,8 @@ export default {
   'What do d20 and 1d8+3 mean?': 'Co znamená d20 a 1d8+3?',
   'd20 = a 20-sided die (the main die). 1d8 + 3 = roll one 8-sided die and add 3. 2d6 = roll two 6-sided dice and add them up. “avg” = what it does on an average roll.': 'd20 = kostka s 20 stěnami (hlavní kostka). 1d8 + 3 = hoď jednou osmistěnkou a přičti 3. 2d6 = hoď dvěma šestistěnkami a sečti je. „průměr“ = kolik to dá při průměrném hodu.',
   'You received': 'Dostal(a) jsi',
+  'What do these words mean?': 'Co ta slova znamenají?',
+  'What is {}?': 'Co je {1}?',
   'It is in your Inventory now, marked NEW.': 'Je v inventáři, označené NEW.',
   'Untrained': 'Bez tréninku',
   'Your sheet has nothing to roll yet. Ask the GM to set it up.': 'Na listu zatím nemáš na co házet. Požádej GM, ať ho nastaví.',

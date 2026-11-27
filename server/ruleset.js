@@ -933,6 +933,10 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     labels: normalizeLabels(r.labels),
     combat: normalizeCombatRules(r.combat, derived, unv),
     notes: Array.isArray(r.notes) ? r.notes.filter(isStr).slice(0, 60).map((x) => text(x, 600)) : [],
+    // Plain-language terms for new players (phone "i" icons). { term, en, cs?, stat? } — cs shown when the phone is Czech.
+    glossary: Array.isArray(r.glossary) ? r.glossary.filter((g) => isObj(g) && isStr(g.term) && isStr(g.en)).slice(0, 80).map((g) => ({
+      term: text(g.term, 40), en: text(g.en, 400), ...(isStr(g.cs) ? { cs: text(g.cs, 400) } : {}), ...(isStr(g.stat) && safeId(g.stat) ? { stat: g.stat } : {}),
+    })) : [],
     unverified: unv,
   };
   // Conditions shipped with the ruleset (buff library entries, tagged "condition").

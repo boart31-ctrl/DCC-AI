@@ -6,6 +6,7 @@
 import { h, toast, buzz } from './client.js';
 import { dieFaces, icon, signed, spellCooldownHint } from './ui.js';
 import { statCheckBonus } from './rules.js';
+import { openGlossary, glossaryOf } from './glossary.js';
 
 const KEEP_TARGET_MS = 5 * 60 * 1000;
 
@@ -173,6 +174,7 @@ export function createRollPad({ send, getView, getMe }) {
   function head(title, sub) {
     return h('div.rp-head',
       h('div.rp-title', h('b', title), sub ? h('span.rp-sub', sub) : null),
+      glossaryOf(V()).length ? h('button.btn.btn-quiet.rp-help', { type: 'button', 'aria-label': 'What do these words mean?', title: 'What do these words mean?', onclick: () => openGlossary(V()) }, '?') : null,
       h('button.btn.btn-quiet.rp-x', { type: 'button', 'aria-label': 'Close', onclick: close }, icon('x', { size: 20 })));
   }
 

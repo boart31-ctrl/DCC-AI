@@ -10,6 +10,7 @@ import {
   tabBar, field, select, labeled, lockHint, avatar,
 } from './ui.js';
 import { showRollCard } from './dicelog.js';
+import { infoBtn } from './glossary.js';
 import { pickPortrait } from './portrait.js';
 
 /* Rolls made locally (engines without the `roll` action). Pages merge these into the dice log. */
@@ -292,7 +293,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
           );
         }
         return h('div.stat', { 'data-stat': s.id },
-          h('span.stat-abbr', { title: s.label }, s.abbr),
+          h('span.stat-abbr', { title: s.label }, s.abbr, gm ? null : infoBtn(view, s.id, s.label)),
           main,
           sub,
         );
