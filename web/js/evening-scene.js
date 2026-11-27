@@ -4,6 +4,7 @@ import { libGet, libraryOf } from './rules.js';
 import { dangerBar } from './danger-bar.js';
 import { mobsOf, prepDanger } from './prep-danger.js';
 import { privateChecks } from './prep-checks.js';
+import { giveGuard } from './give-once.js';
 
 export const EVENING_MOB_TYPE = 'application/x-evening-mob';
 const TYPES = ['Fight', 'Explore', 'Talk', 'Trap', 'Boss', 'Chase'];
@@ -182,7 +183,7 @@ function peopleBody({ scene, view, npcEntries, itemEntries, act, patch }) {
   const itemNode = (id) => {
     const e = libGet(lib, 'item', id);
     const name = e?.name ?? id;
-    const direct = (playerId) => act({ t: 'item.give', playerId, itemId: id }, `${name} given.`);
+    const direct = (playerId) => (giveGuard(playerId, id, name, party.find((x) => x.id === playerId)?.name) ? act({ t: 'item.give', playerId, itemId: id }, `${name} given.`) : null);
     const give = h('details.evening-give');
     give.append(h('summary.btn.btn-sm.btn-quiet', icon('gift', { size: 14 }), 'Give'),
       h('div.evening-give-targets', party.length ? party.map((p) => h('button.btn.btn-sm', { type: 'button', onclick: () => { give.open = false; direct(p.id); } }, p.name)) : h('p.hint', 'Add a player to give loot.')));

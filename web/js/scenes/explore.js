@@ -43,7 +43,7 @@ export default function explore(root, sc, env) {
       }
     }
     feed.hidden = d.showFeed === false;
-    const items = (view.feed || []).slice(-5);
+    const items = (view.feed || []).filter((e) => e.kind !== 'gift').slice(-5);
     const sig = items.map((e) => e.id).join();
     if (sig !== feedSig) {
       const known = new Set(feedSig.split(','));

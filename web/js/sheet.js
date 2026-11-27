@@ -716,7 +716,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
       return h('li.inv', { class: `inv r-${r}` },
         h('span.rar', { title: r, 'aria-label': r }),
         itemArt(it, 'inv-ico'),
-        h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid), title: it.desc || '' }, h('span.in', it.name), line ? h('span.inv-note', line) : null),
+        h('button.inv-n', { type: 'button', onclick: () => { newItemSeen(player?.id, i.uid); itemDrawer(i.uid); }, title: it.desc || '' }, h('span.in', it.name, isNewItem(player?.id, i.uid) ? h('span.inv-new', 'NEW') : null), line ? h('span.inv-note', line) : null),
         i.equippedSlot ? h('span.pill', M.rs.slots.find((s) => s.id === i.equippedSlot)?.label || i.equippedSlot) : null,
         hot.has(i.uid) ? h('span.hot-mark', { title: 'On the hotlist', 'aria-label': 'On the hotlist' }, icon('star', { size: 13 })) : null,
         h('span.inv-q', { title: 'Quantity' }, `×${i.qty ?? 1}`),
@@ -1100,7 +1100,7 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     return h('li.inv', { class: `inv r-${r}` },
       h('span.rar', { title: r, 'aria-label': r }),
       itemArt(it, 'inv-ico'),
-      h('button.inv-n', { type: 'button', onclick: () => itemDrawer(i.uid) }, h('span.in', it.name), itemLine(it, i) ? h('span.inv-note', itemLine(it, i)) : null),
+      h('button.inv-n', { type: 'button', onclick: () => { newItemSeen(player?.id, i.uid); itemDrawer(i.uid); } }, h('span.in', it.name, isNewItem(player?.id, i.uid) ? h('span.inv-new', 'NEW') : null), itemLine(it, i) ? h('span.inv-note', itemLine(it, i)) : null),
       hot.has(i.uid) ? h('span.hot-mark', { title: 'On the hotlist', 'aria-label': 'On the hotlist' }, icon('star', { size: 13 })) : null,
       h('span.inv-q', { title: 'Quantity' }, `×${i.qty ?? 1}`),
     );
@@ -1462,3 +1462,10 @@ export function createSheet({ mode = 'player', send, extraTabs = () => [], onBui
     act,
   };
 }
+
+/* Items the GM just gave (playtest 26 Nov): the phone marks them NEW until opened. Per device, best effort. */
+const NEW_KEY = (pid) => `system.newItems.${pid}`;
+function newItemList(pid) { try { const v = JSON.parse(localStorage.getItem(NEW_KEY(pid))); return Array.isArray(v) ? v : []; } catch { return []; } }
+export function markNewItem(pid, uid) { if (!pid || !uid) return; try { localStorage.setItem(NEW_KEY(pid), JSON.stringify([...new Set([...newItemList(pid), uid])].slice(-30))); } catch {} }
+function isNewItem(pid, uid) { return !!pid && newItemList(pid).includes(uid); }
+function newItemSeen(pid, uid) { if (!pid) return; try { localStorage.setItem(NEW_KEY(pid), JSON.stringify(newItemList(pid).filter((x) => x !== uid))); } catch {} }

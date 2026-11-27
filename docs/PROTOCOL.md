@@ -269,7 +269,7 @@ or `{ "t": "ack", "rid": "...", "ok": false, "error": "..." }`.
 | `table.keep` | `table?`, `text` | Keeps a result for tonight (`tables.kept`, last 60) |
 | `loot.peek` | `tier` | GM preview: rolls the tier's table, gives nothing. Ack `result.item {id, name, rarity, image, desc}` |
 | `loot.open` | `playerId`, `tier`, `itemId?` | Rolls pack loot table for tier (or takes the peeked `itemId`, which must be on that table), adds the item and opens its loot scene. The `loot` event carries `sceneId`. The live scene keeps the awarded item in `data.opened` until replaced |
-| `item.give` | `playerId`, `itemId`, `qty?`, `bonus?` (0-3) | Direct give from the library (pack or homebrew), no animation. Stackable items merge into an existing stack with the same bonus (`qty` added). `bonus` = a +N copy: name `+N`, rarity at least uncommon/rare/epic, weapons +N to hit and damage (`attack.bonus`), armour +N to its `armor` effect |
+| `item.give` | `playerId`, `itemId`, `qty?`, `bonus?` (0-3) | Direct give from the library (pack or homebrew), no TV animation; emits `gift` to the GM and that player (phone card). The GM UI warns on a repeat tap of the same item within 6 s (client-side). Stackable items merge into an existing stack with the same bonus (`qty` added). `bonus` = a +N copy: name `+N`, rarity at least uncommon/rare/epic, weapons +N to hit and damage (`attack.bonus`), armour +N to its `armor` effect |
 | `item.enhance` | `playerId`, `uid`, `bonus` (0-3) | Make an inventory copy +N (0 = plain). Not for a stack of more than one |
 | `item.remove` | `playerId`, `uid` | Also clears it from the hotlist |
 | `quip.play` | `category` **or** `quipId` | P0: plays immediately on stage |
@@ -828,6 +828,7 @@ the dice RNG (tests); default Web Crypto.
 | `spell` | `playerId`, `spellId`, `name`, `cost`, `track`, `applied` | all |
 | `itemUse` | `playerId`, `itemId`, `name`, `healed`, `applied`, `removedBuff`, `consumed`, `pendingBuff`, `buffOnFail`, `note` | all |
 | `loot` | `playerId`, `tier`, `item` (full inventory item, incl. `flavor`) | all |
+| `gift` | `playerId`, `item` (inventory item), `qty` — from `item.give` | gm + that player (phone takeover "You received", NEW badge in Inventory; GM delivery toast). Feed entry with `replay`, hidden on the TV |
 | `sponsor` | `playerId`, `sponsor`, `tier`, `item` | all |
 | `message` | `id` (= message id), `group`, `from`, `to` | recipients + gm (phone vibrates; text arrives in view) |
 | `announcement` | `messageId`, `from`, `text` | stage (only for `msg.send` with `onStage: true` and a group recipient) |

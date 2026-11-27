@@ -4,7 +4,7 @@ import {
   SystemClient, TransportHub, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
   prefersReducedMotion, registerSW, isHosted, ask, portraitSrc,
 } from './client.js';
-import { createSheet, localRolls, onLocalRoll } from './sheet.js';
+import { createSheet, localRolls, onLocalRoll, markNewItem } from './sheet.js';
 import { createMapView } from './map-view.js';
 import { combatBlocked, createRxPhone, reactionControls } from './rx-phone.js';
 import { openBuilder as openPlainBuilder } from './builder.js';
@@ -337,7 +337,8 @@ client.on('event', (e) => {
     return;
   }
   if (e.playerId !== me.id) return;
-  if (['achievement', 'loot', 'sponsor', 'item.broken'].includes(e.kind)) {
+  if (['achievement', 'loot', 'sponsor', 'item.broken', 'gift'].includes(e.kind)) {
+    if (e.kind === 'gift' && e.playerId !== me?.id) return;
     if (e.id && seenLoad()?.has(e.id)) return; // the view got here first and already played it
     receiveTakeover(e);
   }
@@ -383,7 +384,7 @@ function receiveTakeover(e) {
 }
 function replayMissed(v) {
   if (!me) return;
-  const mine = (v.feed || []).filter((f) => f.playerId === me.id && f.replay && ['achievement', 'loot', 'sponsor', 'item.broken'].includes(f.kind));
+  const mine = (v.feed || []).filter((f) => f.playerId === me.id && f.replay && ['achievement', 'loot', 'sponsor', 'item.broken', 'gift'].includes(f.kind));
   if (!seenLoad()) { for (const f of mine) markSeen(f.id); if (!mine.length) markSeen('_init'); return; }
   const now = v.now || Date.now();
   for (const f of mine) {
@@ -1134,7 +1135,22 @@ function nextTakeover() {
     nextTakeover();
   };
 
-  if (e.kind === 'item.broken') {
+  if (e.kind === 'gift') {
+    // Playtest 26 Nov: a GM gift landed silently in the inventory. Same card style as loot, no box to open.
+    buzz([30, 30, 120]);
+    const r = rarityOf(e.item?.rarity);
+    el.style.setProperty('--glow', `var(--r-${r})`);
+    markNewItem(me?.id, e.item?.uid);
+    sheet.redraw();
+    el.replaceChildren(h('div.to-inner',
+      myFace(),
+      h('div.to-kicker', 'You received'),
+      h('div.reveal', { class: `reveal r-${r}` },
+        itemArt(e.item || {}),
+        h('div.meta', h('span.nm', `${e.item?.name || 'Something'}${(e.qty ?? 1) > 1 ? ` × ${e.qty}` : ''}`), e.item?.desc ? h('p.ds', e.item.desc) : null, e.item?.flavor ? h('p.flavor', e.item.flavor) : null)),
+      h('p.to-hint', 'It is in your Inventory now, marked NEW.')));
+    dismissable(reduced ? 200 : 900);
+  } else if (e.kind === 'item.broken') {
     buzz([80, 40, 100]);
     el.replaceChildren(h('div.to-inner', h('h2', `Your ${e.name} shattered`)));
     dismissable(200);

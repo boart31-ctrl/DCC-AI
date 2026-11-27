@@ -33,6 +33,7 @@ import { openLootAdvisor, lootPowerBlock, lootSettingsPanel } from './gm-loot.js
 import { marksEl } from './marks.js';
 import { createAchPicker, suggestionsPanel } from './gm-ach.js';
 import { createTables } from './gm-tables.js';
+import { giveGuard } from './give-once.js';
 
 const $ = (s, r = document) => r.querySelector(s);
 // `client` is a hub: the Node boot attaches a WebSocket client, the hosted edition attaches its own transport.
@@ -114,6 +115,7 @@ client.on('event', (e) => {
   }
   if (e.kind === 'loot') toast(`${p?.name || 'Player'} got ${e.item?.name || 'an item'} (${e.item?.rarity || '?'})`);
   if (e.kind === 'sponsor') toast(`${e.sponsor || 'Sponsor'} box → ${p?.name || 'player'}: ${e.item?.name || ''}`);
+  if (e.kind === 'gift') toast(`✓ Delivered to ${p?.name || 'player'}: ${e.item?.name || 'item'}${(e.qty ?? 1) > 1 ? ` × ${e.qty}` : ''}. Their phone shows it.`, { ms: 4000 });
 });
 
 /* ---------- render ---------- */
@@ -693,6 +695,7 @@ function lootSheet(p, sponsor) {
         onclick: async () => {
           const it = catalog.find((x) => x.id === sel.value);
           const bonus = Number(plus.value) || 0;
+          if (!giveGuard(p.id, `${sel.value}+${bonus}`, it?.name, p.name)) return;
           if (await act({ t: 'item.give', playerId: p.id, itemId: sel.value, ...(bonus ? { bonus } : {}) }, `Gave ${it?.name || 'item'}${bonus ? ` +${bonus}` : ''}.`)) closeSheet();
         },
       }, 'Give')),

@@ -566,3 +566,4 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 /* Major / Critical Fail: no retry in this scene (skill-locks.js) */
 .skill.locked .sn { opacity: 0.7; }
 .sk-lock { font-size: 0.78em; color: var(--c-warn, #e0a000); white-space: nowrap; }
+.inv-new { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 6px; background: var(--c-accent, #e4ff2e); color: #111; font-size: 11px; font-weight: 800; letter-spacing: .04em; vertical-align: middle; }

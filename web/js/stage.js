@@ -320,7 +320,7 @@ function renderStrip() {
 const GLYPH = { achievement: '✦', loot: '▣', sponsor: '$', stat: '±', crawlers: '☠' };
 let feedSig = '';
 function renderFeed() {
-  const feed = (view.feed || []).slice(-7);
+  const feed = (view.feed || []).filter((e) => e.kind !== 'gift').slice(-7);
   const sig = feed.map((e) => e.id).join();
   if (sig === feedSig) return;
   const known = new Set(feedSig.split(','));

@@ -93,3 +93,12 @@ body.rp-open .roll-fab { display: none; }
 .ini-pad-h { margin: 0; font: 700 22px var(--f-ui); }
 .ini-pad-sub { margin: 0; color: var(--c-ink-2, inherit); }
 .ini-pad .ask-inner > * { min-width: 0; }
+
+.rp-search { width: 100%; margin: 0 0 12px; font-size: 16px; min-height: 44px; }
+.rp-meta { display: block; font-size: 12px; }
+.rp-untrained > summary { cursor: pointer; list-style: none; }
+.rp-untrained > summary::-webkit-details-marker { display: none; }
+.rp-untrained > summary h3::after { content: ' ▾'; }
+.rp-untrained[open] > summary h3::after { content: ' ▴'; }
+.rp-dice-help { margin-top: 12px; color: var(--c-ink-3); }
+.rp-dice-help summary { cursor: pointer; min-height: 32px; }

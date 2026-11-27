@@ -1312,3 +1312,14 @@ test('untrained Disadvantage is cancelled by Advantage (DCC pack)', { skip: !fs.
   assert.equal(rec.adv, undefined, 'plain roll');
   assert.equal(rec.natural, 15);
 });
+
+test('item.give: phone + GM get a gift receipt (not the TV), replayable after a reload', () => {
+  const { state, id } = setup();
+  const r = gm(state, { t: 'item.give', playerId: id, itemId: 'ring' });
+  const ev = r.events.find((e) => e.event.kind === 'gift');
+  assert.ok(ev, 'gift event');
+  assert.deepEqual(ev.to, { roles: ['gm'], playerId: id });
+  assert.equal(ev.event.item.uid, r.result.uid);
+  assert.equal(r.state.feed.at(-1).kind, 'gift');
+  assert.ok(r.state.feed.at(-1).replay.item, 'replayable after a phone reload');
+});

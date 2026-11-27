@@ -1,7 +1,7 @@
 // The System — service worker. Caches the app shell only.
 // Never touches /ws, /pack/* (images, audio), /qr or anything else dynamic.
 
-const CACHE = 'system-shell-v80';
+const CACHE = 'system-shell-v81';
 const SHELL = [
   '/',
   '/gm',
@@ -103,6 +103,7 @@ const SHELL = [
   '/css/msgcenter.css',
   '/js/msgcenter.js',
   '/js/rollpad.js',
+  '/js/give-once.js',
   '/css/rollpad.css',
   '/js/initiative.js',
   '/js/campaigns.js',

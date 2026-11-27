@@ -106,6 +106,7 @@ export function createRollPad({ send, getView, getMe }) {
     if (!me() || st.busy) return;
     st.pickerTarget = target;
     st.attacksOnly = attacksOnly;
+    st.query = '';
     st.step = 'pick';
     st.result = null;
     st.favorOpen = false;
@@ -179,31 +180,56 @@ export function createRollPad({ send, getView, getMe }) {
     const c = me()?.sheet?.computed || {};
     const sh = me()?.sheet || {};
     const R = rs();
-    const btn = (what, label, val, unavailable) => h('button.rp-act', { type: 'button', disabled: !!unavailable, onclick: () => open(what, label, st.pickerTarget) },
-      h('span', label, unavailable ? h('small.dim', unavailable) : null), val == null ? null : h('b', signed(val)));
-    const attacks = (sh.attacks || []).map((a) => btn({ kind: 'attack', uid: a.uid }, `${a.name} to hit`, c.attacks?.find((x) => x.uid === a.uid)?.toHit?.value));
-    const spells = R.spells?.attackChecks ? (sh.spells || []).filter((d) => d.attackCheck && (!myRound() || !R.hotlist?.combat || sh.hotlist?.includes(d.uid)))
+    const statAbbr = (id) => (R.stats || []).find((x) => x.id === id)?.abbr || '';
+    const q = (st.query || '').trim().toLowerCase();
+    const hit = (label) => !q || label.toLowerCase().includes(q);
+    const btn = (what, label, val, unavailable, meta) => h('button.rp-act', { type: 'button', disabled: !!unavailable, onclick: () => open(what, label, st.pickerTarget) },
+      h('span', label, meta ? h('small.dim.rp-meta', meta) : null, unavailable ? h('small.dim', unavailable) : null), val == null ? null : h('b', signed(val)));
+    const dmgOf = (a) => { const d = c.attacks?.find((x) => x.uid === a.uid)?.damage || a.dice; return d ? String(d).replace(/\+\s*-/g, '− ') : null; };
+    const avgOf = (d) => { const m = /^(\d*)d(\d+)\s*(?:([+−-])\s*(\d+))?$/.exec(String(d || '').replace(/\s+/g, ' ').trim().replace(/ /g, '')); if (!m) return null; const n = +(m[1] || 1); const v = n * (+m[2] + 1) / 2 + (m[3] ? (m[3] === '+' ? 1 : -1) * +m[4] : 0); return Math.round(v * 10) / 10; };
+    const attacks = (sh.attacks || []).filter((a) => hit(a.name)).map((a) => { const d = dmgOf(a); const avg = avgOf(d); return btn({ kind: 'attack', uid: a.uid }, `${a.name} to hit`, c.attacks?.find((x) => x.uid === a.uid)?.toHit?.value, null, d ? `damage ${d}${avg != null ? ` · avg ${avg}` : ''}` : null); });
+    const spells = R.spells?.attackChecks ? (sh.spells || []).filter((d) => d.attackCheck && (!myRound() || !R.hotlist?.combat || sh.hotlist?.includes(d.uid)) && hit(d.name))
       .map((d) => {
         const row = c.spells?.find((x) => x.uid === d.uid);
         return btn({ kind: 'spell', uid: d.uid }, `${d.name} to hit`, row?.toHit?.value, spellCooldownHint(row?.cooldown));
       }) : [];
-    const derived = (R.derived || []).filter((d) => d.roll).map((d) => btn({ kind: 'derived', id: d.id }, d.label, c.derived?.[d.id]?.value));
-    const skills = (sh.skills || []).slice().sort((a, b) => a.name.localeCompare(b.name)).map((s) => btn({ kind: 'skill', uid: s.uid }, s.name, c.skills?.find((x) => x.uid === s.uid)?.total?.value));
-    const stats = (R.stats || []).map((s) => btn({ kind: 'stat', id: s.id }, `${s.abbr} check`, statCheckBonus(c, s.id).value));
+    const derived = (R.derived || []).filter((d) => d.roll && hit(d.label)).map((d) => btn({ kind: 'derived', id: d.id }, d.label, c.derived?.[d.id]?.value));
+    // Skills: one entry per name (Jump/Jumping style duplicates collapse), stat + rank shown so the bonus is never a mystery.
+    const norm = (n) => String(n || '').toLowerCase().replace(/[^a-z]/g, '').replace(/(ing|s)$/, '');
+    const seen = new Set();
+    const mine = (sh.skills || []).slice().sort((a, b) => a.name.localeCompare(b.name)).filter((s) => { const k = norm(s.name); if (seen.has(k)) return false; seen.add(k); return true; });
+    const skills = mine.filter((s) => hit(s.name)).map((s) => btn({ kind: 'skill', uid: s.uid }, s.name, c.skills?.find((x) => x.uid === s.uid)?.total?.value ?? (s.rank ?? 0), null,
+      [statAbbr(s.stat), `Rank ${s.rank ?? 0}`].filter(Boolean).join(' · ')));
+    const stats = (R.stats || []).filter((s) => hit(`${s.abbr} ${s.label}`)).map((s) => btn({ kind: 'stat', id: s.id }, `${s.label || s.abbr}`, statCheckBonus(c, s.id).value, null, `${s.abbr} · raw stat check`));
     const group = (t, list, note) => (list.length ? h('section.rp-group', h('h3', t), note ? h('p.hint', note) : null, h('div.rp-acts', list)) : null);
     if (st.attacksOnly) return h('div.rp-body', head('Choose an attack', null), h('div.rp-scroll',
-      group('Attacks', attacks), group('Attack spells', spells), !attacks.length && !spells.length ? h('p.hint', 'Your sheet has no attacks yet.') : null));
+      group('Attacks', attacks, attacks.length > 1 ? 'Big number = chance to hit. “damage 1d10” = how hard it hurts: a bigger die often beats +2 to hit.' : null), group('Attack spells', spells),
+      h('details.rp-dice-help', h('summary', 'What do d20 and 1d8+3 mean?'), h('p.hint', 'd20 = a 20-sided die (the main die). 1d8 + 3 = roll one 8-sided die and add 3. 2d6 = roll two 6-sided dice and add them up. “avg” = what it does on an average roll.')),
+      !attacks.length && !spells.length ? h('p.hint', 'Your sheet has no attacks yet.') : null));
     // Untrained (DCC): any library skill not on the sheet, with Disadvantage and only the Stat Mod.
     const U = R.skills?.untrained;
     const have = new Set((sh.skills || []).map((x) => x.skillId));
     const hide = new Set([...(R.skills?.hideTags || []), ...(U?.hideTags || [])]);
     const untrained = U ? (V().library?.skill || []).filter((d) => !have.has(d.id) && !(U.noCheckTypes || []).includes(d.checkType) && !(d.tags || []).some((t) => hide.has(t)))
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((d) => btn({ kind: 'untrained', skillId: d.id }, d.name, c.stats?.[d.stat]?.mod?.value)) : [];
+      .filter((d) => { const k = norm(d.name); if (seen.has(k)) return false; seen.add(k); return hit(d.name); })
+      .map((d) => btn({ kind: 'untrained', skillId: d.id }, d.name, c.stats?.[d.stat]?.mod?.value ?? 0, null, `${statAbbr(d.stat) || 'no stat'} · untrained`)) : [];
+    const search = h('input.inp.inp-search.rp-search', { type: 'search', placeholder: 'Find a skill, e.g. Perception', value: st.query || '', 'aria-label': 'Find what to roll',
+      oninput: (e) => { st.query = e.target.value; const pos = e.target.selectionStart; draw(); const n = el.querySelector('.rp-search'); n?.focus(); n?.setSelectionRange(pos, pos); } });
+    const untrainedNote = `Roll ${U?.adv === 'dis' ? 'with Disadvantage (2 dice, keep the lower)' : ''}, Stat Mod only.${U?.learn ? ' On the Tutorial Floors you may learn one of these at the end of the session.' : ''}`;
+    const untrainedGroup = untrained.length ? (q ? group('Try untrained', untrained, untrainedNote)
+      : h('details.rp-group.rp-untrained', h('summary', h('h3', `Try a skill you don't have (${untrained.length})`)), h('p.hint', untrainedNote), h('div.rp-acts', untrained))) : null;
+    const inFight = !!myRound();
+    const empty = q && !attacks.length && !spells.length && !derived.length && !skills.length && !stats.length && !untrained.length;
     return h('div.rp-body', head('What do you roll?', null), h('div.rp-scroll',
-      group('Attacks', attacks), group('Attack spells', spells), group('Saves & more', derived), group('Skills', skills), group('Abilities', stats),
-      group('Try untrained', untrained, `Roll ${U?.adv === 'dis' ? 'with Disadvantage (2 dice, keep the lower)' : ''}, Stat Mod only.${U?.learn ? ' On the Tutorial Floors you may learn one of these at the end of the session.' : ''}`),
-      !attacks.length && !skills.length ? h('p.hint', 'Your sheet has nothing to roll yet. Ask the GM to set it up.') : null));
+      search,
+      inFight ? [group('Attacks', attacks), group('Attack spells', spells)] : null,
+      group('Your skills', skills, !q && skills.length ? 'Your bonus = Rank + stat modifier (+ items). It is added for you.' : null),
+      !inFight ? [group('Attacks', attacks), group('Attack spells', spells)] : null,
+      group('Saves & more', derived), group('Stats (only when the GM asks for a stat, not a skill)', stats),
+      untrainedGroup,
+      empty ? h('p.hint', `Nothing matches “${st.query}”.`) : null,
+      !attacks.length && !skills.length && !q ? h('p.hint', 'Your sheet has nothing to roll yet. Ask the GM to set it up.') : null));
   }
 
   const SIZES = { tiny: 1, small: 2, petite: 3, medium: 4, large: 5, huge: 6, colossal: 7, gargantuan: 8 };

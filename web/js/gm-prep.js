@@ -24,6 +24,7 @@ import { encounterEditor, ratingBadge, strengthBadge } from './gm-encounter.js';
 import { createMaps } from './gm-maps.js';
 import { createEvening } from './evening.js';
 import { openEveningCheck } from './prep-checks.js';
+import { giveGuard } from './give-once.js';
 
 const REF_LABEL = { ...KIND_LABEL, loot: 'Loot box' };
 const LIB_REF = ['monster', 'boss', 'npc', 'location', 'item', 'spell', 'buff'];
@@ -177,6 +178,7 @@ export function createPrep({ act, getView, scenes, showView, openInLibrary, getC
     }
     if (ref.kind === 'item' && view.players?.length) {
       openDrawer({ title: `Give ${e.name}`, body: h('div.pp-head-row', view.players.map((p) => h('button.btn.btn-sm', { type: 'button', onclick: async () => {
+        if (!giveGuard(p.id, e.id, e.name, p.name)) return;
         if (await act({ t: 'item.give', playerId: p.id, itemId: e.id }, `Gave ${e.name} to ${p.name}.`)) closeDrawer();
       } }, p.name))) });
       return;

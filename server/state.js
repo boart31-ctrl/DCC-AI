@@ -403,7 +403,7 @@ function quipLine(st, quip, priority) {
 // ---------- reducers ----------
 
 // Phone takeovers a crawler may miss (reload, phone asleep): the feed keeps what the phone needs to replay them.
-const REPLAY_KINDS = { 'item.broken': ['name'], achievement: ['achId', 'title', 'desc', 'reward', 'group'], loot: ['tier', 'item', 'items', 'gold'], sponsor: ['sponsor', 'tier', 'item'] };
+const REPLAY_KINDS = { 'item.broken': ['name'], gift: ['item', 'qty'], achievement: ['achId', 'title', 'desc', 'reward', 'group'], loot: ['tier', 'item', 'items', 'gold'], sponsor: ['sponsor', 'tier', 'item'] };
 function feedPush(st, ev, text) {
   const keep = REPLAY_KINDS[ev.kind];
   const replay = keep && ev.playerId ? Object.fromEntries(keep.filter((k) => ev[k] !== undefined).map((k) => [k, ev[k]])) : null;
@@ -702,8 +702,12 @@ const GM = {
     if (!item) throw notFound(`unknown item ${a.itemId}`);
     const qty = int(a.qty, 'qty', 1, 9999, { optional: true }) ?? 1;
     const warnings = giveWarnings(effectiveLootPolicy(ctx.pack.lootPolicy, st.lootSettings, ctx.pack.ruleset.system?.family), { item, floor: lootIndex(st, ctx.pack, p), inventory: p.inventory, itemOf: (id) => libraryOf(st, ctx.pack).get('item', id) });
-    const inv = giveItem(p, item, ctx, qty, int(a.bonus, 'bonus', 0, MAX_ENHANCE, { optional: true }) ?? 0);
-    out.result = { uid: inv.uid, ...(warnings.length ? { warnings } : {}) };
+    const bonus = int(a.bonus, 'bonus', 0, MAX_ENHANCE, { optional: true }) ?? 0;
+    const inv = giveItem(p, item, ctx, qty, bonus);
+    // The crawler sees a takeover card ("You received …"); the GM gets the same event as a delivery receipt. Not on the TV.
+    const ev = out.emit({ kind: 'gift', playerId: p.id, item: inv, qty }, { roles: ['gm'], playerId: p.id });
+    feedPush(st, ev, `${p.name} received ${item.name}`);
+    out.result = { uid: inv.uid, playerName: p.name, itemName: inv.name || item.name, ...(warnings.length ? { warnings } : {}) };
   },
 
   /** Make a copy +N (0 = plain again): name, rarity, to hit / damage or armour follow (ruleset enhanceItem). */
