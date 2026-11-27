@@ -194,7 +194,7 @@ export function rxPanel({ act, view, draft, guide = {} }) {
     const extra = rx.nonAttackActions?.[x.uid] ?? 0;
     const canBuy = hasFavor && ['react', 'act'].includes(rx.step) && !x.dead && x.dying == null && !rx.favor?.includes(x.uid);
     return h('span.rx-pip', { title: `${nameOf(x.uid)}: ${left} action${left === 1 ? '' : 's'} left` },
-      h('b', nameOf(x.uid)), h('span.rx-dots', Array.from({ length: Math.max(left, 0) }, () => h('i.on')), extra ? h('span.pill', { title: 'One non-attack action from AI Favor' }, '+1 utility') : null, rx.evading.includes(x.uid) ? h('span.pill', 'Evading') : null),
+      h('b', nameOf(x.uid)), rx.step === 'act' && !left && !extra ? h('strong', 'Turn complete') : null, h('span.rx-dots', Array.from({ length: Math.max(left, 0) }, () => h('i.on')), extra ? h('span.pill', { title: 'One non-attack action from AI Favor' }, '+1 utility') : null, rx.evading.includes(x.uid) ? h('span.pill', 'Evading') : null),
       canBuy ? h('button.icon-btn', { type: 'button', title: 'Spend 1 AI Favor for a non-attack action', onclick: () => act({ t: 'rx.favor', uid: x.uid }) }, icon('sparkle', { size: 12 })) : null,
       h('button.icon-btn', { type: 'button', title: 'Adjust base actions up', onclick: () => act({ t: 'rx.actions', uid: x.uid, delta: 1 }) }, icon('plus', { size: 12 })),
       h('button.icon-btn', { type: 'button', title: 'One action less', onclick: () => act({ t: 'rx.actions', uid: x.uid, delta: -1 }) }, icon('minus', { size: 12 })));

@@ -445,3 +445,12 @@ body.stage[data-scene="finale"][data-finale="runaway"] .bug { padding: 0.3rem 1r
 .np-intro { margin: 0.6rem 0 0; max-width: 58rem; font-family: var(--f-mono); font-size: 1.75rem; line-height: 1.45; color: var(--sys-ink, #cfe9ff); text-shadow: 0 0 1.2rem rgba(0, 0, 0, 0.9); border-left: 0.3rem solid var(--th); padding-left: 1.2rem; }
 .np-intro.long { font-size: 1.45rem; }
 .np-intro[hidden] { display: none; }
+
+.with-round-log { --log-width: 23%; }
+.with-round-log .ar-board { margin-right: calc(var(--log-width) + 1rem); }
+.with-round-log .ar-rx { inset: 14rem 2.2rem 5rem auto; width: var(--log-width); display: block;
+  overflow: auto; padding: .8rem; background: #100e20ed; border-left: .2rem solid var(--accent); }
+.ar-rx h3 { margin: .35rem 0; font: bold 1.35rem var(--f-show); color: var(--acid); }
+.ar-log-row { display: flex; flex-wrap: wrap; gap: .2rem .55rem; padding: .4rem 0; border-bottom: 1px solid #ffffff33; font-size: 1.15rem; }
+.ar-log-row b { flex-basis: 100%; }
+.with-round-log .ar-callout { display: none; }

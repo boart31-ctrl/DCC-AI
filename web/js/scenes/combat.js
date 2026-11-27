@@ -185,12 +185,25 @@ export default function combat(root, sc, env) {
   function drawRx(rx, c, v) {
     const names = new Map((v.players || []).map((p) => [p.id, p.name]));
     const who = (uid) => { const x = (c.combatants || []).find((y) => y.uid === uid); return x ? (x.type === 'mob' ? x.name : names.get(x.playerId) || x.name || '?') : '?'; };
-    const decls = rx.decls || [];
-    rxBoard.hidden = !decls.length || rx.step === 'declare';
-    rxBoard.replaceChildren(...decls.slice(0, 12).map((d) => h('div.ar-rx-row', { class: `ar-rx-row${d.result ? ` ar-rx-${d.result}` : ''}` },
-      h('b', d.mob), h('span.ar-rx-arrow', '→'), h('b', who(d.targetUid)), h('span.ar-rx-atk', d.attack),
-      d.evade ? h('span.ar-rx-deg', { class: `ar-rx-deg rx-deg-${d.evade.degree}` }, d.evade.label) : rx.evading?.includes(d.targetUid) ? h('span.ar-rx-deg', 'Evading…') : null,
-      d.result ? h('span.ar-rx-res', d.result === 'evaded' ? 'Missed' : `Hit${d.damage ? ` · ${d.damage}` : ''}`) : null)));
+    const decls = rx.step === 'declare' ? [] : rx.decls || [];
+    rxBoard.hidden = false;
+    const crawlers = c.combatants.filter(x => x.type === 'crawler');
+    const statusRows = crawlers.map(x => {
+      const left = rx.acts[x.uid] ?? 2;
+      const extra = rx.nonAttackActions?.[x.uid] ?? 0;
+      const done = rx.step === 'act' && !left && !extra;
+      return h('div.ar-log-row', h('b', who(x.uid)), h('span', x.down ? 'Down' : done ? 'Turn complete' : `${left} actions left`),
+        extra ? h('small', `+${extra} utility`) : null, rx.evading?.includes(x.uid) ? h('small', 'Evade used') : null);
+    });
+    const attacks = (v.rolls || []).filter(r => !r.void && !r.secret && r.at >= c.startedAt && r.vs?.uid &&
+      c.combatants.some(x => x.uid === r.vs.uid)).slice(-5).reverse();
+    rxBoard.replaceChildren(h('h3', 'Round status'), ...statusRows, h('h3', 'Combat log'),
+      ...attacks.map(r => h('div.ar-log-row', h('b', `${names.get(r.playerId) || r.label} → ${r.vs.name}`),
+        h('span', r.label), h('strong', r.vs.damage != null ? `${r.vs.damage} damage` : r.vs.hit ? 'Hit' : 'Miss'))),
+      ...decls.map(d => h('div.ar-log-row', h('b', `${d.mob} → ${who(d.targetUid)}`), h('span', d.attack),
+        h('small', d.evade?.label || (rx.evading?.includes(d.targetUid) ? 'Evading…' : 'No Evade')),
+        d.result ? h('strong', d.result === 'skipped' ? 'Skipped' : d.result === 'evaded' ? 'Evaded' : `${d.result === 'half' ? 'Half damage' : 'Hit'} · ${d.damage ?? 0}`) : null)));
+
   }
 
   function update(s, v) {
@@ -205,13 +218,13 @@ export default function combat(root, sc, env) {
     round.hidden = !c.active;
     const ph = c.phases || [];
     const rx = c.active ? c.rx : null;
+    root.classList.toggle('with-round-log', !!rx);
     if (rx) {
       const steps = rx.steps || [];
       const at = steps.indexOf(rx.step);
       phases.replaceChildren(...steps.map((p, i) => h('li', { class: i === at ? 'on' : i < at ? 'done' : '' }, RX_STEP[p] || p)));
       status.textContent = RX_HINT[rx.step] || '';
-      if (playback.active) rxBoard.hidden = true;
-      else drawRx(rx, c, v);
+      drawRx(rx, c, v);
     } else {
       phases.replaceChildren(...ph.map((p, i) => h('li', { class: c.active && i === c.phaseIndex ? 'on' : i < c.phaseIndex ? 'done' : '' }, p)));
       status.textContent = c.active ? `${c.phase || ''} phase` : 'Combat incoming';

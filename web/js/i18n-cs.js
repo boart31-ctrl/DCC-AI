@@ -3,6 +3,8 @@
 // (Evade, Hotlist, AI Favor, Intervene, Taunt, Mana, DR, Rank, GM, loot box) stay English on purpose:
 // the table reads the books and cheat sheets with the same words.
 export default {
+  'Round status': 'Stav kola', 'Combat log': 'Průběh boje', 'Turn complete': 'Tah dokončen',
+  'Evade used': 'Evade využit', 'No Evade': 'Bez Evade',
   // ---- join / connection ----
   'Add to Home Screen': 'Přidat na plochu',
   'Join {}': 'Připojit se: {1}',

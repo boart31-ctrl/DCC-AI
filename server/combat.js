@@ -1184,6 +1184,7 @@ export function combatView(state, pack, role, playerId) {
   const head = {
     active: c.active, round: c.round, phaseIndex: c.phaseIndex, phase: c.phases[c.phaseIndex] ?? '',
     phases: c.phases, phasesVerified: c.phasesVerified, showMobHp: c.showMobHp,
+    startedAt: c.startedAt,
     defenseLabel: pack.ruleset.combat?.defenseLabel || 'Evade',
   };
   if (showThreat) {
@@ -1206,7 +1207,7 @@ export function combatView(state, pack, role, playerId) {
     const scope = autoScope(c);
     const pending = c.autoPending?.scope === scope ? c.autoPending : null;
     Object.assign(head, {
-      id: c.id, mapId: c.mapId, victoryItems: c.victoryItems, lastKill: c.lastKill, startedAt: c.startedAt, settings: c.settings,
+      id: c.id, mapId: c.mapId, victoryItems: c.victoryItems, lastKill: c.lastKill, settings: c.settings,
       showThreat: c.settings.showThreat, danger: forecast.estimate.value,
       dangerParty: forecast.party, dangerRules: forecast.rules, dangerFloor: forecast.floor,
       unverified: UNVERIFIED_RULES.filter((key) => key !== 'drMin' || pack.ruleset.combat?.drMin == null), stats: c.stats,

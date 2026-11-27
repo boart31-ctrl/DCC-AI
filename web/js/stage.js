@@ -379,6 +379,8 @@ function onEvent(e) {
     return;
   }
   if (e.kind === 'npc.say') { if (director.kind === 'npc') director.event(e); else npcSub(e); return; }
+  const roundPanel = view?.combat?.active && view.combat.rx &&
+    (view.scene?.kind === 'combat' || (view.scene?.kind === 'boss' && view.scene.data.revealed && !view.scene.data.defeated));
   switch (e.kind) {
     case 'chat': addChat(e.user || 'anon', e.text || ''); break;
     case 'viewers': setViewers(e.viewers, e.delta); break;
@@ -392,11 +394,12 @@ function onEvent(e) {
       break;
     case 'stat': flashPlayer(e.playerId); break;
     case 'roll':
+      if (roundPanel && e.vs?.uid) break;
       rollCard(e);
       if (e.part !== 'damage') showDegree(e, e.vs?.deg7, e.label);
       break;
-    case 'rx.evade': showDegree(e, e.degree, 'Evade'); break;
-    case 'rollUpdate': showDegree(e, e.degree, e.why === 'favor' ? 'AI Favor' : 'Intervene'); break;
+    case 'rx.evade': if (!roundPanel) showDegree(e, e.degree, 'Evade'); break;
+    case 'rollUpdate': if (!(roundPanel && view.rolls?.some(r => r.id === e.rollId && r.vs?.uid))) showDegree(e, e.degree, e.why === 'favor' ? 'AI Favor' : 'Intervene'); break;
     case 'roll.void':
       rollVoided(e);
       if (degreeBanner.dataset.roll === e.id) degreeBanner.hidden = true;
