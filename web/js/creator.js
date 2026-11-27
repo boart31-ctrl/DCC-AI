@@ -9,6 +9,7 @@
 import { h, toast, ask, itemArt } from './client.js';
 import { evaluate } from './rules.js';
 import { icon, signed, field } from './ui.js';
+import { t as tr } from './i18n.js';
 
 const STORE = 'system.creator.';
 const load = (id) => { try { return JSON.parse(localStorage.getItem(STORE + id) || 'null'); } catch { return null; } };
@@ -241,7 +242,7 @@ export function openCreator({ model: M, player, gm, act }) {
         let showAll = false; // playtest 27 Nov: only the first 24 of ~140 were reachable
         const drawList = () => {
           const t = q.value.trim().toLowerCase();
-          const found = items.filter((it) => !t || it.name.toLowerCase().includes(t) || (it.tags || []).some((g) => String(g).toLowerCase().includes(t)));
+          const found = items.filter((it) => !t || it.name.toLowerCase().includes(t) || tr(it.name).toLowerCase().includes(t) || (it.tags || []).some((g) => String(g).toLowerCase().includes(t)));
           const shown = showAll || t ? found : found.slice(0, 24);
           const more = found.length - shown.length;
           list.replaceChildren(...shown.map((it) => h('button.cr-item', { type: 'button', 'aria-pressed': String(cur.itemId === it.id), onclick: () => { draft.stuff[s.id] = { itemId: it.id }; save(); paint(); } }, itemArt(it, 'cr-ico'), h('span', it.name))), more > 0 ? h('button.btn.btn-sm.cr-more', { type: 'button', onclick: () => { showAll = true; drawList(); } }, `Show all ${found.length} items`) : null);
