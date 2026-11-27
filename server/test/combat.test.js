@@ -395,6 +395,17 @@ test('session.aiMute: AUTO goes off and cannot come back while muted; survives s
   assert.equal(normalizeState(JSON.parse(JSON.stringify({ ...s, session: { ...s.session, aiMute: 'yes' } })), pack, 0).session.aiMute, false);
 });
 
+test('session.tvLang: GM sets the TV wording; visible to the TV, survives session.new, junk → en', () => {
+  let { s } = base();
+  assert.equal(viewFor(s, pack, 'stage').session.tvLang, 'en');
+  s = gm(s, { t: 'session.tvLang', lang: 'cs' }).state;
+  assert.equal(viewFor(s, pack, 'stage').session.tvLang, 'cs');
+  s = gm(s, { t: 'session.new' }).state;
+  assert.equal(s.session.tvLang, 'cs');
+  assert.throws(() => gm(s, { t: 'session.tvLang', lang: 'de' }), /lang/);
+  assert.equal(normalizeState(JSON.parse(JSON.stringify({ ...s, session: { ...s.session, tvLang: 'xx' } })), pack, 0).session.tvLang, 'en');
+});
+
 test('TV pace: rooms on the old 2.0 s default move to 2.8 s once; an explicit pick sticks', () => {
   let { s } = base();
   const old = normalizeState(JSON.parse(JSON.stringify({ ...s, combat: { ...s.combat, settings: { ...s.combat.settings, stepMs: 2000, paceV: undefined } } })), pack, 0);

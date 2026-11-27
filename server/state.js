@@ -75,6 +75,7 @@ function newSession(pack, now, prev) {
     startedAt: now,
     mode: 'roleplay',
     auto: false,
+    tvLang: prev?.tvLang === 'cs' ? 'cs' : 'en', // TV wording (CZ / EN flag), set from the GM desk; survives a new session
     aiMute: !!prev?.aiMute, // Mute AI: no System voice audio, no audience chat, no AUTO (survives a new session)
     budgetLeft: pack.autoBudget,
     voice: prev?.voice && pack.voicesById.has(prev.voice) ? prev.voice : defaultVoiceId(pack),
@@ -180,6 +181,7 @@ export function normalizeState(raw, basePack, now = Date.now()) {
   upgradePreparedMaps(s, pack);
   if (typeof s.session.recap !== 'string') s.session.recap = '';
   s.session.aiMute = s.session.aiMute === true;
+  s.session.tvLang = s.session.tvLang === 'cs' ? 'cs' : 'en';
   s.session.hold = s.session.hold === true;
   if (!PLAYER_EDIT.includes(s.session.permissions?.playerEdit)) s.session.permissions = { playerEdit: 'sheet' };
   s.library = normalizeHomebrew(raw.library);
@@ -823,6 +825,12 @@ const GM = {
     if (!a.on) out.effects.push({ type: 'clearPending' });
   },
 
+  /** TV wording CZ / EN (playtest 26 Nov: a phone switched to CZ, the TV had no flag). Pack content stays as written. */
+  'session.tvLang'(st, a) {
+    if (!['cs', 'en'].includes(a.lang)) throw bad("lang must be 'cs' or 'en'");
+    st.session.tvLang = a.lang;
+  },
+
   /** Mute AI: the System's lines stay as on-screen text only, the audience chat stops, AUTO goes off. */
   'session.aiMute'(st, a, ctx, out) {
     if (typeof a.on !== 'boolean') throw bad('on must be a boolean');
@@ -1464,7 +1472,7 @@ function common(state, pack, opts) {
     room: state.room,
     campaign: state.campaign ? { id: state.campaign.id, name: state.campaign.name, ruleset: state.campaign.ruleset } : null,
     session: {
-      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, hold: !!s.hold, budgetLeft: s.budgetLeft, voice: s.voice, chatPlayers: s.chatPlayers !== false,
+      id: s.id, startedAt: s.startedAt, mode: s.mode, auto: s.auto, aiMute: !!s.aiMute, tvLang: s.tvLang === 'cs' ? 'cs' : 'en', hold: !!s.hold, budgetLeft: s.budgetLeft, voice: s.voice, chatPlayers: s.chatPlayers !== false,
       permissions: { playerEdit: s.permissions?.playerEdit ?? 'sheet' },
     },
     pack: {

@@ -137,6 +137,8 @@ function render() {
   hold.setAttribute('aria-pressed', String(!!s.hold));
   hold.textContent = s.hold ? 'Resume' : 'Hold';
   document.body.classList.toggle('on-hold', !!s.hold);
+  const tvl = $('.tv-lang-s');
+  if (tvl) tvl.textContent = s.tvLang === 'cs' ? '🇨🇿 CZ' : '🇬🇧 EN';
   const mute = $('#ai-mute');
   if (mute.dataset.on !== String(!!s.aiMute)) {
     mute.dataset.on = String(!!s.aiMute);
@@ -1010,6 +1012,10 @@ $('#auto').addEventListener('click', toggleAuto);
 $('#ai-mute').addEventListener('click', () => {
   const on = !view?.session?.aiMute;
   act({ t: 'session.aiMute', on }, on ? 'AI muted: text only, no chat, AUTO off.' : 'AI is back on.');
+});
+$('#tv-lang').addEventListener('click', () => {
+  const lang = view?.session?.tvLang === 'cs' ? 'en' : 'cs';
+  act({ t: 'session.tvLang', lang }, lang === 'cs' ? 'TV in Czech.' : 'TV in English.');
 });
 $('#stop').addEventListener('click', stopAll);
 /** Panic: TV on stand-by, all sound off, countdown paused, AUTO off. Same key / button again resumes. */

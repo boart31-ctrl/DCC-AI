@@ -1,4 +1,4 @@
-import { initI18n } from './i18n.js';
+import { initI18n, setLang, getLang } from './i18n.js';
 import { marksEl } from './marks.js';
 import {
   SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted, portraitSrc, onPortraits,
@@ -45,7 +45,16 @@ client.on('status', (s) => {
 });
 
 const director = createDirector($('#scenes'), { reduced });
-client.on('view', (v) => { view = v; render(); });
+// The GM desk sets the TV language (session.tvLang). Applied when it changes; a first 'en' leaves a local L choice alone.
+let tvLangSeen = null;
+function applyTvLang(v) {
+  const want = v?.session?.tvLang;
+  if (!want || want === tvLangSeen) return;
+  const first = tvLangSeen === null;
+  tvLangSeen = want;
+  if ((!first || want === 'cs') && want !== getLang()) setLang(want);
+}
+client.on('view', (v) => { view = v; applyTvLang(v); render(); });
 // A picture that arrived late (or was asked for again): redraw everything that shows faces.
 onPortraits(() => { if (!view) return; stripSig = ''; director.render({ ...view }); renderStrip(); });
 client.on('event', onEvent);
