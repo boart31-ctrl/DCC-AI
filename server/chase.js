@@ -28,7 +28,9 @@ export const chaseDefaults = () => ({ mode: 'chase', title: '', quarry: null, le
 function moveOf(st, ctx, p) {
   if (!ctx.pack.ruleset.derived?.some((d) => d.id === 'move')) return 0;
   const v = computeFor(p, ctx.pack, libraryOf(st, ctx.pack)).computed.derived.move?.value;
-  return Number.isFinite(v) ? v : 0;
+  const buffId = ctx.pack.ruleset.chaseMoveHalvingBuff;
+  const penalty = buffId && p.sheet.buffs.find((b) => b.buffId === buffId);
+  return Number.isFinite(v) ? v / (penalty ? 2 ** (penalty.stacks || 1) : 1) : 0;
 }
 
 function normLeg(st, ctx, raw, i, fallback) {
@@ -91,8 +93,10 @@ function finish(d) {
   d.done = true;
   if (d.mode === 'race') {
     const score = (r) => r.places.reduce((s, x) => s + x, 0);
-    const ranked = [...d.runners].sort((a, b) => score(a) - score(b) || a.places.at(-1) - b.places.at(-1));
-    d.result = { order: ranked.map((r) => r.id), winner: ranked[0]?.id ?? null, scores: Object.fromEntries(ranked.map((r) => [r.id, score(r)])) };
+    const standing = (a, b) => score(a) - score(b) || (a.places.at(-1) || 0) - (b.places.at(-1) || 0);
+    const ranked = d.runners.filter((r) => r.places.length && !r.out).sort(standing);
+    const winners = ranked.filter((r) => standing(r, ranked[0]) === 0).map((r) => r.id);
+    d.result = { order: ranked.map((r) => r.id), winners, winner: winners.length === 1 ? winners[0] : null, scores: Object.fromEntries(ranked.map((r) => [r.id, score(r)])) };
   } else {
     for (const r of d.runners) if (!r.out && !r.caught && r.ground >= 1) { r.caught = true; r.caughtLeg = d.legs.length; }
     // First to the quarry: caught earliest, then most Ground, then Move.
@@ -118,11 +122,13 @@ export const CHASE_GM = {
       else {
         const p = st.players.find((x) => x.id === r.playerId);
         if (!p) { r.out = true; continue; }
+        r.move = moveOf(st, ctx, p);
+        r.mod = Math.floor(r.move / 10);
         const skill = leg.skillId ? libraryOf(st, ctx.pack).get('skill', leg.skillId) : null;
         const trained = skill && p.sheet.skills.find((s) => s.skillId === skill.id);
         const what = leg.statId ? { kind: 'stat', id: leg.statId } : trained ? { kind: 'skill', uid: trained.uid } : { kind: 'untrained', skillId: skill.id };
         const sub = { ...out, result: undefined };
-        SHEET.roll(st, { t: 'roll', what, playerId: p.id, dc: leg.value, ...(r.mod ? { bonus: r.mod } : {}), ...(entered.get(p.id) != null ? { entered: entered.get(p.id) } : {}) }, ctx, sub);
+        SHEET.roll(st, { t: 'roll', what, playerId: p.id, ...(d.mode === 'chase' ? { dc: leg.value } : {}), ...(r.mod ? { bonus: r.mod } : {}), ...(entered.get(p.id) != null ? { entered: entered.get(p.id) } : {}) }, ctx, sub);
         ({ total, natural } = sub.result.roll);
         rollId = sub.result.roll.id;
       }
@@ -141,8 +147,12 @@ export const CHASE_GM = {
     }
     if (d.mode === 'race') {
       const by = new Map(d.runners.map((r) => [r.id, r]));
-      [...results].sort((x, y) => y.total - x.total || by.get(y.runnerId).move - by.get(x.runnerId).move)
-        .forEach((res, i) => { res.place = i + 1; by.get(res.runnerId).places.push(i + 1); });
+      const compare = (x, y) => y.total - x.total || by.get(y.runnerId).move - by.get(x.runnerId).move;
+      const ordered = [...results].sort(compare);
+      ordered.forEach((res, i) => {
+        res.place = i && compare(res, ordered[i - 1]) === 0 ? ordered[i - 1].place : i + 1;
+        by.get(res.runnerId).places.push(res.place);
+      });
     }
     d.last = { leg: d.leg, label: leg.label, value: leg.value, results, at: ctx.now };
     d.leg += 1;

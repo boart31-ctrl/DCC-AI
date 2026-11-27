@@ -92,3 +92,27 @@ test('prep chase scene: Run puts the chase on the TV once, with the legs from pr
   s.step({ t: 'prep.scene.run', id: doc.id, sceneId: sc.id });
   assert.equal(s.state.scene.id, id, 'running the same scene again keeps the chase going');
 });
+
+test('race keeps a dead heat and updates a runner’s movement when a condition changes between legs', () => {
+  const pack = dcc();
+  pack.ruleset.derived.push({ ...pack.ruleset.derived.find((d) => d.id === 'speed'), id: 'move', formula: '20' });
+  pack.ruleset.chaseMoveHalvingBuff = 'brave';
+  const s = setup(pack, [10]);
+  const playerId = s.step({ t: 'player.add', name: 'Runner' }).result.playerId;
+  const statId = pack.ruleset.stats[0].id;
+  const legs = [{ statId }, { statId }];
+  s.step({ t: 'scene.set', kind: 'chase', data: { mode: 'race', legs } });
+  assert.equal(s.state.scene.data.runners[0].mod, 2);
+  s.step({ t: 'chase.leg' });
+  s.step({ t: 'buff.add', playerId, buffId: 'brave' });
+  s.step({ t: 'chase.leg' });
+  assert.equal(s.state.scene.data.runners[0].mod, 1);
+  s.step({ t: 'scene.set', kind: 'chase', data: { mode: 'race', legs, playerIds: [],
+    npcs: [{ name: 'Red', value: 16 }, { name: 'Blue', value: 16 }, { name: 'Green', value: 12 }] } });
+  s.step({ t: 'chase.leg' });
+  s.step({ t: 'chase.leg' });
+  const race = s.state.scene.data;
+  assert.deepEqual(race.runners.map((r) => r.places), [[1, 1], [1, 1], [3, 3]]);
+  assert.deepEqual(race.result.winners, ['n_0', 'n_1']);
+  assert.equal(race.result.winner, null);
+});

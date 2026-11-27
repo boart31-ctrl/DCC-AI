@@ -59,8 +59,11 @@ export default function chase(root, sc, env) {
         const first = d.runners.find((r) => r.id === d.result.first);
         result.textContent = d.result.caught ? `${first?.name ?? 'Someone'} caught ${d.quarry?.name ?? 'it'}!` : `${d.quarry?.name ?? 'The quarry'} got away.`;
       } else {
-        const w = d.runners.find((r) => r.id === d.result.winner);
-        result.textContent = `${w?.name ?? '?'} wins (${d.result.scores?.[d.result.winner]} points).`;
+        const winners = d.result.winners ?? [d.result.winner];
+        const names = winners.map((id) => d.runners.find((r) => r.id === id)?.name).filter(Boolean);
+        result.textContent = names.length
+          ? `${names.join(' & ')} ${names.length > 1 ? 'tie' : 'wins'} (${d.result.scores?.[winners[0]]} points).`
+          : 'No finishers.';
       }
       if (fresh && !env.reduced) replay(result, 'slam');
     } else result.textContent = legsDone === 0 ? 'Get ready…' : '';

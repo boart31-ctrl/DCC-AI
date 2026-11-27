@@ -952,6 +952,11 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     return { mode, title: d.title || '', legs, ...(mode === 'chase' ? { quarry: { name: d.quarry || '', ...(Number(d.value) ? { value: Number(d.value) } : {}) } } : {}),
       ...(d.npcName ? { npcs: [{ name: d.npcName, value: Number(d.npcValue) || 12 }] } : {}) };
   }
+  function chaseRules() {
+    const lines = view().pack?.ruleset?.chaseHelp;
+    return lines?.length ? h('details.span-all', h('summary', 'How it works (rules)'),
+      h('ul', lines.map((line) => h('li', line)))) : null;
+  }
   function chaseForm() {
     const d = D('chase');
     const legs = chaseLegs(d);
@@ -959,16 +964,17 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const redraw = () => { saveDraft(); drawBody(); changed(); };
     const floor = view().crawlers?.floor || 1;
     return [
+      chaseRules(),
       h('div.seg.seg-sm.span-all', { 'aria-label': 'Contest' }, [['chase', 'Chase (catch the quarry)'], ['race', 'Race (first to the finish)']].map(([id, label]) =>
         h('button', { type: 'button', 'aria-pressed': String((d.mode || 'chase') === id), onclick: () => { d.mode = id; redraw(); } }, label))),
       txt('chase', 'title', 'Title on TV', { placeholder: (d.mode || 'chase') === 'race' ? 'Stairwell dash' : 'Catch the dragonling!', max: 80 }),
       (d.mode || 'chase') === 'chase' ? txt('chase', 'quarry', 'Quarry', { placeholder: 'What runs away', max: 60 }) : null,
-      (d.mode || 'chase') === 'chase' ? txt('chase', 'value', 'Quarry rolls (every leg)', { placeholder: `${12 + floor} (10 + stat + floor + Move)`, max: 3 }) : null,
+      (d.mode || 'chase') === 'chase' ? txt('chase', 'value', 'Quarry result (default for all legs)', { placeholder: `${12 + floor} (10 + stat + floor + Move)`, max: 3 }) : null,
       h('div.span-all.sc-chase-legs', legs.map((l, i) => h('div.sc-chase-leg',
         h('span.dim', `Leg ${i + 1}`),
         field(l.label ?? '', { placeholder: 'Over the market stalls', attrs: { maxlength: 60 }, onCommit: (v) => { l.label = v; saveDraft(); changed(); } }),
         select(opts, l.ability || opts[0]?.value, { label: `Leg ${i + 1} check`, onChange: (v) => { l.ability = v; saveDraft(); changed(); } }),
-        field(l.value ?? '', { type: 'number', placeholder: 'Quarry', attrs: { min: 1, max: 60, 'aria-label': `Leg ${i + 1} quarry number` }, onCommit: (v) => { l.value = v; saveDraft(); changed(); } }),
+        d.mode === 'race' ? null : field(l.value ?? '', { type: 'number', placeholder: 'Quarry', attrs: { min: 1, max: 60, 'aria-label': `Leg ${i + 1} quarry number` }, onCommit: (v) => { l.value = v; saveDraft(); changed(); } }),
         h('button.icon-btn', { type: 'button', 'aria-label': `Remove leg ${i + 1}`, disabled: legs.length <= 1, onclick: () => { legs.splice(i, 1); redraw(); } }, '✕'))),
         legs.length < 8 ? h('button.btn.btn-sm', { type: 'button', onclick: () => { legs.push({ label: '', ability: legs.at(-1)?.ability }); redraw(); } }, '+ Leg') : null),
       txt('chase', 'npcName', (d.mode || 'chase') === 'race' ? 'NPC racer (optional)' : 'NPC chaser (optional)', { placeholder: 'Raul the Crab', max: 60 }),
@@ -1002,7 +1008,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       if (physical && entries.length !== rollers.length) { toast('Enter every d20 first.'); return; }
       if (await act({ t: 'chase.leg', ...(entries.length ? { entries } : {}) }, null)) D('chase').entered = {};
     };
-    return h('div.sc-chase-live',
+    return h('div.sc-chase-live', chaseRules(),
       h('p.sc-line', d.done ? h('b', 'Finished') : h('b', `Leg ${d.leg + 1}/${d.legs.length}: ${leg?.label}`), !d.done && d.mode === 'chase' ? ` · quarry ${leg?.value}` : ''),
       h('ul.sc-chase-runners', rows),
       d.done ? null : h('div.sc-chase-go',
