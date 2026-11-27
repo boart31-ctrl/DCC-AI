@@ -71,10 +71,15 @@ export function makeCreation(GM) {
           const g = cr.backgrounds.find((x) => x.id === sid);
           if (!g) throw bad(`unknown background stage ${sid}`);
           if (!isObj(ch)) throw bad(`${g.label}: { option, skills }`);
-          const opt = g.options.find((o) => o.name === ch.option);
+          // Own life stage (ruleset creation.customBackground): any name, skills from what the stages offer.
+          const pool = [...new Set(cr.backgrounds.flatMap((x) => x.options.flatMap((o) => o.skills)))];
+          const own = ch.custom === true && (cr.customBackground || gm) ? { name: text(ch.option, 40), skills: pool } : null;
+          if (ch.custom === true && !own) throw bad('own life stages are off in this ruleset');
+          if (own && !own.name) throw bad(`${g.label}: give your own ${g.label.toLowerCase()} a name`);
+          const opt = own ?? g.options.find((o) => o.name === ch.option);
           if (!opt) throw bad(`${g.label}: unknown option ${ch.option}`);
           const sk = Array.isArray(ch.skills) ? [...new Set(ch.skills)] : [];
-          if (sk.length !== g.pick || !sk.every((x) => opt.skills.includes(x))) throw bad(`${g.label} (${opt.name}): pick ${g.pick} of ${opt.skills.join(', ')}`);
+          if (sk.length !== g.pick || !sk.every((x) => opt.skills.includes(x))) throw bad(own ? `${g.label} (${opt.name}): pick ${g.pick} skills from the creation list` : `${g.label} (${opt.name}): pick ${g.pick} of ${opt.skills.join(', ')}`);
           for (const x of sk) picks.push({ skillId: x, rank: g.rank, from: g.label });
           labels.push(opt.name);
         }

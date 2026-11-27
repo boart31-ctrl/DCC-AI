@@ -126,17 +126,23 @@ export function openCreator({ model: M, player, gm, act }) {
     stage(g) {
       const cur = draft.bg[g.id] || null;
       const taken = takenBy(g.id);
-      const opt = cur ? g.options.find((o) => o.name === cur.option) : null;
+      // Own life stage (ruleset creation.customBackground): own name + any skills the stages offer.
+      const pool = [...new Set(cr.backgrounds.flatMap((x) => x.options.flatMap((o) => o.skills)))].sort((a, b) => skillName(a).localeCompare(skillName(b)));
+      const own = cur?.custom === true;
+      const opt = own ? { name: cur.option || '', skills: pool } : cur ? g.options.find((o) => o.name === cur.option) : null;
+      const setOwn = () => { draft.bg[g.id] = { custom: true, option: own ? cur.option : '', skills: own ? cur.skills : [] }; save(); paint(); requestAnimationFrame(() => body.querySelector('#cr-pick')?.scrollIntoView({ behavior: 'smooth', block: 'start' })); };
       const setOpt = (o) => { draft.bg[g.id] = { option: o.name, skills: (cur?.option === o.name ? cur.skills : []).filter((x) => o.skills.includes(x)) }; save(); paint(); requestAnimationFrame(() => body.querySelector('#cr-pick')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })); };
       const roll = () => { const o = g.options[Math.floor(Math.random() * g.options.length)]; toast(`${g.roll || 'Roll'}: ${o.name}`); setOpt(o); };
       return h('div.bld-step',
         head(g.label, 'background', `Pick one, then ${g.pick} of its skills. They start at Rank ${g.rank}.`),
         h('div.cr-row', h('button.btn.btn-sm', { type: 'button', onclick: roll }, icon('dice', { size: 14 }), `Let the dice pick (${g.roll || 'random'})`)),
-        h('div.cr-cards', g.options.map((o) => h('button.cr-card', { type: 'button', 'aria-pressed': String(cur?.option === o.name), onclick: () => setOpt(o) },
+        h('div.cr-cards', g.options.map((o) => h('button.cr-card', { type: 'button', 'aria-pressed': String(!own && cur?.option === o.name), onclick: () => setOpt(o) },
           h('b', o.name),
-          h('span', o.skills.map((x) => `${skillName(x)}${skillOf(x)?.stat ? ` (${statAbbr(skillOf(x).stat)})` : ''}`).join(', '))))),
+          h('span', o.skills.map((x) => `${skillName(x)}${skillOf(x)?.stat ? ` (${statAbbr(skillOf(x).stat)})` : ''}`).join(', '))),
+        ), cr.customBackground ? h('button.cr-card.cr-own', { type: 'button', 'aria-pressed': String(own), onclick: setOwn }, h('b', 'Your own'), h('span', `Name it yourself and pick any ${g.pick} skills`)) : null),
         opt ? h('div.cr-pick', { id: 'cr-pick' },
-          h('h4', `${opt.name}: pick ${g.pick}`, h('span.dim', ` (${(cur.skills || []).length}/${g.pick})`)),
+          own ? h('label.lbl', h('span.lbl-t', `Your ${g.label.toLowerCase()} in a few words`), field(cur.option || '', { placeholder: 'Kid who fixed the neighbours\' bikes', onCommit: (v) => { draft.bg[g.id].option = v.trim().slice(0, 40); save(); paint(); }, attrs: { maxlength: 40 } })) : null,
+          h('h4', `${opt.name || 'Your own'}: pick ${g.pick}`, h('span.dim', ` (${(cur.skills || []).length}/${g.pick})`)),
           h('div.cr-skills', opt.skills.map((x) => {
             const on = (cur.skills || []).includes(x);
             const clash = taken.get(x);
@@ -148,7 +154,7 @@ export function openCreator({ model: M, player, gm, act }) {
                 if (on) list.delete(x); else { if (list.size >= g.pick) list.delete([...list][0]); list.add(x); }
                 draft.bg[g.id].skills = [...list]; save(); paint();
               },
-            }, h('b', skillName(x)), h('span.dim', [s?.stat ? statAbbr(s.stat) : 'no stat', s?.checkType].filter(Boolean).join(' · ')), s?.desc ? h('span.cr-desc', s.desc) : null, clash && !on ? h('span.cr-clash', `already from ${clash}`) : null);
+            }, h('b', skillName(x)), h('span.dim', [s?.stat ? statAbbr(s.stat) : 'no stat', s?.checkType].filter(Boolean).join(' · ')), s?.desc && !own ? h('span.cr-desc', s.desc) : null, clash && !on ? h('span.cr-clash', `already from ${clash}`) : null);
           }))) : null);
     },
     weapon() {
@@ -285,6 +291,7 @@ export function openCreator({ model: M, player, gm, act }) {
     if (species()?.sizes.length && !draft.size) out.push({ step: 0, text: 'Pick your size.' });
     steps.forEach((s, i) => {
       if (s.g && (draft.bg[s.g.id]?.skills || []).length !== s.g.pick) out.push({ step: i, text: `${s.g.label}: pick a description and ${s.g.pick} skills.` });
+      else if (s.g && draft.bg[s.g.id]?.custom && !draft.bg[s.g.id].option) out.push({ step: i, text: `${s.g.label}: give your own one a name.` });
       if (s.id === 'weapon' && (!draft.weapon || (draft.weapon.spellId && !spell))) out.push({ step: i, text: spellOptions().length ? 'Pick a starting attack.' : 'Pick a weapon.' });
       if (s.id === 'stats' && rs.stats.some((x) => draft.stats[x.id] === undefined)) out.push({ step: i, text: 'Set every stat.' });
       if (s.id === 'stats' && spellStatMissing()) out.push({ step: i, text: `${spell.name} requires ${statAbbr(sc.stat)} ${sc.min} or higher.` });

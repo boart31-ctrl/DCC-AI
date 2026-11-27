@@ -1019,6 +1019,13 @@ test('private DCC pack: guided creation (backgrounds, weapon, array stats, no do
   assert.throws(() => me({ t: 'creation.apply', stats: { ...stats, [ids[0]]: 50 }, method: 'array' }), /each number once/);
   assert.throws(() => me({ t: 'creation.apply', stats: { ...stats, [ids[0]]: 1 }, method: 'roll' }), /roll/);
   assert.throws(() => me({ t: 'creation.apply', background: { [g1.id]: { option: opt(g1, 0).name, skills: opt(g1, 0).skills } } }), /pick 2/);
+  // Own life stage (creation.customBackground): any name, 2 skills from what the stages offer; a name is required.
+  assert.equal(cr.customBackground, true);
+  const pool = [...new Set(cr.backgrounds.flatMap((g) => g.options.flatMap((o) => o.skills)))];
+  assert.throws(() => me({ t: 'creation.apply', background: { [g1.id]: { custom: true, option: '  ', skills: pool.slice(0, 2) } } }), /name/);
+  assert.throws(() => me({ t: 'creation.apply', background: { [g1.id]: { custom: true, option: 'Bike fixer', skills: [pool[0], 'not_a_creation_skill'] } } }), /creation list/);
+  const ownSt = me({ t: 'creation.apply', background: { [g1.id]: { custom: true, option: 'Bike fixer', skills: pool.filter((x) => x !== 'dagger').slice(-2) } } }).state;
+  assert.equal(ownSt.players[0].sheet.skills.filter((k) => pool.slice(-3).includes(k.skillId)).length >= 2, true);
   // The same skill from two stages is refused (Latchkey Kid Stealth + Criminal Stealth).
   const latch = g1.options.find((o) => o.skills.includes('stealth'));
   const crim = g3.options.find((o) => o.skills.includes('stealth'));

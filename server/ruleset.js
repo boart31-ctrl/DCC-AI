@@ -655,6 +655,7 @@ function normalizeCombatRules(raw, derived, unv) {
  *   backgrounds  [{ id, label, pick, rank, roll?, options: [{ name, skills: [skillId…] }] }]  life stages:
  *                pick one option, then `pick` of its skills at `rank`
  *   noDouble     the same skill cannot come from two stages
+ *   customBackground  a player may write their own life stage: own name + any skills the stages offer (GM sees it)
  *   combat       { fixed: attack every character has, rank, weapons: [{ name, group, skill, stat, dice,
  *                damageStat, damageType, note }], custom }  the starting weapon skill + attack
  *   spellChoice  { choices, stat, min, item, qty }  optional attack spell replacing the starting weapon
@@ -688,6 +689,7 @@ function normalizeCreation(c, warnings) {
     statPart: isStr(c.statPart) ? c.statPart.trim() : null,
     mirrorParts: strList(c.mirrorParts, []),
     noDouble: c.noDouble !== false,
+    customBackground: c.customBackground === true,
     backgrounds: normBgs(c.backgrounds),
     combat: normCombat(c.combat),
     ...(spellChoices.length && safeId(spell.stat) && Number.isInteger(spell.min) && safeId(spell.item) && Number.isInteger(spell.qty) && spell.qty > 0 && spell.qty <= 9999
@@ -935,6 +937,9 @@ export function normalizeRuleset(raw, legacy = {}, warnings = []) {
     labels: normalizeLabels(r.labels),
     combat: normalizeCombatRules(r.combat, derived, unv),
     notes: Array.isArray(r.notes) ? r.notes.filter(isStr).slice(0, 60).map((x) => text(x, 600)) : [],
+    // Translations of pack wording for the phone/TV flag: { cs: { "English text": "Český text", "Next: {}": "Dál: {1}" } }.
+    i18n: isObj(r.i18n) ? Object.fromEntries(Object.entries(r.i18n).filter(([k, m]) => /^[a-z]{2}$/.test(k) && isObj(m)).map(([k, m]) => [k,
+      Object.fromEntries(Object.entries(m).filter(([a, b]) => isStr(a) && isStr(b) && a.length <= 600 && b.length <= 800).slice(0, 2000))])) : {},
     // Plain-language terms for new players (phone "i" icons). { term, en, cs?, stat? } — cs shown when the phone is Czech.
     chaseHelp: Array.isArray(r.chaseHelp) ? r.chaseHelp.filter(isStr).slice(0, 6).map((line) => text(line, 500)) : [],
     chaseMoveHalvingBuff: safeId(r.chaseMoveHalvingBuff) ? r.chaseMoveHalvingBuff : null,

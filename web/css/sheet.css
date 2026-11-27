@@ -574,3 +574,5 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 .gl-text { margin: 2px 0 0; line-height: 1.45; }
 .rp-help { min-width: 44px; min-height: 44px; font-weight: 800; font-size: 18px; }
 .cr-more { grid-column: 1 / -1; }
+.cr-own { border-style: dashed; }
+.cr-pick:has(.lbl) .cr-skills { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 6px; }

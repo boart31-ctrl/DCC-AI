@@ -213,6 +213,7 @@ Optional. With it, players get a step-by-step creator (`web/js/creator.js`) inst
 | `statPart`, `mirrorParts` | Which stat part the player sets (e.g. `unenhanced`) and which parts start with the same value |
 | `backgrounds` | `[{ id, label, pick, rank, roll, options: [{ name, skills: [skillId…] }] }]` life stages |
 | `noDouble` | A skill cannot come from two stages |
+| `customBackground` | `true`: each stage also offers *Your own* — the player names it and picks `pick` skills from everything the stages offer |
 | `combat` | `{ fixed: {name, skill, rank, stat, dice, damageStat}, rank, weapons: [{ name, group, skill, stat, dice, damageStat, damageType, note }], custom }` |
 | `stuff` | `[{ id, label, hint, auto: "weapon" \| catalog: true \| custom: true }]` starting things (GM approves) |
 | `derived`, `basicActions`, `help` | Explanations: after the stats, on the review + the sheet's Actions tab, the "i" bubble per step |
@@ -237,3 +238,8 @@ floor). `hideTags`: library skills with these tags stay out of the players' pick
 `size.value`) is `sizeGap` or more above the crawler's, the phone preselects Advantage; that far below, Disadvantage.
 The crawler's size comes from its `size` field (animal crawlers: Tiny … Gargantuan), else `crawlerSize`. Needs
 `combat.advantage`.
+
+### glossary / i18n (added 27 Nov 2026)
+
+- `glossary`: `[{ term, en, cs?, stat? }]` — plain-language terms for new players; phone shows **i** next to a stat with that `stat` id and **?** in the roll pad lists all.
+- `i18n`: `{ "cs": { "English text": "Český text", "Next: {}": "Dál: {1}" } }` — translations of the pack's own wording (background names, skill descriptions…) merged into the phone/TV dictionary when the flag is CZ. Exact strings; `{}` holes as in `web/js/i18n-cs.js`.

@@ -37,10 +37,10 @@ export function compile(table) {
     // A hole takes a short phrase, never a sentence: pack descriptions ("Roll once per minute. The GM…")
     // must not half-translate through a generic pattern like "Roll {}".
     const re = new RegExp(`^${en.split('{}').map(escapeRe).join(HOLE)}$`);
-    patterns.push([re, out]);
+    patterns.push([re, out, en.replaceAll('{}', '').length]);
   }
-  // Longer (more specific) patterns first.
-  patterns.sort((a, b) => b[0].source.length - a[0].source.length);
+  // More fixed text = more specific: first (counting holes would rank "{} · {}" above "Dying · {} rounds left").
+  patterns.sort((a, b) => b[2] - a[2]);
   return { exact, patterns };
 }
 
@@ -162,10 +162,20 @@ function applyTitle() {
   if (t) walk(t);
 }
 
+const extra = {}; // pack translations (pack i18n.json), merged over the built-in dictionary
 async function load(code) {
   if (code === 'en') return null;
   const mod = await import(`./i18n-${code}.js`);
-  return compile(mod.default);
+  return compile({ ...mod.default, ...(extra[code] || {}) });
+}
+
+/** Adds translations from the content pack (names, skill texts…). Re-applies if that language is on. */
+export async function addTranslations(code, map) {
+  if (!LANGS[code] || !map || typeof map !== 'object') return;
+  const sig = JSON.stringify(map);
+  if (extra[code]?.__sig === sig) return;
+  extra[code] = Object.defineProperty({ ...map }, '__sig', { value: sig, enumerable: false });
+  if (lang === code) await setLang(code);
 }
 
 /** Switches the page language and remembers it on this device. */

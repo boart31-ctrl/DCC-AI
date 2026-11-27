@@ -1,4 +1,4 @@
-import { initI18n, langButton, setLang, getLang } from './i18n.js';
+import { initI18n, langButton, setLang, getLang, addTranslations } from './i18n.js';
 import { marksEl } from './marks.js';
 import {
   SystemClient, TransportHub, store, buzz, h, toast, itemArt, fmtNum, timeAgo, rarityOf,
@@ -271,6 +271,7 @@ client.on('welcome', (m) => {
 });
 
 client.on('view', (v) => {
+  for (const [code, map] of Object.entries(v?.pack?.ruleset?.i18n || {})) addTranslations(code, map);
   const currentMapIds = new Set((v.maps ?? []).map((m) => m.id));
   for (const [id, row] of phoneMapViews) if (v.campaign?.id !== view?.campaign?.id || !currentMapIds.has(id)) {
     row.mv.destroy();

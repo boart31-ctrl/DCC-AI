@@ -1,4 +1,4 @@
-import { initI18n, setLang, getLang } from './i18n.js';
+import { initI18n, setLang, getLang, addTranslations } from './i18n.js';
 import { marksEl } from './marks.js';
 import {
   SystemClient, TransportHub, takeHashToken, h, itemArt, fmtNum, rarityOf, prefersReducedMotion, statusText, isHosted, portraitSrc, onPortraits,
@@ -54,7 +54,7 @@ function applyTvLang(v) {
   tvLangSeen = want;
   if ((!first || want === 'cs') && want !== getLang()) setLang(want);
 }
-client.on('view', (v) => { view = v; applyTvLang(v); render(); });
+client.on('view', (v) => { for (const [code, map] of Object.entries(v?.pack?.ruleset?.i18n || {})) addTranslations(code, map); view = v; applyTvLang(v); render(); });
 // A picture that arrived late (or was asked for again): redraw everything that shows faces.
 onPortraits(() => { if (!view) return; stripSig = ''; director.render({ ...view }); renderStrip(); });
 client.on('event', onEvent);
