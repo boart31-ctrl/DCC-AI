@@ -573,3 +573,4 @@ button.gslot-empty:not(:disabled) { color: var(--c-accent); }
 .gl-term { display: block; font-size: 15px; }
 .gl-text { margin: 2px 0 0; line-height: 1.45; }
 .rp-help { min-width: 44px; min-height: 44px; font-weight: 800; font-size: 18px; }
+.cr-more { grid-column: 1 / -1; }

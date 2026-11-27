@@ -232,9 +232,13 @@ export function openCreator({ model: M, player, gm, act }) {
         const cur = draft.stuff[s.id] || {};
         const q = h('input.inp.inp-search', { type: 'search', placeholder: `Search ${items.length} plain items`, 'aria-label': 'Search items' });
         const list = h('div.cr-items');
+        let showAll = false; // playtest 27 Nov: only the first 24 of ~140 were reachable
         const drawList = () => {
           const t = q.value.trim().toLowerCase();
-          list.replaceChildren(...items.filter((it) => !t || it.name.toLowerCase().includes(t)).slice(0, t ? 60 : 24).map((it) => h('button.cr-item', { type: 'button', 'aria-pressed': String(cur.itemId === it.id), onclick: () => { draft.stuff[s.id] = { itemId: it.id }; save(); paint(); } }, itemArt(it, 'cr-ico'), h('span', it.name))));
+          const found = items.filter((it) => !t || it.name.toLowerCase().includes(t) || (it.tags || []).some((g) => String(g).toLowerCase().includes(t)));
+          const shown = showAll || t ? found : found.slice(0, 24);
+          const more = found.length - shown.length;
+          list.replaceChildren(...shown.map((it) => h('button.cr-item', { type: 'button', 'aria-pressed': String(cur.itemId === it.id), onclick: () => { draft.stuff[s.id] = { itemId: it.id }; save(); paint(); } }, itemArt(it, 'cr-ico'), h('span', it.name))), more > 0 ? h('button.btn.btn-sm.cr-more', { type: 'button', onclick: () => { showAll = true; drawList(); } }, `Show all ${found.length} items`) : null);
         };
         q.addEventListener('input', drawList);
         drawList();
