@@ -79,7 +79,8 @@ const T = {
 const PLAIN = {
   builds: {},
   lobby: { title: T.title, subtitle: T.subtitle, showQr: T.showQr },
-  explore: { location: T.location, floor: T.floor, image: T.image, text: T.text1200, showFeed: T.showFeed, locationId: (v) => v },
+  // showText: the read-aloud text also on the TV. Off by default (playtest 26 Nov: the GM reads it aloud, the TV is for pictures).
+  explore: { location: T.location, floor: T.floor, image: T.image, text: T.text1200, showText: (v) => flag(v, 'showText'), showFeed: T.showFeed, locationId: (v) => v },
   recap: { title: T.title, text: T.text4000 },
   blank: { text: T.text160 },
   // The arena board: party vs revealed mobs. Its content is view.combat (already role-filtered).
@@ -91,7 +92,7 @@ const PLAIN = {
 const DEFAULTS = {
   builds: () => ({}),
   lobby: () => ({ title: '', subtitle: '', showQr: true }),
-  explore: () => ({ locationId: null, location: '', floor: '', image: null, text: '', showFeed: true }),
+  explore: () => ({ locationId: null, location: '', floor: '', image: null, text: '', showText: false, showFeed: true }),
   recap: () => ({ title: '', text: '' }),
   blank: () => ({ text: '' }),
   combat: () => ({ title: '', showParty: true }),

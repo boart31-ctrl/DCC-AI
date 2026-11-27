@@ -223,7 +223,7 @@ export function eveningScene({ view, act, doc, scene, selectBlock, addMob, showO
   const runScene = (options = {}) => run ? run(options) : act({ t: 'prep.scene.run', id: doc.id, sceneId: scene.id, ...options }, null);
   const publish = ({ kind, id }) => {
     if (showOnTv) return showOnTv({ kind, id });
-    if (kind === 'readAloud') return act({ t: 'scene.set', kind: 'explore', data: { location: scene.title, text: scene.readAloud.slice(0, 1200) } }, null);
+    if (kind === 'readAloud') return act({ t: 'scene.set', kind: 'explore', data: { location: scene.title, text: scene.readAloud.slice(0, 1200), showText: true } }, null);
     return act({ t: 'scene.set', kind, data: kind === 'map' ? { mapId: id } : { npcId: id } }, null);
   };
   const count = (encounter?.payload?.mobs ?? []).reduce((n, m) => n + (m.count ?? 1), 0);

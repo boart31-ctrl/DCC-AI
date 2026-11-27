@@ -294,7 +294,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       return d.playerId ? { playerId: d.playerId, label: d.label || '' } : { label: d.label || '' };
     }
     if (kind === 'explore') {
-      const out = { location: d.location || '', floor: d.floor || '', image: d.image || null, text: d.text || '', showFeed: d.showFeed !== false };
+      const out = { location: d.location || '', floor: d.floor || '', image: d.image || null, text: d.text || '', showText: d.showText === true, showFeed: d.showFeed !== false };
       if (d.locationId) out.locationId = d.locationId;
       return out;
     }
@@ -342,7 +342,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
     const label = sceneOf(chipId)?.label || chipId;
     // explore: a picked location fills the fields; typed fields override it.
     if (chipId === 'explore' && data.locationId) {
-      const ok = await act({ t: 'scene.set', kind: chipId, data: { locationId: data.locationId, showFeed: data.showFeed } }, null);
+      const ok = await act({ t: 'scene.set', kind: chipId, data: { locationId: data.locationId, showFeed: data.showFeed, showText: data.showText } }, null);
       const over = {};
       for (const k of ['location', 'floor', 'text']) if (D('explore')[`${k}Touched`]) over[k] = data[k];
       if (ok && Object.keys(over).length) await act({ t: 'scene.update', data: over }, null);
@@ -1159,7 +1159,7 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
   function formBody(kind) {
     const v = view();
     if (kind === 'lobby') return [txt('lobby', 'title', 'Title', { placeholder: v.pack?.systemName || 'The System', max: 80 }), txt('lobby', 'subtitle', 'Subtitle', { placeholder: 'Grab your phone. The show starts soon.', max: 160, cls: 'span-2' }), chk('lobby', 'showQr', 'Show the join QR')];
-    if (kind === 'explore') return [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Text on screen (read-aloud)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showFeed', 'Show the event feed')];
+    if (kind === 'explore') return [locationPicker(), txt('explore', 'location', 'Location', { placeholder: 'The Food Court', max: 80, touch: true }), txt('explore', 'floor', 'Floor', { placeholder: 'Floor 2', max: 40, touch: true }), txt('explore', 'image', 'Background image URL', { placeholder: '/pack/images/…', max: 2000 }), txt('explore', 'text', 'Read-aloud (you read it; the TV shows the picture)', { rows: 3, max: 1200, cls: 'span-all', touch: true }), chk('explore', 'showText', 'Also put the text on the TV'), chk('explore', 'showFeed', 'Show the event feed')];
     if (kind === 'boss') return bossPicker();
     if (kind === 'chase') return chaseForm();
     if (kind === 'loot') return lootForm();

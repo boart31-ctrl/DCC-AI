@@ -25,10 +25,13 @@ export default function explore(root, sc, env) {
     floor.hidden = !d.floor;
     loc.textContent = d.location || 'Somewhere below';
     text.textContent = d.text || '';
-    textBox.hidden = !d.text;
+    // The GM reads the text aloud; the TV shows it only when asked (showText). Without it the picture leads.
+    const showText = !!d.text && d.showText === true;
+    textBox.hidden = !showText;
+    root.classList.toggle('ex-picture', !showText);
     textBox.classList.toggle('long', (d.text || '').length > 220 && (d.text || '').length <= 420);
     textBox.classList.toggle('xlong', (d.text || '').length > 420);
-    loc.classList.toggle('long', loc.textContent.length > 18 || (d.text || '').length > 220);
+    loc.classList.toggle('long', loc.textContent.length > 18 || (showText && (d.text || '').length > 220));
     const want = d.image || assetSrc(floorBg(uiOf(view), 'explore', String(d.floor || '').match(/-?\d+/)?.[0])) || '';
     if (want !== img) {
       img = want;
