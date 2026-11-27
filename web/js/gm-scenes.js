@@ -85,7 +85,7 @@ export function minionRows(combat) {
   return out;
 }
 
-export function createScenes({ client, act, getView, getCues = () => null, onPick = () => {}, chooseAttack = () => {} }) {
+export function createScenes({ client, act, getView, getCues = () => null, onPick = () => {}, chooseAttack = () => {}, onOpenPrep = null }) {
   const audio = createGmAudio({ client, getView });
   const view = () => getView() || {};
   // Drafts per scene kind (what F-keys / GO LIVE send). Persisted per device.
@@ -234,8 +234,10 @@ export function createScenes({ client, act, getView, getCues = () => null, onPic
       title: opts.key ? `${opts.hint} (${opts.key})` : opts.hint,
       onclick: () => pick(id),
     }, live === id ? h('i.sh-live-dot', { 'aria-label': 'On air' }) : null, opts.icon ? icon(opts.icon, { size: 13 }) : null, label);
+    // Playtest 26 Nov: the GM kept hopping Show ⇄ Prep. Prep sits right after Lobby; Show keeps its tab and the TV.
+    const prepLink = onOpenPrep ? h('button.sh-chip.tool-chip.sh-prep-link', { type: 'button', title: 'Open tonight’s Prep (Show stays as it is; Back returns here)', onclick: onOpenPrep }, icon('log', { size: 13 }), 'Prep') : null;
     sceneTabs.replaceChildren(
-      ...SCENES.map((s) => chip(s.kind, s.label, s)),
+      ...SCENES.flatMap((s, i) => (i === 0 && prepLink ? [chip(s.kind, s.label, s), prepLink] : [chip(s.kind, s.label, s)])),
       h('span.sh-sep', { 'aria-hidden': 'true' }),
       ...TOOLS.map((t) => chip(t.id, t.label, t)));
     const selected = sceneTabs.querySelector('[aria-selected="true"]');

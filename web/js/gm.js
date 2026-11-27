@@ -1097,12 +1097,15 @@ deskSections.addEventListener('focusout', (e) => {
   if (!deskSections.contains(e.relatedTarget) && !mapNavToggle.contains(e.relatedTarget)) toggleMapNavigation(false);
 });
 
+// Map and Fight are one place for Back/Forward (playtest 26 Nov: Back from the map jumped into the fight).
+const SAME_PLACE = new Set(['map', 'fight', 'boss']);
+const samePlace = (a, b) => !!a && !!b && a.view === b.view && (a.tab === b.tab || (a.view === 'show' && SAME_PLACE.has(a.tab) && SAME_PLACE.has(b.tab)));
 function recordDesk() {
   const tab = currentView === 'show' ? scenes.currentTab() : null;
+  const here = { view: currentView, tab };
   const last = deskTrail[deskIndex];
-  if (last?.view !== currentView || last.tab !== tab) {
-    deskTrail.splice(++deskIndex, Infinity, { view: currentView, tab });
-  }
+  if (samePlace(last, here)) deskTrail[deskIndex] = here;
+  else deskTrail.splice(++deskIndex, Infinity, here);
   backButton.disabled = deskIndex <= 0;
   forwardButton.disabled = deskIndex >= deskTrail.length - 1;
 }
@@ -1116,8 +1119,14 @@ function revisit(index) {
   $('.gm-main').scrollTop = 0;
   recordDesk();
 }
-backButton.onclick = () => revisit(deskIndex - 1);
-forwardButton.onclick = () => revisit(deskIndex + 1);
+function step(dir) {
+  const here = { view: currentView, tab: currentView === 'show' ? scenes.currentTab() : null };
+  let i = deskIndex + dir;
+  while (deskTrail[i] && samePlace(deskTrail[i], here)) i += dir;
+  revisit(i);
+}
+backButton.onclick = () => step(-1);
+forwardButton.onclick = () => step(1);
 $('#desk-home').onclick = () => {
   showView('show');
   scenes.pick('lobby');
@@ -1271,7 +1280,7 @@ const library = createLibrary({
 $('#view-library').append(library.el);
 // Show = the broadcast switcher (gm-scenes.js): scenes, the fight tracker, NPCs, sound and the old desk.
 // Hoisted use in render() is safe: views arrive after boot.
-const scenes = createScenes({ client, act, onPick: () => queueMicrotask(() => { recordDesk(); if (view) combat.update(view); }), getView: () => view, getCues: () => cues, chooseAttack: (uid, index) => combat.chooseAttack(uid, index) });
+const scenes = createScenes({ client, act, onOpenPrep: () => { showView('prep'); $('.gm-main').scrollTop = 0; }, onPick: () => queueMicrotask(() => { recordDesk(); if (view) combat.update(view); }), getView: () => view, getCues: () => cues, chooseAttack: (uid, index) => combat.chooseAttack(uid, index) });
 scenes.audio.credential = () => ext.credential; // the audio fetches use the desk's login
 const sound = createSound({ client, act, getView: () => view, audio: scenes.audio });
 // Combat sounds: combat events play pads on this desk by themselves (in step with the TV cinematic).
@@ -1299,7 +1308,10 @@ campaignBox.prepend(h('h2.desk-sec', 'Campaign'));
 const crawlers = createCrawlers({ act, getView: () => view, open: () => { showView('show'); scenes.pick('crawlers'); } });
 // Příprava (gm-prep.js): adventures + session plans; pinned items wait "within reach" in the Show bar.
 const prep = createPrep({ act, openTables: () => tables.open('tables'), getView: () => view, getCredential: () => ext.credential, scenes, showView: (v) => showView(v), openInLibrary: (kind, id) => { showView('library'); library.open(kind, id); } });
-$('#view-prep').append(prep.el);
+$('#view-prep').append(
+  h('div.prep-return', h('button.btn.btn-sm', { type: 'button', title: 'Back to the Show desk, same tab as you left it', onclick: () => { showView('show'); $('.gm-main').scrollTop = 0; } },
+    icon('back', { size: 14 }), 'Back to Show')),
+  prep.el);
 // Maps with fog (gm-maps.js): Show → Map chip.
 const maps = createMaps({ act, getView: () => view, getCredential: () => ext.credential, scenes, showView: (v) => showView(v) });
 scenes.mountInto($('#view-show'), { maps: maps.el, mapEditor: maps, fight: combat.el, npcs: npcs.el, sound: sound.el, deskExtra: campaignBox, crawlers: crawlers.el, crawlersBadge: crawlers.badge, reach: prep.reach });

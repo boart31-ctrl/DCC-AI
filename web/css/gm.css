@@ -600,3 +600,5 @@ dialog:has(.lootx) { width: min(1000px, 96vw); max-width: 96vw; }
 .sc-held-wait { display: inline-flex; align-items: center; gap: .35rem; color: var(--ink-dim, #999); }
 .sc-held-go { display: flex; justify-content: flex-end; }
 .sc-held-row .sc-held-fix { width: 4.5rem; flex: none; }
+.prep-return { position: sticky; top: 0; z-index: 5; display: flex; justify-content: flex-start; padding: 6px 0 8px; background: var(--c-bg, #111); }
+.sh-prep-link { border-style: dashed; }
